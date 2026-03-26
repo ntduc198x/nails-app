@@ -28,8 +28,12 @@ async function sendTelegramBookingMessage(payload: {
     hour12: false,
   });
 
+  const confirmData = `booking:confirm:${payload.bookingId}`;
+  const cancelData = `booking:cancel:${payload.bookingId}`;
+
   const text = [
     "<b>📥 Booking mới từ landing page</b>",
+    `• Booking ID: <code>${payload.bookingId}</code>`,
     `• Khách: <b>${payload.customerName}</b>`,
     `• SĐT: <b>${payload.customerPhone}</b>`,
     `• Dịch vụ: ${payload.requestedService || "-"}`,
@@ -50,8 +54,8 @@ async function sendTelegramBookingMessage(payload: {
       reply_markup: {
         inline_keyboard: [
           [
-            { text: "✅ Confirm", callback_data: `booking:confirm:${payload.bookingId}` },
-            { text: "❌ Cancel", callback_data: `booking:cancel:${payload.bookingId}` },
+            { text: "✅ Confirm", callback_data: confirmData },
+            { text: "❌ Cancel", callback_data: cancelData },
           ],
         ],
       },
@@ -62,21 +66,24 @@ async function sendTelegramBookingMessage(payload: {
     throw new Error(`Telegram sendMessage failed: ${await res.text()}`);
   }
 
-  return res.json() as Promise<{ ok: boolean; result?: { message_id: number; chat: { id: number | string } } }>;
+  return {
+    telegram: await res.json() as { ok: boolean; result?: { message_id: number; chat: { id: number | string } } },
+    debug: { confirmData, cancelData },
+  };
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const record = body?.record ?? body;
+    const record = body?.record ?? body?.new ?? body?.payload?.record ?? body;
 
     if (!record?.id) {
-      return NextResponse.json({ ok: false, error: "Missing booking record" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Missing booking record", debug: { bodyKeys: Object.keys(body ?? {}) } }, { status: 400 });
     }
 
     const supabase = getSupabase();
-    const telegram = await sendTelegramBookingMessage({
-      bookingId: record.id,
+    const sent = await sendTelegramBookingMessage({
+      bookingId: String(record.id),
       customerName: record.customer_name,
       customerPhone: record.customer_phone,
       requestedService: record.requested_service,
@@ -85,19 +92,35 @@ export async function POST(req: Request) {
       requestedStartAt: record.requested_start_at,
     });
 
-    const messageId = telegram.result?.message_id ?? null;
-    const chatId = telegram.result?.chat?.id != null ? String(telegram.result.chat.id) : telegramChatId ?? null;
+    const messageId = sent.telegram.result?.message_id ?? null;
+    const chatId = sent.telegram.result?.chat?.id != null ? String(sent.telegram.result.chat.id) : telegramChatId ?? null;
 
-    await supabase
+    const updateRes = await supabase
       .from("booking_requests")
       .update({
         telegram_message_id: messageId,
         telegram_chat_id: chatId,
         notified_at: new Date().toISOString(),
       })
-      .eq("id", record.id);
+      .eq("id", String(record.id))
+      .select("id,telegram_message_id,telegram_chat_id,notified_at")
+      .maybeSingle();
 
-    return NextResponse.json({ ok: true, messageId, chatId });
+    return NextResponse.json({
+      ok: true,
+      messageId,
+      chatId,
+      debug: {
+        bookingId: String(record.id),
+        callbackData: sent.debug,
+        updateError: updateRes.error ? {
+          message: updateRes.error.message,
+          details: (updateRes.error as { details?: string }).details,
+          hint: (updateRes.error as { hint?: string }).hint,
+        } : null,
+        updatedRow: updateRes.data ?? null,
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Telegram API route failed" },

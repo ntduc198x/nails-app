@@ -41,17 +41,20 @@ export async function POST(req: Request) {
     const body = await req.json();
     const callback = body?.callback_query;
     if (!callback?.data) {
-      return NextResponse.json({ ok: true, ignored: true });
+      return NextResponse.json({ ok: true, ignored: true, debug: { reason: "missing_callback_data" } });
     }
 
-    const [prefix, action, bookingId] = String(callback.data).split(":");
+    const parts = String(callback.data).split(":");
+    const [prefix, action, ...rest] = parts;
+    const bookingId = rest.join(":");
+
     if (prefix !== "booking" || !action || !bookingId) {
-      return NextResponse.json({ ok: true, ignored: true });
+      return NextResponse.json({ ok: true, ignored: true, debug: { callbackData: callback.data, parsed: parts } });
     }
 
     const nextStatus = action === "confirm" ? "CONFIRMED" : action === "cancel" ? "CANCELLED" : null;
     if (!nextStatus) {
-      return NextResponse.json({ ok: true, ignored: true });
+      return NextResponse.json({ ok: true, ignored: true, debug: { callbackData: callback.data, parsed: parts } });
     }
 
     const supabase = getSupabase();
@@ -65,13 +68,17 @@ export async function POST(req: Request) {
     if (readErr) throw readErr;
     if (!row?.id) {
       await answerCallbackQuery(callback.id, "Không tìm thấy booking.");
-      return NextResponse.json({ ok: true, missing: true });
+      return NextResponse.json({ ok: true, missing: true, debug: { callbackData: callback.data, parsed: parts, bookingId } });
     }
 
-    await supabase
+    const updateRes = await supabase
       .from("booking_requests")
       .update({ status: nextStatus })
-      .eq("id", bookingId);
+      .eq("id", bookingId)
+      .select("id,status,telegram_message_id,telegram_chat_id")
+      .maybeSingle();
+
+    if (updateRes.error) throw updateRes.error;
 
     const whenText = new Date(row.requested_start_at).toLocaleString("vi-VN", {
       timeZone: "Asia/Ho_Chi_Minh",
@@ -80,6 +87,7 @@ export async function POST(req: Request) {
 
     const text = [
       `<b>${nextStatus === "CONFIRMED" ? "✅ Đã xác nhận booking" : "❌ Đã huỷ booking"}</b>`,
+      `• Booking ID: <code>${row.id}</code>`,
       `• Khách: <b>${row.customer_name}</b>`,
       `• SĐT: <b>${row.customer_phone}</b>`,
       `• Dịch vụ: ${row.requested_service || "-"}`,
@@ -96,7 +104,17 @@ export async function POST(req: Request) {
 
     await answerCallbackQuery(callback.id, nextStatus === "CONFIRMED" ? "Đã xác nhận booking" : "Đã huỷ booking");
 
-    return NextResponse.json({ ok: true, status: nextStatus });
+    return NextResponse.json({
+      ok: true,
+      status: nextStatus,
+      debug: {
+        callbackData: callback.data,
+        parsed: parts,
+        bookingId,
+        foundRow: row.id,
+        updatedRow: updateRes.data ?? null,
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Telegram callback failed" },

@@ -34,7 +34,7 @@ async function sendTelegramBookingMessage(payload: {
   const cancelData = `booking:cancel:${payload.bookingId}`;
 
   const text = [
-    "<b>📥 Booking mới từ landing page</b>",
+    "<b>📥 BOOKING MỚI CẦN XÁC NHẬN</b>",
     `• Booking ID: <code>${payload.bookingId}</code>`,
     `• Khách: <b>${payload.customerName}</b>`,
     `• SĐT: <b>${payload.customerPhone}</b>`,
@@ -42,6 +42,7 @@ async function sendTelegramBookingMessage(payload: {
     `• Thợ mong muốn: ${payload.preferredStaff || "-"}`,
     `• Giờ yêu cầu: ${whenText}`,
     payload.note ? `• Ghi chú: ${payload.note}` : null,
+    "• Hành động: chờ xác nhận / hủy",
     `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
   ].filter(Boolean).join("\n");
 
@@ -84,45 +85,98 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabase();
-    const sent = await sendTelegramBookingMessage({
-      bookingId: String(record.id),
-      customerName: record.customer_name,
-      customerPhone: record.customer_phone,
-      requestedService: record.requested_service,
-      preferredStaff: record.preferred_staff,
-      note: record.note,
-      requestedStartAt: record.requested_start_at,
-    });
+    const bookingId = String(record.id);
+    const claimedAt = new Date().toISOString();
 
-    const messageId = sent.telegram.result?.message_id ?? null;
-    const chatId = sent.telegram.result?.chat?.id != null ? String(sent.telegram.result.chat.id) : telegramChatId ?? null;
-
-    const updateRes = await supabase
+    const claimRes = await supabase
       .from("booking_requests")
-      .update({
-        telegram_message_id: messageId,
-        telegram_chat_id: chatId,
-        notified_at: new Date().toISOString(),
-      })
-      .eq("id", String(record.id))
-      .select("id,telegram_message_id,telegram_chat_id,notified_at")
+      .update({ notified_at: claimedAt })
+      .eq("id", bookingId)
+      .eq("status", "NEW")
+      .is("telegram_message_id", null)
+      .is("notified_at", null)
+      .select("id")
       .maybeSingle();
 
-    return NextResponse.json({
-      ok: true,
-      messageId,
-      chatId,
-      debug: {
-        bookingId: String(record.id),
-        callbackData: sent.debug,
-        updateError: updateRes.error ? {
-          message: updateRes.error.message,
-          details: (updateRes.error as { details?: string }).details,
-          hint: (updateRes.error as { hint?: string }).hint,
-        } : null,
-        updatedRow: updateRes.data ?? null,
-      },
-    });
+    if (claimRes.error) throw claimRes.error;
+
+    if (!claimRes.data) {
+      const { data: existingRow, error: existingError } = await supabase
+        .from("booking_requests")
+        .select("id,status,telegram_message_id,telegram_chat_id,notified_at")
+        .eq("id", bookingId)
+        .maybeSingle();
+
+      if (existingError) throw existingError;
+
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "already_claimed_or_not_new",
+        debug: { existingRow },
+      });
+    }
+
+    try {
+      const { data: bookingRow, error: bookingError } = await supabase
+        .from("booking_requests")
+        .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,status")
+        .eq("id", bookingId)
+        .maybeSingle();
+
+      if (bookingError) throw bookingError;
+      if (!bookingRow?.id) throw new Error("Không đọc được booking request sau khi claim.");
+
+      const sent = await sendTelegramBookingMessage({
+        bookingId,
+        customerName: bookingRow.customer_name,
+        customerPhone: bookingRow.customer_phone,
+        requestedService: bookingRow.requested_service,
+        preferredStaff: bookingRow.preferred_staff,
+        note: bookingRow.note,
+        requestedStartAt: bookingRow.requested_start_at,
+      });
+
+      const messageId = sent.telegram.result?.message_id ?? null;
+      const chatId = sent.telegram.result?.chat?.id != null ? String(sent.telegram.result.chat.id) : telegramChatId ?? null;
+
+      const updateRes = await supabase
+        .from("booking_requests")
+        .update({
+          telegram_message_id: messageId,
+          telegram_chat_id: chatId,
+          notified_at: claimedAt,
+        })
+        .eq("id", bookingId)
+        .eq("notified_at", claimedAt)
+        .select("id,telegram_message_id,telegram_chat_id,notified_at")
+        .maybeSingle();
+
+      return NextResponse.json({
+        ok: true,
+        messageId,
+        chatId,
+        debug: {
+          bookingId,
+          callbackData: sent.debug,
+          bookingRow,
+          updatedRow: updateRes.data ?? null,
+          updateError: updateRes.error ? {
+            message: updateRes.error.message,
+            details: (updateRes.error as { details?: string }).details,
+            hint: (updateRes.error as { hint?: string }).hint,
+          } : null,
+        },
+      });
+    } catch (sendError) {
+      await supabase
+        .from("booking_requests")
+        .update({ notified_at: null })
+        .eq("id", bookingId)
+        .eq("notified_at", claimedAt);
+
+      throw sendError;
+    }
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Telegram API route failed" },

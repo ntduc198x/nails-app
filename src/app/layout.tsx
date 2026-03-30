@@ -26,8 +26,33 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ChamBeauty AI | Tin tức AI & Công nghệ",
-  description: "ChamBeauty AI - Nền tảng tin tức AI và công nghệ, cập nhật xu hướng trí tuệ nhân tạo mỗi ngày.",
+  metadataBase: new URL("https://chambeauty.io.vn"),
+  title: {
+    default: "Chạm Beauty | Nail Art & Beauty Studio",
+    template: "%s | Chạm Beauty",
+  },
+  description: "Chạm Beauty - Luxury nail art studio, đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+  applicationName: "Chạm Beauty",
+  keywords: ["Chạm Beauty", "nail art", "nail studio", "đặt lịch nails", "beauty studio", "chăm sóc móng"],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    url: "https://chambeauty.io.vn",
+    siteName: "Chạm Beauty",
+    title: "Chạm Beauty | Nail Art & Beauty Studio",
+    description: "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+    locale: "vi_VN",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Chạm Beauty | Nail Art & Beauty Studio",
+    description: "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+  },
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({

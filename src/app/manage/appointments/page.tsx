@@ -15,6 +15,7 @@ type AppointmentRow = {
   staff_user_id?: string | null;
   resource_id?: string | null;
   customers?: { name?: string } | { name?: string }[] | null;
+  booking_requests?: { id?: string; source?: string | null } | { id?: string; source?: string | null }[] | null;
 };
 
 type StaffOption = { userId: string; name: string };
@@ -90,6 +91,15 @@ function statusBadge(status: string) {
 function pickCustomerName(customers: AppointmentRow["customers"]) {
   if (Array.isArray(customers)) return customers[0]?.name ?? "-";
   return customers?.name ?? "-";
+}
+
+function pickBookingRequest(row: AppointmentRow) {
+  return Array.isArray(row.booking_requests) ? row.booking_requests[0] ?? null : row.booking_requests ?? null;
+}
+
+function isOnlineBooked(row: AppointmentRow) {
+  const booking = pickBookingRequest(row);
+  return booking?.source === "landing_page";
 }
 
 function rankStatus(status: string) {
@@ -364,10 +374,16 @@ export default function AppointmentsPage() {
                     const customer = pickCustomerName(a.customers);
                     const staffName = staffOptions.find((s) => s.userId === a.staff_user_id)?.name ?? "-";
                     const resourceName = resourceOptions.find((r) => r.id === a.resource_id)?.name ?? "-";
+                    const onlineBooked = isOnlineBooked(a);
                     return (
                       <tr key={a.id} className="border-t border-neutral-100">
                         <td className="py-2">{new Date(a.start_at).toLocaleString("vi-VN")}</td>
-                        <td>{customer}</td>
+                        <td>
+                          <div className="flex flex-col gap-1">
+                            <span>{customer}</span>
+                            {onlineBooked && <span className="inline-flex w-fit rounded-full bg-violet-100 px-2 py-1 text-[11px] font-medium text-violet-700">BOOKED ONLINE</span>}
+                          </div>
+                        </td>
                         <td>{staffName}</td>
                         <td>{resourceName}</td>
                         <td><span className={`rounded-full px-2 py-1 text-xs font-medium ${statusBadge(a.status)}`}>{a.status}</span></td>

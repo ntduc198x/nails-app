@@ -12,6 +12,7 @@ export type BookingRequestRow = {
   requested_end_at: string;
   status: "NEW" | "CONFIRMED" | "CANCELLED" | "CONVERTED";
   appointment_id?: string | null;
+  source?: string | null;
   created_at: string;
 };
 
@@ -21,7 +22,7 @@ export async function listBookingRequests(status?: BookingRequestRow["status"]) 
 
   let query = supabase
     .from("booking_requests")
-    .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,created_at")
+    .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at")
     .eq("org_id", orgId)
     .order("created_at", { ascending: false })
     .limit(200);

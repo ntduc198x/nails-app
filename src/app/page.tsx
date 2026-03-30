@@ -198,7 +198,7 @@ export default function LandingPage() {
       startAt.setHours(hours, minutes, 0, 0);
       const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
 
-      await createPublicBookingRequest({
+      const createdBooking = await createPublicBookingRequest({
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         requestedService: selectedService || undefined,
@@ -208,6 +208,14 @@ export default function LandingPage() {
         requestedEndAt: endAt.toISOString(),
         source: "landing_page",
       });
+
+      try {
+        await fetch("/api/telegram", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ record: createdBooking }),
+        });
+      } catch {}
 
       setSubmitSuccess("Đã gửi yêu cầu đặt lịch thành công. Chạm Beauty sẽ sớm liên hệ xác nhận với bạn.");
       setCustomerName("");

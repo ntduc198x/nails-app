@@ -22,20 +22,171 @@ async function answerCallbackQuery(callbackQueryId: string, text: string) {
   });
 }
 
-async function editMessage(chatId: string, messageId: number, text: string, done = false) {
+async function deleteMessage(chatId: string, messageId: number) {
   if (!telegramBotToken) return;
-  await fetch(`https://api.telegram.org/bot${telegramBotToken}/editMessageText`, {
+  await fetch(`https://api.telegram.org/bot${telegramBotToken}/deleteMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
+  });
+}
+
+async function sendStatusMessage(chatId: string, text: string) {
+  if (!telegramBotToken) return;
+  await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
-      message_id: messageId,
       text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      reply_markup: done ? { inline_keyboard: [] } : undefined,
     }),
   });
+}
+
+async function findAppointmentConflict(supabase: ReturnType<typeof getSupabase>, orgId: string, startAt: string, endAt: string) {
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id,start_at,end_at,status,customers(name)")
+    .eq("org_id", orgId)
+    .lt("start_at", endAt)
+    .gt("end_at", startAt)
+    .in("status", ["BOOKED", "CHECKED_IN", "IN_SERVICE"])
+    .limit(1);
+
+  if (error) throw error;
+  return (data ?? [])[0] as
+    | { id: string; start_at: string; end_at: string; status: string; customers?: { name?: string } | { name?: string }[] | null }
+    | undefined;
+}
+
+async function findBookingRequestConflict(supabase: ReturnType<typeof getSupabase>, orgId: string, bookingId: string, startAt: string, endAt: string) {
+  const { data, error } = await supabase
+    .from("booking_requests")
+    .select("id,customer_name,customer_phone,requested_start_at,requested_end_at,status")
+    .eq("org_id", orgId)
+    .neq("id", bookingId)
+    .in("status", ["NEW", "CONFIRMED"])
+    .lt("requested_start_at", endAt)
+    .gt("requested_end_at", startAt)
+    .order("requested_start_at", { ascending: true })
+    .limit(1);
+
+  if (error) throw error;
+  return (data ?? [])[0] as
+    | { id: string; customer_name: string; customer_phone: string; requested_start_at: string; requested_end_at: string; status: string }
+    | undefined;
+}
+
+function pickCustomerName(customers: { name?: string } | { name?: string }[] | null | undefined) {
+  if (Array.isArray(customers)) return customers[0]?.name ?? "Khách trước";
+  return customers?.name ?? "Khách trước";
+}
+
+async function ensureCustomer(supabase: ReturnType<typeof getSupabase>, booking: {
+  org_id: string;
+  customer_name: string;
+  customer_phone: string;
+  requested_service?: string | null;
+  preferred_staff?: string | null;
+  note?: string | null;
+}) {
+  const { data: existingCustomer, error: customerError } = await supabase
+    .from("customers")
+    .select("id,notes")
+    .eq("org_id", booking.org_id)
+    .eq("name", booking.customer_name)
+    .eq("phone", booking.customer_phone)
+    .limit(1)
+    .maybeSingle();
+
+  if (customerError) throw customerError;
+
+  const mergedNotes = [
+    existingCustomer?.notes,
+    booking.requested_service ? `DV: ${booking.requested_service}` : null,
+    booking.preferred_staff ? `Thợ mong muốn: ${booking.preferred_staff}` : null,
+    booking.note || null,
+  ].filter(Boolean).join(" | ");
+
+  if (existingCustomer?.id) {
+    const { error: updateCustomerError } = await supabase
+      .from("customers")
+      .update({ notes: mergedNotes || null })
+      .eq("id", existingCustomer.id);
+
+    if (updateCustomerError) throw updateCustomerError;
+    return existingCustomer.id;
+  }
+
+  const { data: newCustomer, error: newCustomerError } = await supabase
+    .from("customers")
+    .insert({
+      org_id: booking.org_id,
+      name: booking.customer_name,
+      phone: booking.customer_phone,
+      notes: mergedNotes || null,
+    })
+    .select("id")
+    .single();
+
+  if (newCustomerError) throw newCustomerError;
+  return newCustomer.id;
+}
+
+async function convertBookingToAppointment(supabase: ReturnType<typeof getSupabase>, booking: {
+  id: string;
+  org_id: string;
+  branch_id?: string | null;
+  customer_name: string;
+  customer_phone: string;
+  requested_service?: string | null;
+  preferred_staff?: string | null;
+  note?: string | null;
+  requested_start_at: string;
+  requested_end_at: string;
+}) {
+  const customerId = await ensureCustomer(supabase, booking);
+
+  const { data: profileRow, error: profileError } = await supabase
+    .from("profiles")
+    .select("default_branch_id")
+    .eq("org_id", booking.org_id)
+    .not("default_branch_id", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (profileError) throw profileError;
+
+  const { data: appointment, error: appointmentError } = await supabase
+    .from("appointments")
+    .insert({
+      org_id: booking.org_id,
+      branch_id: booking.branch_id ?? profileRow?.default_branch_id ?? null,
+      customer_id: customerId,
+      staff_user_id: null,
+      resource_id: null,
+      start_at: booking.requested_start_at,
+      end_at: booking.requested_end_at,
+      status: "BOOKED",
+    })
+    .select("id")
+    .single();
+
+  if (appointmentError) throw appointmentError;
+
+  const { error: updateBookingError } = await supabase
+    .from("booking_requests")
+    .update({
+      status: "CONVERTED",
+      appointment_id: appointment.id,
+    })
+    .eq("id", booking.id);
+
+  if (updateBookingError) throw updateBookingError;
+
+  return appointment.id;
 }
 
 export async function POST(req: Request) {
@@ -63,7 +214,7 @@ export async function POST(req: Request) {
 
     const { data: row, error: readErr } = await supabase
       .from("booking_requests")
-      .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,status,telegram_message_id,telegram_chat_id")
+      .select("id,org_id,branch_id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,telegram_message_id,telegram_chat_id,appointment_id")
       .eq("id", bookingId)
       .maybeSingle();
 
@@ -73,48 +224,150 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, missing: true, debug: { callbackData: callback.data, parsed: parts, bookingId } });
     }
 
-    const updateRes = await supabase
-      .from("booking_requests")
-      .update({ status: nextStatus })
-      .eq("id", bookingId)
-      .select("id,status,telegram_message_id,telegram_chat_id")
-      .maybeSingle();
+    const chatId = row.telegram_chat_id ? String(row.telegram_chat_id) : callback.message?.chat?.id ? String(callback.message.chat.id) : null;
+    const oldMessageId = row.telegram_message_id ? Number(row.telegram_message_id) : callback.message?.message_id ? Number(callback.message.message_id) : null;
 
-    if (updateRes.error) throw updateRes.error;
+    if (row.status === "CANCELLED") {
+      await answerCallbackQuery(callback.id, "Booking này đã bị hủy trước đó.");
+      return NextResponse.json({ ok: true, skipped: true, reason: "already_cancelled", debug: { bookingId, status: row.status } });
+    }
+
+    if (row.status === "CONVERTED" && row.appointment_id) {
+      await answerCallbackQuery(callback.id, "Booking này đã được tạo appointment trước đó.");
+      return NextResponse.json({ ok: true, skipped: true, reason: "already_converted", debug: { bookingId, status: row.status, appointmentId: row.appointment_id } });
+    }
 
     const whenText = new Date(row.requested_start_at).toLocaleString("vi-VN", {
       timeZone: "Asia/Ho_Chi_Minh",
       hour12: false,
     });
 
-    const text = [
-      `<b>${nextStatus === "CONFIRMED" ? "✅ Đã xác nhận booking" : "❌ Đã huỷ booking"}</b>`,
-      `• Booking ID: <code>${row.id}</code>`,
-      `• Khách: <b>${row.customer_name}</b>`,
-      `• SĐT: <b>${row.customer_phone}</b>`,
-      `• Dịch vụ: ${row.requested_service || "-"}`,
-      `• Thợ mong muốn: ${row.preferred_staff || "-"}`,
-      `• Giờ yêu cầu: ${whenText}`,
-      row.note ? `• Ghi chú: ${row.note}` : null,
-      `• Trạng thái: <b>${nextStatus}</b>`,
-      `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
-    ].filter(Boolean).join("\n");
+    if (nextStatus === "CANCELLED") {
+      const updateRes = await supabase
+        .from("booking_requests")
+        .update({ status: "CANCELLED" })
+        .eq("id", bookingId)
+        .select("id,status")
+        .maybeSingle();
 
-    if (row.telegram_chat_id && row.telegram_message_id) {
-      await editMessage(String(row.telegram_chat_id), Number(row.telegram_message_id), text, true);
+      if (updateRes.error) throw updateRes.error;
+
+      if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+      if (chatId) {
+        await sendStatusMessage(chatId, [
+          "<b>🛑 BOOKING ĐÃ BỊ HỦY</b>",
+          `• Booking ID: <code>${row.id}</code>`,
+          `• Khách: <b>${row.customer_name}</b>`,
+          `• SĐT: <b>${row.customer_phone}</b>`,
+          `• Dịch vụ: ${row.requested_service || "-"}`,
+          `• Giờ yêu cầu: ${whenText}`,
+          "• Kết quả: <b>Đã hủy từ Telegram</b>",
+          `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
+        ].join("\n"));
+      }
+
+      await answerCallbackQuery(callback.id, "Đã hủy booking");
+      return NextResponse.json({ ok: true, status: "CANCELLED", debug: { bookingId } });
     }
 
-    await answerCallbackQuery(callback.id, nextStatus === "CONFIRMED" ? "Đã xác nhận booking" : "Đã huỷ booking");
+    const requestedEndAt = row.requested_end_at ?? new Date(new Date(row.requested_start_at).getTime() + 60 * 60 * 1000).toISOString();
+    const appointmentConflict = await findAppointmentConflict(supabase, row.org_id, row.requested_start_at, requestedEndAt);
+    const bookingConflict = await findBookingRequestConflict(supabase, row.org_id, row.id, row.requested_start_at, requestedEndAt);
+
+    if (appointmentConflict || bookingConflict) {
+      const updateRes = await supabase
+        .from("booking_requests")
+        .update({ status: "CONFIRMED" })
+        .eq("id", bookingId)
+        .select("id,status")
+        .maybeSingle();
+
+      if (updateRes.error) throw updateRes.error;
+
+      if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+      if (chatId) {
+        const lines = [
+          "<b>⚠️ BOOKING CONFIRM NHƯNG BỊ TRÙNG LỊCH</b>",
+          `• Booking ID: <code>${row.id}</code>`,
+          `• Khách mới: <b>${row.customer_name}</b> — ${row.customer_phone}`,
+          `• Dịch vụ: ${row.requested_service || "-"}`,
+          `• Giờ yêu cầu: ${whenText}`,
+        ];
+
+        if (appointmentConflict) {
+          const conflictWhen = new Date(appointmentConflict.start_at).toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour12: false,
+          });
+          lines.push(
+            `• Trùng appointment với: <b>${pickCustomerName(appointmentConflict.customers)}</b>`,
+            `• Khung giờ trùng: ${conflictWhen}`,
+            `• Appointment đang chiếm chỗ: <code>${appointmentConflict.id}</code>`,
+          );
+        }
+
+        if (bookingConflict) {
+          const conflictWhen = new Date(bookingConflict.requested_start_at).toLocaleString("vi-VN", {
+            timeZone: "Asia/Ho_Chi_Minh",
+            hour12: false,
+          });
+          lines.push(
+            `• Trùng booking online với: <b>${bookingConflict.customer_name}</b> — ${bookingConflict.customer_phone}`,
+            `• Giờ booking online trùng: ${conflictWhen}`,
+            `• Booking request trùng: <code>${bookingConflict.id}</code>`,
+          );
+        }
+
+        lines.push(
+          "• Kết quả: <b>Đã CONFIRMED booking request, CHƯA convert sang appointment</b>",
+          "• Việc cần làm: vào manage/booking-requests để sửa tay thời gian rồi convert lại.",
+          `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
+        );
+
+        await sendStatusMessage(chatId, lines.join("\n"));
+      }
+
+      await answerCallbackQuery(callback.id, "Booking bị trùng lịch, cần xử lý tay trong manage");
+      return NextResponse.json({ ok: true, status: "CONFIRMED_CONFLICT", debug: { bookingId, appointmentConflict, bookingConflict } });
+    }
+
+    const appointmentId = await convertBookingToAppointment(supabase, {
+      id: row.id,
+      org_id: row.org_id,
+      branch_id: row.branch_id,
+      customer_name: row.customer_name,
+      customer_phone: row.customer_phone,
+      requested_service: row.requested_service,
+      preferred_staff: row.preferred_staff,
+      note: row.note,
+      requested_start_at: row.requested_start_at,
+      requested_end_at: requestedEndAt,
+    });
+
+    if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+    if (chatId) {
+      await sendStatusMessage(chatId, [
+        "<b>✅ BOOKING ĐÃ XÁC NHẬN THÀNH CÔNG</b>",
+        `• Booking ID: <code>${row.id}</code>`,
+        `• Khách: <b>${row.customer_name}</b>`,
+        `• SĐT: <b>${row.customer_phone}</b>`,
+        `• Dịch vụ: ${row.requested_service || "-"}`,
+        `• Giờ hẹn đã chốt: ${whenText}`,
+        `• Appointment ID: <code>${appointmentId}</code>`,
+        "• Trạng thái mới: <b>BOOKED ONLINE</b>",
+        "• Kết quả: <b>Đã confirm và tạo appointment</b>",
+        `• Quản trị: ${publicBaseUrl}/manage/appointments`,
+      ].join("\n"));
+    }
+
+    await answerCallbackQuery(callback.id, "Đã xác nhận và tạo appointment");
 
     return NextResponse.json({
       ok: true,
-      status: nextStatus,
+      status: "CONVERTED",
       debug: {
-        callbackData: callback.data,
-        parsed: parts,
         bookingId,
-        foundRow: row.id,
-        updatedRow: updateRes.data ?? null,
+        appointmentId,
       },
     });
   } catch (error) {

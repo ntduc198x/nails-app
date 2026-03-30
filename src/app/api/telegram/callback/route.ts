@@ -5,11 +5,24 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
+const MAX_SIMULTANEOUS_BOOKINGS = Number(process.env.BOOKING_MAX_SIMULTANEOUS ?? "2");
+const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
 
 function getSupabase() {
   if (!supabaseUrl || !supabaseServiceRoleKey) throw new Error("Thiếu NEXT_PUBLIC_SUPABASE_URL hoặc SUPABASE_SERVICE_ROLE_KEY.");
   return createClient(supabaseUrl, supabaseServiceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function addMinutes(iso: string, minutes: number) {
+  return new Date(new Date(iso).getTime() + minutes * 60 * 1000).toISOString();
+}
+
+function formatViDateTime(iso: string) {
+  return new Date(iso).toLocaleString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour12: false,
   });
 }
 
@@ -45,7 +58,7 @@ async function sendStatusMessage(chatId: string, text: string) {
   });
 }
 
-async function findAppointmentConflict(supabase: ReturnType<typeof getSupabase>, orgId: string, startAt: string, endAt: string) {
+async function listAppointmentOverlaps(supabase: ReturnType<typeof getSupabase>, orgId: string, startAt: string, endAt: string) {
   const { data, error } = await supabase
     .from("appointments")
     .select("id,start_at,end_at,status,customers(name)")
@@ -53,35 +66,16 @@ async function findAppointmentConflict(supabase: ReturnType<typeof getSupabase>,
     .lt("start_at", endAt)
     .gt("end_at", startAt)
     .in("status", ["BOOKED", "CHECKED_IN", "IN_SERVICE"])
-    .limit(1);
+    .order("start_at", { ascending: true })
+    .limit(10);
 
   if (error) throw error;
-  return (data ?? [])[0] as
-    | { id: string; start_at: string; end_at: string; status: string; customers?: { name?: string } | { name?: string }[] | null }
-    | undefined;
-}
-
-async function findBookingRequestConflict(supabase: ReturnType<typeof getSupabase>, orgId: string, bookingId: string, startAt: string, endAt: string) {
-  const { data, error } = await supabase
-    .from("booking_requests")
-    .select("id,customer_name,customer_phone,requested_start_at,requested_end_at,status")
-    .eq("org_id", orgId)
-    .neq("id", bookingId)
-    .in("status", ["NEW", "CONFIRMED"])
-    .lt("requested_start_at", endAt)
-    .gt("requested_end_at", startAt)
-    .order("requested_start_at", { ascending: true })
-    .limit(1);
-
-  if (error) throw error;
-  return (data ?? [])[0] as
-    | { id: string; customer_name: string; customer_phone: string; requested_start_at: string; requested_end_at: string; status: string }
-    | undefined;
+  return (data ?? []) as Array<{ id: string; start_at: string; end_at: string; status: string; customers?: { name?: string } | { name?: string }[] | null }>;
 }
 
 function pickCustomerName(customers: { name?: string } | { name?: string }[] | null | undefined) {
-  if (Array.isArray(customers)) return customers[0]?.name ?? "Khách trước";
-  return customers?.name ?? "Khách trước";
+  if (Array.isArray(customers)) return customers[0]?.name ?? "Khách";
+  return customers?.name ?? "Khách";
 }
 
 async function ensureCustomer(supabase: ReturnType<typeof getSupabase>, booking: {
@@ -237,10 +231,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, skipped: true, reason: "already_converted", debug: { bookingId, status: row.status, appointmentId: row.appointment_id } });
     }
 
-    const whenText = new Date(row.requested_start_at).toLocaleString("vi-VN", {
-      timeZone: "Asia/Ho_Chi_Minh",
-      hour12: false,
-    });
+    const whenText = formatViDateTime(row.requested_start_at);
 
     if (nextStatus === "CANCELLED") {
       const updateRes = await supabase
@@ -270,14 +261,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, status: "CANCELLED", debug: { bookingId } });
     }
 
-    const requestedEndAt = row.requested_end_at ?? new Date(new Date(row.requested_start_at).getTime() + 60 * 60 * 1000).toISOString();
-    const appointmentConflict = await findAppointmentConflict(supabase, row.org_id, row.requested_start_at, requestedEndAt);
-    const bookingConflict = await findBookingRequestConflict(supabase, row.org_id, row.id, row.requested_start_at, requestedEndAt);
+    const requestedEndAt = row.requested_end_at ?? addMinutes(row.requested_start_at, 60);
+    const appointmentOverlaps = await listAppointmentOverlaps(supabase, row.org_id, row.requested_start_at, requestedEndAt);
+    const overlapCount = appointmentOverlaps.length;
 
-    if (appointmentConflict || bookingConflict) {
+    if (overlapCount >= MAX_SIMULTANEOUS_BOOKINGS) {
       const updateRes = await supabase
         .from("booking_requests")
-        .update({ status: "CONFIRMED" })
+        .update({ status: "NEEDS_RESCHEDULE" })
         .eq("id", bookingId)
         .select("id,status")
         .maybeSingle();
@@ -287,48 +278,22 @@ export async function POST(req: Request) {
       if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
       if (chatId) {
         const lines = [
-          "<b>⚠️ BOOKING CONFIRM NHƯNG BỊ TRÙNG LỊCH</b>",
+          "<b>⚠️ BOOKING VƯỢT GIỚI HẠN KHUNG GIỜ</b>",
           `• Booking ID: <code>${row.id}</code>`,
-          `• Khách mới: <b>${row.customer_name}</b> — ${row.customer_phone}`,
-          `• Dịch vụ: ${row.requested_service || "-"}`,
+          `• Khách mới: <b>${row.customer_name}</b>`,
           `• Giờ yêu cầu: ${whenText}`,
-        ];
-
-        if (appointmentConflict) {
-          const conflictWhen = new Date(appointmentConflict.start_at).toLocaleString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-            hour12: false,
-          });
-          lines.push(
-            `• Trùng appointment với: <b>${pickCustomerName(appointmentConflict.customers)}</b>`,
-            `• Khung giờ trùng: ${conflictWhen}`,
-            `• Appointment đang chiếm chỗ: <code>${appointmentConflict.id}</code>`,
-          );
-        }
-
-        if (bookingConflict) {
-          const conflictWhen = new Date(bookingConflict.requested_start_at).toLocaleString("vi-VN", {
-            timeZone: "Asia/Ho_Chi_Minh",
-            hour12: false,
-          });
-          lines.push(
-            `• Trùng booking online với: <b>${bookingConflict.customer_name}</b> — ${bookingConflict.customer_phone}`,
-            `• Giờ booking online trùng: ${conflictWhen}`,
-            `• Booking request trùng: <code>${bookingConflict.id}</code>`,
-          );
-        }
-
-        lines.push(
-          "• Kết quả: <b>Đã CONFIRMED booking request, CHƯA convert sang appointment</b>",
-          "• Việc cần làm: vào manage/booking-requests để sửa tay thời gian rồi convert lại.",
+          `• Rule hiện tại: chỉ check trùng với <b>appointments</b> (gồm booked thủ công và booked online đã converted). Đây là khách thứ <b>${overlapCount + 1}</b>.`,
+          ...(appointmentOverlaps.slice(0, 3).map((item) => `• ${pickCustomerName(item.customers)} — ${formatViDateTime(item.start_at)}`)),
+          "• Kết quả: <b>Booking đã chuyển sang trạng thái CẦN DỜI LỊCH, CHƯA convert sang appointment</b>",
+          `• Cảnh báo sát lịch (±${NEARBY_WARNING_MINUTES} phút) chỉ dùng để nhắc, không tự coi là trùng.`,
           `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
-        );
+        ];
 
         await sendStatusMessage(chatId, lines.join("\n"));
       }
 
-      await answerCallbackQuery(callback.id, "Booking bị trùng lịch, cần xử lý tay trong manage");
-      return NextResponse.json({ ok: true, status: "CONFIRMED_CONFLICT", debug: { bookingId, appointmentConflict, bookingConflict } });
+      await answerCallbackQuery(callback.id, `Booking vượt giới hạn ${MAX_SIMULTANEOUS_BOOKINGS} khách cùng giờ, cần dời lịch`);
+      return NextResponse.json({ ok: true, status: "LIMIT_EXCEEDED", debug: { bookingId, overlapCount, appointmentOverlaps } });
     }
 
     const appointmentId = await convertBookingToAppointment(supabase, {
@@ -350,11 +315,10 @@ export async function POST(req: Request) {
         "<b>✅ BOOKING ĐÃ XÁC NHẬN THÀNH CÔNG</b>",
         `• Booking ID: <code>${row.id}</code>`,
         `• Khách: <b>${row.customer_name}</b>`,
-        `• SĐT: <b>${row.customer_phone}</b>`,
-        `• Dịch vụ: ${row.requested_service || "-"}`,
         `• Giờ hẹn đã chốt: ${whenText}`,
         `• Appointment ID: <code>${appointmentId}</code>`,
         "• Trạng thái mới: <b>BOOKED ONLINE</b>",
+        `• Rule hiện tại: tối đa <b>${MAX_SIMULTANEOUS_BOOKINGS}</b> khách cùng đúng khung giờ; cảnh báo sát lịch trong ±${NEARBY_WARNING_MINUTES} phút.`,
         "• Kết quả: <b>Đã confirm và tạo appointment</b>",
         `• Quản trị: ${publicBaseUrl}/manage/appointments`,
       ].join("\n"));

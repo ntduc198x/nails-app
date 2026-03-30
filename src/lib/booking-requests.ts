@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/supabase";
-import { ensureOrgContext } from "@/lib/domain";
+import { ensureOrgContext, listAppointments } from "@/lib/domain";
+
+export type BookingRequestStatus = "NEW" | "CONFIRMED" | "NEEDS_RESCHEDULE" | "CANCELLED" | "CONVERTED";
 
 export type BookingRequestRow = {
   id: string;
@@ -10,13 +12,13 @@ export type BookingRequestRow = {
   note?: string | null;
   requested_start_at: string;
   requested_end_at: string;
-  status: "NEW" | "CONFIRMED" | "CANCELLED" | "CONVERTED";
+  status: BookingRequestStatus;
   appointment_id?: string | null;
   source?: string | null;
   created_at: string;
 };
 
-export async function listBookingRequests(status?: BookingRequestRow["status"]) {
+export async function listBookingRequests(status?: BookingRequestStatus) {
   if (!supabase) return [];
   const { orgId } = await ensureOrgContext();
 
@@ -24,7 +26,7 @@ export async function listBookingRequests(status?: BookingRequestRow["status"]) 
     .from("booking_requests")
     .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at")
     .eq("org_id", orgId)
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending: true })
     .limit(200);
 
   if (status) query = query.eq("status", status);
@@ -43,13 +45,13 @@ export async function countNewBookingRequests() {
     .from("booking_requests")
     .select("id", { count: "exact", head: true })
     .eq("org_id", orgId)
-    .eq("status", "NEW");
+    .in("status", ["NEW", "NEEDS_RESCHEDULE"]);
 
   if (error) throw error;
   return count ?? 0;
 }
 
-export async function updateBookingRequestStatus(id: string, status: BookingRequestRow["status"]) {
+export async function updateBookingRequestStatus(id: string, status: BookingRequestStatus) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
 
@@ -60,6 +62,35 @@ export async function updateBookingRequestStatus(id: string, status: BookingRequ
     .eq("org_id", orgId);
 
   if (error) throw error;
+}
+
+const MAX_SIMULTANEOUS_BOOKINGS = Number(process.env.NEXT_PUBLIC_BOOKING_MAX_SIMULTANEOUS ?? "2");
+
+export async function checkAppointmentCapacity(input: {
+  bookingRequestId?: string | null;
+  startAt: string;
+  endAt: string;
+}) {
+  const appointments = await listAppointments({ force: true }) as Array<{
+    id: string;
+    start_at: string;
+    end_at: string;
+    status: string;
+    customers?: { name?: string } | { name?: string }[] | null;
+  }>;
+
+  const overlaps = appointments.filter((row) => {
+    if (!["BOOKED", "CHECKED_IN", "IN_SERVICE"].includes(row.status)) return false;
+    return new Date(row.start_at).getTime() < new Date(input.endAt).getTime()
+      && new Date(row.end_at).getTime() > new Date(input.startAt).getTime();
+  });
+
+  return {
+    overlaps,
+    overlapCount: overlaps.length,
+    allowed: overlaps.length < MAX_SIMULTANEOUS_BOOKINGS,
+    maxSimultaneous: MAX_SIMULTANEOUS_BOOKINGS,
+  };
 }
 
 export async function convertBookingRequestToAppointment(input: {

@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-datetime-picker";
 import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
@@ -23,8 +24,7 @@ type ResourceOption = { id: string; name: string; type: string };
 type RangeMode = "day" | "week" | "month" | "custom";
 
 function toInputValue(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return toDateTimeLocalValue(date);
 }
 
 function toDateInputValue(date: Date) {
@@ -320,7 +320,7 @@ export default function AppointmentsPage() {
                 <option value="auto">Giờ tự động</option>
                 <option value="custom">Tùy chỉnh giờ</option>
               </select>
-              {!autoTime && <input className="input" type="datetime-local" step={900} value={bookingAt} onChange={(e) => setBookingAt(e.target.value)} required />}
+              {!autoTime && <ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} />}
               <p className="text-xs text-neutral-500">Nếu trùng ghế hoặc trùng thợ, hệ thống sẽ tự cộng thêm 60 phút.</p>
             </div>
 

@@ -140,7 +140,10 @@ export default function ShiftsPage() {
   const canUse = role === "OWNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const canManageView = canManageTeamView(role);
   const memberMap = useMemo(() => new Map(teamMembers.map((m) => [m.user_id, { name: (m.display_name || String(m.user_id).slice(0, 8)).trim(), role: m.role || "-" }])), [teamMembers]);
-  const visibleEntries = useMemo(() => (canManageView ? entries : entries.filter((entry) => entry.staff_user_id === userId)), [canManageView, entries, userId]);
+  const visibleEntries = useMemo(() => {
+    const base = canManageView ? entries : entries.filter((entry) => entry.staff_user_id === userId);
+    return base.filter((entry) => memberMap.get(entry.staff_user_id)?.role !== "OWNER");
+  }, [canManageView, entries, memberMap, userId]);
   const filteredEntries = useMemo(() => visibleEntries.filter((entry) => {
     const member = memberMap.get(entry.staff_user_id);
     if (canManageView && staffFilter !== "ALL" && entry.staff_user_id !== staffFilter) return false;
@@ -153,8 +156,21 @@ export default function ShiftsPage() {
     return acc + Math.max(0, Math.round((end - start) / 60000));
   }, 0), [filteredEntries]);
   const activeEntry = useMemo(() => entries.find((entry) => entry.staff_user_id === userId && !entry.clock_out) ?? null, [entries, userId]);
-  const visibleTeamMembers = useMemo(() => (canManageView ? teamMembers : teamMembers.filter((m) => m.user_id === userId)), [canManageView, teamMembers, userId]);
-  const roleOptions = useMemo(() => [...new Set(teamMembers.map((m) => m.role).filter(Boolean))] as string[], [teamMembers]);
+  const visibleTeamMembers = useMemo(() => {
+    const base = canManageView ? teamMembers : teamMembers.filter((m) => m.user_id === userId);
+    return base
+      .filter((m) => m.role !== "OWNER")
+      .sort((a, b) => {
+        const aName = (a.display_name || String(a.user_id).slice(0, 8)).trim();
+        const bName = (b.display_name || String(b.user_id).slice(0, 8)).trim();
+        return aName.localeCompare(bName, "vi");
+      });
+  }, [canManageView, teamMembers, userId]);
+  const roleOptions = useMemo(() => {
+    const preferredOrder = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+    const existing = [...new Set(teamMembers.map((m) => m.role).filter((role) => role && role !== "OWNER"))] as string[];
+    return preferredOrder.filter((role) => existing.includes(role));
+  }, [teamMembers]);
   const openCount = useMemo(() => visibleEntries.filter((e) => !e.clock_out).length, [visibleEntries]);
 
   function exportCsv() {
@@ -183,8 +199,8 @@ export default function ShiftsPage() {
             <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm text-neutral-600">
               {role === "OWNER" ? (
                 <>
-                  <p className="font-medium text-neutral-900">OWNER không cần mở / đóng ca.</p>
-                  <p className="mt-1">Anh vẫn xem toàn bộ dữ liệu chấm công, lọc theo thợ và nhân viên, rồi export báo cáo bình thường.</p>
+                  <p className="font-medium text-neutral-900">Trang này dùng để theo dõi dữ liệu chấm công vận hành.</p>
+                  <p className="mt-1">OWNER có thể xem báo cáo ca làm của đội ngũ, lọc dữ liệu theo nhân sự và vai trò, rồi export CSV khi cần.</p>
                 </>
               ) : activeEntry ? (
                 <>
@@ -214,7 +230,7 @@ export default function ShiftsPage() {
           <div className="card space-y-3">
             <div>
               <h3 className="font-semibold">Bộ lọc nhanh</h3>
-              <p className="text-sm text-neutral-500">OWNER và MANAGER xem được bộ lọc của toàn bộ thợ, nhân viên.</p>
+              <p className="text-sm text-neutral-500">Trang này dùng để quản lý ca làm và chấm công: theo dõi ai đang trong ca, lịch sử clock in / clock out, lọc theo nhân sự và vai trò, rồi xuất báo cáo CSV khi cần.</p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <select className="input" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>

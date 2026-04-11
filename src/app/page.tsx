@@ -1,9 +1,19 @@
 "use client";
 
+import { listServices } from "@/lib/domain";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
+import { formatVnd } from "@/lib/mock-data";
 import { useEffect, useMemo, useState } from "react";
 
-const services = [
+type LandingService = {
+  title: string;
+  description: string;
+  price: string;
+  image: string;
+  alt: string;
+};
+
+const fallbackServices: LandingService[] = [
   {
     title: "Luxury Gel",
     description: "Sơn gel cao cấp, bóng màu lên đến 3 tuần.",
@@ -73,6 +83,7 @@ export default function LandingPage() {
     return now;
   }, []);
 
+  const [lookbookServices, setLookbookServices] = useState<LandingService[]>(fallbackServices);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
@@ -97,6 +108,51 @@ export default function LandingPage() {
     onScroll();
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadLookbookServices() {
+      try {
+        const rows = await listServices({ force: true }) as Array<{
+          name: string;
+          short_description?: string | null;
+          image_url?: string | null;
+          display_order?: number | null;
+          featured_in_lookbook?: boolean | null;
+          duration_min: number;
+          base_price: number;
+          active: boolean;
+        }>;
+
+        if (cancelled || !rows?.length) return;
+
+        const activeRows = rows.filter((item) => item.active !== false && item.featured_in_lookbook).slice(0, 6);
+        if (!activeRows.length) return;
+
+        const serviceImages = [
+          "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=800",
+          "https://images.unsplash.com/photo-1607779097040-26e80aa78e66?q=80&w=800",
+          "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?q=80&w=800",
+        ];
+
+        setLookbookServices(activeRows.map((item, index) => ({
+          title: item.name,
+          description: item.short_description?.trim() || `Dịch vụ ${item.name} • thời lượng ${item.duration_min} phút.`,
+          price: formatVnd(Number(item.base_price)),
+          image: item.image_url?.trim() || serviceImages[index % serviceImages.length],
+          alt: item.name,
+        })));
+      } catch {
+        // giữ fallback tĩnh nếu load DB fail
+      }
+    }
+
+    void loadLookbookServices();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const goToBooking = (service?: string) => {
@@ -310,7 +366,7 @@ export default function LandingPage() {
           <h2>Các dịch vụ nổi bật</h2>
         </div>
         <div className="landing-services-grid">
-          {services.map((service) => (
+          {lookbookServices.map((service) => (
             <div key={service.title} className="landing-service-card">
               <div className="landing-service-img-wrapper">
                 <img src={service.image} alt={service.alt} />
@@ -363,9 +419,9 @@ export default function LandingPage() {
               <label>Dịch vụ mong muốn</label>
               <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)}>
                 <option value="">Chọn dịch vụ</option>
-                <option value="Luxury Gel">Luxury Gel</option>
-                <option value="Nail Art Design">Nail Art Design</option>
-                <option value="Spa & Care">Spa & Care</option>
+                {lookbookServices.map((service) => (
+                  <option key={service.title} value={service.title}>{service.title}</option>
+                ))}
                 <option value="Gỡ móng & Chăm sóc">Gỡ móng & Chăm sóc</option>
               </select>
             </div>

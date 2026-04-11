@@ -110,12 +110,36 @@ export async function listServices(opts?: { force?: boolean }) {
   if (!opts?.force && isFresh(servicesCache)) return servicesCache!.value;
 
   const { orgId } = await ensureOrgContext();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("services")
-    .select("id,name,duration_min,base_price,vat_rate,active")
+    .select("id,name,short_description,image_url,display_order,featured_in_lookbook,duration_min,base_price,vat_rate,active")
     .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
+    .order("display_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    const msg = error.message || "";
+    const missingNewFields = msg.includes("short_description") || msg.includes("image_url") || msg.includes("display_order") || msg.includes("featured_in_lookbook");
+    if (!missingNewFields) throw error;
+
+    const fallback = await supabase
+      .from("services")
+      .select("id,name,duration_min,base_price,vat_rate,active")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true });
+
+    if (fallback.error) throw fallback.error;
+
+    data = (fallback.data ?? []).map((row) => ({
+      ...row,
+      short_description: null,
+      image_url: null,
+      display_order: 0,
+      featured_in_lookbook: false,
+    }));
+    error = null;
+  }
+
   const rows = data ?? [];
   servicesCache = { value: rows, at: Date.now() };
   return rows;
@@ -192,6 +216,10 @@ export async function updateResource(input: { id: string; name: string; type: "C
 export async function updateService(input: {
   id: string;
   name: string;
+  shortDescription?: string | null;
+  imageUrl?: string | null;
+  displayOrder?: number;
+  featuredInLookbook?: boolean;
   durationMin: number;
   basePrice: number;
   vatPercent: number;
@@ -204,6 +232,10 @@ export async function updateService(input: {
     .from("services")
     .update({
       name: input.name,
+      short_description: input.shortDescription ?? null,
+      image_url: input.imageUrl ?? null,
+      display_order: input.displayOrder ?? 0,
+      featured_in_lookbook: input.featuredInLookbook ?? false,
       duration_min: input.durationMin,
       base_price: input.basePrice,
       vat_rate: input.vatPercent / 100,
@@ -221,6 +253,10 @@ export async function updateService(input: {
 
 export async function createService(input: {
   name: string;
+  shortDescription?: string | null;
+  imageUrl?: string | null;
+  displayOrder?: number;
+  featuredInLookbook?: boolean;
   durationMin: number;
   basePrice: number;
   vatPercent: number;
@@ -233,17 +269,21 @@ export async function createService(input: {
     .insert({
       org_id: orgId,
       name: input.name,
+      short_description: input.shortDescription ?? null,
+      image_url: input.imageUrl ?? null,
+      display_order: input.displayOrder ?? 0,
+      featured_in_lookbook: input.featuredInLookbook ?? false,
       duration_min: input.durationMin,
       base_price: input.basePrice,
       vat_rate: input.vatPercent / 100,
       active: true,
     })
-    .select("id,name,duration_min,base_price,vat_rate,active")
+    .select("id,name,short_description,image_url,display_order,featured_in_lookbook,duration_min,base_price,vat_rate,active")
     .single();
   if (error) throw error;
 
   if (servicesCache) {
-    servicesCache = { value: [data, ...(servicesCache.value as unknown[])], at: Date.now() };
+    servicesCache = { value: [...(servicesCache.value as unknown[]), data], at: Date.now() };
   }
 
   return data;

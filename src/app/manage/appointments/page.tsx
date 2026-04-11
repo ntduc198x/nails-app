@@ -111,6 +111,28 @@ function rankStatus(status: string) {
   return 5;
 }
 
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500">{children}</label>;
+}
+
+function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={`w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+    />
+  );
+}
+
+function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={`w-full rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+    />
+  );
+}
+
 export default function AppointmentsPage() {
   const now = roundToNextSlot(new Date());
   const [customerName, setCustomerName] = useState("");
@@ -303,144 +325,242 @@ export default function AppointmentsPage() {
 
   return (
     <AppShell>
-      <div className="page-shell">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="page-title">Appointments</h2>
-            {refreshing && <span className="text-xs text-neutral-500">Đang làm mới...</span>}
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Appointments</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+              Quản lý lịch hẹn vận hành theo hướng tối giản: tạo nhanh, lọc nhanh, xử lý trạng thái ngay tại chỗ và giữ focus vào các lịch đang BOOKED / CHECKED_IN.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-500 shadow-sm">
+            {refreshing ? "Đang làm mới..." : `${filteredRows.length} lịch trong bộ lọc hiện tại`}
           </div>
         </div>
 
-        <form onSubmit={onSubmit} className="card space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
-            <input className="input" placeholder="Tên khách" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+        {error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div>
+        ) : null}
 
-            <div className="stack-tight">
-              <select className="input" value={autoTime ? "auto" : "custom"} onChange={(e) => setAutoTime(e.target.value === "auto")}>
-                <option value="auto">Giờ tự động</option>
-                <option value="custom">Tùy chỉnh giờ</option>
-              </select>
-              {!autoTime && <ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} />}
-              <p className="text-xs text-neutral-500">Nếu trùng ghế hoặc trùng thợ, hệ thống sẽ tự cộng thêm 60 phút.</p>
+        <form onSubmit={onSubmit} className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">Tạo / chỉnh lịch hẹn</h3>
+              <p className="mt-1 text-sm text-neutral-500">Nhập nhanh thông tin khách, hệ thống sẽ tự dời slot nếu trùng ghế hoặc trùng thợ.</p>
             </div>
-
-            <div className="stack-tight">
-              <select className="input w-full" value={staffUserId} onChange={(e) => setStaffUserId(e.target.value)} disabled={submitting || role === "TECH"}>
-                <option value="">-- Chọn thợ --</option>
-                {staffOptions.map((s) => <option key={s.userId} value={s.userId}>{s.name}</option>)}
-              </select>
-              <p className="text-xs text-neutral-500">Tên thợ là bắt buộc cho flow vận hành.</p>
-            </div>
-
-            <div className="stack-tight">
-              <select className="input w-full" value={resourceId} onChange={(e) => setResourceId(e.target.value)} disabled={submitting} required>
-                <option value="">-- Chọn số ghế --</option>
-                {resourceOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-              <p className={`text-xs ${currentConflict ? "text-amber-600" : "text-emerald-600"}`}>{currentConflict ? "Đang trùng ghế hoặc thợ, hệ thống sẽ tự dời +60 phút." : "Khung hiện tại đang dùng được."}</p>
-            </div>
+            {currentConflict ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">Có xung đột, sẽ dời giờ</span>
+            ) : (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">Khung giờ hợp lệ</span>
+            )}
           </div>
 
-          <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
-            Rule hiện tại: chỉ cần khác <b>thợ</b> và khác <b>ghế</b> thì được phép trùng giờ. Nếu trùng ghế hoặc trùng thợ, app sẽ tự dời sang giờ kế tiếp.
-          </div>
+          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <FieldLabel>Tên khách</FieldLabel>
+                <TextInput placeholder="Ví dụ: Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+              </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button className="btn btn-primary" disabled={submitting || !staffUserId || !resourceId}>{submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}</button>
-            {editingId && <button type="button" className="btn btn-outline" onClick={resetForm}>Hủy sửa</button>}
+              <div>
+                <FieldLabel>Chế độ thời gian</FieldLabel>
+                <SelectInput value={autoTime ? "auto" : "custom"} onChange={(e) => setAutoTime(e.target.value === "auto")}>
+                  <option value="auto">Giờ tự động</option>
+                  <option value="custom">Tùy chỉnh giờ</option>
+                </SelectInput>
+              </div>
+
+              <div>
+                <FieldLabel>Thợ phụ trách</FieldLabel>
+                <SelectInput value={staffUserId} onChange={(e) => setStaffUserId(e.target.value)} disabled={submitting || role === "TECH"}>
+                  <option value="">-- Chọn thợ --</option>
+                  {staffOptions.map((s) => <option key={s.userId} value={s.userId}>{s.name}</option>)}
+                </SelectInput>
+              </div>
+
+              <div>
+                <FieldLabel>Số ghế</FieldLabel>
+                <SelectInput value={resourceId} onChange={(e) => setResourceId(e.target.value)} disabled={submitting} required>
+                  <option value="">-- Chọn số ghế --</option>
+                  {resourceOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </SelectInput>
+              </div>
+            </div>
+
+            <div className="space-y-4 rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+              {!autoTime ? (
+                <ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} />
+              ) : (
+                <div className="rounded-2xl border border-dashed border-neutral-200 bg-white px-4 py-4 text-sm text-neutral-500">
+                  Hệ thống sẽ tự lấy khung giờ gần nhất phù hợp khi tạo lịch.
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-4 text-sm text-neutral-600">
+                Rule hiện tại: chỉ cần khác <b>thợ</b> và khác <b>ghế</b> thì được phép trùng giờ. Nếu trùng ghế hoặc trùng thợ, app sẽ tự dời sang giờ kế tiếp.
+              </div>
+
+              <div className="flex gap-2">
+                <button className="flex-1 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting || !staffUserId || !resourceId}>
+                  {submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}
+                </button>
+                {editingId && (
+                  <button type="button" className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50" onClick={resetForm}>
+                    Hủy sửa
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </form>
 
-        <div className="card">
-          {error && <p className="mb-3 text-sm text-red-600">Lỗi: {error}</p>}
-          {loading ? (
-            <p className="text-sm text-neutral-500">Đang tải...</p>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th className="py-2">Giờ đặt</th>
-                    <th>Khách</th>
-                    <th>Thợ</th>
-                    <th>Ghế</th>
-                    <th>Trạng thái</th>
-                    <th></th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map((a) => {
-                    const customer = pickCustomerName(a.customers);
-                    const staffName = staffOptions.find((s) => s.userId === a.staff_user_id)?.name ?? "-";
-                    const resourceName = resourceOptions.find((r) => r.id === a.resource_id)?.name ?? "-";
-                    const onlineBooked = isOnlineBooked(a);
-                    return (
-                      <tr key={a.id} className="border-t border-neutral-100">
-                        <td className="py-2">{new Date(a.start_at).toLocaleString("vi-VN")}</td>
-                        <td>
-                          <div className="flex flex-col gap-1">
-                            <span>{customer}</span>
-                            {onlineBooked && <span className="inline-flex w-fit rounded-full bg-violet-100 px-2 py-1 text-[11px] font-medium text-violet-700">BOOKED ONLINE</span>}
-                          </div>
-                        </td>
-                        <td>{staffName}</td>
-                        <td>{resourceName}</td>
-                        <td><span className={`rounded-full px-2 py-1 text-xs font-medium ${statusBadge(a.status)}`}>{a.status}</span></td>
-                        <td>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {a.status === "BOOKED" && (
-                              <>
-                                <button type="button" className="btn btn-outline px-2 py-1 text-xs" onClick={() => {
-                                  setEditingId(a.id);
-                                  setCustomerName(customer);
-                                  setAutoTime(false);
-                                  setBookingAt(toInputValue(new Date(a.start_at)));
-                                  setStaffUserId(a.staff_user_id ?? "");
-                                  setResourceId(a.resource_id ?? "");
-                                }}>Sửa</button>
-                                <button onClick={() => onQuickStatus(a.id, "CHECKED_IN")} className="btn btn-outline px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === a.id ? "Đang xử lý..." : "Check-in"}</button>
-                                <span className="mx-1 h-5 w-px bg-neutral-200" />
-                                <button onClick={() => onQuickStatus(a.id, "CANCELLED")} className="btn btn-outline px-2 py-1 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === a.id ? "Đang xử lý..." : "Hủy"}</button>
-                              </>
-                            )}
-                            {a.status === "CHECKED_IN" && (
-                              <button onClick={() => onQuickStatus(a.id, "CANCELLED")} className="btn btn-outline px-2 py-1 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === a.id ? "Đang xử lý..." : "Cancel"}</button>
-                            )}
-                          </div>
-                        </td>
-                        <td>
-                          {["BOOKED", "CHECKED_IN"].includes(a.status) ? <Link href={`/manage/checkout?customer=${encodeURIComponent(customer)}&appointmentId=${a.id}`} className="btn btn-outline px-2 py-1 text-xs">Open ticket</Link> : <span className="text-xs text-neutral-400">Closed</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Pending checkout</p>
+            <p className="mt-3 text-2xl font-bold text-neutral-900">{pendingCheckoutRows.length}</p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Đang booked</p>
+            <p className="mt-3 text-2xl font-bold text-neutral-900">{activeBookedRows.length}</p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:col-span-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Khoảng đang xem</p>
+            <p className="mt-3 text-base font-semibold text-neutral-900">{filterRange.from.toLocaleDateString("vi-VN")} → {filterRange.to.toLocaleDateString("vi-VN")}</p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Lọc trạng thái</p>
+            <SelectInput className="mt-3" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+              <option value="ALL">Tất cả</option>
+              <option value="BOOKED">BOOKED</option>
+              <option value="CHECKED_IN">CHECKED_IN</option>
+              <option value="DONE">DONE</option>
+              <option value="CANCELLED">CANCELLED</option>
+              <option value="NO_SHOW">NO_SHOW</option>
+            </SelectInput>
+          </div>
         </div>
 
-        <div className="card grid gap-3 md:grid-cols-4">
-          <select className="input" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
-            <option value="day">Trong ngày</option>
-            <option value="week">Trong tuần</option>
-            <option value="month">Trong tháng</option>
-            <option value="custom">Tùy chỉnh</option>
-          </select>
-          <input className="input" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} disabled={rangeMode !== "custom"} />
-          <input className="input" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} disabled={rangeMode !== "custom"} />
-          <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="ALL">Tất cả trạng thái</option>
-            <option value="BOOKED">BOOKED</option>
-            <option value="CHECKED_IN">CHECKED_IN</option>
-            <option value="DONE">DONE</option>
-            <option value="CANCELLED">CANCELLED</option>
-            <option value="NO_SHOW">NO_SHOW</option>
-          </select>
-          <div className="rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600">Pending checkout: <b>{pendingCheckoutRows.length}</b></div>
-          <div className="rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600">Lịch đang BOOKED: <b>{activeBookedRows.length}</b></div>
-          <div className="rounded-lg bg-neutral-50 p-3 text-sm text-neutral-600 md:col-span-2">Đang xem: <b>{filterRange.from.toLocaleDateString("vi-VN")}</b> → <b>{filterRange.to.toLocaleDateString("vi-VN")}</b></div>
+        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="mb-5 grid gap-4 lg:grid-cols-4">
+            <div>
+              <FieldLabel>Khoảng thời gian</FieldLabel>
+              <SelectInput value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+                <option value="day">Trong ngày</option>
+                <option value="week">Trong tuần</option>
+                <option value="month">Trong tháng</option>
+                <option value="custom">Tùy chỉnh</option>
+              </SelectInput>
+            </div>
+            <div>
+              <FieldLabel>Từ ngày</FieldLabel>
+              <TextInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} disabled={rangeMode !== "custom"} />
+            </div>
+            <div>
+              <FieldLabel>Đến ngày</FieldLabel>
+              <TextInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} disabled={rangeMode !== "custom"} />
+            </div>
+            <div className="flex items-end">
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">Lọc nhanh danh sách lịch theo thời gian và trạng thái.</div>
+            </div>
+          </div>
+
+          {loading ? (
+            <p className="text-sm text-neutral-500">Đang tải appointments...</p>
+          ) : filteredRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
+              Chưa có lịch hẹn nào trong bộ lọc hiện tại.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {filteredRows.map((a) => {
+                const customer = pickCustomerName(a.customers);
+                const staffName = staffOptions.find((s) => s.userId === a.staff_user_id)?.name ?? "-";
+                const resourceName = resourceOptions.find((r) => r.id === a.resource_id)?.name ?? "-";
+                const onlineBooked = isOnlineBooked(a);
+                return (
+                  <div key={a.id} className="rounded-3xl border border-neutral-200 bg-neutral-50/70 p-4 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-lg font-semibold text-neutral-900">{customer}</h4>
+                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusBadge(a.status)}`}>{a.status}</span>
+                          {onlineBooked ? <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-700">BOOKED ONLINE</span> : null}
+                        </div>
+                        <p className="mt-1 text-sm text-neutral-500">{new Date(a.start_at).toLocaleString("vi-VN")}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        {a.status === "BOOKED" && (
+                          <>
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+                              onClick={() => {
+                                setEditingId(a.id);
+                                setCustomerName(customer);
+                                setAutoTime(false);
+                                setBookingAt(toInputValue(new Date(a.start_at)));
+                                setStaffUserId(a.staff_user_id ?? "");
+                                setResourceId(a.resource_id ?? "");
+                              }}
+                            >
+                              Sửa
+                            </button>
+                            <button
+                              onClick={() => onQuickStatus(a.id, "CHECKED_IN")}
+                              className="rounded-2xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={!!updatingId}
+                            >
+                              {updatingId === a.id ? "Đang xử lý..." : "Check-in"}
+                            </button>
+                            <button
+                              onClick={() => onQuickStatus(a.id, "CANCELLED")}
+                              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              disabled={!!updatingId}
+                            >
+                              {updatingId === a.id ? "Đang xử lý..." : "Hủy"}
+                            </button>
+                          </>
+                        )}
+                        {a.status === "CHECKED_IN" && (
+                          <button
+                            onClick={() => onQuickStatus(a.id, "CANCELLED")}
+                            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            disabled={!!updatingId}
+                          >
+                            {updatingId === a.id ? "Đang xử lý..." : "Cancel"}
+                          </button>
+                        )}
+                        {[
+                          "BOOKED",
+                          "CHECKED_IN",
+                        ].includes(a.status) ? (
+                          <Link href={`/manage/checkout?customer=${encodeURIComponent(customer)}&appointmentId=${a.id}`} className="rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-600">
+                            Open ticket
+                          </Link>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl bg-white p-4 shadow-sm">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Thợ</p>
+                        <p className="mt-2 text-base font-semibold text-neutral-900">{staffName}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4 shadow-sm">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Ghế</p>
+                        <p className="mt-2 text-base font-semibold text-neutral-900">{resourceName}</p>
+                      </div>
+                      <div className="rounded-2xl bg-white p-4 shadow-sm">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Thời gian</p>
+                        <p className="mt-2 text-base font-semibold text-neutral-900">{new Date(a.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </AppShell>

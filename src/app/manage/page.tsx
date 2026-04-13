@@ -1,6 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav } from "@/components/manage-quick-nav";
 import { ManageStatCard } from "@/components/manage-stat-card";
 import { countNewBookingRequests, listBookingRequests, type BookingRequestRow } from "@/lib/booking-requests";
@@ -143,27 +144,22 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="page-shell space-y-4">
+        <ManageQuickNav
+          items={[
+            { href: "/manage/booking-requests", label: `Yêu cầu đặt lịch${newBookingCount > 0 ? ` (${newBookingCount})` : ""}`, accent: true },
+            { href: "/manage/technician", label: "Bảng kỹ thuật" },
+            { href: "/manage/appointments", label: "Lịch hẹn" },
+            { href: "/manage/checkout", label: "Thanh toán" },
+            { href: "/manage/shifts", label: "Ca làm" },
+          ]}
+        />
+
         <section className="manage-surface">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="page-title">Tổng quan</h2>
-              <p className="page-subtitle">Tổng quan vận hành trong ngày theo logic Techboard.</p>
-            </div>
-            <div className="text-right text-xs text-neutral-500">
-              <p>{lastUpdated ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}` : "Đang tải dữ liệu..."}</p>
-            </div>
-          </div>
-          {error && <p className="mt-2 text-sm text-red-600">Lỗi: {error}</p>}
-          <ManageQuickNav
-            className="mt-4"
-            items={[
-              { href: "/manage/booking-requests", label: `Yêu cầu đặt lịch${newBookingCount > 0 ? ` (${newBookingCount})` : ""}`, accent: true },
-              { href: "/manage/technician", label: "Bảng kỹ thuật" },
-              { href: "/manage/appointments", label: "Lịch hẹn" },
-              { href: "/manage/checkout", label: "Thanh toán" },
-              { href: "/manage/shifts", label: "Ca làm" },
-            ]}
+          <MobileSectionHeader
+            title="Tổng quan"
+            meta={<div className="text-right text-xs text-neutral-500"><p>{lastUpdated ? `Cập nhật lúc ${lastUpdated.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}` : "Đang tải dữ liệu..."}</p></div>}
           />
+          {error && <p className="mt-2 text-sm text-red-600">Lỗi: {error}</p>}
         </section>
 
         <section className="page-grid md:grid-cols-4">

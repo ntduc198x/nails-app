@@ -1,6 +1,8 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
+import { MobileCollapsible, MobileInfoGrid, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav } from "@/components/manage-quick-nav";
 import { ManageStatCard } from "@/components/manage-stat-card";
 import { getCurrentSessionRole, listUserRoles, type AppRole } from "@/lib/auth";
@@ -184,68 +186,67 @@ export default function ShiftsPage() {
     downloadCsv("shifts-report.csv", rows);
   }
 
+  const headerMeta = refreshing ? "Đang làm mới..." : activeEntry ? "Đang trong ca" : `Ca mở: ${openCount}`;
+
   return (
     <AppShell>
-      <div className="page-shell space-y-4">
-        <section className="manage-surface">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="page-title">Ca làm / Chấm công</h2>
-            {refreshing && <span className="text-xs text-neutral-500">Đang làm mới...</span>}
-            <span className="rounded-full bg-neutral-100 px-2 py-1 text-xs text-neutral-700">Ca đang mở: {openCount}</span>
-          </div>
-          <button type="button" className="btn btn-outline" onClick={exportCsv} disabled={loading || filteredEntries.length === 0}>Export CSV</button>
-        </div>
+      <div className="page-shell space-y-4 pb-24 md:pb-0">
+        <ManageQuickNav
+          items={[
+            { href: "/manage/technician", label: "Bảng kỹ thuật", accent: true },
+            { href: "/manage/appointments", label: "Lịch hẹn" },
+            { href: "/manage/checkout", label: "Thanh toán" },
+          ]}
+        />
 
-          <ManageQuickNav
-            className="mt-4"
-            items={[
-              { href: "/manage/technician", label: "Bảng kỹ thuật" },
-              { href: "/manage/appointments", label: "Lịch hẹn" },
-              { href: "/manage/checkout", label: "Thanh toán" },
-            ]}
-          />
-        </section>
+        <MobileSectionHeader title="Ca làm / Chấm công" meta={<div className="manage-info-box">{headerMeta}</div>} />
+
+        {error ? <ManageAlert tone="error">Lỗi: {error}</ManageAlert> : null}
 
         {canUse ? (
-          <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-            <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm text-neutral-600">
-              {role === "OWNER" ? (
-                <>
-                  <p className="font-medium text-neutral-900">Trang này dùng để theo dõi dữ liệu chấm công vận hành.</p>
-                  <p className="mt-1">OWNER có thể xem báo cáo ca làm của đội ngũ, lọc dữ liệu theo nhân sự và vai trò, rồi export CSV khi cần.</p>
-                </>
-              ) : activeEntry ? (
-                <>
-                  <p className="font-medium text-neutral-900">Anh đang trong ca làm.</p>
-                  <p className="mt-1">Bắt đầu: {new Date(activeEntry.clock_in).toLocaleString("vi-VN")}</p>
-                  <p className="mt-1">Thời lượng hiện tại: {formatDuration(activeEntry.clock_in, null)}</p>
-                  <p className="mt-2 text-xs text-neutral-500">Khung giờ làm chuẩn là 09:00–21:00. Trường hợp ngày lễ hoặc phát sinh thực tế vẫn có thể clock out muộn hơn.</p>
-                </>
-              ) : (
-                <>
-                  <p className="font-medium text-neutral-900">Hiện chưa có ca mở.</p>
-                  <p className="mt-1">Khung giờ làm chuẩn là 09:00–21:00. Ngày lễ hoặc ca phát sinh vẫn có thể clock in sớm hay clock out muộn khi cần.</p>
-                </>
-              )}
+          <section className="manage-surface space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-neutral-900">Trạng thái ca hiện tại</h3>
+                <p className="mt-1 text-sm text-neutral-500">Thợ chỉ cần quan tâm mình đã mở ca chưa, đang trong ca hay đã đóng ca.</p>
+              </div>
+              <div className={`rounded-2xl px-4 py-3 text-sm font-medium ${activeEntry ? "border border-emerald-200 bg-emerald-50 text-emerald-800" : "border border-neutral-200 bg-neutral-50 text-neutral-700"}`}>
+                {activeEntry ? "Đang trong ca" : "Chưa mở ca"}
+              </div>
             </div>
-            <button onClick={clockIn} disabled={role === "OWNER" || submitting || Boolean(activeEntry)} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Mở ca"}</button>
-            <button onClick={clockOut} disabled={role === "OWNER" || submitting || !activeEntry} className="btn btn-outline disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Đóng ca"}</button>
-          </div>
+
+            <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 text-sm text-neutral-600">
+                {role === "OWNER" ? (
+                  <p className="font-medium text-neutral-900">Theo dõi ca làm của đội ngũ.</p>
+                ) : activeEntry ? (
+                  <>
+                    <p className="font-medium text-neutral-900">Đang trong ca.</p>
+                    <p className="mt-1">Bắt đầu: {new Date(activeEntry.clock_in).toLocaleString("vi-VN")}</p>
+                    <p className="mt-1">Thời lượng: {formatDuration(activeEntry.clock_in, null)}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-neutral-900">Chưa có ca mở.</p>
+                    <p className="mt-1">Có thể mở ca ngay khi bắt đầu làm việc.</p>
+                  </>
+                )}
+              </div>
+              <button onClick={clockIn} disabled={role === "OWNER" || submitting || Boolean(activeEntry)} className="btn btn-primary disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Mở ca"}</button>
+              <button onClick={clockOut} disabled={role === "OWNER" || submitting || !activeEntry} className="btn btn-outline disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Đóng ca"}</button>
+            </div>
+          </section>
         ) : <p className="text-sm text-amber-700">Vai trò hiện tại không được chấm công.</p>}
 
-        <div className="grid gap-3 md:grid-cols-3">
-          <ManageStatCard label="Tổng ca theo bộ lọc" value={filteredEntries.length} />
+        <MobileInfoGrid>
+          <ManageStatCard label="Tổng ca" value={filteredEntries.length} />
           <ManageStatCard label="Tổng thời lượng" value={`${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`} />
           <ManageStatCard label="Nhân sự hiển thị" value={new Set(filteredEntries.map((e) => e.staff_user_id)).size} />
-        </div>
+        </MobileInfoGrid>
 
         {canManageView && (
-          <div className="card space-y-3">
-            <div>
-              <h3 className="font-semibold">Bộ lọc nhanh</h3>
-              <p className="text-sm text-neutral-500">Trang này dùng để quản lý ca làm và chấm công: theo dõi ai đang trong ca, lịch sử clock in / clock out, lọc theo nhân sự và vai trò, rồi xuất báo cáo CSV khi cần.</p>
-            </div>
+          <section className="card space-y-3">
+            <h3 className="font-semibold">Bộ lọc</h3>
             <div className="grid gap-3 md:grid-cols-2">
               <select className="input" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
                 <option value="ALL">Tất cả nhân sự</option>
@@ -256,25 +257,61 @@ export default function ShiftsPage() {
                 {roleOptions.map((value) => <option key={value} value={value}>{value}</option>)}
               </select>
             </div>
-          </div>
+          </section>
         )}
 
-        <div className="card">
-          {error && <p className="mb-3 text-sm text-red-600">Lỗi: {error}</p>}
+        <section className="card space-y-3 hidden md:block">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="font-semibold">Danh sách ca</h3>
+            <button type="button" className="btn btn-outline" onClick={exportCsv} disabled={loading || filteredEntries.length === 0}>Export CSV</button>
+          </div>
           {loading ? <p className="text-sm text-neutral-500">Đang tải...</p> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="text-neutral-500"><tr><th className="py-2">Nhân sự</th><th>Vai trò</th><th>Mở ca</th><th>Đóng ca</th><th>Thời lượng</th><th>Trạng thái</th></tr></thead>
-                <tbody>
-                  {filteredEntries.map((e) => {
-                    const member = memberMap.get(e.staff_user_id);
-                    return <tr key={e.id} className="border-t border-neutral-100"><td className="py-2">{member?.name ?? e.staff_user_id}</td><td>{member?.role ?? "-"}</td><td>{new Date(e.clock_in).toLocaleString("vi-VN")}</td><td>{e.clock_out ? new Date(e.clock_out).toLocaleString("vi-VN") : "-"}</td><td>{formatDuration(e.clock_in, e.clock_out)}</td><td><span className={`rounded-full px-2 py-1 text-xs ${e.clock_out ? "bg-neutral-100 text-neutral-700" : "bg-emerald-100 text-emerald-700"}`}>{e.clock_out ? "Đã đóng ca" : "Đang làm"}</span></td></tr>;
-                  })}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {filteredEntries.map((e) => {
+                const member = memberMap.get(e.staff_user_id);
+                return (
+                  <div key={e.id} className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="font-semibold text-neutral-900">{member?.name ?? e.staff_user_id}</p>
+                        <p className="text-sm text-neutral-500">{member?.role ?? "-"}</p>
+                      </div>
+                      <span className={`w-fit rounded-full px-3 py-1 text-xs ${e.clock_out ? "bg-neutral-100 text-neutral-700" : "bg-emerald-100 text-emerald-700"}`}>{e.clock_out ? "Đã đóng ca" : "Đang làm"}</span>
+                    </div>
+                    <div className="mt-3 grid gap-2 text-sm text-neutral-600 sm:grid-cols-2 lg:grid-cols-3">
+                      <div className="rounded-2xl bg-neutral-50 px-3 py-2">Mở ca: <span className="font-medium text-neutral-900">{new Date(e.clock_in).toLocaleString("vi-VN")}</span></div>
+                      <div className="rounded-2xl bg-neutral-50 px-3 py-2">Đóng ca: <span className="font-medium text-neutral-900">{e.clock_out ? new Date(e.clock_out).toLocaleString("vi-VN") : "-"}</span></div>
+                      <div className="rounded-2xl bg-neutral-50 px-3 py-2">Thời lượng: <span className="font-medium text-neutral-900">{formatDuration(e.clock_in, e.clock_out)}</span></div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-        </div>
+        </section>
+
+        <MobileCollapsible summary="Xem lịch sử ca" defaultOpen={false}>
+          {loading ? <p className="text-sm text-neutral-500">Đang tải...</p> : (
+            <div className="space-y-3">
+              {filteredEntries.slice(0, 10).map((e) => {
+                const member = memberMap.get(e.staff_user_id);
+                return (
+                  <div key={`mobile-${e.id}`} className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+                    <p className="font-semibold text-neutral-900">{member?.name ?? e.staff_user_id}</p>
+                    <p className="mt-1 text-sm text-neutral-500">{formatDuration(e.clock_in, e.clock_out)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </MobileCollapsible>
+
+        {!canManageView && canUse ? (
+          <MobileStickyActions>
+            <button onClick={clockIn} disabled={submitting || Boolean(activeEntry)} className="flex-1 btn btn-primary py-3 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Mở ca"}</button>
+            <button onClick={clockOut} disabled={submitting || !activeEntry} className="flex-1 btn btn-outline py-3 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? "Đang xử lý..." : "Đóng ca"}</button>
+          </MobileStickyActions>
+        ) : null}
       </div>
     </AppShell>
   );

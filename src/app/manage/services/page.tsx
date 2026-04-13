@@ -202,9 +202,6 @@ export default function ServicesPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Dịch vụ & Lookbook</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-              Quản lý dịch vụ vận hành, VAT, mô tả hiển thị ngoài landing page và ảnh lookbook. Dữ liệu ở đây là nguồn chuẩn để đồng bộ dịch vụ nổi bật lên landing.
-            </p>
           </div>
           <div className="manage-info-box">
             {refreshing ? "Đang làm mới dữ liệu..." : `${rows.length} dịch vụ trong hệ thống`}
@@ -227,7 +224,6 @@ export default function ServicesPage() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Thêm dịch vụ mới</h3>
-              <p className="mt-1 text-sm text-neutral-500">Thiết lập dữ liệu vận hành và chọn dịch vụ nào được đưa lên lookbook ngoài landing.</p>
             </div>
             <div className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-600">VAT mặc định 0%</div>
           </div>
@@ -311,7 +307,6 @@ export default function ServicesPage() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Danh sách dịch vụ</h3>
-              <p className="mt-1 text-sm text-neutral-500">Chỉnh sửa dữ liệu dịch vụ, ảnh lookbook và cờ nổi bật cho landing page.</p>
             </div>
           </div>
 

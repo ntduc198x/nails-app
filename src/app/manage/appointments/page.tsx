@@ -1,13 +1,16 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
 import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-datetime-picker";
+import { MobileCollapsible, MobileInfoGrid, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav } from "@/components/manage-quick-nav";
+import { ManageStatCard } from "@/components/manage-stat-card";
 import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type AppointmentRow = {
   id: string;
@@ -134,6 +137,87 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   );
 }
 
+function AppointmentCard({
+  row,
+  staffName,
+  resourceName,
+  onlineBooked,
+  updatingId,
+  onEdit,
+  onQuickStatus,
+}: {
+  row: AppointmentRow;
+  staffName: string;
+  resourceName: string;
+  onlineBooked: boolean;
+  updatingId: string | null;
+  onEdit: () => void;
+  onQuickStatus: (id: string, status: "CHECKED_IN" | "CANCELLED") => Promise<void>;
+}) {
+  const customer = pickCustomerName(row.customers);
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className="text-sm font-semibold text-neutral-900">{customer}</h4>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge(row.status)}`}>{row.status}</span>
+            {onlineBooked ? <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-medium text-violet-700">ONLINE</span> : null}
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">{new Date(row.start_at).toLocaleString("vi-VN")} · {staffName} · {resourceName}</p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {row.status === "BOOKED" && (
+            <>
+              <button
+                type="button"
+                className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+                onClick={onEdit}
+              >
+                Sửa
+              </button>
+              <button
+                onClick={() => void onQuickStatus(row.id, "CHECKED_IN")}
+                className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!!updatingId}
+              >
+                {updatingId === row.id ? "Đang xử lý..." : "Check-in"}
+              </button>
+              <button
+                onClick={() => void onQuickStatus(row.id, "CANCELLED")}
+                className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!!updatingId}
+              >
+                {updatingId === row.id ? "Đang xử lý..." : "Hủy"}
+              </button>
+            </>
+          )}
+          {row.status === "CHECKED_IN" && (
+            <button
+              onClick={() => void onQuickStatus(row.id, "CANCELLED")}
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!!updatingId}
+            >
+              {updatingId === row.id ? "Đang xử lý..." : "Cancel"}
+            </button>
+          )}
+          {row.status === "CHECKED_IN" ? (
+            <Link href={`/manage/checkout?customer=${encodeURIComponent(customer)}&appointmentId=${row.id}`} className="rounded-xl bg-rose-500 px-3 py-2 text-sm font-semibold text-white transition hover:bg-rose-600">
+              Mở phiếu
+            </Link>
+          ) : row.status === "BOOKED" ? (
+            <span className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-700">
+              Cần check-in
+            </span>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AppointmentsPage() {
   const now = roundToNextSlot(new Date());
   const [customerName, setCustomerName] = useState("");
@@ -157,6 +241,7 @@ export default function AppointmentsPage() {
   const [toDate, setToDate] = useState(toDateInputValue(now));
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async (opts?: { force?: boolean }) => {
     const isInitial = rows.length === 0;
@@ -209,16 +294,20 @@ export default function AppointmentsPage() {
   const filteredRows = useMemo(() => {
     const bookedRows = scopedRows.filter((r) => r.status === "BOOKED");
     const rangedNonBookedRows = scopedRows.filter((r) => {
-      if (r.status === "BOOKED") return false;
+      if (r.status === "BOOKED" || r.status === "CHECKED_IN") return false;
       const d = new Date(r.start_at).getTime();
       return d >= filterRange.from.getTime() && d <= filterRange.to.getTime();
     });
 
+    const checkedInRows = scopedRows.filter((r) => r.status === "CHECKED_IN");
+
     const merged = statusFilter === "ALL"
-      ? [...bookedRows, ...rangedNonBookedRows]
+      ? [...bookedRows, ...checkedInRows, ...rangedNonBookedRows]
       : statusFilter === "BOOKED"
         ? bookedRows
-        : rangedNonBookedRows.filter((r) => r.status === statusFilter);
+        : statusFilter === "CHECKED_IN"
+          ? checkedInRows
+          : rangedNonBookedRows.filter((r) => r.status === statusFilter);
 
     return [...merged].sort((a, b) => {
       const byRank = rankStatus(a.status) - rankStatus(b.status);
@@ -302,8 +391,13 @@ export default function AppointmentsPage() {
         staffUserId: targetStaffUserId || null,
         resourceId: resolved.resourceId,
       });
+      setStatusFilter("ALL");
+      setRangeMode("day");
       resetForm();
       await load({ force: true });
+      requestAnimationFrame(() => {
+        listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tạo lịch hẹn thất bại");
     } finally {
@@ -324,45 +418,112 @@ export default function AppointmentsPage() {
     }
   }
 
+  const nextActionLabel = activeBookedRows.length > 0
+    ? `Có ${activeBookedRows.length} lịch đang chờ check-in`
+    : pendingCheckoutRows.length > 0
+      ? `Có ${pendingCheckoutRows.length} lịch sẵn sàng mở phiếu`
+      : "Không có lịch cần xử lý gấp";
+
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Lịch hẹn</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-              Quản lý lịch hẹn vận hành theo hướng tối giản: tạo nhanh, lọc nhanh, xử lý trạng thái ngay tại chỗ và giữ focus vào các lịch đang BOOKED / CHECKED_IN.
-            </p>
-          </div>
-          <div className="manage-info-box">
-            {refreshing ? "Đang làm mới..." : `${filteredRows.length} lịch trong bộ lọc hiện tại`}
-          </div>
-        </div>
-
-        {error ? (
-          <div className="manage-error-box">{error}</div>
-        ) : null}
-
+      <div className="space-y-6 pb-24 md:pb-0">
         <ManageQuickNav items={[
-          { href: "/manage/technician", label: "Bảng kỹ thuật" },
+          { href: "/manage/technician", label: "Bảng kỹ thuật", accent: true },
           { href: "/manage/checkout", label: "Thanh toán" },
           { href: "/manage/shifts", label: "Ca làm" },
         ]} />
 
-        <form onSubmit={onSubmit} className="manage-surface md:p-6">
-          <div className="mb-5 flex items-center justify-between gap-3">
+        <MobileSectionHeader
+          title="Lịch hẹn"
+          meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : nextActionLabel}</div>}
+        />
+
+        {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
+
+        <section className="manage-surface">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">Ưu tiên thao tác</h3>
+              <p className="mt-1 text-sm text-neutral-500">TECH nên ưu tiên lịch đang chờ check-in, chỉ vào đây khi cần tạo mới hoặc chỉnh lịch.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("BOOKED");
+                  requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                }}
+                className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm font-medium text-amber-800 transition hover:bg-amber-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2"
+              >
+                Chờ check-in: <b>{activeBookedRows.length}</b>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("CHECKED_IN");
+                  requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                }}
+                className="cursor-pointer rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-800 transition hover:bg-blue-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+              >
+                Chờ thanh toán: <b>{pendingCheckoutRows.length}</b>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <MobileCollapsible
+          summary={editingId ? <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">Đang sửa lịch, mở form</span> : <span className="inline-flex items-center rounded-full bg-[var(--color-primary)] px-3 py-1 text-sm font-semibold text-white shadow-sm">Tạo lịch nhanh</span>}
+          defaultOpen={Boolean(editingId)}
+        >
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <h3 className="text-base font-semibold text-neutral-900">Tạo / chỉnh lịch hẹn</h3>
+              {currentConflict ? (
+                <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">Có xung đột</span>
+              ) : (
+                <span className="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">Khung giờ hợp lệ</span>
+              )}
+            </div>
+
+            <form onSubmit={onSubmit} className="grid gap-3">
+              <div>
+                <FieldLabel>Tên khách</FieldLabel>
+                <TextInput placeholder="Ví dụ: Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <FieldLabel>Giờ</FieldLabel>
+                  <SelectInput value={autoTime ? "auto" : "custom"} onChange={(e) => setAutoTime(e.target.value === "auto")}>
+                    <option value="auto">Tự động</option>
+                    <option value="custom">Tùy chỉnh</option>
+                  </SelectInput>
+                </div>
+                <div>
+                  <FieldLabel>Ghế</FieldLabel>
+                  <SelectInput value={resourceId} onChange={(e) => setResourceId(e.target.value)} disabled={submitting} required>
+                    <option value="">-- Chọn ghế --</option>
+                    {resourceOptions.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </SelectInput>
+                </div>
+              </div>
+              {!autoTime ? <ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} /> : null}
+            </form>
+          </div>
+        </MobileCollapsible>
+
+        <section className="manage-surface md:p-6 hidden md:block">
+          <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Tạo / chỉnh lịch hẹn</h3>
-              <p className="mt-1 text-sm text-neutral-500">Nhập nhanh thông tin khách, hệ thống sẽ tự dời slot nếu trùng ghế hoặc trùng thợ.</p>
             </div>
             {currentConflict ? (
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">Có xung đột, sẽ dời giờ</span>
+              <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">Có xung đột, sẽ dời giờ</span>
             ) : (
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">Khung giờ hợp lệ</span>
+              <span className="w-fit rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700">Khung giờ hợp lệ</span>
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <form onSubmit={onSubmit} className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <FieldLabel>Tên khách</FieldLabel>
@@ -399,15 +560,15 @@ export default function AppointmentsPage() {
                 <ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} />
               ) : (
                 <div className="rounded-2xl border border-dashed border-neutral-200 bg-white px-4 py-4 text-sm text-neutral-500">
-                  Hệ thống sẽ tự lấy khung giờ gần nhất phù hợp khi tạo lịch.
+                  Tự lấy khung giờ gần nhất phù hợp.
                 </div>
               )}
 
               <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-4 text-sm text-neutral-600">
-                Rule hiện tại: chỉ cần khác <b>thợ</b> và khác <b>ghế</b> thì được phép trùng giờ. Nếu trùng ghế hoặc trùng thợ, app sẽ tự dời sang giờ kế tiếp.
+                Nếu trùng ghế hoặc trùng thợ, app sẽ tự dời sang giờ kế tiếp.
               </div>
 
-              <div className="flex gap-2">
+              <div className="hidden gap-2 md:flex">
                 <button className="flex-1 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting || !staffUserId || !resourceId}>
                   {submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}
                 </button>
@@ -418,24 +579,14 @@ export default function AppointmentsPage() {
                 )}
               </div>
             </div>
-          </div>
-        </form>
+          </form>
+        </section>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <div className="manage-stat-card">
-            <p className="manage-stat-label">Chờ thanh toán</p>
-            <p className="mt-3 text-2xl font-bold text-neutral-900">{pendingCheckoutRows.length}</p>
-          </div>
-          <div className="manage-stat-card">
-            <p className="manage-stat-label">Đang booked</p>
-            <p className="mt-3 text-2xl font-bold text-neutral-900">{activeBookedRows.length}</p>
-          </div>
-          <div className="manage-stat-card md:col-span-2">
-            <p className="manage-stat-label">Khoảng đang xem</p>
-            <p className="mt-3 text-base font-semibold text-neutral-900">{filterRange.from.toLocaleDateString("vi-VN")} → {filterRange.to.toLocaleDateString("vi-VN")}</p>
-          </div>
-          <div className="manage-stat-card">
-            <p className="manage-stat-label">Lọc trạng thái</p>
+        <MobileInfoGrid>
+          <ManageStatCard label="Chờ thanh toán" value={pendingCheckoutRows.length} />
+          <ManageStatCard label="Đang booked" value={activeBookedRows.length} />
+          <div className="manage-stat-card hidden md:block sm:col-span-2 lg:col-span-1">
+            <p className="manage-stat-label">Trạng thái</p>
             <SelectInput className="mt-3" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="ALL">Tất cả</option>
               <option value="BOOKED">BOOKED</option>
@@ -445,10 +596,39 @@ export default function AppointmentsPage() {
               <option value="NO_SHOW">NO_SHOW</option>
             </SelectInput>
           </div>
-        </div>
+        </MobileInfoGrid>
 
-        <div className="manage-surface md:p-6">
-          <div className="mb-5 grid gap-4 lg:grid-cols-4">
+        <MobileCollapsible summary="Mở bộ lọc lịch" defaultOpen={false}>
+          <div className="grid gap-3">
+            <div>
+              <FieldLabel>Trạng thái</FieldLabel>
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+                <option value="ALL">Tất cả</option>
+                <option value="BOOKED">BOOKED</option>
+                <option value="CHECKED_IN">CHECKED_IN</option>
+                <option value="DONE">DONE</option>
+                <option value="CANCELLED">CANCELLED</option>
+                <option value="NO_SHOW">NO_SHOW</option>
+              </SelectInput>
+            </div>
+            <div>
+              <FieldLabel>Khoảng thời gian</FieldLabel>
+              <SelectInput value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+                <option value="day">Trong ngày</option>
+                <option value="week">Trong tuần</option>
+                <option value="month">Trong tháng</option>
+                <option value="custom">Tùy chỉnh</option>
+              </SelectInput>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <TextInput type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} disabled={rangeMode !== "custom"} />
+              <TextInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} disabled={rangeMode !== "custom"} />
+            </div>
+          </div>
+        </MobileCollapsible>
+
+        <section ref={listRef} className="manage-surface md:p-6">
+          <div className="mb-5 hidden gap-4 lg:grid-cols-4 md:grid">
             <div>
               <FieldLabel>Khoảng thời gian</FieldLabel>
               <SelectInput value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
@@ -466,8 +646,8 @@ export default function AppointmentsPage() {
               <FieldLabel>Đến ngày</FieldLabel>
               <TextInput type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} disabled={rangeMode !== "custom"} />
             </div>
-            <div className="flex items-end">
-              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">Lọc nhanh danh sách lịch theo thời gian và trạng thái.</div>
+            <div className="hidden md:flex items-end">
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">{`${filterRange.from.toLocaleDateString("vi-VN")} → ${filterRange.to.toLocaleDateString("vi-VN")}`}</div>
             </div>
           </div>
 
@@ -485,90 +665,51 @@ export default function AppointmentsPage() {
                 const resourceName = resourceOptions.find((r) => r.id === a.resource_id)?.name ?? "-";
                 const onlineBooked = isOnlineBooked(a);
                 return (
-                  <div key={a.id} className="manage-surface-muted">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-lg font-semibold text-neutral-900">{customer}</h4>
-                          <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusBadge(a.status)}`}>{a.status}</span>
-                          {onlineBooked ? <span className="rounded-full bg-violet-100 px-2.5 py-1 text-[11px] font-semibold text-violet-700">BOOKED ONLINE</span> : null}
-                        </div>
-                        <p className="mt-1 text-sm text-neutral-500">{new Date(a.start_at).toLocaleString("vi-VN")}</p>
-                      </div>
-
-                      <div className="flex flex-wrap gap-2">
-                        {a.status === "BOOKED" && (
-                          <>
-                            <button
-                              type="button"
-                              className="rounded-2xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
-                              onClick={() => {
-                                setEditingId(a.id);
-                                setCustomerName(customer);
-                                setAutoTime(false);
-                                setBookingAt(toInputValue(new Date(a.start_at)));
-                                setStaffUserId(a.staff_user_id ?? "");
-                                setResourceId(a.resource_id ?? "");
-                              }}
-                            >
-                              Sửa
-                            </button>
-                            <button
-                              onClick={() => onQuickStatus(a.id, "CHECKED_IN")}
-                              className="rounded-2xl border border-neutral-200 bg-white px-4 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={!!updatingId}
-                            >
-                              {updatingId === a.id ? "Đang xử lý..." : "Check-in"}
-                            </button>
-                            <button
-                              onClick={() => onQuickStatus(a.id, "CANCELLED")}
-                              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              disabled={!!updatingId}
-                            >
-                              {updatingId === a.id ? "Đang xử lý..." : "Hủy"}
-                            </button>
-                          </>
-                        )}
-                        {a.status === "CHECKED_IN" && (
-                          <button
-                            onClick={() => onQuickStatus(a.id, "CANCELLED")}
-                            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            disabled={!!updatingId}
-                          >
-                            {updatingId === a.id ? "Đang xử lý..." : "Cancel"}
-                          </button>
-                        )}
-                        {[
-                          "BOOKED",
-                          "CHECKED_IN",
-                        ].includes(a.status) ? (
-                          <Link href={`/manage/checkout?customer=${encodeURIComponent(customer)}&appointmentId=${a.id}`} className="rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-600">
-                            Mở phiếu thanh toán
-                          </Link>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-2xl bg-white p-4 shadow-sm">
-                        <p className="manage-stat-label">Thợ</p>
-                        <p className="mt-2 text-base font-semibold text-neutral-900">{staffName}</p>
-                      </div>
-                      <div className="rounded-2xl bg-white p-4 shadow-sm">
-                        <p className="manage-stat-label">Ghế</p>
-                        <p className="mt-2 text-base font-semibold text-neutral-900">{resourceName}</p>
-                      </div>
-                      <div className="rounded-2xl bg-white p-4 shadow-sm">
-                        <p className="manage-stat-label">Thời gian</p>
-                        <p className="mt-2 text-base font-semibold text-neutral-900">{new Date(a.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</p>
-                      </div>
-                    </div>
-                  </div>
+                  <AppointmentCard
+                    key={a.id}
+                    row={a}
+                    staffName={staffName}
+                    resourceName={resourceName}
+                    onlineBooked={onlineBooked}
+                    updatingId={updatingId}
+                    onEdit={() => {
+                      setEditingId(a.id);
+                      setCustomerName(customer);
+                      setAutoTime(false);
+                      setBookingAt(toInputValue(new Date(a.start_at)));
+                      setStaffUserId(a.staff_user_id ?? "");
+                      setResourceId(a.resource_id ?? "");
+                    }}
+                    onQuickStatus={onQuickStatus}
+                  />
                 );
               })}
             </div>
           )}
-        </div>
+        </section>
+
+        <MobileStickyActions>
+          <button
+            type="button"
+            onClick={() => {
+              const form = document.querySelector("form");
+              if (form instanceof HTMLFormElement) form.requestSubmit();
+            }}
+            className="flex-1 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={submitting || !staffUserId || !resourceId}
+          >
+            {submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}
+          </button>
+          {editingId ? (
+            <button
+              type="button"
+              className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50"
+              onClick={resetForm}
+            >
+              Hủy
+            </button>
+          ) : null}
+        </MobileStickyActions>
       </div>
     </AppShell>
   );

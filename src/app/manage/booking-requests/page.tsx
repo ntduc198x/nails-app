@@ -1,7 +1,10 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
 import { ManageDateTimePicker } from "@/components/manage-datetime-picker";
+import { MobileSectionHeader } from "@/components/manage-mobile";
+import { ManageQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import {
   BookingRequestRow,
@@ -266,20 +269,20 @@ export default function BookingRequestsPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Yêu cầu đặt lịch</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-              Giao diện xử lý theo kiểu inbox vận hành: request mới và request cần dời lịch được gom thành hàng chờ, mở ra xử lý từng case một.
-            </p>
-          </div>
-          <div className="manage-info-box">
-            {refreshing ? "Đang làm mới..." : `${rows.length} request cần xử lý`}
-          </div>
-        </div>
+        <ManageQuickNav items={[
+          { href: "/manage/technician", label: "Bảng kỹ thuật", accent: true },
+          { href: "/manage/appointments", label: "Lịch hẹn" },
+          { href: "/manage/checkout", label: "Thanh toán" },
+          { href: "/manage/shifts", label: "Ca làm" },
+        ]} />
+
+        <MobileSectionHeader
+          title="Yêu cầu đặt lịch"
+          meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : `${rows.length} request cần xử lý`}</div>}
+        />
 
         {error ? (
-          <div className="manage-error-box">{error}</div>
+          <ManageAlert tone="error">{error}</ManageAlert>
         ) : null}
 
         <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">

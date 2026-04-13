@@ -1,6 +1,9 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
+import { MobileSectionHeader } from "@/components/manage-mobile";
+import { ManageQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createResource, listResources, updateResource } from "@/lib/domain";
 import { useEffect, useState } from "react";
@@ -104,22 +107,23 @@ export default function ResourcesPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <div>
-          <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Tài nguyên / Ghế bàn</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-            Quản lý ghế, bàn và phòng phục vụ vận hành. Bật/tắt nhanh resource và chỉnh loại để hệ thống phân bổ lịch hẹn chính xác hơn.
-          </p>
-        </div>
+        <ManageQuickNav items={[
+          { href: "/manage/technician", label: "Bảng kỹ thuật", accent: true },
+          { href: "/manage/appointments", label: "Lịch hẹn" },
+          { href: "/manage/checkout", label: "Thanh toán" },
+          { href: "/manage/shifts", label: "Ca làm" },
+        ]} />
+
+        <MobileSectionHeader title="Tài nguyên / Ghế bàn" meta={<div className="manage-info-box">{rows.length} tài nguyên</div>} />
 
         {error ? (
-          <div className="manage-error-box">{error}</div>
+          <ManageAlert tone="error">{error}</ManageAlert>
         ) : null}
 
         <form onSubmit={onSubmit} className="manage-surface md:p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Thêm tài nguyên mới</h3>
-              <p className="mt-1 text-sm text-neutral-500">Tạo nhanh ghế, bàn hoặc phòng để dùng trong điều phối lịch.</p>
             </div>
             <div className="rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-600">{rows.length} tài nguyên</div>
           </div>
@@ -147,7 +151,6 @@ export default function ResourcesPage() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Danh sách tài nguyên</h3>
-              <p className="mt-1 text-sm text-neutral-500">Chỉnh sửa trực tiếp tên, loại và trạng thái hoạt động.</p>
             </div>
           </div>
 

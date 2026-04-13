@@ -192,7 +192,6 @@ export default function TaxBooksPage() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div className="space-y-1">
               <h2 className="page-title">Sổ thuế HKD - Mẫu S1a</h2>
-              <p className="page-subtitle">Nạp dữ liệu doanh thu, điền thông tin hộ kinh doanh và xuất file nộp thuế ngay trên cùng màn hình.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button className="btn btn-outline" onClick={load}>Nạp dữ liệu</button>

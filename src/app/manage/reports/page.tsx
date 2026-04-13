@@ -265,7 +265,6 @@ export default function ReportsPage() {
                 <h2 className="page-title">Báo cáo</h2>
                 {refreshing && <span className="badge-soft">Đang làm mới...</span>}
               </div>
-              <p className="page-subtitle">Tổng quan doanh thu, hiệu suất nhân sự và breakdown ticket trong cùng một màn hình.</p>
             </div>
             <button className="btn btn-primary" onClick={exportExcel}>Xuất Excel</button>
           </div>

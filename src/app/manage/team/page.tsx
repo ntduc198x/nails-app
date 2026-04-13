@@ -134,9 +134,6 @@ export default function TeamPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-3xl font-extrabold tracking-tight text-neutral-900">Nhân sự & Role</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-              Quản lý tên hiển thị và vai trò của từng thành viên trong hệ thống. Chỉ OWNER mới được cập nhật vai trò và thao tác quản trị nhạy cảm, các vai trò khác chỉ xem dữ liệu.
-            </p>
           </div>
           <div className="manage-info-box">
             Role hiện tại: <b className="text-neutral-900">{myRole}</b>
@@ -161,7 +158,6 @@ export default function TeamPage() {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-neutral-900">Mã mời nhân sự</h3>
-                <p className="mt-1 text-sm text-neutral-500">Mỗi mã chỉ dùng 1 lần, hiệu lực 15 phút. Vai trò mặc định là Kỹ thuật viên.</p>
               </div>
             </div>
 
@@ -211,7 +207,6 @@ export default function TeamPage() {
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-neutral-900">Danh sách nhân sự</h3>
-              <p className="mt-1 text-sm text-neutral-500">Chỉnh tên hiển thị và role trực tiếp trong từng thẻ nhân sự.</p>
             </div>
             {!canManage ? (
               <div className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">Chế độ chỉ xem</div>

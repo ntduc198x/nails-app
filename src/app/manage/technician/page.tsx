@@ -1,6 +1,10 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
+import { MobileCollapsible, MobileInfoGrid, MobileSectionHeader } from "@/components/manage-mobile";
+import { ManageQuickNav } from "@/components/manage-quick-nav";
+import { ManageStatCard } from "@/components/manage-stat-card";
 import { getCurrentSessionRole } from "@/lib/auth";
 import { ensureOrgContext, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
@@ -8,6 +12,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type RangeMode = "day" | "week" | "month";
+type StatusFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE";
 
 type AppointmentRow = {
   id: string;
@@ -22,6 +27,14 @@ type AppointmentRow = {
 type ResourceRow = { id: string; name: string };
 type StaffRow = { user_id: string; display_name: string };
 type OpenTicketRow = { id: string; appointment_id: string | null; status: string };
+
+type QueueCardProps = {
+  row: AppointmentRow;
+  actingId: string | null;
+  resourceName: (id: string | null) => string;
+  onAdvanceStatus: (row: AppointmentRow) => Promise<void>;
+  openTicketId?: string | null;
+};
 
 function startOfDay(date: Date) {
   const d = new Date(date);
@@ -69,6 +82,95 @@ function statusTone(status: string) {
   return "bg-neutral-100 text-neutral-600";
 }
 
+function formatTimeRange(startAt: string, endAt: string) {
+  return `${new Date(startAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })} - ${new Date(endAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function QueueCard({ row, actingId, resourceName, onAdvanceStatus, openTicketId }: QueueCardProps) {
+  const customerName = pickCustomerName(row.customers);
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-neutral-900">{customerName}</p>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${statusTone(row.status)}`}>{row.status}</span>
+          </div>
+          <p className="mt-1 text-xs text-neutral-500">{formatTimeRange(row.start_at, row.end_at)} · {resourceName(row.resource_id)} · {openTicketId ? "Có phiếu" : "Chưa có phiếu"}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {row.status === "BOOKED" ? (
+          <button
+            className="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={actingId === row.id}
+            onClick={() => void onAdvanceStatus(row)}
+          >
+            {actingId === row.id ? "Đang xử lý..." : "Check-in ngay"}
+          </button>
+        ) : null}
+        {row.status === "CHECKED_IN" ? (
+          <Link
+            href={`/manage/checkout?appointmentId=${row.id}&customer=${encodeURIComponent(customerName)}`}
+            className="flex-1 rounded-xl border border-[#eadfce] bg-[#f6efe6] px-3 py-2 text-center text-sm font-semibold text-neutral-900 transition hover:bg-[var(--color-primary)] hover:text-white"
+          >
+            Mở phiếu
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function QueueColumn({
+  title,
+  rows,
+  loading,
+  actingId,
+  resourceName,
+  onAdvanceStatus,
+  openTicketForAppointment,
+}: {
+  title: string;
+  rows: AppointmentRow[];
+  loading: boolean;
+  actingId: string | null;
+  resourceName: (id: string | null) => string;
+  onAdvanceStatus: (row: AppointmentRow) => Promise<void>;
+  openTicketForAppointment: (appointmentId: string) => OpenTicketRow | undefined;
+}) {
+  return (
+    <div className="card">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-semibold">{title}</h3>
+        <span className="badge-soft">{rows.length}</span>
+      </div>
+      <div className="mt-4 stack-tight">
+        {loading ? (
+          <>
+            <div className="skeleton h-24 rounded-2xl" />
+            <div className="skeleton h-24 rounded-2xl" />
+          </>
+        ) : rows.length ? (
+          rows.map((row) => (
+            <QueueCard
+              key={row.id}
+              row={row}
+              actingId={actingId}
+              resourceName={resourceName}
+              onAdvanceStatus={onAdvanceStatus}
+              openTicketId={openTicketForAppointment(row.id)?.id ?? null}
+            />
+          ))
+        ) : (
+          <p className="text-sm text-neutral-500">Không có dữ liệu.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TechnicianBoardPage() {
   const [rows, setRows] = useState<AppointmentRow[]>([]);
   const [resources, setResources] = useState<ResourceRow[]>([]);
@@ -77,7 +179,7 @@ export default function TechnicianBoardPage() {
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
-  const [statusFilter, setStatusFilter] = useState<"ALL" | "BOOKED" | "CHECKED_IN" | "DONE">("ALL");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
@@ -144,24 +246,29 @@ export default function TechnicianBoardPage() {
     return () => clearInterval(id);
   }, [rangeMode]);
 
-  const visibleStaffId = selectedStaffId;
+  const canSwitchStaff = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
+  const effectiveStaffId = canSwitchStaff ? selectedStaffId : myUserId ?? "";
 
   const filteredRows = useMemo(() => {
-    const byStaff = !visibleStaffId ? rows : rows.filter((r) => r.staff_user_id === visibleStaffId);
+    const byStaff = !effectiveStaffId ? rows : rows.filter((r) => r.staff_user_id === effectiveStaffId);
     if (statusFilter === "ALL") return byStaff;
     return byStaff.filter((r) => r.status === statusFilter);
-  }, [rows, visibleStaffId, statusFilter]);
+  }, [rows, effectiveStaffId, statusFilter]);
 
-  const booked = filteredRows.filter((r) => r.status === "BOOKED");
-  const active = filteredRows.filter((r) => r.status === "CHECKED_IN");
-  const done = filteredRows.filter((r) => r.status === "DONE");
-
+  const booked = useMemo(() => filteredRows.filter((r) => r.status === "BOOKED"), [filteredRows]);
+  const active = useMemo(() => filteredRows.filter((r) => r.status === "CHECKED_IN"), [filteredRows]);
+  const done = useMemo(() => filteredRows.filter((r) => r.status === "DONE"), [filteredRows]);
   const timelineRows = useMemo(() => [...filteredRows].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime()), [filteredRows]);
 
   const resourceName = (id: string | null) => resources.find((r) => r.id === id)?.name ?? "-";
   const staffName = (id: string | null) => staffs.find((s) => s.user_id === id)?.display_name ?? "-";
   const openTicketForAppointment = (appointmentId: string) => openTickets.find((t) => t.appointment_id === appointmentId);
-  const canSwitchStaff = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
+
+  const nextActionLabel = useMemo(() => {
+    if (booked.length > 0) return "Có khách đang chờ check-in";
+    if (active.length > 0) return "Có khách đang phục vụ, có thể mở phiếu";
+    return "Hiện chưa có việc cần xử lý ngay";
+  }, [booked.length, active.length]);
 
   async function onAdvanceStatus(row: AppointmentRow) {
     if (actingId) return;
@@ -187,27 +294,63 @@ export default function TechnicianBoardPage() {
   return (
     <AppShell>
       <div className="page-shell">
+        <ManageQuickNav
+          items={[
+            { href: "/manage/appointments", label: "Lịch hẹn" },
+            { href: "/manage/checkout", label: "Thanh toán" },
+            { href: "/manage/shifts", label: "Ca làm" },
+          ]}
+        />
+
+        <MobileSectionHeader
+          title="Bảng kỹ thuật"
+          meta={<div className="manage-info-box">{nextActionLabel}</div>}
+        />
+
+        {error ? <ManageAlert tone="error">Lỗi: {error}</ManageAlert> : null}
+
         <section className="manage-surface">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="page-title">Bảng kỹ thuật hôm nay</h2>
-              <p className="page-subtitle">Theo dõi khách đang chờ, đang làm và đã xong của từng thợ.</p>
+              <h3 className="text-lg font-semibold text-neutral-900">Việc cần làm ngay</h3>
+              <p className="mt-1 text-sm text-neutral-500">Ưu tiên check-in khách chờ trước, sau đó mở phiếu cho khách đang phục vụ.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Khách chờ: <b>{booked.length}</b>
+              </div>
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                Sẵn sàng mở phiếu: <b>{active.length}</b>
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex gap-2 overflow-x-auto md:hidden">
+            <a href="#queue-booked" className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">Khách chờ</a>
+            <a href="#queue-active" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">Đang phục vụ</a>
+            <a href="#queue-done" className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-medium text-neutral-700">Đã xong</a>
+          </div>
+        </section>
+
+        <section className="manage-surface space-y-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="space-y-1">
+              <h3 className="text-lg font-semibold text-neutral-900">Bộ lọc thao tác</h3>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
               {canSwitchStaff ? (
                 <select className="input" value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)}>
                   <option value="">-- Chọn thợ --</option>
                   {staffs.map((s) => <option key={s.user_id} value={s.user_id}>{s.display_name || s.user_id.slice(0, 8)}</option>)}
                 </select>
               ) : (
-                <span className="badge-soft">{staffName(myUserId)}</span>
+                <div className="badge-soft flex items-center justify-center px-4 py-2">{staffName(myUserId)}</div>
               )}
               <select className="input" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
                 <option value="day">Trong ngày</option>
                 <option value="week">Trong tuần</option>
                 <option value="month">Trong tháng</option>
               </select>
-              <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}>
+              <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
                 <option value="ALL">Tất cả</option>
                 <option value="BOOKED">Khách chờ</option>
                 <option value="CHECKED_IN">Đang phục vụ</option>
@@ -215,65 +358,108 @@ export default function TechnicianBoardPage() {
               </select>
             </div>
           </div>
-          {error && <p className="mt-3 text-sm text-red-600">Lỗi: {error}</p>}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a href="/manage/appointments" className="manage-quick-link">Lịch hẹn</a>
-            <a href="/manage/checkout" className="manage-quick-link">Thanh toán</a>
-            <a href="/manage/shifts" className="manage-quick-link">Ca làm</a>
-          </div>
         </section>
 
-        <section className="page-grid md:grid-cols-3">
-          {[{ title: "Khách đang chờ", rows: booked }, { title: "Đang phục vụ", rows: active }, { title: "Đã xong", rows: done }].map((group) => (
-            <div key={group.title} className="card">
-              <div className="flex items-center justify-between"><h3 className="text-lg font-semibold">{group.title}</h3><span className="badge-soft">{group.rows.length}</span></div>
-              <div className="mt-4 stack-tight">
-                {loading ? (
-                  <><div className="skeleton h-20 rounded-2xl" /><div className="skeleton h-20 rounded-2xl" /></>
-                ) : group.rows.length ? (
-                  group.rows.map((row) => (
-                    <div key={row.id} className="rounded-2xl border border-neutral-100 px-4 py-3">
-                      <div className="flex items-center justify-between gap-3"><p className="font-semibold">{pickCustomerName(row.customers)}</p><span className={`rounded-full px-3 py-1 text-xs font-medium ${statusTone(row.status)}`}>{row.status}</span></div>
-                      <div className="mt-2 text-sm text-neutral-500"><p>{new Date(row.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })} - {new Date(row.end_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</p><p>Ghế/Bàn: {resourceName(row.resource_id)}</p></div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {row.status === "BOOKED" && (
-                          <button className="rounded-lg bg-emerald-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-emerald-700" disabled={actingId === row.id} onClick={() => void onAdvanceStatus(row)}>
-                            {actingId === row.id ? "Đang xử lý..." : "Start / Check-in"}
-                          </button>
-                        )}
-                        {row.status === "CHECKED_IN" && (
-                          <Link href={`/manage/checkout?appointmentId=${row.id}&customer=${encodeURIComponent(pickCustomerName(row.customers))}`} className="rounded-lg border border-[#eadfce] bg-[#f6efe6] px-3 py-1 text-xs font-medium transition hover:bg-[var(--color-primary)] hover:text-white">Thanh toán</Link>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                ) : <p className="text-sm text-neutral-500">Không có dữ liệu.</p>}
-              </div>
-            </div>
-          ))}
+        <MobileCollapsible summary="Mở bộ lọc" defaultOpen={false}>
+          <div className="grid gap-2">
+            {canSwitchStaff ? (
+              <select className="input" value={selectedStaffId} onChange={(e) => setSelectedStaffId(e.target.value)}>
+                <option value="">-- Chọn thợ --</option>
+                {staffs.map((s) => <option key={s.user_id} value={s.user_id}>{s.display_name || s.user_id.slice(0, 8)}</option>)}
+              </select>
+            ) : (
+              <div className="badge-soft flex items-center justify-center px-4 py-2">{staffName(myUserId)}</div>
+            )}
+            <select className="input" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+              <option value="day">Trong ngày</option>
+              <option value="week">Trong tuần</option>
+              <option value="month">Trong tháng</option>
+            </select>
+            <select className="input" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}>
+              <option value="ALL">Tất cả</option>
+              <option value="BOOKED">Khách chờ</option>
+              <option value="CHECKED_IN">Đang phục vụ</option>
+              <option value="DONE">Đã xong</option>
+            </select>
+          </div>
+        </MobileCollapsible>
+
+        <MobileInfoGrid>
+          <ManageStatCard label="Khách đang chờ" value={booked.length} />
+          <ManageStatCard label="Đang phục vụ" value={active.length} />
+          <ManageStatCard label="Đã xong" value={done.length} />
+        </MobileInfoGrid>
+
+        <section className="grid gap-4 xl:grid-cols-3">
+          <div id="queue-booked">
+          <QueueColumn
+            title="Khách đang chờ"
+            rows={booked}
+            loading={loading}
+            actingId={actingId}
+            resourceName={resourceName}
+            onAdvanceStatus={onAdvanceStatus}
+            openTicketForAppointment={openTicketForAppointment}
+          />
+          </div>
+          <div id="queue-active">
+          <QueueColumn
+            title="Đang phục vụ"
+            rows={active}
+            loading={loading}
+            actingId={actingId}
+            resourceName={resourceName}
+            onAdvanceStatus={onAdvanceStatus}
+            openTicketForAppointment={openTicketForAppointment}
+          />
+          </div>
+          <div id="queue-done">
+          <QueueColumn
+            title="Đã xong"
+            rows={done}
+            loading={loading}
+            actingId={actingId}
+            resourceName={resourceName}
+            onAdvanceStatus={onAdvanceStatus}
+            openTicketForAppointment={openTicketForAppointment}
+          />
+          </div>
         </section>
 
         <section className="manage-surface">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-lg font-semibold">Timeline</h3>
-              <p className="page-subtitle mt-0">Xem lịch theo thứ tự giờ để tránh sót khách và chồng ca.</p>
             </div>
             <span className="badge-soft">{timelineRows.length} lịch</span>
           </div>
-          <div className="mt-4 stack-tight">
+          <div className="mt-4 space-y-3">
             {loading ? (
-              <><div className="skeleton h-16 rounded-2xl" /><div className="skeleton h-16 rounded-2xl" /><div className="skeleton h-16 rounded-2xl" /></>
+              <>
+                <div className="skeleton h-20 rounded-2xl" />
+                <div className="skeleton h-20 rounded-2xl" />
+                <div className="skeleton h-20 rounded-2xl" />
+              </>
             ) : timelineRows.length ? (
               timelineRows.map((row) => (
-                <div key={`timeline-${row.id}`} className="grid gap-2 rounded-2xl border border-neutral-100 px-4 py-3 md:grid-cols-[120px_1fr_180px_120px] md:items-center">
-                  <p className="font-semibold">{new Date(row.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}<span className="ml-2 text-neutral-400">→</span><span className="ml-2">{new Date(row.end_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span></p>
-                  <p>{pickCustomerName(row.customers)}</p>
-                  <p className="text-neutral-500">Ghế/Bàn: {resourceName(row.resource_id)}</p>
-                  <div className="flex justify-start md:justify-end"><span className={`rounded-full px-3 py-1 text-xs font-medium ${statusTone(row.status)}`}>{row.status}</span></div>
+                <div key={`timeline-${row.id}`} className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-sm">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-neutral-900">{pickCustomerName(row.customers)}</p>
+                      <p className="text-sm text-neutral-500">{formatTimeRange(row.start_at, row.end_at)}</p>
+                    </div>
+                    <span className={`w-fit rounded-full px-3 py-1 text-xs font-medium ${statusTone(row.status)}`}>{row.status}</span>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-sm text-neutral-600 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="rounded-2xl bg-neutral-50 px-3 py-2">Ghế/Bàn: <span className="font-medium text-neutral-900">{resourceName(row.resource_id)}</span></div>
+                    <div className="rounded-2xl bg-neutral-50 px-3 py-2">Thợ: <span className="font-medium text-neutral-900">{staffName(row.staff_user_id)}</span></div>
+                    <div className="rounded-2xl bg-neutral-50 px-3 py-2">Ticket mở: <span className="font-medium text-neutral-900">{openTicketForAppointment(row.id)?.id ? "Có" : "Chưa có"}</span></div>
+                  </div>
                 </div>
               ))
-            ) : <p className="text-sm text-neutral-500">Không có lịch trong bộ lọc hiện tại.</p>}
+            ) : (
+              <p className="text-sm text-neutral-500">Không có lịch trong bộ lọc hiện tại.</p>
+            )}
           </div>
         </section>
       </div>

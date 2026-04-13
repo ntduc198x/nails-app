@@ -1,7 +1,10 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
+import { ManageAlert } from "@/components/manage-alert";
+import { MobileCollapsible, MobileInfoGrid, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav } from "@/components/manage-quick-nav";
+import { ManageStatCard } from "@/components/manage-stat-card";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createCheckout, hasOpenShift, listCheckedInAppointments, listRecentTickets, listServices } from "@/lib/domain";
 import { formatVnd } from "@/lib/mock-data";
@@ -143,55 +146,72 @@ export default function CheckoutPage() {
     } finally { setSubmitting(false); }
   }
 
+  const statusMeta = refreshing
+    ? "Đang làm mới..."
+    : role === "TECH"
+      ? techShiftOpen ? "Đang mở ca" : "Chưa mở ca"
+      : `${ticketSummary.count} bill`;
+
   return (
     <AppShell>
       <div className="space-y-5 pb-24 md:pb-0">
-        <div className="manage-surface">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <h2 className="page-title">Thanh toán</h2>
-                {refreshing && <span className="text-xs text-neutral-500">Đang làm mới...</span>}
-              </div>
-              <p className="text-sm text-neutral-500">Màn hình thu ngân, ưu tiên thao tác nhanh để chọn khách, lên bill và chốt thanh toán.</p>
-            </div>
-            <div className="grid gap-2 text-sm md:grid-cols-2">
-              <div className="rounded-2xl bg-neutral-100 px-4 py-3 text-neutral-700">Số bill trong kỳ<br /><span className="text-lg font-semibold text-neutral-900">{ticketSummary.count}</span></div>
-              <div className="rounded-2xl bg-neutral-100 px-4 py-3 text-neutral-700">Doanh thu trong kỳ<br /><span className="text-lg font-semibold text-neutral-900">{formatVnd(ticketSummary.total)}</span></div>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-sm">
-             {role === "ACCOUNTANT" && <div className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">Kế toán chỉ xem dữ liệu thanh toán</div>}
-             {role === "TECH" && <div className={`rounded-full px-3 py-1 ${techShiftOpen ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{techShiftOpen ? "Kỹ thuật viên đang mở ca, được phép thanh toán" : "Kỹ thuật viên đang đóng ca, không được thanh toán"}</div>}
-            {role === "ACCOUNTANT" && <div className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">Kế toán chỉ xem dữ liệu thanh toán</div>}
-            {role === "TECH" && <div className={`rounded-full px-3 py-1 ${techShiftOpen ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{techShiftOpen ? "Kỹ thuật viên đang mở ca, được phép thanh toán" : "Kỹ thuật viên đang đóng ca, không được thanh toán"}</div>}
-            {appointmentId && <div className="rounded-full bg-neutral-100 px-3 py-1 text-neutral-700">Đang gắn appointment: <code>{appointmentId}</code></div>}
-          </div>
-          <ManageQuickNav
-            className="mt-4"
-            items={[
-              { href: "/manage/technician", label: "Bảng kỹ thuật" },
-              { href: "/manage/appointments", label: "Lịch hẹn" },
-              { href: "/manage/shifts", label: "Ca làm" },
-            ]}
-          />
-        </div>
+        <ManageQuickNav
+          items={[
+            { href: "/manage/technician", label: "Bảng kỹ thuật", accent: true },
+            { href: "/manage/appointments", label: "Lịch hẹn" },
+            { href: "/manage/shifts", label: "Ca làm" },
+          ]}
+        />
 
-        {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">Lỗi: {error}</div>}
-        {lastReceipt && <div className="space-y-2 rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800"><div>Tạo hóa đơn thành công. Mã công khai: <code>{lastReceipt}</code></div>{receiptLink && <div className="flex flex-wrap items-center gap-2"><a className="underline" href={receiptLink} target="_blank" rel="noreferrer">Mở link hóa đơn</a><button type="button" className="rounded border border-green-400 px-2 py-1 text-xs" onClick={async () => { await navigator.clipboard.writeText(receiptLink); }}>Sao chép link</button></div>}</div>}
-        {dedupeNotice && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{dedupeNotice}</div>}
+        <MobileSectionHeader title="Thanh toán" meta={<div className="manage-info-box">{statusMeta}</div>} />
+
+        {error ? <ManageAlert tone="error">Lỗi: {error}</ManageAlert> : null}
+        {lastReceipt ? <ManageAlert tone="info">Tạo hóa đơn thành công. Mã công khai: <code>{lastReceipt}</code>{receiptLink ? <> · <a className="underline" href={receiptLink} target="_blank" rel="noreferrer">Mở link hóa đơn</a></> : null}</ManageAlert> : null}
+        {dedupeNotice ? <ManageAlert tone="warn">{dedupeNotice}</ManageAlert> : null}
+        {role === "TECH" && techShiftOpen === false ? (
+          <ManageAlert tone="warn">
+            Ca làm chưa được mở. Vui lòng vào <a className="underline font-medium" href="/manage/shifts">Ca làm</a> để mở ca trước khi thanh toán.
+          </ManageAlert>
+        ) : null}
+
+        <section className="manage-surface">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-neutral-900">Ưu tiên thao tác</h3>
+              <p className="mt-1 text-sm text-neutral-500">Ưu tiên chọn khách từ danh sách CHECKED_IN để giảm nhập tay và tránh sai bill.</p>
+            </div>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              Khách CHECKED_IN: <b>{checkedInAppointments.length}</b>
+            </div>
+          </div>
+        </section>
+
+        <MobileInfoGrid>
+          <ManageStatCard label="Số bill" value={ticketSummary.count} />
+          <ManageStatCard label="Doanh thu" value={formatVnd(ticketSummary.total)} />
+          <ManageStatCard label="Khách check-in" value={checkedInAppointments.length} />
+        </MobileInfoGrid>
+
+        <MobileCollapsible summary={`Tóm tắt bill${customerName ? ` · ${customerName}` : ""}`} defaultOpen={false}>
+          <div className="space-y-3">
+            <div className="rounded-xl bg-neutral-50 p-3">
+              <div className="text-sm text-neutral-500">Khách hàng</div>
+              <div className="mt-1 text-base font-semibold text-neutral-900">{customerName || "Chưa chọn khách"}</div>
+              <div className="mt-2 text-sm text-neutral-500">Phương thức</div>
+              <div className="mt-1 font-medium text-neutral-900">{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
+            </div>
+            <div className="rounded-xl bg-neutral-900 p-3 text-white">
+              <div className="text-sm text-neutral-300">Tổng thanh toán</div>
+              <div className="mt-1 text-2xl font-semibold">{formatVnd(estimatedTotal)}</div>
+            </div>
+          </div>
+        </MobileCollapsible>
 
         <form onSubmit={onSubmit} className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_380px]">
           <div className="space-y-5">
-            <div className="card space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-neutral-900">1. Chọn khách</h3>
-                  <p className="text-sm text-neutral-500">Có thể lấy nhanh từ appointment đang checked-in hoặc nhập tay.</p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3">
+            <div className="card space-y-3">
+              <h3 className="font-semibold text-neutral-900">Chọn khách</h3>
+              <div className="grid gap-2 md:grid-cols-3">
                 <div className="space-y-2 md:col-span-3">
                   <label className="text-sm font-medium text-neutral-700">Khách đang CHECKED_IN</label>
                   <select className="input" value={appointmentId ?? ""} onChange={(e) => onSelectCheckedInAppointment(e.target.value)}>
@@ -210,43 +230,36 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            <div className="card space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-neutral-900">2. Lên bill dịch vụ</h3>
-                  <p className="text-sm text-neutral-500">Giữ thao tác ngắn, thêm dòng nhanh và bỏ dòng thừa khi cần.</p>
-                </div>
+            <div className="card space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="font-semibold text-neutral-900">Dịch vụ</h3>
                 <button type="button" onClick={addLine} className="rounded-lg border px-3 py-2 text-sm">+ Thêm dòng</button>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {lines.map((line, idx) => (
-                  <div key={idx} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_120px_88px] md:items-end">
+                  <div key={idx} className="rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
+                    <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_100px_72px] md:items-end">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-neutral-700">Dịch vụ #{idx + 1}</label>
-                        <select className="input bg-white" value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
+                        <label className="text-xs font-medium text-neutral-700">Dịch vụ #{idx + 1}</label>
+                        <select className="input bg-white py-2.5" value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
                           <option value="">-- Chọn dịch vụ --</option>
                           {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
                         </select>
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-neutral-700">Số lượng</label>
-                        <input className="input bg-white" type="number" min={1} value={line.qty} onChange={(e) => updateLine(idx, { qty: Number(e.target.value) })} />
+                        <label className="text-xs font-medium text-neutral-700">SL</label>
+                        <input className="input bg-white py-2.5" type="number" min={1} value={line.qty} onChange={(e) => updateLine(idx, { qty: Number(e.target.value) })} />
                       </div>
-                      <button type="button" onClick={() => removeLine(idx)} disabled={lines.length === 1} className="rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-600 disabled:cursor-not-allowed disabled:opacity-50">Xóa</button>
+                      <button type="button" onClick={() => removeLine(idx)} disabled={lines.length === 1} className="rounded-lg border border-neutral-200 px-2 py-2 text-sm text-neutral-600 disabled:cursor-not-allowed disabled:opacity-50">Xóa</button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="card space-y-3">
-              <div>
-                <h3 className="font-semibold">Lịch sử phiếu thanh toán</h3>
-                <p className="text-sm text-neutral-500">Phần phụ để tra cứu nhanh, không chen vào luồng thanh toán chính.</p>
-              </div>
-
+            <div className="card space-y-3 hidden md:block">
+              <h3 className="font-semibold">Lịch sử phiếu</h3>
               <div className="grid gap-3 md:grid-cols-4">
                 <select className="input" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
                   <option value="day">Trong ngày</option>
@@ -288,19 +301,32 @@ export default function CheckoutPage() {
                 </div>
               )}
             </div>
+
+            <MobileCollapsible summary="Xem lịch sử phiếu" defaultOpen={false}>
+              <div className="space-y-3">
+                {loading ? <p className="text-sm text-neutral-500">Đang tải...</p> : tickets.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có bill nào trong khoảng thời gian này.</div>
+                ) : tickets.slice(0, 10).map((t) => {
+                  const customer = Array.isArray(t.customers) ? t.customers[0]?.name : t.customers?.name;
+                  return (
+                    <div key={`mobile-${t.id}`} className="rounded-2xl border border-neutral-200 p-4">
+                      <div className="text-sm font-semibold text-neutral-900">{customer ?? "Khách lẻ"}</div>
+                      <div className="mt-1 text-sm text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </MobileCollapsible>
           </div>
 
-          <div className="space-y-5">
-            <div className="card sticky top-4 space-y-4 xl:self-start">
-              <div>
-                <h3 className="font-semibold text-neutral-900">3. Tóm tắt bill</h3>
-                <p className="text-sm text-neutral-500">Khu vực chốt tiền, mọi thông tin quan trọng gom vào một chỗ.</p>
-              </div>
+          <div className="space-y-5 hidden xl:block">
+            <div className="card sticky top-4 space-y-3 xl:self-start">
+              <h3 className="font-semibold text-neutral-900">Tóm tắt bill</h3>
 
-              <div className="rounded-2xl bg-neutral-50 p-4">
+              <div className="rounded-xl bg-neutral-50 p-3">
                 <div className="text-sm text-neutral-500">Khách hàng</div>
-                <div className="mt-1 text-lg font-semibold text-neutral-900">{customerName || "Chưa chọn khách"}</div>
-                <div className="mt-3 text-sm text-neutral-500">Phương thức</div>
+                <div className="mt-1 text-base font-semibold text-neutral-900">{customerName || "Chưa chọn khách"}</div>
+                <div className="mt-2 text-sm text-neutral-500">Phương thức</div>
                 <div className="mt-1 font-medium text-neutral-900">{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
               </div>
 
@@ -309,7 +335,7 @@ export default function CheckoutPage() {
                   <span>Số dòng dịch vụ</span>
                   <span>{selectedServices.length}</span>
                 </div>
-                <div className="space-y-2 rounded-2xl border border-neutral-200 p-3">
+                <div className="space-y-2 rounded-xl border border-neutral-200 p-3">
                   {selectedServices.length === 0 ? (
                     <div className="text-sm text-neutral-500">Chưa có dịch vụ nào được chọn.</div>
                   ) : selectedServices.map((line, idx) => {
@@ -328,9 +354,9 @@ export default function CheckoutPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl bg-neutral-900 p-4 text-white">
+              <div className="rounded-xl bg-neutral-900 p-3 text-white">
                 <div className="text-sm text-neutral-300">Tổng thanh toán</div>
-                <div className="mt-2 text-3xl font-semibold">{formatVnd(estimatedTotal)}</div>
+                <div className="mt-1 text-2xl font-semibold">{formatVnd(estimatedTotal)}</div>
               </div>
 
               <div className="hidden md:flex flex-col gap-2">
@@ -339,9 +365,12 @@ export default function CheckoutPage() {
               </div>
             </div>
           </div>
-
-          <div className="fixed bottom-0 left-0 right-0 z-10 border-t bg-white p-3 md:hidden"><div className="mx-auto flex max-w-6xl gap-2"><button type="button" onClick={addLine} className="flex-1 rounded-lg border px-4 py-3 text-sm font-medium">+ Thêm dòng</button><button disabled={submitting || role === "ACCOUNTANT" || (role === "TECH" && techShiftOpen === false)} className="flex-1 btn btn-primary py-3">{submitting ? "Đang xử lý..." : "Thanh toán"}</button></div>{role === "TECH" && techShiftOpen === false && <p className="mt-2 text-xs text-amber-700">Cần mở ca trước khi thanh toán.</p>}</div>
         </form>
+
+        <MobileStickyActions>
+          <button type="button" onClick={addLine} className="flex-1 rounded-lg border px-4 py-3 text-sm font-medium">+ Thêm dòng</button>
+          <button disabled={submitting || role === "ACCOUNTANT" || (role === "TECH" && techShiftOpen === false)} className="flex-1 btn btn-primary py-3">{submitting ? "Đang xử lý..." : "Thanh toán"}</button>
+        </MobileStickyActions>
       </div>
     </AppShell>
   );

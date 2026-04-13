@@ -151,7 +151,6 @@ export default function AccountPage() {
         <section className="manage-surface">
           <div className="space-y-1">
             <h2 className="page-title">Tài khoản</h2>
-            <p className="page-subtitle">Quản lý hồ sơ cá nhân và bảo mật tài khoản trong một màn hình gọn hơn.</p>
           </div>
         </section>
 

@@ -312,8 +312,8 @@ export default function TechnicianBoardPage() {
         <section className="manage-surface">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-neutral-900">Việc cần làm ngay</h3>
-              <p className="mt-1 text-sm text-neutral-500">Ưu tiên check-in khách chờ trước, sau đó mở phiếu cho khách đang phục vụ.</p>
+              <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Việc cần làm ngay</h3>
+              <p className="mt-1 text-xs text-neutral-500 md:text-sm">Ưu tiên check-in khách chờ trước, sau đó mở phiếu cho khách đang phục vụ.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -334,7 +334,7 @@ export default function TechnicianBoardPage() {
         <section className="manage-surface space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-1">
-              <h3 className="text-lg font-semibold text-neutral-900">Bộ lọc thao tác</h3>
+              <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Bộ lọc thao tác</h3>
             </div>
             <div className="grid gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
               {canSwitchStaff ? (

@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { ensureOrgContext, listAppointments } from "@/lib/domain";
+import { ensureOrgContext, listAppointments, listResources } from "@/lib/domain";
 
 export type BookingRequestStatus = "NEW" | "CONFIRMED" | "NEEDS_RESCHEDULE" | "CANCELLED" | "CONVERTED";
 
@@ -64,8 +64,6 @@ export async function updateBookingRequestStatus(id: string, status: BookingRequ
   if (error) throw error;
 }
 
-const MAX_SIMULTANEOUS_BOOKINGS = Number(process.env.NEXT_PUBLIC_BOOKING_MAX_SIMULTANEOUS ?? "2");
-
 export async function checkAppointmentCapacity(input: {
   bookingRequestId?: string | null;
   startAt: string;
@@ -79,6 +77,10 @@ export async function checkAppointmentCapacity(input: {
     customers?: { name?: string } | { name?: string }[] | null;
   }>;
 
+  const activeResources = await listResources({ force: true, activeOnly: true }) as Array<{ id: string; active?: boolean }>;
+  const activeCapacity = activeResources.length;
+  const maxSimultaneous = activeCapacity > 0 ? activeCapacity : 1;
+
   const overlaps = appointments.filter((row) => {
     if (!["BOOKED", "CHECKED_IN", "IN_SERVICE"].includes(row.status)) return false;
     return new Date(row.start_at).getTime() < new Date(input.endAt).getTime()
@@ -88,8 +90,8 @@ export async function checkAppointmentCapacity(input: {
   return {
     overlaps,
     overlapCount: overlaps.length,
-    allowed: overlaps.length < MAX_SIMULTANEOUS_BOOKINGS,
-    maxSimultaneous: MAX_SIMULTANEOUS_BOOKINGS,
+    allowed: overlaps.length < maxSimultaneous,
+    maxSimultaneous,
   };
 }
 

@@ -443,8 +443,8 @@ export default function AppointmentsPage() {
         <section className="manage-surface">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <h3 className="text-lg font-semibold text-neutral-900">Ưu tiên thao tác</h3>
-              <p className="mt-1 text-sm text-neutral-500">TECH nên ưu tiên lịch đang chờ check-in, chỉ vào đây khi cần tạo mới hoặc chỉnh lịch.</p>
+              <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Ưu tiên thao tác</h3>
+              <p className="mt-1 text-xs text-neutral-500 md:text-sm">TECH nên ưu tiên lịch đang chờ check-in, chỉ vào đây khi cần tạo mới hoặc chỉnh lịch.</p>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <button
@@ -453,7 +453,7 @@ export default function AppointmentsPage() {
                   setStatusFilter("BOOKED");
                   requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
-                className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm font-medium text-amber-800 transition hover:bg-amber-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2"
+                className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-left text-sm font-medium text-amber-800 transition hover:bg-amber-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2"
               >
                 Chờ check-in: <b>{activeBookedRows.length}</b>
               </button>
@@ -463,7 +463,7 @@ export default function AppointmentsPage() {
                   setStatusFilter("CHECKED_IN");
                   requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
-                className="cursor-pointer rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-800 transition hover:bg-blue-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+                className="cursor-pointer rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2.5 text-left text-sm font-medium text-blue-800 transition hover:bg-blue-100 active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
               >
                 Chờ thanh toán: <b>{pendingCheckoutRows.length}</b>
               </button>

@@ -273,21 +273,38 @@ export default function CheckoutPage() {
                 </div>
               ) : null}
 
-              <div className="grid gap-2 md:grid-cols-3">
-                <div className="hidden space-y-2 md:col-span-3 md:block">
-                  <label className="text-sm font-medium text-neutral-700">Khách đang CHECKED_IN</label>
-                  <select className="input" value={appointmentId ?? ""} onChange={(e) => onSelectCheckedInAppointment(e.target.value)}>
-                    <option value="">-- Chọn từ appointment --</option>
-                    {checkedInAppointments.map((a) => { const customer = Array.isArray(a.customers) ? a.customers[0]?.name : a.customers?.name; return <option key={a.id} value={a.id}>{(customer ?? "Khách") + " · " + new Date(a.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</option>; })}
-                  </select>
+              {checkedInAppointments.length > 0 ? (
+                <div className="hidden md:block space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium text-neutral-700">Khách đang CHECKED_IN</label>
+                    <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">{checkedInAppointments.length}</span>
+                  </div>
+                  <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+                    {checkedInAppointments.map((a) => {
+                      const customer = Array.isArray(a.customers) ? a.customers[0]?.name : a.customers?.name;
+                      const active = appointmentId === a.id;
+                      return (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => onSelectCheckedInAppointment(a.id)}
+                          className={`cursor-pointer rounded-2xl border px-3 py-2.5 text-left transition ${active ? "border-[var(--color-primary)] bg-[var(--color-primary)]/10 text-[var(--color-primary)]" : "border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-700"}`}
+                        >
+                          <span className="block truncate text-sm font-medium">{customer ?? "Khách"}</span>
+                          <span className={`mt-1 block text-xs ${active ? "text-[var(--color-primary)]/80" : "text-neutral-500"}`}>{new Date(a.start_at).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              ) : null}
+
+              <div className="grid gap-2 md:grid-cols-3">
                 <div className="space-y-2 md:col-span-2">
-                  <label className="text-sm font-medium text-neutral-700">Tên khách</label>
-                  <input className="input py-2.5" placeholder="Nhập tên khách" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+                  <input className="input py-2.5" placeholder="Tên khách" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-neutral-700">Thanh toán</label>
-                  <select className="input py-2.5" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "TRANSFER")}><option value="CASH">Tiền mặt</option><option value="TRANSFER">Chuyển khoản</option></select>
+                  <select className="input py-2.5" aria-label="Phương thức thanh toán" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "TRANSFER")}><option value="CASH">Tiền mặt</option><option value="TRANSFER">Chuyển khoản</option></select>
                 </div>
               </div>
 

@@ -188,9 +188,6 @@ export default function TeamPage() {
             <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
               Danh sách nhân sự
             </button>
-            <button type="button" onClick={() => void load({ silent: true })} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
-              Làm mới
-            </button>
           </div>
         </section>
 

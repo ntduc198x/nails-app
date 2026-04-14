@@ -245,15 +245,15 @@ export default function CheckoutPage() {
           </div>
         </section>
 
-        <form onSubmit={onSubmit} className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_380px]">
-          <div className="space-y-4">
-            <div ref={customerSectionRef} className="card space-y-3 p-4">
+        <form onSubmit={onSubmit} className="grid min-w-0 gap-4 overflow-x-hidden xl:grid-cols-[minmax(0,1.2fr)_380px]">
+          <div className="min-w-0 space-y-4 overflow-x-hidden">
+            <div ref={customerSectionRef} className="card min-w-0 space-y-3 overflow-x-hidden p-4">
               <h3 className="text-base font-semibold text-neutral-900">Chọn khách</h3>
 
               {checkedInAppointments.length > 0 ? (
                 <div className="space-y-2 md:hidden">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-400">Khách đang check-in</div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex min-w-0 flex-wrap gap-2 overflow-x-hidden">
                     {checkedInAppointments.slice(0, 6).map((a) => {
                       const customer = Array.isArray(a.customers) ? a.customers[0]?.name : a.customers?.name;
                       const active = appointmentId === a.id;
@@ -299,18 +299,18 @@ export default function CheckoutPage() {
                 </div>
               ) : null}
 
-              <div className="grid gap-2 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
-                  <input className="input cursor-text py-2.5" placeholder="Tên khách" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
+              <div className="grid min-w-0 gap-2 md:grid-cols-3">
+                <div className="min-w-0 space-y-2 md:col-span-2">
+                  <input className="input w-full cursor-text py-2.5" placeholder="Tên khách" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
                 </div>
-                <div className="space-y-2">
-                  <select className="input cursor-pointer py-2.5" aria-label="Phương thức thanh toán" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "TRANSFER")}><option value="CASH">Tiền mặt</option><option value="TRANSFER">Chuyển khoản</option></select>
+                <div className="min-w-0 space-y-2">
+                  <select className="input w-full cursor-pointer py-2.5" aria-label="Phương thức thanh toán" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as "CASH" | "TRANSFER")}><option value="CASH">Tiền mặt</option><option value="TRANSFER">Chuyển khoản</option></select>
                 </div>
               </div>
 
             </div>
 
-            <div ref={serviceSectionRef} className="card space-y-3 p-4">
+            <div ref={serviceSectionRef} className="card min-w-0 space-y-3 overflow-x-hidden p-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-semibold text-neutral-900">Dịch vụ</h3>
                 <button type="button" onClick={addLine} className="cursor-pointer rounded-lg border px-3 py-2 text-xs md:text-sm">+ Thêm dòng</button>
@@ -322,7 +322,7 @@ export default function CheckoutPage() {
                     <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Dịch vụ nhanh</div>
                     <div className="text-xs text-neutral-500">{customerName ? "Đã ưu tiên theo bill hiện tại" : "Đang ưu tiên các dịch vụ phổ biến"}</div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex min-w-0 flex-wrap gap-1.5 overflow-x-hidden">
                     {quickServices.map((service) => (
                       <button
                         key={service.id}
@@ -341,15 +341,15 @@ export default function CheckoutPage() {
                 {lines.map((line, idx) => {
                   const selectedService = services.find((service) => service.id === line.serviceId);
                   return (
-                    <div key={idx} className="rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
+                    <div key={idx} className="min-w-0 overflow-x-hidden rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
                       <div className="space-y-3">
-                        <div>
-                          <select className="input cursor-pointer bg-white py-2.5" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
+                        <div className="min-w-0">
+                          <select className="input w-full cursor-pointer bg-white py-2.5" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
                             <option value="">-- Chọn dịch vụ --</option>
                             {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
                           </select>
                         </div>
-                        <div className="flex items-center justify-between gap-2 rounded-xl border border-white/70 bg-white px-3 py-2">
+                        <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-white/70 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
                           <div className="min-w-0 flex-1 text-sm text-neutral-500">
                             {selectedService ? (
                               <>
@@ -358,7 +358,7 @@ export default function CheckoutPage() {
                               </>
                             ) : "Chưa chọn dịch vụ"}
                           </div>
-                          <div className="flex shrink-0 items-center gap-1.5">
+                          <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:flex-nowrap">
                             <button
                               type="button"
                               onClick={() => updateLine(idx, { qty: Math.max(1, line.qty - 1) })}
@@ -389,7 +389,7 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            <div ref={mobileSummaryRef} className="card space-y-3 p-4 md:hidden">
+            <div ref={mobileSummaryRef} className="card min-w-0 space-y-3 overflow-x-hidden p-4 md:hidden">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-semibold text-neutral-900">Tóm tắt bill</h3>
                 <div className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">{selectedServices.length} dịch vụ</div>
@@ -426,7 +426,7 @@ export default function CheckoutPage() {
               </div>
             </div>
 
-            <div className="card space-y-3 hidden md:block">
+            <div className="card min-w-0 space-y-3 overflow-x-hidden hidden md:block">
               <h3 className="font-semibold">Lịch sử phiếu</h3>
               <div className="grid gap-3 md:grid-cols-4">
                 <select className="input cursor-pointer" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
@@ -471,7 +471,7 @@ export default function CheckoutPage() {
             </div>
 
             <MobileCollapsible summary={`Lịch sử phiếu · ${tickets.length} bill`} defaultOpen={false}>
-              <div className="space-y-3">
+              <div className="min-w-0 space-y-3 overflow-x-hidden">
                 <div className="grid grid-cols-2 gap-2">
                   <select className="input cursor-pointer py-2.5" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
                     <option value="day">Trong ngày</option>
@@ -522,8 +522,8 @@ export default function CheckoutPage() {
             </MobileCollapsible>
           </div>
 
-          <div className="space-y-4 hidden xl:block">
-            <div className="card sticky top-4 space-y-3 xl:self-start">
+          <div className="hidden min-w-0 space-y-4 xl:block">
+            <div className="card sticky top-4 min-w-0 space-y-3 overflow-x-hidden xl:self-start">
               <h3 className="font-semibold text-neutral-900">Tóm tắt bill</h3>
 
               <div className="rounded-xl bg-neutral-50 p-3">

@@ -12,11 +12,11 @@ type UserRoleRow = { id: string; user_id: string; role: AppRole; display_name?: 
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
 const roleLabels: Record<AppRole, string> = {
-  OWNER: "Chủ",
+  OWNER: "Boss",
   MANAGER: "Quản lý",
   RECEPTION: "Lễ tân",
   ACCOUNTANT: "Kế toán",
-  TECH: "Kỹ thuật",
+  TECH: "Kỹ thuật viên",
 };
 
 function FieldLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {

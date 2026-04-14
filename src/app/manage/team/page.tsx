@@ -11,6 +11,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type UserRoleRow = { id: string; user_id: string; role: AppRole; display_name?: string; email?: string | null; phone?: string | null };
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const roleLabels: Record<AppRole, string> = {
+  OWNER: "Chủ",
+  MANAGER: "Quản lý",
+  RECEPTION: "Lễ tân",
+  ACCOUNTANT: "Kế toán",
+  TECH: "Kỹ thuật",
+};
 
 function FieldLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <label className={`text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500 ${className}`}>{children}</label>;
@@ -169,7 +176,7 @@ export default function TeamPage() {
       <div className="space-y-4 pb-24 md:pb-0">
         <ManageQuickNav items={setupQuickNav("/manage/team")} />
 
-        <MobileSectionHeader title="Nhân sự" meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : <>Role: <b className="text-neutral-900">{myRole}</b></>}</div>} />
+        <MobileSectionHeader title="Nhân sự" meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : <>Vai trò: <b className="text-neutral-900">{roleLabels[myRole]}</b></>}</div>} />
 
         {error ? <div className="manage-error-box">{error}</div> : null}
 
@@ -178,11 +185,11 @@ export default function TeamPage() {
             <h3 className="text-sm font-semibold text-neutral-900">Điều hướng nhanh</h3>
           </div>
 
-          <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             {(["OWNER", ...roleOptions] as AppRole[]).map((role) => (
-              <div key={role} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-                <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-neutral-500">{role}</div>
-                <div className="mt-1 text-sm font-semibold text-neutral-900">{roleStats.get(role) ?? 0}</div>
+              <div key={role} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-medium text-neutral-700">
+                <span className="truncate">{roleLabels[role]}</span>
+                <span className="ml-1.5 font-semibold text-neutral-900">{roleStats.get(role) ?? 0}</span>
               </div>
             ))}
           </div>
@@ -203,10 +210,10 @@ export default function TeamPage() {
               </div>
               <div className="space-y-3">
                 <div className="space-y-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-2 md:space-y-0">
-                  <InlineField label="Role">
+                  <InlineField label="Vai trò">
                     <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
                       {roleOptions.map((role) => (
-                        <option key={role} value={role}>{role}</option>
+                        <option key={role} value={role}>{roleLabels[role]}</option>
                       ))}
                     </SelectInput>
                   </InlineField>
@@ -220,7 +227,7 @@ export default function TeamPage() {
                     <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
+                          <div className="text-[10px] tracking-[0.08em] text-neutral-400">{roleLabels[invite.allowed_role]}</div>
                           <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
                         </div>
                       </div>
@@ -240,10 +247,10 @@ export default function TeamPage() {
             <div className="md:hidden">
               <MobileCollapsible summary="Mã mời nhân sự" defaultOpen={inviteRows.length === 0}>
                 <div className="space-y-3">
-                  <InlineField label="Role">
+                  <InlineField label="Vai trò">
                     <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
                       {roleOptions.map((role) => (
-                        <option key={role} value={role}>{role}</option>
+                        <option key={role} value={role}>{roleLabels[role]}</option>
                       ))}
                     </SelectInput>
                   </InlineField>
@@ -256,7 +263,7 @@ export default function TeamPage() {
                       <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
                         <div className="flex items-start justify-between gap-2.5">
                           <div className="min-w-0">
-                            <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
+                            <div className="text-[10px] tracking-[0.08em] text-neutral-400">{roleLabels[invite.allowed_role]}</div>
                             <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
                           </div>
                         </div>
@@ -278,7 +285,7 @@ export default function TeamPage() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-neutral-900">Danh sách nhân sự</h3>
-              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, vai trò, số điện thoại và sửa inline khi cần.</p>
+              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, vai trò và sửa inline khi cần.</p>
             </div>
             <div className="w-full md:w-[280px]">
               <TextInput placeholder="Tìm theo tên, user hoặc role" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
@@ -301,9 +308,8 @@ export default function TeamPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <h4 className="text-sm font-semibold leading-5 text-neutral-900">{m.display_name || m.user_id}</h4>
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{m.role}</span>
+                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{roleLabels[m.role]}</span>
                         </div>
-                        <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-500">{m.phone || "Chưa có số điện thoại"}</p>
                         <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-400">{m.email || m.user_id}</p>
                       </div>
 
@@ -343,7 +349,7 @@ export default function TeamPage() {
                         <div className="min-w-[180px]">
                           <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
                             {roleOptions.map((r) => (
-                              <option key={r} value={r}>{r}</option>
+                              <option key={r} value={r}>{roleLabels[r]}</option>
                             ))}
                           </SelectInput>
                         </div>

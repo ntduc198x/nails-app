@@ -65,9 +65,13 @@ export default function TaxBooksPage() {
   }
 
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 250);
+
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fromDate, toDate]);
 
   const total = useMemo(() => rows.reduce((acc, r) => acc + r.amount, 0), [rows]);
 
@@ -213,7 +217,6 @@ export default function TaxBooksPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={load}>Nạp dữ liệu</button>
             <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportExcel()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất Excel"}</button>
             <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportPdf()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất PDF"}</button>
           </div>
@@ -239,6 +242,7 @@ export default function TaxBooksPage() {
                 <InlineField label="Đơn vị"><input className="input py-2.5 text-sm" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
                 <InlineField label="Địa chỉ"><input className="input py-2.5 text-sm" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
                 <InlineField label="Địa điểm"><input className="input py-2.5 text-sm" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
+                <div className="rounded-2xl bg-neutral-50 px-3 py-2 text-[11px] text-neutral-500">Đổi kỳ kê khai là hệ thống tự nạp dữ liệu.</div>
               </div>
             </div>
 
@@ -252,6 +256,7 @@ export default function TaxBooksPage() {
                   <InlineField label="Đơn vị"><input className="input py-2.5 text-sm" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
                   <InlineField label="Địa chỉ"><input className="input py-2.5 text-sm" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
                   <InlineField label="Địa điểm"><input className="input py-2.5 text-sm" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
+                  <div className="rounded-2xl bg-neutral-50 px-3 py-2 text-[11px] text-neutral-500">Đổi kỳ kê khai là hệ thống tự nạp dữ liệu.</div>
                 </div>
               </MobileCollapsible>
             </div>

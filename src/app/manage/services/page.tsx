@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
+import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createService, listServices, updateService } from "@/lib/domain";
@@ -63,6 +63,9 @@ export default function ServicesPage() {
   const [uploadingCreateImage, setUploadingCreateImage] = useState(false);
   const [uploadingEditImage, setUploadingEditImage] = useState(false);
   const [search, setSearch] = useState("");
+  const [mobileCreateOpen, setMobileCreateOpen] = useState(false);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const [mobileTrashOpen, setMobileTrashOpen] = useState(false);
 
   const [name, setName] = useState("");
   const [shortDescription, setShortDescription] = useState("");
@@ -85,6 +88,7 @@ export default function ServicesPage() {
 
   const createSectionRef = useRef<HTMLDivElement | null>(null);
   const listSectionRef = useRef<HTMLDivElement | null>(null);
+  const trashSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
 
@@ -112,8 +116,12 @@ export default function ServicesPage() {
 
   const filteredRows = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return rows;
-    return rows.filter((row) => [row.name, row.short_description ?? ""].join(" ").toLowerCase().includes(keyword));
+    return rows.filter((row) => row.active && (!keyword || [row.name, row.short_description ?? ""].join(" ").toLowerCase().includes(keyword)));
+  }, [rows, search]);
+
+  const trashedRows = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    return rows.filter((row) => !row.active && (!keyword || [row.name, row.short_description ?? ""].join(" ").toLowerCase().includes(keyword)));
   }, [rows, search]);
 
   const activeCount = useMemo(() => rows.filter((row) => row.active).length, [rows]);
@@ -234,6 +242,60 @@ export default function ServicesPage() {
     }
   }
 
+  async function moveToTrash(row: ServiceRow) {
+    if (!canEdit || submitting) return;
+    const ok = window.confirm(`Chuyển dịch vụ \"${row.name}\" vào thùng rác? Có thể khôi phục sau.`);
+    if (!ok) return;
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      await updateService({
+        id: row.id,
+        name: row.name,
+        shortDescription: row.short_description || null,
+        imageUrl: row.image_url || null,
+        displayOrder: row.display_order ?? 0,
+        featuredInLookbook: Boolean(row.featured_in_lookbook),
+        durationMin: row.duration_min,
+        basePrice: Number(row.base_price),
+        vatPercent: Number(row.vat_rate) * 100,
+        active: false,
+      });
+      if (editingId === row.id) setEditingId(null);
+      await load({ force: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Chuyển vào thùng rác thất bại");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function restoreService(row: ServiceRow) {
+    if (!canEdit || submitting) return;
+    try {
+      setSubmitting(true);
+      setError(null);
+      await updateService({
+        id: row.id,
+        name: row.name,
+        shortDescription: row.short_description || null,
+        imageUrl: row.image_url || null,
+        displayOrder: row.display_order ?? 0,
+        featuredInLookbook: Boolean(row.featured_in_lookbook),
+        durationMin: row.duration_min,
+        basePrice: Number(row.base_price),
+        vatPercent: Number(row.vat_rate) * 100,
+        active: true,
+      });
+      await load({ force: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Khôi phục dịch vụ thất bại");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <AppShell>
       <div className="space-y-4 pb-24 md:pb-0">
@@ -269,12 +331,15 @@ export default function ServicesPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="hidden md:flex flex-wrap gap-2">
+            <button type="button" onClick={() => requestAnimationFrame(() => createSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
+              Thêm dịch vụ mới
+            </button>
             <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
               Danh sách dịch vụ
             </button>
-            <button type="button" onClick={() => void load({ force: true })} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
-              Làm mới
+            <button type="button" onClick={() => requestAnimationFrame(() => trashSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
+              Thùng rác
             </button>
           </div>
         </section>
@@ -342,7 +407,7 @@ export default function ServicesPage() {
           </div>
 
           <div className="md:hidden">
-            <MobileCollapsible summary="Thêm dịch vụ mới" defaultOpen={!rows.length}>
+            <MobileCollapsible summary="Thêm dịch vụ mới" defaultOpen={mobileCreateOpen || !rows.length}>
             <form onSubmit={onSubmit} className="space-y-3">
               <div className="space-y-2 md:grid md:gap-2 md:grid-cols-[minmax(0,1.1fr)_180px_160px] md:space-y-0">
                 <InlineField label="Tên" compact>
@@ -401,58 +466,65 @@ export default function ServicesPage() {
           </div>
         </div>
 
-        <section ref={listSectionRef} className="manage-surface space-y-3 p-4 md:p-5">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900">Danh sách dịch vụ</h3>
-              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh giá, thời lượng, trạng thái, hạn chế mở card dài.</p>
+        <div ref={listSectionRef}>
+          <div className="hidden md:block manage-surface space-y-3 p-4 md:p-5">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900">Danh sách dịch vụ</h3>
+                <p className="text-xs text-neutral-500">Ưu tiên xem nhanh giá, thời lượng, trạng thái, hạn chế mở card dài.</p>
+              </div>
+              <div className="w-full md:w-[320px]">
+                <TextInput placeholder="Tìm theo tên hoặc mô tả" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
+              </div>
             </div>
-            <div className="w-full md:w-[280px]">
-              <TextInput placeholder="Tìm theo tên hoặc mô tả" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
-            </div>
-          </div>
 
-          {loading ? (
-            <p className="text-sm text-neutral-500">Đang tải dữ liệu dịch vụ...</p>
-          ) : filteredRows.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
-              {rows.length === 0 ? "Chưa có dịch vụ nào. Hãy tạo dịch vụ đầu tiên ở phía trên." : "Không có dịch vụ khớp bộ lọc hiện tại."}
-            </div>
-          ) : (
-            <div className="space-y-2">
+            {loading ? (
+              <p className="text-sm text-neutral-500">Đang tải dữ liệu dịch vụ...</p>
+            ) : filteredRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
+                {rows.length === 0 ? "Chưa có dịch vụ nào. Hãy tạo dịch vụ đầu tiên ở phía trên." : "Không có dịch vụ khớp bộ lọc hiện tại."}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
               {filteredRows.map((s) => {
                 const isEditing = editingId === s.id;
                 return (
-                  <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {isEditing ? (
-                            <TextInput value={editName} onChange={(e) => setEditName(e.target.value)} className="max-w-xl py-2 text-sm" />
-                          ) : (
+                  <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                        {s.image_url ? <img src={s.image_url} alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" /> : null}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {isEditing ? (
+                              <TextInput value={editName} onChange={(e) => setEditName(e.target.value)} className="max-w-xl py-1.5 text-sm" />
+                            ) : (
                             <>
-                              <h4 className="text-sm font-semibold leading-5 text-neutral-900">{s.name}</h4>
-                              {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">LOOKBOOK</span> : null}
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${s.active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
+                              <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                              {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">LOOKBOOK</span> : null}
+                              <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
                                 {s.active ? "ACTIVE" : "INACTIVE"}
                               </span>
                             </>
                           )}
                         </div>
-                        {!isEditing ? <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p> : null}
+                          {!isEditing ? <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p> : null}
+                        </div>
                       </div>
 
                       {!canEdit ? null : isEditing ? (
-                        <div className="flex gap-2">
-                          <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" type="button" onClick={() => setEditingId(null)}>
+                        <div className="flex gap-1.5">
+                          <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void moveToTrash(s)} disabled={submitting}>
+                            Xóa
+                          </button>
+                          <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => setEditingId(null)}>
                             Huỷ
                           </button>
-                          <button className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>
+                          <button className="cursor-pointer rounded-xl bg-rose-500 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>
                             {submitting ? "Đang lưu..." : "Lưu"}
                           </button>
                         </div>
                       ) : (
-                        <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>
+                        <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>
                           Sửa
                         </button>
                       )}
@@ -508,11 +580,11 @@ export default function ServicesPage() {
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-                        <div className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">{formatVnd(Number(s.base_price))}</div>
-                        <div className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">{s.duration_min} phút</div>
-                        <div className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
-                        <div className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">STT {s.display_order ?? 0}</div>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                        <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                        <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                        <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                        <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">#{s.display_order ?? 0}</div>
                       </div>
                     )}
                   </div>
@@ -520,7 +592,230 @@ export default function ServicesPage() {
               })}
             </div>
           )}
-        </section>
+          </div>
+
+          <div className="md:hidden">
+            <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Danh sách dịch vụ</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span></div>} defaultOpen={mobileListOpen}>
+              <div className="space-y-3">
+                <TextInput placeholder="Tìm theo tên hoặc mô tả" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
+                {loading ? (
+                  <p className="text-sm text-neutral-500">Đang tải dữ liệu dịch vụ...</p>
+                ) : filteredRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
+                    {rows.length === 0 ? "Chưa có dịch vụ nào. Hãy tạo dịch vụ đầu tiên ở phía trên." : "Không có dịch vụ khớp bộ lọc hiện tại."}
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {filteredRows.map((s) => {
+                      const isEditing = editingId === s.id;
+                      return (
+                        <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                              {s.image_url ? <img src={s.image_url} alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" /> : null}
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {isEditing ? (
+                                    <TextInput value={editName} onChange={(e) => setEditName(e.target.value)} className="max-w-xl py-1.5 text-sm" />
+                                  ) : (
+                                  <>
+                                    <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                                    {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">LOOKBOOK</span> : null}
+                                    <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
+                                      {s.active ? "ACTIVE" : "INACTIVE"}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                                {!isEditing ? <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p> : null}
+                              </div>
+                            </div>
+
+                            {!canEdit ? null : isEditing ? (
+                              <div className="flex gap-1.5">
+                                <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void moveToTrash(s)} disabled={submitting}>
+                                  Xóa
+                                </button>
+                                <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => setEditingId(null)}>
+                                  Huỷ
+                                </button>
+                                <button className="cursor-pointer rounded-xl bg-rose-500 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>
+                                  {submitting ? "Đang lưu..." : "Lưu"}
+                                </button>
+                              </div>
+                            ) : (
+                              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>
+                                Sửa
+                              </button>
+                            )}
+                          </div>
+
+                          {isEditing ? (
+                            <div className="mt-3 space-y-3 rounded-2xl bg-neutral-50 p-3">
+                              <div className="space-y-2 md:grid md:gap-2 md:grid-cols-[minmax(0,1fr)_140px_140px_120px] md:space-y-0">
+                                <InlineField label="Mô tả" compact>
+                                  <TextArea value={editShortDescription} onChange={(e) => setEditShortDescription(e.target.value)} className="min-h-[72px]" />
+                                </InlineField>
+                                <InlineField label="Giá" compact>
+                                  <TextInput type="number" min={0} value={editPrice} onChange={(e) => setEditPrice(Number(e.target.value))} />
+                                </InlineField>
+                                <InlineField label="Phút" compact>
+                                  <TextInput type="number" min={5} value={editDuration} onChange={(e) => setEditDuration(Number(e.target.value))} />
+                                </InlineField>
+                                <InlineField label="VAT" compact>
+                                  <TextInput type="number" min={0} step={0.5} value={editVat} onChange={(e) => setEditVat(Number(e.target.value))} />
+                                </InlineField>
+                              </div>
+
+                              <div className="space-y-2 md:grid md:gap-2 md:grid-cols-[minmax(0,1fr)_120px] md:space-y-0">
+                                <InlineField label="Ảnh" compact>
+                                  <TextInput value={editImageUrl} onChange={(e) => setEditImageUrl(e.target.value)} placeholder="URL hoặc storage path" />
+                                </InlineField>
+                                <InlineField label="Thứ tự" compact>
+                                  <TextInput type="number" value={editDisplayOrder} onChange={(e) => setEditDisplayOrder(Number(e.target.value))} />
+                                </InlineField>
+                              </div>
+
+                              <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+                                <div className="space-y-2">
+                                  <label className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editFeaturedInLookbook} onChange={(e) => setEditFeaturedInLookbook(e.target.checked)} />
+                                    Đưa lên lookbook
+                                  </label>
+                                  <label className="flex items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} />
+                                    Dịch vụ đang hoạt động
+                                  </label>
+                                  <label className="inline-flex w-full cursor-pointer items-center justify-center rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50">
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => void handleEditImageUpload(e.target.files?.[0])} />
+                                    {uploadingEditImage ? "Đang upload..." : "Upload ảnh mới"}
+                                  </label>
+                                </div>
+
+                                {editImageUrl ? (
+                                  <img src={editImageUrl} alt="Preview" className="h-32 w-full rounded-2xl object-cover" />
+                                ) : (
+                                  <div className="flex h-32 items-center justify-center rounded-2xl border border-dashed border-neutral-200 bg-white text-xs text-neutral-400">Chưa có ảnh</div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">#{s.display_order ?? 0}</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </MobileCollapsible>
+          </div>
+        </div>
+
+        <div ref={trashSectionRef}>
+          <div className="hidden md:block manage-surface space-y-3 p-4 md:p-5">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900">Thùng rác</h3>
+                <p className="text-xs text-neutral-500">Dịch vụ đã xóa tạm sẽ nằm ở đây để khôi phục hoặc xóa hẳn sau.</p>
+              </div>
+              <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{trashedRows.length} mục</div>
+            </div>
+
+            {trashedRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-sm text-neutral-500">
+                Thùng rác đang trống.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {trashedRows.map((s) => (
+                  <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                          <span className="rounded-full bg-neutral-200 px-1.5 py-0.5 text-[9px] font-semibold text-neutral-600">TRASH</span>
+                        </div>
+                        <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">#{s.display_order ?? 0}</div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 justify-end">
+                        <button className="cursor-pointer rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void restoreService(s)} disabled={submitting}>
+                          Khôi phục
+                        </button>
+                        <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => window.alert("Hiện tại đã có thùng rác tạm. Nếu anh chốt xóa hẳn thật, em sẽ nối thêm bước delete DB ở lượt sau để tránh xóa nhầm.")} disabled={submitting}>
+                          Xóa hẳn
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="md:hidden">
+            <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Thùng rác</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{trashedRows.length}</span></div>} defaultOpen={mobileTrashOpen}>
+              {trashedRows.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-sm text-neutral-500">
+                  Thùng rác đang trống.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {trashedRows.map((s) => (
+                    <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                            <span className="rounded-full bg-neutral-200 px-1.5 py-0.5 text-[9px] font-semibold text-neutral-600">TRASH</span>
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">#{s.display_order ?? 0}</div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 justify-end">
+                          <button className="cursor-pointer rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void restoreService(s)} disabled={submitting}>
+                            Khôi phục
+                          </button>
+                          <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => window.alert("Hiện tại đã có thùng rác tạm. Nếu anh chốt xóa hẳn thật, em sẽ nối thêm bước delete DB ở lượt sau để tránh xóa nhầm.")} disabled={submitting}>
+                            Xóa hẳn
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </MobileCollapsible>
+          </div>
+        </div>
+
+        <MobileStickyActions>
+          <button type="button" onClick={() => { setMobileCreateOpen(true); setMobileListOpen(false); setMobileTrashOpen(false); requestAnimationFrame(() => createSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} className="flex-1 rounded-2xl bg-[var(--color-primary)] px-3 py-3 text-[13px] font-semibold text-white shadow-sm transition hover:brightness-95">
+            Thêm mới
+          </button>
+          <button type="button" onClick={() => { setMobileCreateOpen(false); setMobileListOpen(true); setMobileTrashOpen(false); requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} className="flex-1 rounded-2xl border border-neutral-200 bg-white px-3 py-3 text-[13px] font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50">
+            Danh sách
+          </button>
+          <button type="button" onClick={() => { setMobileCreateOpen(false); setMobileListOpen(false); setMobileTrashOpen(true); requestAnimationFrame(() => trashSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} className="flex-1 rounded-2xl border border-neutral-200 bg-white px-3 py-3 text-[13px] font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50">
+            Thùng rác
+          </button>
+        </MobileStickyActions>
 
       </div>
     </AppShell>

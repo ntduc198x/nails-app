@@ -291,43 +291,22 @@ export default function BookingRequestsPage() {
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <section className="grid grid-cols-2 gap-2">
-          <button type="button" onClick={() => setSelectedId(rescheduleRows[0]?.id ?? null)} className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-amber-700">Cần dời lịch</span>
-              <span className="text-base font-semibold leading-none text-amber-900">{rescheduleRows.length}</span>
-            </div>
-          </button>
           <button type="button" onClick={() => setSelectedId(newRows[0]?.id ?? null)} className="cursor-pointer rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-left transition hover:bg-neutral-100">
             <div className="flex items-center justify-between gap-2">
               <span className="text-sm font-medium text-neutral-600">Booking mới</span>
               <span className="text-base font-semibold leading-none text-neutral-900">{newRows.length}</span>
             </div>
           </button>
+          <button type="button" onClick={() => setSelectedId(rescheduleRows[0]?.id ?? null)} className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm font-medium text-amber-700">Cần dời lịch</span>
+              <span className="text-base font-semibold leading-none text-amber-900">{rescheduleRows.length}</span>
+            </div>
+          </button>
         </section>
 
         <div className="grid gap-3 xl:grid-cols-[0.9fr_1.1fr] xl:items-start">
           <div className="grid gap-3 xl:grid-cols-2">
-            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-3.5 shadow-sm h-full">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-amber-900 md:text-base">Cần dời lịch</h3>
-                <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold text-amber-900">{rescheduleRows.length}</span>
-              </div>
-
-              <div className="mt-3 space-y-2">
-                {loading ? (
-                  <p className="text-sm text-amber-800/70">Đang tải...</p>
-                ) : rescheduleRows.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-5 text-center text-sm text-amber-800/70">
-                    Không có request nào cần dời lịch.
-                  </div>
-                ) : (
-                  rescheduleRows.map((row) => (
-                    <QueueCard key={row.id} row={row} active={selectedId === row.id} onClick={() => setSelectedId(row.id)} />
-                  ))
-                )}
-              </div>
-            </div>
-
             <div className="manage-surface p-3.5 md:p-4 h-full">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Booking mới</h3>
@@ -343,6 +322,27 @@ export default function BookingRequestsPage() {
                   </div>
                 ) : (
                   newRows.map((row) => (
+                    <QueueCard key={row.id} row={row} active={selectedId === row.id} onClick={() => setSelectedId(row.id)} />
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-3.5 shadow-sm h-full">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-amber-900 md:text-base">Cần dời lịch</h3>
+                <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold text-amber-900">{rescheduleRows.length}</span>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                {loading ? (
+                  <p className="text-sm text-amber-800/70">Đang tải...</p>
+                ) : rescheduleRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-amber-200 bg-white/70 px-4 py-5 text-center text-sm text-amber-800/70">
+                    Không có request nào cần dời lịch.
+                  </div>
+                ) : (
+                  rescheduleRows.map((row) => (
                     <QueueCard key={row.id} row={row} active={selectedId === row.id} onClick={() => setSelectedId(row.id)} />
                   ))
                 )}
@@ -449,7 +449,7 @@ export default function BookingRequestsPage() {
                   ) : null}
 
                   {selectedRow.status !== "CONVERTED" && selectedRow.status !== "CANCELLED" ? (
-                    <button type="button" className="rounded-2xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting || !bookingAt || !capacityAllowed} onClick={() => void onConvert()}>
+                    <button type="button" className="rounded-2xl bg-[var(--color-primary)] px-3 py-2 text-xs font-semibold text-white shadow-sm ring-1 ring-[var(--color-primary)]/20 transition hover:brightness-95 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting || !bookingAt || !capacityAllowed} onClick={() => void onConvert()}>
                       {submitting ? "Đang convert..." : selectedRow.status === "NEEDS_RESCHEDULE" ? "Chốt giờ & tạo lịch" : "Tạo lịch"}
                     </button>
                   ) : null}

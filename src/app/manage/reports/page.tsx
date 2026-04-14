@@ -264,7 +264,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="grid gap-2 md:grid-cols-[180px_repeat(5,minmax(0,1fr))]">
+          <div className="space-y-2 md:grid md:gap-2 md:grid-cols-[180px_repeat(5,minmax(0,1fr))] md:space-y-0">
             <select className="input py-2.5 text-sm" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
               <option value="day">Theo ngày</option>
               <option value="week">Theo tuần</option>
@@ -272,28 +272,32 @@ export default function ReportsPage() {
               <option value="custom">Tùy chỉnh</option>
             </select>
 
-            {rangeMode === "day" && <input className="input py-2.5 text-sm" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
-            {rangeMode === "week" && <input className="input py-2.5 text-sm" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
-            {rangeMode === "month" && (
-              <>
-                <select className="input py-2.5 text-sm" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={String(m)}>{`Tháng ${m}`}</option>)}
-                </select>
-                <input className="input py-2.5 text-sm" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
-              </>
-            )}
-            {rangeMode === "custom" && (
-              <>
-                <input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                <input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-              </>
-            )}
+            <div className="grid grid-cols-2 gap-2 md:contents">
+              {rangeMode === "day" && <input className="input py-2.5 text-sm col-span-2 md:col-span-1" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
+              {rangeMode === "week" && <input className="input py-2.5 text-sm col-span-2 md:col-span-1" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
+              {rangeMode === "month" && (
+                <>
+                  <select className="input py-2.5 text-sm" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={String(m)}>{`Tháng ${m}`}</option>)}
+                  </select>
+                  <input className="input py-2.5 text-sm" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
+                </>
+              )}
+              {rangeMode === "custom" && (
+                <>
+                  <input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  <input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                </>
+              )}
+            </div>
 
-            <select className="input py-2.5 text-sm" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
-              <option value="ALL">Tất cả nhân viên</option>
-              {staffRevenue.map((row) => <option key={row.staffUserId} value={row.staffUserId}>{row.staff}</option>)}
-            </select>
-            <button className="cursor-pointer rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700" onClick={() => void load()} disabled={refreshing}>{refreshing ? "Đang lọc..." : "Lọc"}</button>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 md:contents">
+              <select className="input py-2.5 text-sm" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
+                <option value="ALL">Tất cả nhân viên</option>
+                {staffRevenue.map((row) => <option key={row.staffUserId} value={row.staffUserId}>{row.staff}</option>)}
+              </select>
+              <button className="cursor-pointer rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700" onClick={() => void load()} disabled={refreshing}>{refreshing ? "Đang lọc..." : "Lọc"}</button>
+            </div>
           </div>
         </section>
 
@@ -332,17 +336,17 @@ export default function ReportsPage() {
               ) : filteredTicketRows.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">Không có bill nào khớp bộ lọc hiện tại.</div>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {filteredTicketRows.map((t) => (
-                    <div key={t.id} className="rounded-xl border border-neutral-200 bg-white p-2 md:rounded-2xl md:p-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="line-clamp-1 text-sm font-medium text-neutral-900">{t.staff_user_id ? (staffNameMap.get(t.staff_user_id) ?? t.staff_user_id.slice(0, 8)) : "-"}</div>
-                          <div className="mt-0.5 text-[10px] text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
+                    <div key={t.id} className="rounded-xl border border-neutral-200 bg-white p-1.5 md:rounded-2xl md:p-2.5">
+                      <div className="flex items-start justify-between gap-1.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="line-clamp-1 text-[13px] font-medium text-neutral-900 md:text-sm">{t.staff_user_id ? (staffNameMap.get(t.staff_user_id) ?? t.staff_user_id.slice(0, 8)) : "-"}</div>
+                          <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
                         </div>
-                        <div className="text-right text-sm font-semibold text-neutral-900">{formatVnd(Number(t.totals_json?.grand_total ?? 0))}</div>
+                        <div className="shrink-0 text-right text-[13px] font-semibold text-neutral-900 md:text-sm">{formatVnd(Number(t.totals_json?.grand_total ?? 0))}</div>
                       </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1 text-[10px] text-neutral-700 md:text-[11px]">
+                      <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-neutral-700 md:mt-1.5 md:text-[11px]">
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5">Sub {formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
                         <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>

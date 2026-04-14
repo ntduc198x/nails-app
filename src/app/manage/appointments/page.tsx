@@ -137,14 +137,14 @@ function isCriticalCheckedIn(row: AppointmentRow) {
 }
 
 function FieldLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <label className={`block text-xs font-semibold uppercase tracking-[0.14em] text-neutral-500 ${className}`}>{children}</label>;
+  return <label className={`block text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500 ${className}`}>{children}</label>;
 }
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+      className={`w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -153,7 +153,7 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`w-full rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+      className={`w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -164,7 +164,7 @@ function ResourceChip({ active, disabled, label, onClick }: { active: boolean; d
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`rounded-xl border px-3 py-2 text-sm font-medium transition ${active ? "border-rose-300 bg-rose-50 text-rose-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"} ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
+      className={`rounded-xl border px-2.5 py-1.5 text-[13px] font-medium transition ${active ? "border-rose-300 bg-rose-50 text-rose-700" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"} ${disabled ? "cursor-not-allowed opacity-40" : ""}`}
     >
       {label}
     </button>
@@ -461,15 +461,15 @@ export default function OperationsPage() {
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <>
-          <section ref={formRef} className="manage-surface space-y-3 md:space-y-4">
+          <section ref={formRef} className="manage-surface space-y-2.5 md:space-y-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Hành động nhanh</h3>
+                <h3 className="text-sm font-semibold text-neutral-900 md:text-lg">Hành động nhanh</h3>
               </div>
               {currentConflict ? <span className="w-fit rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-700">Có xung đột</span> : null}
             </div>
 
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
               <button type="button" onClick={() => { setStatusFilter("BOOKED"); requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} className="cursor-pointer rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left transition hover:bg-amber-100">
                 <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-amber-700">Chờ check-in</p>
                 <p className="mt-0.5 text-xl font-semibold leading-none text-amber-900">{activeBookedRows.length}</p>
@@ -488,35 +488,35 @@ export default function OperationsPage() {
               </button>
             </div>
 
-            <form onSubmit={onSubmit} className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]">
-              <div className="grid gap-2.5">
-                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3">
+            <form onSubmit={onSubmit} className="grid gap-2.5 lg:grid-cols-[1.3fr_0.7fr]">
+              <div className="grid gap-2">
+                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-2.5">
                   <FieldLabel className="mb-0">Tên khách</FieldLabel>
                   <TextInput placeholder="Ví dụ: Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
                 </div>
-                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-3">
+                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-2.5">
                   <FieldLabel className="mb-0">Chế độ giờ</FieldLabel>
                   <SelectInput value={autoTime ? "auto" : "custom"} onChange={(e) => setAutoTime(e.target.value === "auto")}><option value="auto">Giờ tự động</option><option value="custom">Tùy chỉnh giờ</option></SelectInput>
                 </div>
-                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-3">
-                  <FieldLabel className="mb-0 pt-2">Số ghế</FieldLabel>
-                  <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-2.5">
+                  <FieldLabel className="mb-0 pt-1.5">Số ghế</FieldLabel>
+                  <div className="flex flex-wrap gap-1.5">
                     {resourceOptions.map((r) => <ResourceChip key={r.id} active={resourceId === r.id} label={r.name} onClick={() => setResourceId(r.id)} />)}
                   </div>
                 </div>
-                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-3">
-                  <FieldLabel className="mb-0 pt-2">Thợ</FieldLabel>
-                  <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-[72px_minmax(0,1fr)] items-start gap-2.5">
+                  <FieldLabel className="mb-0 pt-1.5">Thợ</FieldLabel>
+                  <div className="flex flex-wrap gap-1.5">
                     {staffOptions.map((s) => (
                       <ResourceChip key={s.userId} active={staffUserId === s.userId} label={s.name} onClick={() => setStaffUserId(s.userId)} />
                     ))}
                   </div>
                 </div>
-                {!autoTime ? <div className="pt-1"><ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} /></div> : null}
+                {!autoTime ? <div className="pt-0.5"><ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} /></div> : null}
               </div>
-              <div className="space-y-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
-                {editingId ? <div className="flex items-center justify-end"><button type="button" className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50" onClick={resetForm}>Hủy</button></div> : null}
-                <button className="w-full rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting || !staffUserId || !resourceId}>{submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}</button>
+              <div className="space-y-1.5 rounded-2xl border border-neutral-200 bg-neutral-50 p-2.5">
+                {editingId ? <div className="flex items-center justify-end"><button type="button" className="rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[13px] font-medium text-neutral-700 transition hover:bg-neutral-50" onClick={resetForm}>Hủy</button></div> : null}
+                <button className="w-full rounded-2xl bg-rose-500 px-4 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting || !staffUserId || !resourceId}>{submitting ? "Đang xử lý..." : editingId ? "Lưu lịch hẹn" : "Tạo lịch hẹn"}</button>
               </div>
             </form>
           </section>
@@ -576,7 +576,7 @@ export default function OperationsPage() {
           </section>
 
           <MobileStickyActions>
-            <button type="button" onClick={() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} className="flex-1 rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm font-semibold text-neutral-800 shadow-sm transition hover:bg-neutral-50">
+            <button type="button" onClick={() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })} className="flex-1 rounded-2xl bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white shadow-md ring-1 ring-[var(--color-primary)]/25 transition hover:brightness-95">
               Đi tới form tạo lịch
             </button>
           </MobileStickyActions>

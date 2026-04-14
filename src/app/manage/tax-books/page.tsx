@@ -235,13 +235,13 @@ export default function TaxBooksPage() {
               </div>
 
               <div className="space-y-2">
-                <InlineField label="Từ ngày"><input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
-                <InlineField label="Đến ngày"><input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
-                <InlineField label="Hộ KD"><input className="input py-2.5 text-sm" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
-                <InlineField label="MST"><input className="input py-2.5 text-sm" placeholder="Mã số thuế" value={taxCode} onChange={(e) => setTaxCode(e.target.value)} /></InlineField>
-                <InlineField label="Đơn vị"><input className="input py-2.5 text-sm" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
-                <InlineField label="Địa chỉ"><input className="input py-2.5 text-sm" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
-                <InlineField label="Địa điểm"><input className="input py-2.5 text-sm" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
+                <InlineField label="Từ ngày"><input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
+                <InlineField label="Đến ngày"><input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
+                <InlineField label="Hộ KD"><input className="input py-2.5" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
+                <InlineField label="MST"><input className="input py-2.5" placeholder="Mã số thuế" value={taxCode} onChange={(e) => setTaxCode(e.target.value)} /></InlineField>
+                <InlineField label="Đơn vị"><input className="input py-2.5" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
+                <InlineField label="Địa chỉ"><input className="input py-2.5" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
+                <InlineField label="Địa điểm"><input className="input py-2.5" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
                 <div className="rounded-2xl bg-neutral-50 px-3 py-2 text-[11px] text-neutral-500">Đổi kỳ kê khai là hệ thống tự nạp dữ liệu.</div>
               </div>
             </div>
@@ -249,13 +249,13 @@ export default function TaxBooksPage() {
             <div className="xl:hidden">
               <MobileCollapsible summary="Thông tin kỳ kê khai" defaultOpen>
                 <div className="space-y-2">
-                  <InlineField label="Từ ngày"><input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
-                  <InlineField label="Đến ngày"><input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
-                  <InlineField label="Hộ KD"><input className="input py-2.5 text-sm" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
-                  <InlineField label="MST"><input className="input py-2.5 text-sm" placeholder="Mã số thuế" value={taxCode} onChange={(e) => setTaxCode(e.target.value)} /></InlineField>
-                  <InlineField label="Đơn vị"><input className="input py-2.5 text-sm" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
-                  <InlineField label="Địa chỉ"><input className="input py-2.5 text-sm" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
-                  <InlineField label="Địa điểm"><input className="input py-2.5 text-sm" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
+                  <InlineField label="Từ ngày"><input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
+                  <InlineField label="Đến ngày"><input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
+                  <InlineField label="Hộ KD"><input className="input py-2.5" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
+                  <InlineField label="MST"><input className="input py-2.5" placeholder="Mã số thuế" value={taxCode} onChange={(e) => setTaxCode(e.target.value)} /></InlineField>
+                  <InlineField label="Đơn vị"><input className="input py-2.5" placeholder="đồng" value={unit} onChange={(e) => setUnit(e.target.value)} /></InlineField>
+                  <InlineField label="Địa chỉ"><input className="input py-2.5" placeholder="Địa chỉ" value={address} onChange={(e) => setAddress(e.target.value)} /></InlineField>
+                  <InlineField label="Địa điểm"><input className="input py-2.5" placeholder="Địa điểm kinh doanh" value={businessLocation} onChange={(e) => setBusinessLocation(e.target.value)} /></InlineField>
                   <div className="rounded-2xl bg-neutral-50 px-3 py-2 text-[11px] text-neutral-500">Đổi kỳ kê khai là hệ thống tự nạp dữ liệu.</div>
                 </div>
               </MobileCollapsible>

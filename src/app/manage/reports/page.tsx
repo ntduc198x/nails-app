@@ -270,7 +270,7 @@ export default function ReportsPage() {
           </div>
 
           <div className="hidden md:grid md:gap-2 md:grid-cols-[180px_repeat(5,minmax(0,1fr))]">
-            <select className="input py-2.5 text-sm" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+            <select className="input py-2.5" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
               <option value="day">Theo ngày</option>
               <option value="week">Theo tuần</option>
               <option value="month">Theo tháng</option>
@@ -278,26 +278,26 @@ export default function ReportsPage() {
             </select>
 
             <div className="grid grid-cols-2 gap-2 md:contents">
-              {rangeMode === "day" && <input className="input py-2.5 text-sm col-span-2 md:col-span-1" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
-              {rangeMode === "week" && <input className="input py-2.5 text-sm col-span-2 md:col-span-1" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
+              {rangeMode === "day" && <input className="input py-2.5 col-span-2 md:col-span-1" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
+              {rangeMode === "week" && <input className="input py-2.5 col-span-2 md:col-span-1" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
               {rangeMode === "month" && (
                 <>
-                  <select className="input py-2.5 text-sm" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
+                  <select className="input py-2.5" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
                     {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={String(m)}>{`Tháng ${m}`}</option>)}
                   </select>
-                  <input className="input py-2.5 text-sm" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
+                  <input className="input py-2.5" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
                 </>
               )}
               {rangeMode === "custom" && (
                 <>
-                  <input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                  <input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                  <input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                  <input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                 </>
               )}
             </div>
 
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 md:contents">
-              <select className="input py-2.5 text-sm" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
+              <select className="input py-2.5" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
                 <option value="ALL">Tất cả nhân viên</option>
                 {staffRevenue.map((row) => <option key={row.staffUserId} value={row.staffUserId}>{row.staff}</option>)}
               </select>
@@ -320,32 +320,32 @@ export default function ReportsPage() {
             </div>
             {mobileFilterOpen ? (
               <div className="space-y-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-2.5">
-                <select className="input py-2.5 text-sm" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+                <select className="input py-2.5" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
                   <option value="day">Theo ngày</option>
                   <option value="week">Theo tuần</option>
                   <option value="month">Theo tháng</option>
                   <option value="custom">Tùy chỉnh</option>
                 </select>
                 <div className="grid grid-cols-2 gap-2">
-                  {rangeMode === "day" && <input className="input col-span-2 py-2.5 text-sm" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
-                  {rangeMode === "week" && <input className="input col-span-2 py-2.5 text-sm" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
+                  {rangeMode === "day" && <input className="input col-span-2 py-2.5" type="date" value={dayValue} onChange={(e) => setDayValue(e.target.value)} />}
+                  {rangeMode === "week" && <input className="input col-span-2 py-2.5" type="date" value={weekAnchor} onChange={(e) => setWeekAnchor(e.target.value)} />}
                   {rangeMode === "month" && (
                     <>
-                      <select className="input py-2.5 text-sm" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
+                      <select className="input py-2.5" value={monthValue} onChange={(e) => setMonthValue(e.target.value)}>
                         {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={String(m)}>{`Tháng ${m}`}</option>)}
                       </select>
-                      <input className="input py-2.5 text-sm" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
+                      <input className="input py-2.5" type="number" value={yearValue} onChange={(e) => setYearValue(e.target.value)} />
                     </>
                   )}
                   {rangeMode === "custom" && (
                     <>
-                      <input className="input py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                      <input className="input py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                      <input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                      <input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                     </>
                   )}
                 </div>
                 <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                  <select className="input py-2.5 text-sm" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
+                  <select className="input py-2.5" value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)}>
                     <option value="ALL">Tất cả nhân viên</option>
                     {staffRevenue.map((row) => <option key={row.staffUserId} value={row.staffUserId}>{row.staff}</option>)}
                   </select>

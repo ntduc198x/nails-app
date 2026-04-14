@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 export function MobileSectionHeader({
   title,
@@ -32,9 +33,27 @@ export function MobileInfoGrid({ children }: { children: ReactNode }) {
   return <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{children}</div>;
 }
 
-export function MobileCollapsible({ summary, children, defaultOpen = false }: { summary: ReactNode; children: ReactNode; defaultOpen?: boolean }) {
+export function MobileCollapsible({ summary, children, defaultOpen = false, open, onToggle }: { summary: ReactNode; children: ReactNode; defaultOpen?: boolean; open?: boolean; onToggle?: (open: boolean) => void }) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const controlled = typeof open === "boolean";
+  const actualOpen = controlled ? open : internalOpen;
+
+  useEffect(() => {
+    if (!controlled) {
+      setInternalOpen(defaultOpen);
+    }
+  }, [defaultOpen, controlled]);
+
   return (
-    <details className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:hidden" open={defaultOpen}>
+    <details
+      className="rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm md:hidden"
+      open={actualOpen}
+      onToggle={(e) => {
+        const nextOpen = (e.currentTarget as HTMLDetailsElement).open;
+        if (!controlled) setInternalOpen(nextOpen);
+        onToggle?.(nextOpen);
+      }}
+    >
       <summary className="cursor-pointer list-none text-sm font-semibold text-neutral-900">{summary}</summary>
       <div className="mt-3">{children}</div>
     </details>

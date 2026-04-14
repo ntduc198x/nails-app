@@ -200,13 +200,13 @@ export default function AccountPage() {
 
             <div className="space-y-2">
               <InlineField label="Tên hiển thị">
-                <input className="input w-full py-2 text-sm" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ví dụ: Đức" />
+                <input className="input w-full py-2" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ví dụ: Đức" />
               </InlineField>
               <InlineField label="Điện thoại">
-                <input className="input w-full py-2 text-sm" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ví dụ: 09xxxxxxxx" />
+                <input className="input w-full py-2" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ví dụ: 09xxxxxxxx" />
               </InlineField>
               <InlineField label="Email">
-                <input className="input w-full bg-neutral-50 py-2 text-sm" value={email} disabled readOnly />
+                <input className="input w-full bg-neutral-50 py-2" value={email} disabled readOnly />
               </InlineField>
             </div>
             <div className="text-[11px] text-neutral-500">Hiện tại email chỉ hiển thị, chưa cho đổi trực tiếp ở màn này.</div>
@@ -226,13 +226,13 @@ export default function AccountPage() {
 
             <div className="space-y-2">
               <InlineField label="Mật khẩu cũ">
-                <input className="input w-full py-2 text-sm" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Nhập mật khẩu hiện tại" />
+                <input className="input w-full py-2" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Nhập mật khẩu hiện tại" />
               </InlineField>
               <InlineField label="Mật khẩu mới">
-                <input className="input w-full py-2 text-sm" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Ít nhất 8 ký tự" />
+                <input className="input w-full py-2" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Ít nhất 8 ký tự" />
               </InlineField>
               <InlineField label="Nhập lại">
-                <input className="input w-full py-2 text-sm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Nhập lại để xác nhận" />
+                <input className="input w-full py-2" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Nhập lại để xác nhận" />
               </InlineField>
             </div>
 

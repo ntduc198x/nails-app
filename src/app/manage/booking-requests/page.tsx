@@ -109,7 +109,7 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 md:text-sm ${props.className ?? ""}`}
+      className={`w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-base md:text-sm text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
     />
   );
 }

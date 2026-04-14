@@ -344,7 +344,7 @@ export default function CheckoutPage() {
                     <div key={idx} className="rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
                       <div className="space-y-3">
                         <div>
-                          <select className="input cursor-pointer bg-white py-2.5 text-sm" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
+                          <select className="input cursor-pointer bg-white py-2.5" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
                             <option value="">-- Chọn dịch vụ --</option>
                             {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
                           </select>
@@ -473,7 +473,7 @@ export default function CheckoutPage() {
             <MobileCollapsible summary={`Lịch sử phiếu · ${tickets.length} bill`} defaultOpen={false}>
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <select className="input cursor-pointer py-2.5 text-sm" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
+                  <select className="input cursor-pointer py-2.5" value={rangeMode} onChange={(e) => setRangeMode(e.target.value as RangeMode)}>
                     <option value="day">Trong ngày</option>
                     <option value="week">Trong tuần</option>
                     <option value="month">Trong tháng</option>
@@ -483,8 +483,8 @@ export default function CheckoutPage() {
                 </div>
                 {rangeMode === "custom" ? (
                   <div className="grid grid-cols-2 gap-2">
-                    <input className="input cursor-pointer py-2.5 text-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                    <input className="input cursor-pointer py-2.5 text-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                    <input className="input cursor-pointer py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                    <input className="input cursor-pointer py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
                   </div>
                 ) : null}
 

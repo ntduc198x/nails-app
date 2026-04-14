@@ -144,7 +144,7 @@ function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full cursor-text rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+      className={`w-full cursor-text rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-base md:text-[13px] text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -153,7 +153,7 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
+      className={`w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-base md:text-[13px] text-neutral-900 outline-none transition focus:border-rose-300 focus:ring-4 focus:ring-rose-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -251,6 +251,12 @@ export default function OperationsPage() {
   const [showDetailList, setShowDetailList] = useState(false);
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  function openFilteredDetails(nextStatus: string) {
+    setStatusFilter(nextStatus);
+    setShowDetailList(true);
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+  }
 
   const load = useCallback(async (opts?: { force?: boolean; silent?: boolean }) => {
     const isInitial = rows.length === 0;
@@ -579,12 +585,12 @@ export default function OperationsPage() {
               <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Bộ lọc lịch</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span></div>} defaultOpen={false}>
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setStatusFilter("ALL")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "ALL" ? "bg-neutral-900 text-white" : "border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"}`}>Tất cả</button>
-                    <button type="button" onClick={() => setStatusFilter("BOOKED")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "BOOKED" ? "bg-amber-500 text-white" : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"}`}>Check-in</button>
-                    <button type="button" onClick={() => setStatusFilter("OVERDUE")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "OVERDUE" ? "bg-red-600 text-white" : "border border-red-200 bg-red-50 text-red-800 hover:bg-red-100"}`}>Quá giờ</button>
-                    <button type="button" onClick={() => setStatusFilter("STALE_CHECKED_IN")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "STALE_CHECKED_IN" ? "bg-violet-600 text-white" : "border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"}`}>Check-in lâu</button>
-                    <button type="button" onClick={() => setStatusFilter("CHECKED_IN")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "CHECKED_IN" ? "bg-blue-600 text-white" : "border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"}`}>Chờ thanh toán</button>
-                    <button type="button" onClick={() => setStatusFilter("DONE")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "DONE" ? "bg-emerald-600 text-white" : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>Đã xong</button>
+                    <button type="button" onClick={() => openFilteredDetails("ALL")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "ALL" ? "bg-neutral-900 text-white" : "border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"}`}>Tất cả</button>
+                    <button type="button" onClick={() => openFilteredDetails("BOOKED")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "BOOKED" ? "bg-amber-500 text-white" : "border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"}`}>Check-in</button>
+                    <button type="button" onClick={() => openFilteredDetails("OVERDUE")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "OVERDUE" ? "bg-red-600 text-white" : "border border-red-200 bg-red-50 text-red-800 hover:bg-red-100"}`}>Quá giờ</button>
+                    <button type="button" onClick={() => openFilteredDetails("STALE_CHECKED_IN")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "STALE_CHECKED_IN" ? "bg-violet-600 text-white" : "border border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100"}`}>Check-in lâu</button>
+                    <button type="button" onClick={() => openFilteredDetails("CHECKED_IN")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "CHECKED_IN" ? "bg-blue-600 text-white" : "border border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100"}`}>Chờ thanh toán</button>
+                    <button type="button" onClick={() => openFilteredDetails("DONE")} className={`cursor-pointer rounded-2xl px-3 py-2 text-sm font-medium transition ${statusFilter === "DONE" ? "bg-emerald-600 text-white" : "border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}>Đã xong</button>
                   </div>
                   <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500">{`${filterRange.from.toLocaleDateString("vi-VN")} → ${filterRange.to.toLocaleDateString("vi-VN")}`}</div>
                   <div className="grid gap-3">
@@ -607,7 +613,8 @@ export default function OperationsPage() {
 
             <MobileCollapsible
               summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Chi tiết lịch</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span></div>}
-              defaultOpen={showDetailList}
+              open={showDetailList}
+              onToggle={setShowDetailList}
             >
               {loading ? <p className="text-sm text-neutral-500">Đang tải lịch hẹn...</p> : filteredRows.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">Chưa có lịch hẹn nào trong bộ lọc hiện tại.</div> : (
                 <div className="space-y-4">

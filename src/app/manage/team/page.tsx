@@ -8,7 +8,7 @@ import { generateInviteCode, listInviteCodes, revokeInviteCode, type InviteCodeR
 import { supabase } from "@/lib/supabase";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-type UserRoleRow = { id: string; user_id: string; role: AppRole; display_name?: string; email?: string | null };
+type UserRoleRow = { id: string; user_id: string; role: AppRole; display_name?: string; email?: string | null; phone?: string | null };
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
 
@@ -50,7 +50,6 @@ export default function TeamPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [inviteRows, setInviteRows] = useState<InviteCodeRow[]>([]);
   const [inviteRole, setInviteRole] = useState<InviteCodeRow["allowed_role"]>("TECH");
-  const [inviteNote, setInviteNote] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -71,7 +70,7 @@ export default function TeamPage() {
   const filteredRows = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return rows;
-    return rows.filter((row) => `${row.display_name ?? ""} ${row.email ?? ""} ${row.user_id} ${row.role}`.toLowerCase().includes(keyword));
+    return rows.filter((row) => `${row.display_name ?? ""} ${row.email ?? ""} ${row.phone ?? ""} ${row.user_id} ${row.role}`.toLowerCase().includes(keyword));
   }, [rows, search]);
 
   async function load(opts?: { silent?: boolean }) {
@@ -94,7 +93,12 @@ export default function TeamPage() {
         canManageCurrent ? listInviteCodes() : Promise.resolve([]),
       ]);
       setRows(roleRows as UserRoleRow[]);
-      setInviteRows(invites as InviteCodeRow[]);
+      setInviteRows((invites as InviteCodeRow[]).filter((invite) => {
+        const expired = new Date(invite.expires_at).getTime() <= Date.now();
+        const used = invite.used_count >= invite.max_uses;
+        const revoked = Boolean(invite.revoked_at);
+        return !expired && !used && !revoked;
+      }));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load team failed");
     } finally {
@@ -121,9 +125,8 @@ export default function TeamPage() {
     try {
       setInviteBusy(true);
       setError(null);
-      const row = await generateInviteCode(inviteRole, inviteNote.trim() || undefined);
+      const row = await generateInviteCode(inviteRole);
       setInviteRows((prev) => [row, ...prev].slice(0, 20));
-      setInviteNote("");
       if (typeof navigator !== "undefined" && navigator.clipboard) {
         await navigator.clipboard.writeText(row.code);
       }
@@ -199,7 +202,7 @@ export default function TeamPage() {
                 <p className="text-xs text-neutral-500">Chỉ OWNER mới quản lý</p>
               </div>
               <div className="space-y-3">
-                <div className="space-y-2 md:grid md:grid-cols-[180px_minmax(0,1fr)_auto] md:gap-2 md:space-y-0">
+                <div className="space-y-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-2 md:space-y-0">
                   <InlineField label="Role">
                     <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
                       {roleOptions.map((role) => (
@@ -207,40 +210,29 @@ export default function TeamPage() {
                       ))}
                     </SelectInput>
                   </InlineField>
-                  <InlineField label="Ghi chú">
-                    <TextInput placeholder="Ghi chú nội bộ (tuỳ chọn)" value={inviteNote} onChange={(e) => setInviteNote(e.target.value)} />
-                  </InlineField>
                   <button type="button" className="cursor-pointer rounded-2xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void onCreateInvite()} disabled={inviteBusy}>{inviteBusy ? "Đang tạo..." : "Tạo mã"}</button>
                 </div>
 
                 <div className="space-y-2">
                   {inviteRows.length === 0 ? (
                     <div className="manage-info-box">Chưa có mã mời nào gần đây.</div>
-                  ) : inviteRows.map((invite) => {
-                    const expired = new Date(invite.expires_at).getTime() <= Date.now();
-                    const used = invite.used_count >= invite.max_uses;
-                    const revoked = Boolean(invite.revoked_at);
-                    const status = revoked ? "Đã thu hồi" : used ? "Đã dùng" : expired ? "Hết hạn" : "Còn hiệu lực";
-                    return (
-                      <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
-                            <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
-                          </div>
-                          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-700">{status}</span>
-                        </div>
-                        <div className="mt-2 space-y-1 text-xs text-neutral-500">
-                          <p>Hết hạn: {new Date(invite.expires_at).toLocaleString("vi-VN")}</p>
-                          {invite.note ? <p>Ghi chú: {invite.note}</p> : null}
-                        </div>
-                        <div className="mt-2 flex gap-2">
-                          <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
-                          {!used && !revoked && !expired ? <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button> : null}
+                  ) : inviteRows.map((invite) => (
+                    <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
+                          <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
                         </div>
                       </div>
-                    );
-                  })}
+                      <div className="mt-2 space-y-1 text-xs text-neutral-500">
+                        <p>Hết hạn: {new Date(invite.expires_at).toLocaleString("vi-VN")}</p>
+                      </div>
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
+                        <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -255,36 +247,26 @@ export default function TeamPage() {
                       ))}
                     </SelectInput>
                   </InlineField>
-                  <InlineField label="Ghi chú">
-                    <TextInput placeholder="Ghi chú nội bộ" value={inviteNote} onChange={(e) => setInviteNote(e.target.value)} />
-                  </InlineField>
                   <button type="button" className="cursor-pointer w-full rounded-2xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void onCreateInvite()} disabled={inviteBusy}>{inviteBusy ? "Đang tạo..." : "Tạo mã"}</button>
 
                   <div className="space-y-2">
                     {inviteRows.length === 0 ? (
                       <div className="manage-info-box">Chưa có mã mời nào gần đây.</div>
-                    ) : inviteRows.map((invite) => {
-                      const expired = new Date(invite.expires_at).getTime() <= Date.now();
-                      const used = invite.used_count >= invite.max_uses;
-                      const revoked = Boolean(invite.revoked_at);
-                      const status = revoked ? "Đã thu hồi" : used ? "Đã dùng" : expired ? "Hết hạn" : "Còn hiệu lực";
-                      return (
-                        <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
-                          <div className="flex items-start justify-between gap-2.5">
-                            <div className="min-w-0">
-                              <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
-                              <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
-                            </div>
-                            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-700">{status}</span>
-                          </div>
-                          <div className="mt-2 text-[11px] text-neutral-500">{new Date(invite.expires_at).toLocaleString("vi-VN")}</div>
-                          <div className="mt-2 flex gap-2">
-                            <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
-                            {!used && !revoked && !expired ? <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button> : null}
+                    ) : inviteRows.map((invite) => (
+                      <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="min-w-0">
+                            <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-400">{invite.allowed_role}</div>
+                            <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
                           </div>
                         </div>
-                      );
-                    })}
+                        <div className="mt-2 text-[11px] text-neutral-500">{new Date(invite.expires_at).toLocaleString("vi-VN")}</div>
+                        <div className="mt-2 flex gap-2">
+                          <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
+                          <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </MobileCollapsible>
@@ -296,7 +278,7 @@ export default function TeamPage() {
           <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-sm font-semibold text-neutral-900">Danh sách nhân sự</h3>
-              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, role và sửa inline khi cần.</p>
+              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, vai trò, số điện thoại và sửa inline khi cần.</p>
             </div>
             <div className="w-full md:w-[280px]">
               <TextInput placeholder="Tìm theo tên, user hoặc role" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
@@ -321,6 +303,7 @@ export default function TeamPage() {
                           <h4 className="text-sm font-semibold leading-5 text-neutral-900">{m.display_name || m.user_id}</h4>
                           <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{m.role}</span>
                         </div>
+                        <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-500">{m.phone || "Chưa có số điện thoại"}</p>
                         <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-400">{m.email || m.user_id}</p>
                       </div>
 
@@ -356,7 +339,6 @@ export default function TeamPage() {
                     ) : null}
 
                     <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-                      <div className="rounded-full bg-neutral-100 px-2 py-1 text-neutral-700">{m.role}</div>
                       {canManage && m.role !== "OWNER" ? (
                         <div className="min-w-[180px]">
                           <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">

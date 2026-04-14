@@ -73,12 +73,12 @@ export async function listUserRoles() {
 
   const rows = data ?? [];
   const ids = [...new Set(rows.map((r) => r.user_id as string))];
-  let profileMap = new Map<string, { display_name: string; email?: string | null }>();
+  let profileMap = new Map<string, { display_name: string; email?: string | null; phone?: string | null }>();
 
   if (ids.length) {
     const { data: profiles, error: profileErr } = await supabase
       .from("profiles")
-      .select("user_id,display_name,email")
+      .select("user_id,display_name,email,phone")
       .in("user_id", ids);
     if (!profileErr) {
       profileMap = new Map(
@@ -87,6 +87,7 @@ export async function listUserRoles() {
           {
             display_name: (p.display_name as string | null) || String(p.user_id).slice(0, 8),
             email: (p as { email?: string | null }).email ?? null,
+            phone: (p as { phone?: string | null }).phone ?? null,
           },
         ]),
       );
@@ -97,6 +98,7 @@ export async function listUserRoles() {
     ...r,
     display_name: profileMap.get(r.user_id as string)?.display_name ?? String(r.user_id).slice(0, 8),
     email: profileMap.get(r.user_id as string)?.email ?? null,
+    phone: profileMap.get(r.user_id as string)?.phone ?? null,
   }));
 }
 

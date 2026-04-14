@@ -149,6 +149,9 @@ export default function ResourcesPage() {
         <section className="manage-surface space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-neutral-900">Điều hướng nhanh</h3>
+            <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
+              Danh sách tài nguyên
+            </button>
           </div>
 
           <div className="grid grid-cols-3 gap-2 md:grid-cols-3">
@@ -166,11 +169,6 @@ export default function ResourcesPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
-              Danh sách tài nguyên
-            </button>
-          </div>
         </section>
 
         <div ref={createSectionRef} className="space-y-3">
@@ -202,7 +200,7 @@ export default function ResourcesPage() {
             <MobileCollapsible summary="Thêm tài nguyên mới" defaultOpen={!rows.length}>
               <form onSubmit={onSubmit} className="space-y-2.5">
                 <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
-                  <TextInput placeholder="Tên tài nguyên" value={name} onChange={(e) => setName(e.target.value)} required />
+                  <TextInput placeholder="Ghế chân ..." value={name} onChange={(e) => setName(e.target.value)} required />
                   <SelectInput value={type} onChange={(e) => setType(e.target.value as "CHAIR" | "TABLE" | "ROOM")} className="text-[14px] md:text-sm">
                     <option value="CHAIR">Ghế</option>
                     <option value="TABLE">Bàn</option>

@@ -286,7 +286,7 @@ export default function BookingRequestsPage() {
       <div className="space-y-5 pb-24 md:pb-0">
         <ManageQuickNav items={operationsQuickNav("/manage/booking-requests")} />
 
-        <MobileSectionHeader title="Lịch book online" meta={<div className="manage-info-box">{compactHeader}</div>} />
+        <MobileSectionHeader title="Booking online" meta={<div className="manage-info-box">{compactHeader}</div>} />
 
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 

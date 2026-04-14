@@ -12,8 +12,8 @@ const navGroups = [
     label: "Vận hành",
     href: "/manage/appointments",
     items: [
-      { href: "/manage/booking-requests", label: "Lịch book online", desc: "Booking online từ landing page" },
-      { href: "/manage/appointments", label: "Điều phối - Tạo lịch", desc: "Lịch hẹn, check-in, mở phiếu, vận hành" },
+      { href: "/manage/booking-requests", label: "Booking online", desc: "Booking online từ landing page" },
+      { href: "/manage/appointments", label: "Điều phối lịch", desc: "Lịch hẹn, check-in, mở phiếu, vận hành" },
       { href: "/manage/checkout", label: "Thanh toán", desc: "Ticket, thanh toán, hóa đơn" },
       { href: "/manage/shifts", label: "Ca làm", desc: "Chấm công và ca trong ngày" },
     ],
@@ -200,7 +200,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  function renderItemLabel(label: string, href: string) {
+  function roleLabel(role: AppRole) {
+  if (role === "TECH") return "THỢ";
+  return role;
+}
+
+function renderItemLabel(label: string, href: string) {
     const isBookingRequests = href === "/manage/booking-requests";
     return (
       <span className="inline-flex items-center gap-2">
@@ -280,15 +285,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button className="btn btn-outline md:hidden" type="button" onClick={() => setMobileOpen((v) => !v)}>Menu</button>
 
           <div className="hidden items-center gap-2 md:flex">
-            <Link
-              href="/manage/account"
-              className="rounded-2xl border px-4 py-2 text-right text-xs transition hover:bg-[#faf7f2]"
-              style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}
-            >
+            <div className="rounded-2xl border px-4 py-2 text-right text-xs" style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}>
               <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
-              <p className="font-semibold">{role}</p>
-            </Link>
-            <button onClick={onLogout} className="btn btn-outline px-2 py-1 text-xs">Logout</button>
+              <p className="font-semibold">{roleLabel(role)}</p>
+            </div>
+            <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">Hồ sơ</Link>
+            <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">Đăng xuất</button>
           </div>
         </div>
 
@@ -309,22 +311,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </details>
               ))}
               <div className="rounded-2xl border bg-white p-3 text-xs" style={{ borderColor: "var(--color-border)" }}>
-                <Link
-                  href="/manage/account"
-                  className="block rounded-2xl border px-4 py-3 transition hover:bg-[#faf7f2]"
-                  style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}
-                  onClick={() => setMobileOpen(false)}
-                >
+                <div className="rounded-2xl border px-4 py-3" style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}>
                   <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
-                  <p className="font-semibold">{role}</p>
-                </Link>
-                <button onClick={onLogout} className="btn btn-outline mt-2 px-2 py-1 text-xs">Logout</button>
+                  <p className="font-semibold">{roleLabel(role)}</p>
+                </div>
+                <div className="mt-2 grid gap-2">
+                  <Link href="/manage/account" className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-[#faf7f2]" style={{ borderColor: "var(--color-border)" }} onClick={() => setMobileOpen(false)}>
+                    Hồ sơ & bảo mật
+                  </Link>
+                  <button onClick={onLogout} className="rounded-xl border px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50" style={{ borderColor: "#fecaca" }}>
+                    Đăng xuất
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         )}
       </header>
-      <div className="mx-auto max-w-7xl p-6">{children}</div>
+      <div className="mx-auto w-full max-w-7xl px-3 py-4 md:px-6 md:py-6">{children}</div>
     </div>
   );
 }

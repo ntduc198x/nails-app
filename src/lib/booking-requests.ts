@@ -18,6 +18,18 @@ export type BookingRequestRow = {
   created_at: string;
 };
 
+function patchExpiredRows(rows: BookingRequestRow[]) {
+  const now = Date.now();
+  const expiredIds = rows
+    .filter((row) => row.status === "NEW" && !!row.requested_start_at && new Date(row.requested_start_at).getTime() < now)
+    .map((row) => row.id);
+
+  return {
+    expiredIds,
+    rows: rows.map((row) => (expiredIds.includes(row.id) ? { ...row, status: "NEEDS_RESCHEDULE" as BookingRequestStatus } : row)),
+  };
+}
+
 export async function listBookingRequests(status?: BookingRequestStatus) {
   if (!supabase) return [];
   const { orgId } = await ensureOrgContext();
@@ -34,13 +46,39 @@ export async function listBookingRequests(status?: BookingRequestStatus) {
   if (status) query = query.eq("status", status);
 
   const { data, error } = await query;
-  if (!error) return (data ?? []) as BookingRequestRow[];
+  if (!error) {
+    const rows = (data ?? []) as BookingRequestRow[];
+    const { expiredIds, rows: patchedRows } = patchExpiredRows(rows);
+
+    if (expiredIds.length > 0) {
+      await supabase
+        .from("booking_requests")
+        .update({ status: "NEEDS_RESCHEDULE" })
+        .eq("org_id", orgId)
+        .in("id", expiredIds)
+        .eq("status", "NEW");
+    }
+
+    return patchedRows;
+  }
 
   const rpc = await supabase.rpc("list_booking_requests_secure", {
     p_status: status ?? null,
   });
   if (!rpc.error && rpc.data) {
-    return (rpc.data ?? []) as BookingRequestRow[];
+    const rows = (rpc.data ?? []) as BookingRequestRow[];
+    const { expiredIds, rows: patchedRows } = patchExpiredRows(rows);
+
+    if (expiredIds.length > 0) {
+      await supabase
+        .from("booking_requests")
+        .update({ status: "NEEDS_RESCHEDULE" })
+        .eq("org_id", orgId)
+        .in("id", expiredIds)
+        .eq("status", "NEW");
+    }
+
+    return patchedRows;
   }
 
   throw error;

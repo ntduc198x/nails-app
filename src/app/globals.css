@@ -18,9 +18,11 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
+  overflow-x: hidden;
   background: radial-gradient(circle at top, #fff6f7 0%, var(--color-background) 28%);
   color: var(--color-text-main);
   font-family: var(--font-inter), Arial, Helvetica, sans-serif;
@@ -29,6 +31,10 @@ body {
 img {
   display: block;
   max-width: 100%;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 .legal-page {

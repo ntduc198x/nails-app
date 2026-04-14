@@ -13,6 +13,20 @@ type ProfileRow = {
   default_branch_id?: string | null;
 };
 
+function roleLabel(role: AppRole) {
+  if (role === "TECH") return "THỢ";
+  return role;
+}
+
+function InlineField({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-2">
+      <label className="text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500">{label}</label>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
 export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -147,114 +161,91 @@ export default function AccountPage() {
 
   return (
     <AppShell>
-      <div className="space-y-5">
-        <section className="manage-surface">
+      <div className="space-y-4 pb-24 md:pb-0">
+        <section className="manage-surface p-4 md:p-5">
           <div className="space-y-1">
-            <h2 className="page-title">Tài khoản</h2>
+            <h2 className="page-title">Hồ sơ & bảo mật</h2>
+            <p className="text-xs text-neutral-500">Cập nhật thông tin cá nhân và bảo mật tài khoản.</p>
           </div>
         </section>
 
-        {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
-        {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">{message}</div>}
+        {error && <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+        {message && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</div>}
 
-        <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <aside className="card space-y-4 xl:sticky xl:top-4 xl:self-start">
-            {loading ? (
-              <div className="space-y-3">
-                <div className="skeleton h-5 w-40 rounded-full" />
-                <div className="skeleton h-4 w-52 rounded-full" />
-                <div className="skeleton h-16 rounded-2xl" />
+        {!loading ? (
+          <section className="manage-surface p-3 md:p-4">
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-2.5 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-500">Tài khoản</div>
+                <div className="mt-1 text-[13px] font-semibold text-neutral-900 md:text-sm">{profileName}</div>
               </div>
-            ) : (
-              <>
-                <div>
-                  <p className="text-xl font-semibold text-neutral-900">{profileName}</p>
-                  <p className="text-sm text-neutral-500">{email || "No email"}</p>
-                  <span className="badge-soft mt-2 inline-flex">{role}</span>
-                </div>
-
-                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm">
-                  <div className="grid gap-3">
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-neutral-500">Tên hiển thị</p>
-                      <p className="mt-1 font-medium text-neutral-900">{profileData.displayName || "Chưa cập nhật"}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs uppercase tracking-wide text-neutral-500">Điện thoại</p>
-                      <p className="mt-1 font-medium text-neutral-900">{profileData.phone || "Chưa cập nhật"}</p>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </aside>
-
-          <div className="space-y-5">
-            <form className="card space-y-4" onSubmit={onSaveProfile}>
-              <div>
-                <h3 className="text-lg font-semibold">Hồ sơ cá nhân</h3>
-                <p className="text-sm text-neutral-500">Cập nhật tên hiển thị và số điện thoại của tài khoản.</p>
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-2.5 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-500">Email</div>
+                <div className="mt-1 line-clamp-1 text-[13px] font-semibold text-neutral-900 md:text-sm">{email || "No email"}</div>
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Tên hiển thị</span>
-                  <input className="input w-full" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ví dụ: Đức" />
-                </label>
-
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Số điện thoại</span>
-                  <input className="input w-full" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ví dụ: 09xxxxxxxx" />
-                </label>
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-2.5 py-2">
+                <div className="text-[10px] uppercase tracking-[0.08em] text-neutral-500">Vai trò</div>
+                <div className="mt-1 text-[13px] font-semibold text-neutral-900 md:text-sm">{roleLabel(role)}</div>
               </div>
+            </div>
+          </section>
+        ) : null}
 
-              <label className="space-y-2 text-sm">
-                <span className="font-medium">Email</span>
-                <input className="input w-full bg-neutral-50" value={email} disabled readOnly />
-                <span className="text-xs text-neutral-500">Hiện tại email chỉ hiển thị, chưa cho đổi trực tiếp ở màn này.</span>
-              </label>
+        <div className="space-y-4">
+          <form className="manage-surface space-y-3 p-3 md:p-4" onSubmit={onSaveProfile}>
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Hồ sơ cá nhân</h3>
+              <p className="text-xs text-neutral-500">Cập nhật tên hiển thị và số điện thoại.</p>
+            </div>
 
-              <div className="flex justify-end">
-                <button className="btn btn-primary" disabled={savingProfile || loading}>
-                  {savingProfile ? "Đang lưu..." : "Lưu hồ sơ"}
-                </button>
-              </div>
-            </form>
+            <div className="space-y-2">
+              <InlineField label="Tên hiển thị">
+                <input className="input w-full py-2 text-sm" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Ví dụ: Đức" />
+              </InlineField>
+              <InlineField label="Điện thoại">
+                <input className="input w-full py-2 text-sm" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Ví dụ: 09xxxxxxxx" />
+              </InlineField>
+              <InlineField label="Email">
+                <input className="input w-full bg-neutral-50 py-2 text-sm" value={email} disabled readOnly />
+              </InlineField>
+            </div>
+            <div className="text-[11px] text-neutral-500">Hiện tại email chỉ hiển thị, chưa cho đổi trực tiếp ở màn này.</div>
 
-            <form className="card space-y-4" onSubmit={onChangePassword}>
-              <div>
-                <h3 className="text-lg font-semibold">Đổi mật khẩu</h3>
-                <p className="text-sm text-neutral-500">Nhập mật khẩu hiện tại để xác nhận, sau đó đặt mật khẩu mới.</p>
-              </div>
+            <div className="flex justify-end">
+              <button className="cursor-pointer rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={savingProfile || loading}>
+                {savingProfile ? "Đang lưu..." : "Lưu hồ sơ"}
+              </button>
+            </div>
+          </form>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-2 text-sm md:col-span-2">
-                  <span className="font-medium">Mật khẩu hiện tại</span>
-                  <input className="input w-full" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Nhập mật khẩu hiện tại" />
-                </label>
+          <form className="manage-surface space-y-3 p-3 md:p-4" onSubmit={onChangePassword}>
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Đổi mật khẩu</h3>
+              <p className="text-xs text-neutral-500">Nhập mật khẩu hiện tại rồi đặt mật khẩu mới.</p>
+            </div>
 
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Mật khẩu mới</span>
-                  <input className="input w-full" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Ít nhất 8 ký tự" />
-                </label>
+            <div className="space-y-2">
+              <InlineField label="Mật khẩu cũ">
+                <input className="input w-full py-2 text-sm" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Nhập mật khẩu hiện tại" />
+              </InlineField>
+              <InlineField label="Mật khẩu mới">
+                <input className="input w-full py-2 text-sm" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Ít nhất 8 ký tự" />
+              </InlineField>
+              <InlineField label="Nhập lại">
+                <input className="input w-full py-2 text-sm" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Nhập lại để xác nhận" />
+              </InlineField>
+            </div>
 
-                <label className="space-y-2 text-sm">
-                  <span className="font-medium">Nhập lại mật khẩu mới</span>
-                  <input className="input w-full" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Nhập lại để xác nhận" />
-                </label>
-              </div>
+            <div className="rounded-2xl bg-neutral-50 p-3 text-[11px] text-neutral-600">
+              Gợi ý: dùng mật khẩu dài hơn 8 ký tự, có chữ hoa, chữ thường, số hoặc ký tự đặc biệt để an toàn hơn.
+            </div>
 
-              <div className="rounded-2xl bg-neutral-50 p-4 text-sm text-neutral-600">
-                Gợi ý: dùng mật khẩu dài hơn 8 ký tự, có chữ hoa, chữ thường, số hoặc ký tự đặc biệt để an toàn hơn.
-              </div>
-
-              <div className="flex justify-end">
-                <button className="btn btn-primary" disabled={savingPassword || loading}>
-                  {savingPassword ? "Đang cập nhật..." : "Đổi mật khẩu"}
-                </button>
-              </div>
-            </form>
-          </div>
+            <div className="flex justify-end">
+              <button className="cursor-pointer rounded-2xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={savingPassword || loading}>
+                {savingPassword ? "Đang cập nhật..." : "Đổi mật khẩu"}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </AppShell>

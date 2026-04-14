@@ -187,9 +187,9 @@ export default function TeamPage() {
 
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
             {(["OWNER", ...roleOptions] as AppRole[]).map((role) => (
-              <div key={role} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-medium text-neutral-700">
-                <span className="truncate">{roleLabels[role]}</span>
-                <span className="ml-1.5 font-semibold text-neutral-900">{roleStats.get(role) ?? 0}</span>
+              <div key={role} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+                <div className="text-[10px] font-medium tracking-[0.08em] text-neutral-500">{roleLabels[role]}</div>
+                <div className="mt-1 text-sm font-semibold text-neutral-900">{roleStats.get(role) ?? 0}</div>
               </div>
             ))}
           </div>

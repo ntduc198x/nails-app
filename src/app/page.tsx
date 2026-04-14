@@ -1,6 +1,5 @@
 "use client";
 
-import { listServices } from "@/lib/domain";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import { formatVnd } from "@/lib/mock-data";
 import { useEffect, useMemo, useState } from "react";
@@ -115,21 +114,22 @@ export default function LandingPage() {
 
     async function loadLookbookServices() {
       try {
-        const rows = await listServices({ force: true }) as Array<{
+        const res = await fetch("/api/lookbook", { cache: "no-store" });
+        const json = await res.json();
+
+        if (!res.ok || !json?.ok || cancelled) return;
+
+        const rows = (json.data ?? []) as Array<{
           name: string;
           short_description?: string | null;
           image_url?: string | null;
-          display_order?: number | null;
           featured_in_lookbook?: boolean | null;
           duration_min: number;
           base_price: number;
           active: boolean;
         }>;
 
-        if (cancelled || !rows?.length) return;
-
-        const activeRows = rows.filter((item) => item.active !== false && item.featured_in_lookbook).slice(0, 6);
-        if (!activeRows.length) return;
+        if (!rows.length) return;
 
         const serviceImages = [
           "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=800",
@@ -137,7 +137,7 @@ export default function LandingPage() {
           "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?q=80&w=800",
         ];
 
-        setLookbookServices(activeRows.map((item, index) => ({
+        setLookbookServices(rows.map((item, index) => ({
           title: item.name,
           description: item.short_description?.trim() || `Dịch vụ ${item.name} • thời lượng ${item.duration_min} phút.`,
           price: formatVnd(Number(item.base_price)),
@@ -145,7 +145,7 @@ export default function LandingPage() {
           alt: item.name,
         })));
       } catch {
-        // giữ fallback tĩnh nếu load DB fail
+        // giữ fallback tĩnh nếu load API fail
       }
     }
 

@@ -183,6 +183,9 @@ export default function TeamPage() {
         <section className="manage-surface space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-neutral-900">Điều hướng nhanh</h3>
+            <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
+              Danh sách nhân sự
+            </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -194,11 +197,6 @@ export default function TeamPage() {
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
-              Danh sách nhân sự
-            </button>
-          </div>
         </section>
 
         {canManage ? (

@@ -1434,7 +1434,22 @@ img {
   }
 
   .landing-services-grid {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(82%, 1fr);
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 8px;
+    scrollbar-width: none;
+  }
+
+  .landing-services-grid::-webkit-scrollbar {
+    display: none;
+  }
+
+  .landing-service-card {
+    scroll-snap-align: start;
   }
 
   .landing-booking-wrapper {

@@ -2,7 +2,7 @@
 
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import { formatVnd } from "@/lib/mock-data";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type LandingService = {
   title: string;
@@ -97,6 +97,8 @@ export default function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
+  const bookingFormRef = useRef<HTMLFormElement | null>(null);
+  const bookingNameInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -161,8 +163,10 @@ export default function LandingPage() {
     }
 
     closeAll();
-    const target = document.getElementById("booking");
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    bookingFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      bookingNameInputRef.current?.focus({ preventScroll: true });
+    }, 350);
   };
 
   const calendarCells = useMemo(() => {
@@ -365,7 +369,7 @@ export default function LandingPage() {
           <div className="line" />
           <h2>Các dịch vụ nổi bật</h2>
         </div>
-        <div className="landing-services-grid">
+        <div className="landing-services-grid" role="list">
           {lookbookServices.map((service) => (
             <div key={service.title} className="landing-service-card">
               <div className="landing-service-img-wrapper">
@@ -401,6 +405,7 @@ export default function LandingPage() {
           </div>
 
           <form
+            ref={bookingFormRef}
             className="landing-booking-form-card"
             onSubmit={(e) => {
               e.preventDefault();
@@ -409,7 +414,7 @@ export default function LandingPage() {
           >
             <div className="landing-form-group">
               <label>Họ và tên *</label>
-              <input type="text" placeholder="Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+              <input ref={bookingNameInputRef} type="text" placeholder="Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
             </div>
             <div className="landing-form-group">
               <label>Số điện thoại *</label>

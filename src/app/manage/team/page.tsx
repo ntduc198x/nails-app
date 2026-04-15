@@ -198,7 +198,7 @@ export default function TeamPage() {
             <div className="hidden md:block manage-surface p-4 md:p-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-neutral-900">Mã mời nhân sự</h3>
-                <p className="text-xs text-neutral-500">Chỉ OWNER mới quản lý</p>
+                <p className="text-xs text-neutral-500">Chỉ BOSS mới quản lý</p>
               </div>
               <div className="space-y-3">
                 <div className="space-y-2 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-2 md:space-y-0">

@@ -1,7 +1,7 @@
 import type { AppRole } from "@/lib/auth";
 
 export const ROLE_LABELS: Record<AppRole, string> = {
-  OWNER: "Boss",
+  OWNER: "BOSS",
   MANAGER: "Quản lý",
   RECEPTION: "Lễ tân",
   ACCOUNTANT: "Kế toán",

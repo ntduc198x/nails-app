@@ -22,7 +22,7 @@ function mapCheckoutError(message: string) {
   if (message.includes("CHECKOUT_LINES_REQUIRED")) return "Vui lòng chọn ít nhất 1 dịch vụ.";
   if (message.includes("CUSTOMER_NAME_REQUIRED")) return "Vui lòng nhập tên khách.";
   if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) return "Appointment không thể chuyển sang trạng thái DONE.";
-  if (message.includes("TECH chỉ được checkout khi đang mở ca.")) return "Chưa mở ca. Vui lòng sang mục Ca làm để chuyển sang ca mới và mở ca trước khi checkout.";
+  if (message.includes("TECH chỉ được checkout khi đang mở ca.")) return "Kỹ thuật viên chưa mở ca. Vui lòng sang mục Ca làm để chuyển sang ca mới và mở ca trước khi checkout.";
   if (message.includes("Could not choose the best candidate function")) return "RPC checkout đang bị trùng phiên bản. Chạy cleanup_checkout_rpc_overloads.sql rồi thử lại.";
   return message;
 }
@@ -83,7 +83,7 @@ export default function CheckoutPage() {
       setError(null);
       const currentRole = await getCurrentSessionRole();
       setRole(currentRole);
-      if (!["OWNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"].includes(currentRole)) throw new Error("Vai trò hiện tại không có quyền truy cập trang thanh toán");
+      if (!["OWNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"].includes(currentRole)) throw new Error("Vai trò hiện tại không có quyền truy cập trang thanh toán.");
       const [serviceRows, ticketRows, checkedInRows, openShift] = await Promise.all([
         listServices(),
         listRecentTickets({ fromIso: range.from.toISOString(), toIso: range.to.toISOString(), limit: 200, force: true }),
@@ -168,7 +168,7 @@ export default function CheckoutPage() {
     if (submitting) return;
     try {
       setSubmitting(true); setError(null); setDedupeNotice(null);
-      if (role === "ACCOUNTANT") throw new Error("Vai trò hiện tại không được phép tạo thanh toán.");
+      if (role === "ACCOUNTANT") throw new Error("Kế toán không được phép tạo thanh toán.");
       if (role === "TECH") {
         const openShift = await hasOpenShift();
         setTechShiftOpen(openShift);

@@ -312,7 +312,7 @@ export default function ShiftsPage() {
               </div>
             </div>
           </section>
-        ) : <p className="text-sm text-amber-700">Vai trò hiện tại không được chấm công.</p>}
+        ) : <p className="text-sm text-amber-700">Vai trò hiện tại không được phép chấm công.</p>}
 
         <section className="manage-surface space-y-3 p-4 md:p-5">
           <div className="grid grid-cols-3 gap-2">

@@ -111,7 +111,7 @@ export async function updateUserRoleByRowId(id: string, role: AppRole) {
 
   const currentRole = await getOrCreateRole(currentUserId);
   if (currentRole !== "OWNER") {
-    throw new Error("Chỉ OWNER mới có quyền đổi role.");
+    throw new Error("Chỉ BOSS mới có quyền đổi vai trò.");
   }
 
   const { data: target, error: targetErr } = await supabase
@@ -122,7 +122,7 @@ export async function updateUserRoleByRowId(id: string, role: AppRole) {
   if (targetErr) throw targetErr;
 
   if (target.user_id === currentUserId) {
-    throw new Error("Không thể tự đổi role của chính mình.");
+    throw new Error("Không thể tự đổi vai trò của chính mình.");
   }
 
   const { error } = await supabase.from("user_roles").update({ role }).eq("id", id);
@@ -138,7 +138,7 @@ export async function updateUserDisplayName(userId: string, displayName: string)
 
   const currentRole = await getOrCreateRole(currentUserId);
   if (currentRole !== "OWNER") {
-    throw new Error("Chỉ OWNER mới có quyền sửa tên nhân sự.");
+    throw new Error("Chỉ BOSS mới có quyền sửa tên nhân sự.");
   }
 
   const { error } = await supabase.rpc("update_staff_display_name_secure", {

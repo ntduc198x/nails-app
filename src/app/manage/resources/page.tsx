@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
-import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
+import { MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createResource, listResources, updateResource } from "@/lib/domain";
@@ -196,22 +196,24 @@ export default function ResourcesPage() {
             </form>
           </div>
 
-          <div className="md:hidden">
-            <MobileCollapsible summary="Thêm tài nguyên mới" defaultOpen={!rows.length}>
-              <form onSubmit={onSubmit} className="space-y-2.5">
-                <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
-                  <TextInput placeholder="Ghế chân ..." value={name} onChange={(e) => setName(e.target.value)} required />
-                  <SelectInput value={type} onChange={(e) => setType(e.target.value as "CHAIR" | "TABLE" | "ROOM")} className="text-[14px] md:text-sm">
-                    <option value="CHAIR">Ghế</option>
-                    <option value="TABLE">Bàn</option>
-                    <option value="ROOM">Phòng</option>
-                  </SelectInput>
-                </div>
-                <button className="cursor-pointer w-full rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting}>
-                  {submitting ? "Đang thêm..." : "Thêm tài nguyên"}
-                </button>
-              </form>
-            </MobileCollapsible>
+          <div className="manage-surface space-y-3 p-4 md:hidden">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-neutral-900">Thêm tài nguyên mới</h3>
+              <p className="text-xs text-neutral-500">Form luôn hiển thị</p>
+            </div>
+            <form onSubmit={onSubmit} className="space-y-2.5">
+              <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+                <TextInput placeholder="Ghế chân ..." value={name} onChange={(e) => setName(e.target.value)} required />
+                <SelectInput value={type} onChange={(e) => setType(e.target.value as "CHAIR" | "TABLE" | "ROOM")} className="text-[14px] md:text-sm">
+                  <option value="CHAIR">Ghế</option>
+                  <option value="TABLE">Bàn</option>
+                  <option value="ROOM">Phòng</option>
+                </SelectInput>
+              </div>
+              <button className="cursor-pointer w-full rounded-xl bg-rose-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" disabled={submitting}>
+                {submitting ? "Đang thêm..." : "Thêm tài nguyên"}
+              </button>
+            </form>
           </div>
         </div>
 

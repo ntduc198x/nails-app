@@ -134,8 +134,6 @@ export default function LandingPage() {
   const [activeLookbookFilter, setActiveLookbookFilter] = useState<(typeof LOOKBOOK_FILTERS)[number]>("Tất cả");
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
-  const hasScheduleSelection = Boolean(selectedDate || selectedTime);
-
   useEffect(() => {
     const onScroll = () => {
       setIsScrolled(window.scrollY > 50);
@@ -304,6 +302,17 @@ export default function LandingPage() {
 
     if (!selectedDate || !selectedTime) {
       setSubmitError("Vui lòng chọn ngày và giờ hẹn.");
+      return;
+    }
+
+    const now = new Date();
+    const [hours, minutes] = selectedTime.split(":").map(Number);
+    const selectedDateTime = new Date(selectedDate);
+    selectedDateTime.setHours(hours, minutes, 0, 0);
+    const minAllowedTime = new Date(now.getTime() + 30 * 60 * 1000);
+
+    if (selectedDateTime < minAllowedTime) {
+      setSubmitError("Thời gian đặt lịch phải cách thời điểm hiện tại ít nhất 30 phút. Vui lòng chọn giờ khác.");
       return;
     }
 
@@ -500,7 +509,7 @@ export default function LandingPage() {
             }}
           >
             <div className="landing-booking-form-badge">ĐẶT LỊCH</div>
-            <div className="landing-form-row landing-form-row--primary full-width">
+            <div className="landing-form-row landing-form-row--3cols full-width">
               <div className="landing-form-group">
                 <label>Họ và tên *</label>
                 <input ref={bookingNameInputRef} type="text" placeholder="Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
@@ -509,8 +518,6 @@ export default function LandingPage() {
                 <label>Số điện thoại *</label>
                 <input type="tel" placeholder="0909 xxx xxx" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
               </div>
-            </div>
-            <div className="landing-form-row">
               <div className="landing-form-group">
                 <label>Dịch vụ mong muốn</label>
                 <select value={selectedService} onChange={(e) => setSelectedService(e.target.value)}>
@@ -521,6 +528,8 @@ export default function LandingPage() {
                   <option value="Gỡ móng & Chăm sóc">Gỡ móng & Chăm sóc</option>
                 </select>
               </div>
+            </div>
+            <div className="landing-form-row landing-form-row--date-time full-width">
               <div className="landing-form-group pk-group">
                 <label>Ngày hẹn *</label>
                 <button type="button" className={`pk-trigger ${dateOpen ? "active" : ""}`} onClick={openDate} aria-expanded={dateOpen}>
@@ -617,12 +626,12 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
-            {hasScheduleSelection && (
-              <div className="landing-booking-summary full-width">
-                <span>{selectedDate ? `Ngày: ${formatDate(selectedDate)}` : "Ngày: chưa chọn"}</span>
-                <span>{selectedTime ? `Giờ: ${selectedTime}` : "Giờ: chưa chọn"}</span>
+              <div className="landing-form-row landing-form-row--service-summary full-width">
+                <div className="landing-booking-summary">
+                  <span>{selectedService ? `Dịch vụ: ${selectedService}` : "Dịch vụ: chưa chọn"}</span>
+                </div>
+                <div className="landing-form-spacer" aria-hidden="true" />
               </div>
-            )}
             <div className="landing-form-group full-width landing-form-group--optional">
               <label>Ghi chú thêm</label>
               <textarea placeholder="Mô tả mong muốn hoặc lưu ý đặc biệt..." value={note} onChange={(e) => setNote(e.target.value)} />

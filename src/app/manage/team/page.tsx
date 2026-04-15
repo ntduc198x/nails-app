@@ -56,6 +56,7 @@ export default function TeamPage() {
   const [editingName, setEditingName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [mobileListOpen, setMobileListOpen] = useState(false);
 
   const inviteSectionRef = useRef<HTMLDivElement | null>(null);
   const listSectionRef = useRef<HTMLDivElement | null>(null);
@@ -177,7 +178,14 @@ export default function TeamPage() {
         <section className="manage-surface space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-neutral-900">Điều hướng nhanh</h3>
-            <button type="button" onClick={() => requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))} className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700">
+            <button
+              type="button"
+              onClick={() => {
+                setMobileListOpen(true);
+                requestAnimationFrame(() => listSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+              }}
+              className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700"
+            >
               Danh sách nhân sự
             </button>
           </div>
@@ -236,122 +244,207 @@ export default function TeamPage() {
               </div>
             </div>
 
-            <div className="md:hidden">
-              <MobileCollapsible summary="Mã mời nhân sự" defaultOpen={inviteRows.length === 0}>
-                <div className="space-y-3">
-                  <InlineField label="Vai trò">
-                    <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
-                      {roleOptions.map((role) => (
-                        <option key={role} value={role}>{getRoleLabel(role)}</option>
-                      ))}
-                    </SelectInput>
-                  </InlineField>
-                  <button type="button" className="cursor-pointer w-full rounded-2xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void onCreateInvite()} disabled={inviteBusy}>{inviteBusy ? "Đang tạo..." : "Tạo mã"}</button>
+            <div className="manage-surface space-y-3 p-4 md:hidden">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-semibold text-neutral-900">Mã mời nhân sự</h3>
+                <p className="text-xs text-neutral-500">Chỉ BOSS mới quản lý</p>
+              </div>
+              <div className="space-y-3">
+                <InlineField label="Vai trò">
+                  <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
+                    {roleOptions.map((role) => (
+                      <option key={role} value={role}>{getRoleLabel(role)}</option>
+                    ))}
+                  </SelectInput>
+                </InlineField>
+                <button type="button" className="cursor-pointer w-full rounded-2xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void onCreateInvite()} disabled={inviteBusy}>{inviteBusy ? "Đang tạo..." : "Tạo mã"}</button>
 
-                  <div className="space-y-2">
-                    {inviteRows.length === 0 ? (
-                      <div className="manage-info-box">Chưa có mã mời nào gần đây.</div>
-                    ) : inviteRows.map((invite) => (
-                      <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="min-w-0">
-                            <div className="text-[10px] tracking-[0.08em] text-neutral-400">{getRoleLabel(invite.allowed_role)}</div>
-                            <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
-                          </div>
-                        </div>
-                        <div className="mt-2 text-[11px] text-neutral-500">{new Date(invite.expires_at).toLocaleString("vi-VN")}</div>
-                        <div className="mt-2 flex gap-2">
-                          <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
-                          <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button>
+                <div className="space-y-2">
+                  {inviteRows.length === 0 ? (
+                    <div className="manage-info-box">Chưa có mã mời nào gần đây.</div>
+                  ) : inviteRows.map((invite) => (
+                    <div key={invite.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0">
+                          <div className="text-[10px] tracking-[0.08em] text-neutral-400">{getRoleLabel(invite.allowed_role)}</div>
+                          <div className="mt-1 font-mono text-sm font-semibold text-neutral-900">{invite.code}</div>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      <div className="mt-2 text-[11px] text-neutral-500">{new Date(invite.expires_at).toLocaleString("vi-VN")}</div>
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => navigator.clipboard.writeText(invite.code)}>Copy</button>
+                        <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => void onRevokeInvite(invite.id)}>Thu hồi</button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </MobileCollapsible>
+              </div>
             </div>
           </div>
         ) : null}
 
         <section ref={listSectionRef} className="manage-surface space-y-3 p-4 md:p-5">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900">Danh sách nhân sự</h3>
-              <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, vai trò và sửa inline khi cần.</p>
+          <div className="hidden md:block space-y-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-neutral-900">Danh sách nhân sự</h3>
+                <p className="text-xs text-neutral-500">Ưu tiên xem nhanh tên, vai trò và sửa inline khi cần.</p>
+              </div>
+              <div className="w-full md:w-[280px]">
+                <TextInput placeholder="Tìm theo tên, user hoặc role" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
+              </div>
             </div>
-            <div className="w-full md:w-[280px]">
-              <TextInput placeholder="Tìm theo tên, user hoặc role" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
-            </div>
+
+            {loading ? (
+              <p className="text-sm text-neutral-500">Đang tải nhân sự...</p>
+            ) : filteredRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
+                {rows.length === 0 ? "Chưa có dữ liệu nhân sự." : "Không có nhân sự khớp bộ lọc hiện tại."}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredRows.map((m) => {
+                  const isEditing = editingUserId === m.user_id;
+                  return (
+                    <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
+                      <div className="flex items-start justify-between gap-2.5">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <h4 className="text-sm font-semibold leading-5 text-neutral-900">{m.display_name || m.user_id}</h4>
+                            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{getRoleLabel(m.role)}</span>
+                          </div>
+                          <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-400">{m.email || m.user_id}</p>
+                        </div>
+
+                        {canManage ? isEditing ? (
+                          <div className="flex gap-2">
+                            <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" type="button" onClick={() => setEditingUserId(null)}>
+                              Huỷ
+                            </button>
+                            <button className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600" type="button" onClick={() => void onSaveName(m.user_id)}>
+                              Lưu
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                            onClick={() => {
+                              setEditingUserId(m.user_id);
+                              setEditingName(m.display_name || "");
+                            }}
+                          >
+                            Sửa tên
+                          </button>
+                        ) : null}
+                      </div>
+
+                      {isEditing ? (
+                        <div className="mt-3 space-y-2 rounded-2xl bg-neutral-50 p-3">
+                          <InlineField label="Tên">
+                            <TextInput value={editingName} onChange={(e) => setEditingName(e.target.value)} />
+                          </InlineField>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+                        {canManage && m.role !== "OWNER" ? (
+                          <div className="min-w-[180px]">
+                            <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
+                              {roleOptions.map((r) => (
+                                <option key={r} value={r}>{getRoleLabel(r)}</option>
+                              ))}
+                            </SelectInput>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {loading ? (
-            <p className="text-sm text-neutral-500">Đang tải nhân sự...</p>
-          ) : filteredRows.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
-              {rows.length === 0 ? "Chưa có dữ liệu nhân sự." : "Không có nhân sự khớp bộ lọc hiện tại."}
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filteredRows.map((m) => {
-                const isEditing = editingUserId === m.user_id;
-                return (
-                  <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <h4 className="text-sm font-semibold leading-5 text-neutral-900">{m.display_name || m.user_id}</h4>
-                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{getRoleLabel(m.role)}</span>
-                        </div>
-                        <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-400">{m.email || m.user_id}</p>
-                      </div>
+          <div className="md:hidden">
+            <MobileCollapsible
+              summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Danh sách nhân sự</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span></div>}
+              open={mobileListOpen}
+              onToggle={setMobileListOpen}
+            >
+              <div className="space-y-3">
+                <TextInput placeholder="Tìm theo tên, user hoặc role" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2.5 text-sm" />
 
-                      {canManage ? isEditing ? (
-                        <div className="flex gap-2">
-                          <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" type="button" onClick={() => setEditingUserId(null)}>
-                            Huỷ
-                          </button>
-                          <button className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600" type="button" onClick={() => void onSaveName(m.user_id)}>
-                            Lưu
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          type="button"
-                          className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
-                          onClick={() => {
-                            setEditingUserId(m.user_id);
-                            setEditingName(m.display_name || "");
-                          }}
-                        >
-                          Sửa tên
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {isEditing ? (
-                      <div className="mt-3 space-y-2 rounded-2xl bg-neutral-50 p-3">
-                        <InlineField label="Tên">
-                          <TextInput value={editingName} onChange={(e) => setEditingName(e.target.value)} />
-                        </InlineField>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-                      {canManage && m.role !== "OWNER" ? (
-                        <div className="min-w-[180px]">
-                          <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
-                            {roleOptions.map((r) => (
-                              <option key={r} value={r}>{getRoleLabel(r)}</option>
-                            ))}
-                          </SelectInput>
-                        </div>
-                      ) : null}
-                    </div>
+                {loading ? (
+                  <p className="text-sm text-neutral-500">Đang tải nhân sự...</p>
+                ) : filteredRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
+                    {rows.length === 0 ? "Chưa có dữ liệu nhân sự." : "Không có nhân sự khớp bộ lọc hiện tại."}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                ) : (
+                  <div className="space-y-2">
+                    {filteredRows.map((m) => {
+                      const isEditing = editingUserId === m.user_id;
+                      return (
+                        <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <h4 className="text-sm font-semibold leading-5 text-neutral-900">{m.display_name || m.user_id}</h4>
+                                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-semibold text-rose-700">{getRoleLabel(m.role)}</span>
+                              </div>
+                              <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-400">{m.email || m.user_id}</p>
+                            </div>
+
+                            {canManage ? isEditing ? (
+                              <div className="flex gap-2">
+                                <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" type="button" onClick={() => setEditingUserId(null)}>
+                                  Huỷ
+                                </button>
+                                <button className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600" type="button" onClick={() => void onSaveName(m.user_id)}>
+                                  Lưu
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                                onClick={() => {
+                                  setEditingUserId(m.user_id);
+                                  setEditingName(m.display_name || "");
+                                }}
+                              >
+                                Sửa tên
+                              </button>
+                            ) : null}
+                          </div>
+
+                          {isEditing ? (
+                            <div className="mt-3 space-y-2 rounded-2xl bg-neutral-50 p-3">
+                              <InlineField label="Tên">
+                                <TextInput value={editingName} onChange={(e) => setEditingName(e.target.value)} />
+                              </InlineField>
+                            </div>
+                          ) : null}
+
+                          <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
+                            {canManage && m.role !== "OWNER" ? (
+                              <div className="min-w-[180px]">
+                                <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
+                                  {roleOptions.map((r) => (
+                                    <option key={r} value={r}>{getRoleLabel(r)}</option>
+                                  ))}
+                                </SelectInput>
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </MobileCollapsible>
+          </div>
         </section>
       </div>
     </AppShell>

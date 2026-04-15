@@ -974,18 +974,36 @@ img {
   gap: 12px;
 }
 
+.landing-form-row.full-width {
+  grid-column: span 2;
+}
+
 @media (min-width: 901px) {
   .landing-booking-form-card {
     gap: 10px;
     padding: 18px 20px;
   }
 
-  .landing-form-row--primary {
-    gap: 10px !important;
+  .landing-form-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
   }
 
-  .landing-form-row--schedule {
-    gap: 10px !important;
+  .landing-form-row--date-time,
+  .landing-form-row--service-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .landing-form-row--3cols {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .landing-form-row--service-summary .landing-booking-summary {
+    max-width: 100%;
+  }
+
+  .landing-form-spacer {
+    display: block;
   }
 
   .landing-form-group input,
@@ -1067,6 +1085,10 @@ img {
   flex-wrap: wrap;
   gap: 10px;
   margin-top: -6px;
+}
+
+.landing-form-spacer {
+  display: none;
 }
 
 .landing-booking-summary span {
@@ -2017,11 +2039,23 @@ img {
     align-items: end;
   }
 
+  .landing-form-row--3cols {
+    grid-template-columns: minmax(0, 1.85fr) minmax(0, 1fr);
+  }
+
+  .landing-form-row--3cols > :nth-child(3) {
+    grid-column: span 2;
+  }
+
   .landing-form-row--schedule {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
     align-items: end;
+  }
+
+  .landing-form-row--service-summary {
+    grid-template-columns: 1fr;
   }
 
   .landing-form-group label {

@@ -76,6 +76,7 @@ export default function ReportsPage() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
   const [mobileTicketsLimit, setMobileTicketsLimit] = useState(12);
+  const [mobileTicketsOpen, setMobileTicketsOpen] = useState(false);
 
   const [rows, setRows] = useState<ReportTicketRow[]>([]);
   const [breakdown, setBreakdown] = useState<{
@@ -316,14 +317,6 @@ export default function ReportsPage() {
           </div>
 
           <div className="space-y-2 md:hidden">
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700" onClick={() => setMobileFilterOpen((v) => !v)}>
-                {mobileFilterOpen ? "Ẩn lọc" : "Bộ lọc"}
-              </button>
-              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700" onClick={() => ticketsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-                Xem bill
-              </button>
-            </div>
             <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 text-[10px] text-neutral-600">
               <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5">{rangeMode === "day" ? "Theo ngày" : rangeMode === "week" ? "Theo tuần" : rangeMode === "month" ? "Theo tháng" : "Tùy chỉnh"}</div>
               <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-right">{staffFilter === "ALL" ? "Tất cả NV" : (staffNameMap.get(staffFilter) ?? "1 NV")}</div>
@@ -363,6 +356,20 @@ export default function ReportsPage() {
                 </div>
               </div>
             ) : null}
+            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+              <button
+                className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700"
+                onClick={() => {
+                  setMobileTicketsOpen(true);
+                  requestAnimationFrame(() => ticketsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                }}
+              >
+                Xem bill
+              </button>
+              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700" onClick={() => setMobileFilterOpen((v) => !v)}>
+                {mobileFilterOpen ? "Ẩn lọc" : "Bộ lọc"}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -392,47 +399,83 @@ export default function ReportsPage() {
             </div>
 
             <div ref={ticketsSectionRef} className="manage-surface space-y-3 p-4 md:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-neutral-900">Chi tiết bill</h3>
+              <div className="hidden md:block space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-neutral-900">Chi tiết bill</h3>
+                  </div>
+                  <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{filteredTicketRows.length} bill</div>
                 </div>
-                <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{filteredTicketRows.length} bill</div>
+
+                {loading ? (
+                  <div className="space-y-2"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /></div>
+                ) : filteredTicketRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">Không có bill nào khớp bộ lọc hiện tại.</div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {mobileTicketRows.map((t) => (
+                      <div key={t.id} className="rounded-xl border border-neutral-200 bg-white p-1.5 md:rounded-2xl md:p-2.5">
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="min-w-0 flex-1">
+                            <div className="line-clamp-1 text-[13px] font-medium text-neutral-900 md:text-sm">{t.staff_user_id ? (staffNameMap.get(t.staff_user_id) ?? t.staff_user_id.slice(0, 8)) : "-"}</div>
+                            <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
+                          </div>
+                          <div className="shrink-0 text-right text-[13px] font-semibold text-neutral-900 md:text-sm">{formatVnd(Number(t.totals_json?.grand_total ?? 0))}</div>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-neutral-700 md:mt-1.5 md:text-[11px]">
+                          <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
+                          <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
+                          <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>
+                          <Link className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 font-medium text-neutral-800" href={`/manage/reports/${t.id}`}>Chi tiết</Link>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              {loading ? (
-                <div className="space-y-2"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /></div>
-              ) : filteredTicketRows.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">Không có bill nào khớp bộ lọc hiện tại.</div>
-              ) : (
-                <div className="space-y-1.5">
-                  {mobileTicketRows.map((t) => (
-                    <div key={t.id} className="rounded-xl border border-neutral-200 bg-white p-1.5 md:rounded-2xl md:p-2.5">
-                      <div className="flex items-start justify-between gap-1.5">
-                        <div className="min-w-0 flex-1">
-                          <div className="line-clamp-1 text-[13px] font-medium text-neutral-900 md:text-sm">{t.staff_user_id ? (staffNameMap.get(t.staff_user_id) ?? t.staff_user_id.slice(0, 8)) : "-"}</div>
-                          <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
+              <div className="md:hidden">
+                <MobileCollapsible
+                  summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Chi tiết bill</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredTicketRows.length}</span></div>}
+                  open={mobileTicketsOpen}
+                  onToggle={setMobileTicketsOpen}
+                >
+                  {loading ? (
+                    <div className="space-y-2"><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /><div className="skeleton h-10 rounded-xl" /></div>
+                  ) : filteredTicketRows.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">Không có bill nào khớp bộ lọc hiện tại.</div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {mobileTicketRows.map((t) => (
+                        <div key={t.id} className="rounded-xl border border-neutral-200 bg-white p-1.5">
+                          <div className="flex items-start justify-between gap-1.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="line-clamp-1 text-[13px] font-medium text-neutral-900">{t.staff_user_id ? (staffNameMap.get(t.staff_user_id) ?? t.staff_user_id.slice(0, 8)) : "-"}</div>
+                              <div className="mt-0.5 text-[10px] leading-4 text-neutral-500">{new Date(t.created_at).toLocaleString("vi-VN")}</div>
+                            </div>
+                            <div className="shrink-0 text-right text-[13px] font-semibold text-neutral-900">{formatVnd(Number(t.totals_json?.grand_total ?? 0))}</div>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-neutral-700">
+                            <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
+                            <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
+                            <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>
+                            <Link className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 font-medium text-neutral-800" href={`/manage/reports/${t.id}`}>Chi tiết</Link>
+                          </div>
                         </div>
-                        <div className="shrink-0 text-right text-[13px] font-semibold text-neutral-900 md:text-sm">{formatVnd(Number(t.totals_json?.grand_total ?? 0))}</div>
-                      </div>
-                      <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-neutral-700 md:mt-1.5 md:text-[11px]">
-                        <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
-                        <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
-                        <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>
-                        <Link className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 font-medium text-neutral-800" href={`/manage/reports/${t.id}`}>Chi tiết</Link>
-                      </div>
+                      ))}
+                      {filteredTicketRows.length > mobileTicketRows.length ? (
+                        <button
+                          type="button"
+                          className="mt-2 w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700"
+                          onClick={() => setMobileTicketsLimit((v) => v + 12)}
+                        >
+                          Xem thêm {Math.min(12, filteredTicketRows.length - mobileTicketRows.length)} bill
+                        </button>
+                      ) : null}
                     </div>
-                  ))}
-                  {filteredTicketRows.length > mobileTicketRows.length ? (
-                    <button
-                      type="button"
-                      className="mt-2 w-full cursor-pointer rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm font-medium text-neutral-700 md:hidden"
-                      onClick={() => setMobileTicketsLimit((v) => v + 12)}
-                    >
-                      Xem thêm {Math.min(12, filteredTicketRows.length - mobileTicketRows.length)} bill
-                    </button>
-                  ) : null}
-                </div>
-              )}
+                  )}
+                </MobileCollapsible>
+              </div>
             </div>
           </div>
 
@@ -443,11 +486,12 @@ export default function ReportsPage() {
                 {(breakdown?.by_payment ?? []).length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu thanh toán.</div> : (breakdown?.by_payment ?? []).map((p, idx) => <div key={`${p.method}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="font-medium text-neutral-900">{p.method}</div><div className="text-[11px] text-neutral-500">{p.count} bill</div></div><div className="font-semibold text-neutral-900">{formatVnd(Number(p.amount ?? 0))}</div></div></div>)}
               </div>
             </div>
-            <MobileCollapsible summary="Theo phương thức thanh toán" defaultOpen={false}>
+            <div className="manage-surface space-y-3 p-4 md:hidden">
+              <h3 className="text-sm font-semibold text-neutral-900">Theo phương thức thanh toán</h3>
               <div className="space-y-2">
                 {(breakdown?.by_payment ?? []).length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu thanh toán.</div> : (breakdown?.by_payment ?? []).map((p, idx) => <div key={`${p.method}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="font-medium text-neutral-900">{p.method}</div><div className="text-[11px] text-neutral-500">{p.count} bill</div></div><div className="font-semibold text-neutral-900">{formatVnd(Number(p.amount ?? 0))}</div></div></div>)}
               </div>
-            </MobileCollapsible>
+            </div>
 
             <div className="hidden md:block manage-surface space-y-3 p-4 md:p-5">
               <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (giờ làm)</h3>
@@ -455,11 +499,12 @@ export default function ReportsPage() {
                 {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu giờ làm trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca</div></div><div className="font-semibold text-neutral-900">{s.minutes} phút</div></div></div>)}
               </div>
             </div>
-            <MobileCollapsible summary="Theo nhân viên (giờ làm)" defaultOpen={false}>
+            <div className="manage-surface space-y-3 p-4 md:hidden">
+              <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (giờ làm)</h3>
               <div className="space-y-2">
                 {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu giờ làm trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca</div></div><div className="font-semibold text-neutral-900">{s.minutes} phút</div></div></div>)}
               </div>
-            </MobileCollapsible>
+            </div>
           </div>
         </section>
       </div>

@@ -10,7 +10,7 @@ import { createCheckout, hasOpenShift, listCheckedInAppointments, listRecentTick
 import { formatVnd } from "@/lib/mock-data";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-type ServiceRow = { id: string; name: string; base_price: number; vat_rate: number };
+type ServiceRow = { id: string; name: string; base_price: number; vat_rate: number; featured_in_lookbook?: boolean | null; active?: boolean | null };
 type TicketRow = { id: string; status: string; totals_json?: { grand_total?: number }; created_at: string; customers?: { name: string } | { name: string }[] | null; receipts?: { public_token: string; expires_at: string }[] };
 type CheckedInAppointment = { id: string; start_at: string; customers?: { name: string } | { name: string }[] | null };
 type RangeMode = "day" | "week" | "month" | "custom";
@@ -59,6 +59,7 @@ export default function CheckoutPage() {
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [fromDate, setFromDate] = useState(toDateInputValue(today));
   const [toDate, setToDate] = useState(toDateInputValue(today));
+  const [showLookbook, setShowLookbook] = useState(false);
 
   const [customerName, setCustomerName] = useState("");
   const [appointmentId, setAppointmentId] = useState<string | null>(null);
@@ -148,6 +149,9 @@ export default function CheckoutPage() {
       .sort((a, b) => score(b) - score(a) || Number(a.base_price) - Number(b.base_price))
       .slice(0, 8);
   }, [services, selectedServices]);
+
+  const regularServices = useMemo(() => services.filter((s) => !s.featured_in_lookbook && s.active !== false), [services]);
+  const lookbookServices = useMemo(() => services.filter((s) => s.featured_in_lookbook && s.active !== false), [services]);
 
   function addLine() { setLines((prev) => [...prev, { serviceId: "", qty: 1 }]); }
   function onSelectCheckedInAppointment(id: string) { setAppointmentId(id || null); const picked = checkedInAppointments.find((a) => a.id === id); const customer = Array.isArray(picked?.customers) ? picked?.customers[0]?.name : picked?.customers?.name; if (customer) setCustomerName(customer); requestAnimationFrame(() => serviceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }
@@ -317,13 +321,13 @@ export default function CheckoutPage() {
               </div>
 
               {quickServices.length > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400">Dịch vụ nhanh</div>
                     <div className="text-xs text-neutral-500">{customerName ? "Đã ưu tiên theo bill hiện tại" : "Đang ưu tiên các dịch vụ phổ biến"}</div>
                   </div>
                   <div className="flex min-w-0 flex-wrap gap-1.5 overflow-x-hidden">
-                    {quickServices.map((service) => (
+                    {quickServices.filter((s) => !s.featured_in_lookbook).map((service) => (
                       <button
                         key={service.id}
                         type="button"
@@ -337,50 +341,97 @@ export default function CheckoutPage() {
                 </div>
               ) : null}
 
+              {lookbookServices.length > 0 && (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowLookbook(!showLookbook)}
+                    className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                  >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Mẫu Lookbook ({lookbookServices.length})
+                    <svg className={`h-4 w-4 transition-transform ${showLookbook ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+
+                  {showLookbook && (
+                    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-neutral-500">Chọn mẫu Lookbook</div>
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                        {lookbookServices.map((service) => (
+                          <button
+                            key={service.id}
+                            type="button"
+                            onClick={() => { addQuickService(service.id); setShowLookbook(false); }}
+                            className="flex flex-col items-start rounded-xl border border-neutral-200 bg-white p-3 text-left transition hover:border-[var(--color-primary)] hover:bg-neutral-50"
+                          >
+                            <div className="text-xs font-semibold text-neutral-900">{service.name}</div>
+                            <div className="mt-1 text-[11px] text-neutral-600">{formatVnd(Number(service.base_price))}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-2">
                 {lines.map((line, idx) => {
                   const selectedService = services.find((service) => service.id === line.serviceId);
                   return (
-                    <div key={idx} className="min-w-0 overflow-x-hidden rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
-                      <div className="space-y-3">
-                        <div className="min-w-0">
-                          <select className="input w-full cursor-pointer bg-white py-2.5" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
+                    <div key={idx} className="min-w-0 overflow-x-hidden rounded-xl border border-neutral-200 bg-neutral-50 p-2">
+                      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+                        <div className="min-w-0 flex-1">
+                          <select className="input w-full cursor-pointer bg-white py-2 text-sm" aria-label={`Dịch vụ ${idx + 1}`} value={line.serviceId} onChange={(e) => updateLine(idx, { serviceId: e.target.value })}>
                             <option value="">-- Chọn dịch vụ --</option>
-                            {services.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
+                            {regularServices.length > 0 && (
+                              <>
+                                <optgroup label="Dịch vụ">
+                                  {regularServices.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
+                                </optgroup>
+                              </>
+                            )}
+                            {lookbookServices.length > 0 && (
+                              <>
+                                <optgroup label="Mẫu Lookbook">
+                                  {lookbookServices.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatVnd(Number(s.base_price))}</option>)}
+                                </optgroup>
+                              </>
+                            )}
                           </select>
                         </div>
-                        <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-white/70 bg-white px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="min-w-0 flex-1 text-sm text-neutral-500">
-                            {selectedService ? (
-                              <>
-                                <span className="font-medium text-neutral-800">Tạm tính</span>{" "}
-                                {formatVnd(Number(selectedService.base_price) * line.qty * (1 + Number(selectedService.vat_rate)))}
-                              </>
-                            ) : "Chưa chọn dịch vụ"}
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => updateLine(idx, { qty: Math.max(1, line.qty - 1) })}
+                            disabled={line.qty <= 1}
+                            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-neutral-200 bg-white text-sm font-semibold text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            aria-label={`Giảm số lượng dịch vụ ${idx + 1}`}
+                          >
+                            −
+                          </button>
+                          <div className="flex h-9 min-w-[2rem] shrink-0 items-center justify-center rounded-full bg-neutral-900 px-2 text-sm font-semibold text-white">
+                            {line.qty}
                           </div>
-                          <div className="flex flex-wrap items-center gap-1.5 sm:shrink-0 sm:flex-nowrap">
-                            <button
-                              type="button"
-                              onClick={() => updateLine(idx, { qty: Math.max(1, line.qty - 1) })}
-                              disabled={line.qty <= 1}
-                              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-neutral-200 bg-white text-base font-semibold text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-                              aria-label={`Giảm số lượng dịch vụ ${idx + 1}`}
-                            >
-                              −
-                            </button>
-                            <div className="flex min-w-[2.5rem] items-center justify-center rounded-full bg-neutral-900 px-3 py-2 text-sm font-semibold text-white">
-                              {line.qty}
+                          <button
+                            type="button"
+                            onClick={() => updateLine(idx, { qty: line.qty + 1 })}
+                            className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-neutral-200 bg-white text-sm font-semibold text-neutral-700"
+                            aria-label={`Tăng số lượng dịch vụ ${idx + 1}`}
+                          >
+                            +
+                          </button>
+                          {selectedService && (
+                            <div className="ml-1 shrink-0 text-xs text-neutral-600 lg:text-sm">
+                              {formatVnd(Number(selectedService.base_price) * line.qty * (1 + Number(selectedService.vat_rate)))}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => updateLine(idx, { qty: line.qty + 1 })}
-                              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-neutral-200 bg-white text-base font-semibold text-neutral-700"
-                              aria-label={`Tăng số lượng dịch vụ ${idx + 1}`}
-                            >
-                              +
-                            </button>
-                            <button type="button" onClick={() => removeLine(idx)} disabled={lines.length === 1} className="cursor-pointer rounded-lg border border-neutral-200 px-3 py-2 text-xs font-medium text-neutral-600 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm">Xóa</button>
-                          </div>
+                          )}
+                          <button type="button" onClick={() => removeLine(idx)} disabled={lines.length === 1} className="ml-auto flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg border border-neutral-200 px-2 text-xs font-medium text-neutral-600 disabled:cursor-not-allowed disabled:opacity-50 lg:ml-1">
+                            ✕
+                          </button>
                         </div>
                       </div>
                     </div>

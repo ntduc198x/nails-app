@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
-import { createService, listServices, updateService } from "@/lib/domain";
+import { createService, deleteService, listServices, updateService } from "@/lib/domain";
 import { formatVnd } from "@/lib/mock-data";
 import { uploadServiceImage } from "@/lib/service-images";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -82,8 +82,8 @@ function parseDecimal(value: string) {
   return Number(value.replace(/[^\d.]/g, "") || 0);
 }
 
-function isLookbookSample(row: Pick<ServiceRow, "name" | "featured_in_lookbook">) {
-  return row.name.trim().toLowerCase().startsWith("mẫu ") || Boolean(row.featured_in_lookbook);
+function isLookbookSample(row: Pick<ServiceRow, "featured_in_lookbook">) {
+  return Boolean(row.featured_in_lookbook);
 }
 
 function serviceToFormState(row: ServiceRow): ServiceFormState {
@@ -157,11 +157,11 @@ export default function ServicesPage() {
 
   const activeCount = useMemo(() => rows.filter((row) => row.active).length, [rows]);
   const featuredCount = useMemo(() => rows.filter((row) => row.featured_in_lookbook).length, [rows]);
-  const sampleCount = useMemo(() => rows.filter((row) => row.active && (isLookbookSample(row) || Boolean(row.featured_in_lookbook))).length, [rows]);
-  const activeServiceCount = useMemo(() => rows.filter((row) => row.active && !isLookbookSample(row)).length, [rows]);
+  const sampleCount = useMemo(() => rows.filter((row) => row.active && Boolean(row.featured_in_lookbook)).length, [rows]);
+  const activeServiceCount = useMemo(() => rows.filter((row) => row.active && !row.featured_in_lookbook).length, [rows]);
 
-  const activeServiceRows = useMemo(() => filteredRows.filter((row) => !isLookbookSample(row)), [filteredRows]);
-  const lookbookSampleRows = useMemo(() => filteredRows.filter((row) => isLookbookSample(row)), [filteredRows]);
+  const activeServiceRows = useMemo(() => filteredRows.filter((row) => !row.featured_in_lookbook), [filteredRows]);
+  const lookbookSampleRows = useMemo(() => filteredRows.filter((row) => Boolean(row.featured_in_lookbook)), [filteredRows]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -337,17 +337,7 @@ export default function ServicesPage() {
     try {
       setSubmitting(true);
       setError(null);
-      await updateService({
-        id: row.id,
-        name: row.name,
-        shortDescription: row.short_description || null,
-        imageUrl: row.image_url || null,
-        featuredInLookbook: Boolean(row.featured_in_lookbook),
-        durationMin: row.duration_min,
-        basePrice: Number(row.base_price),
-        vatPercent: Number(row.vat_rate) * 100,
-        active: false,
-      });
+      await deleteService(row.id);
       await load({ force: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Xóa vĩnh viễn thất bại");
@@ -684,39 +674,6 @@ export default function ServicesPage() {
                         </div>
                       );
                     })}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
-                  <div className="mb-2 flex items-center justify-between gap-3">
-                    <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Mẫu lookbook / trend</h4>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-medium text-amber-800">{lookbookSampleRows.length}</span>
-                  </div>
-                  <p className="mb-2 text-xs text-amber-800/80">Những mục bắt đầu bằng “Mẫu ...” là item phục vụ landing/lookbook, không phải dịch vụ vận hành chính.</p>
-                  <div className="space-y-1.5">
-                    {lookbookSampleRows.map((s) => (
-                      <div key={s.id} className="rounded-2xl border border-amber-200 bg-white p-2.5">
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                            {s.image_url ? <img src={s.image_url} alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" /> : null}
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
-                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">Mẫu lookbook</span>
-                                {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">Landing</span> : null}
-                              </div>
-                              <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p>
-                            </div>
-                          </div>
-                          {canEdit ? <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>Sửa</button> : null}
-                        </div>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
-                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
-                          <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
               </>

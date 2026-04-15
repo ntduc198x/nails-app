@@ -250,7 +250,7 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
               ) : (
                 <span className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400">Không thể hủy</span>
               )}
-              {criticalCheckedIn ? <button type="button" className="cursor-pointer rounded-xl border border-fuchsia-300 bg-fuchsia-100 px-3 py-2 text-sm font-semibold text-fuchsia-800 transition hover:bg-fuchsia-200 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>Đóng bill ngay</button> : null}
+              
             </>
           )}
           {row.status === "CHECKED_IN" ? (
@@ -333,9 +333,8 @@ export default function OperationsPage() {
   }, [load]);
 
   const scopedRows = useMemo(() => {
-    if (role !== "TECH") return rows;
-    return rows.filter((r) => r.status === "BOOKED" || r.staff_user_id === myUserId);
-  }, [rows, role, myUserId]);
+    return rows;
+  }, [rows]);
 
   const filterRange = useMemo(() => {
     const nowDate = new Date();
@@ -669,7 +668,7 @@ export default function OperationsPage() {
               </MobileCollapsible>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 md:hidden">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-neutral-900">Chi tiết lịch</h3>
                 <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span>

@@ -111,6 +111,19 @@ export async function updateBookingRequestStatus(id: string, status: BookingRequ
   if (error) throw error;
 }
 
+export async function deleteBookingRequest(id: string) {
+  if (!supabase) throw new Error("Supabase chưa cấu hình");
+  const { orgId } = await ensureOrgContext();
+
+  const { error } = await supabase
+    .from("booking_requests")
+    .delete()
+    .eq("id", id)
+    .eq("org_id", orgId);
+
+  if (error) throw error;
+}
+
 export async function checkAppointmentCapacity(input: {
   bookingRequestId?: string | null;
   startAt: string;

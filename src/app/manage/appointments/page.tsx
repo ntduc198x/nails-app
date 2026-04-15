@@ -178,7 +178,7 @@ function ResourceChip({ active, disabled, label, onClick }: { active: boolean; d
   );
 }
 
-function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, staleCheckedIn, criticalCheckedIn, updatingId, onEdit, onQuickStatus, role }: {
+function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, staleCheckedIn, criticalCheckedIn, updatingId, onEdit, onQuickStatus, role, confirmCancelId, setConfirmCancelId }: {
   row: AppointmentRow;
   staffName: string;
   resourceName: string;
@@ -190,6 +190,8 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
   role: string | null;
   onEdit: () => void;
   onQuickStatus: (id: string, status: "CHECKED_IN" | "CANCELLED") => Promise<void>;
+  confirmCancelId: string | null;
+  setConfirmCancelId: (id: string | null) => void;
 }) {
   const customer = pickCustomerName(row.customers);
   const customerPhone = pickCustomerPhone(row.customers);
@@ -224,13 +226,27 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
             <>
               <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50" onClick={onEdit}>Sửa</button>
               <button onClick={() => void onQuickStatus(row.id, "CHECKED_IN")} className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === row.id ? "Đang xử lý..." : "Check-in"}</button>
-              <button onClick={() => void onQuickStatus(row.id, "CANCELLED")} className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === row.id ? "Đang xử lý..." : "Hủy"}</button>
+              {confirmCancelId === row.id ? (
+                <>
+                  <button onClick={() => { setConfirmCancelId(null); void onQuickStatus(row.id, "CANCELLED"); }} className="cursor-pointer rounded-xl border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white" disabled={!!updatingId}>Xác nhận</button>
+                  <button onClick={() => setConfirmCancelId(null)} className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700">Không</button>
+                </>
+              ) : (
+                <button onClick={() => setConfirmCancelId(row.id)} className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>Hủy</button>
+              )}
             </>
           )}
           {row.status === "CHECKED_IN" && (
             <>
               {role === "BOSS" ? (
-                <button onClick={() => void onQuickStatus(row.id, "CANCELLED")} className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === row.id ? "Đang xử lý..." : "Cancel"}</button>
+                confirmCancelId === row.id ? (
+                  <>
+                    <button onClick={() => { setConfirmCancelId(null); void onQuickStatus(row.id, "CANCELLED"); }} className="cursor-pointer rounded-xl border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white" disabled={!!updatingId}>Xác nhận</button>
+                    <button onClick={() => setConfirmCancelId(null)} className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700">Không</button>
+                  </>
+                ) : (
+                  <button onClick={() => setConfirmCancelId(row.id)} className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>Hủy</button>
+                )
               ) : (
                 <span className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400">Không thể hủy</span>
               )}
@@ -270,6 +286,7 @@ export default function OperationsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [showDetailList, setShowDetailList] = useState(false);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -617,7 +634,7 @@ export default function OperationsPage() {
                       const overdue = isOverdueBooked(a);
                       const staleCheckedIn = isStaleCheckedIn(a);
                       const criticalCheckedIn = isCriticalCheckedIn(a);
-                      return <AppointmentCard key={`desktop-${a.id}`} row={a} staffName={staff} resourceName={resource} onlineBooked={isOnlineBooked(a)} overdue={overdue} staleCheckedIn={staleCheckedIn} criticalCheckedIn={criticalCheckedIn} updatingId={updatingId} role={role} onEdit={() => { setEditingId(a.id); setCustomerName(customer); setAutoTime(false); setBookingAt(rebaseDateTimeToToday(a.start_at)); setStaffUserId(a.staff_user_id ?? ""); setResourceId(a.resource_id ?? ""); requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} onQuickStatus={onQuickStatus} />;
+                      return <AppointmentCard key={`desktop-${a.id}`} row={a} staffName={staff} resourceName={resource} onlineBooked={isOnlineBooked(a)} overdue={overdue} staleCheckedIn={staleCheckedIn} criticalCheckedIn={criticalCheckedIn} updatingId={updatingId} role={role} confirmCancelId={confirmCancelId} setConfirmCancelId={setConfirmCancelId} onEdit={() => { setEditingId(a.id); setCustomerName(customer); setAutoTime(false); setBookingAt(rebaseDateTimeToToday(a.start_at)); setStaffUserId(a.staff_user_id ?? ""); setResourceId(a.resource_id ?? ""); requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} onQuickStatus={onQuickStatus} />;
                     })}
                   </div>
                 )}
@@ -666,7 +683,7 @@ export default function OperationsPage() {
                     const overdue = isOverdueBooked(a);
                     const staleCheckedIn = isStaleCheckedIn(a);
                     const criticalCheckedIn = isCriticalCheckedIn(a);
-                    return <AppointmentCard key={a.id} row={a} staffName={staff} resourceName={resource} onlineBooked={isOnlineBooked(a)} overdue={overdue} staleCheckedIn={staleCheckedIn} criticalCheckedIn={criticalCheckedIn} updatingId={updatingId} role={role} onEdit={() => { setEditingId(a.id); setCustomerName(customer); setAutoTime(false); setBookingAt(rebaseDateTimeToToday(a.start_at)); setStaffUserId(a.staff_user_id ?? ""); setResourceId(a.resource_id ?? ""); requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} onQuickStatus={onQuickStatus} />;
+                    return <AppointmentCard key={a.id} row={a} staffName={staff} resourceName={resource} onlineBooked={isOnlineBooked(a)} overdue={overdue} staleCheckedIn={staleCheckedIn} criticalCheckedIn={criticalCheckedIn} updatingId={updatingId} role={role} confirmCancelId={confirmCancelId} setConfirmCancelId={setConfirmCancelId} onEdit={() => { setEditingId(a.id); setCustomerName(customer); setAutoTime(false); setBookingAt(rebaseDateTimeToToday(a.start_at)); setStaffUserId(a.staff_user_id ?? ""); setResourceId(a.resource_id ?? ""); requestAnimationFrame(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })); }} onQuickStatus={onQuickStatus} />;
                   })}
                 </div>
               )}

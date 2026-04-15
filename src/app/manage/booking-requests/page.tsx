@@ -12,6 +12,7 @@ import {
   BookingRequestStatus,
   checkAppointmentCapacity,
   convertBookingRequestToAppointment,
+  deleteBookingRequest,
   listBookingRequests,
   updateBookingRequestStatus,
 } from "@/lib/booking-requests";
@@ -128,6 +129,21 @@ export default function BookingRequestsPage() {
   const [resourceId, setResourceId] = useState("");
   const [bookingAt, setBookingAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{ id: string; type: "cancel" } | null>(null);
+
+  async function handleCancelWithConfirm(id: string) {
+    if (confirmAction?.id === id) {
+      setConfirmAction(null);
+      await onCancel(id, true);
+    } else {
+      setConfirmAction({ id, type: "cancel" });
+    }
+  }
+
+  function cancelConfirmAction() {
+    setConfirmAction(null);
+  }
+
   const [capacityWarning, setCapacityWarning] = useState<string | null>(null);
   const [overlaps, setOverlaps] = useState<OverlapRow[]>([]);
   const [capacityAllowed, setCapacityAllowed] = useState(true);
@@ -217,15 +233,31 @@ export default function BookingRequestsPage() {
     };
   }, [selectedRow, bookingAt]);
 
-  async function onCancel(id: string) {
+  async function onCancel(id: string, confirmed = false) {
     try {
       setSubmitting(true);
       setError(null);
+      if (!confirmed && !window.confirm("Hủy yêu cầu đặt lịch?")) return;
       await updateBookingRequestStatus(id, "CANCELLED");
       if (selectedId === id) setSelectedId(null);
       await load({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Hủy yêu cầu đặt lịch thất bại");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function onDelete(id: string) {
+    if (!window.confirm("Xóa vĩnh viễn yêu cầu đặt lịch này?")) return;
+    try {
+      setSubmitting(true);
+      setError(null);
+      await deleteBookingRequest(id);
+      if (selectedId === id) setSelectedId(null);
+      await load({ silent: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Xóa yêu cầu đặt lịch thất bại");
     } finally {
       setSubmitting(false);
     }
@@ -462,9 +494,27 @@ export default function BookingRequestsPage() {
                   ) : null}
 
                   {selectedRow.status !== "CANCELLED" && selectedRow.status !== "CONVERTED" ? (
-                    <button type="button" className="cursor-pointer rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting || !canHandleRequest} onClick={() => void onCancel(selectedRow.id)}>
-                      Hủy
-                    </button>
+                    <>
+                      {confirmAction?.id === selectedRow.id ? (
+                      <>
+                        <button type="button" className="cursor-pointer rounded-2xl border border-red-600 bg-red-600 px-3 py-2 text-xs font-bold text-white transition disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting} onClick={() => handleCancelWithConfirm(selectedRow.id)}>
+                          Xác nhận
+                        </button>
+                        <button type="button" className="cursor-pointer rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting} onClick={cancelConfirmAction}>
+                          Không
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="cursor-pointer rounded-2xl border border-red-500 bg-red-100 px-3 py-2 text-xs font-bold text-red-800 transition hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting} onClick={() => handleCancelWithConfirm(selectedRow.id)}>
+                          Xóa
+                        </button>
+                        <button type="button" className="cursor-pointer rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60 md:px-3.5 md:py-2.5 md:text-sm" disabled={submitting} onClick={() => setSelectedId(null)}>
+                          Đóng
+                        </button>
+                      </>
+                    )}
+                    </>
                   ) : null}
                 </div>
               </div>

@@ -82,8 +82,8 @@ function parseDecimal(value: string) {
   return Number(value.replace(/[^\d.]/g, "") || 0);
 }
 
-function isLookbookSample(row: Pick<ServiceRow, "name">) {
-  return row.name.trim().toLowerCase().startsWith("mẫu ");
+function isLookbookSample(row: Pick<ServiceRow, "name" | "featured_in_lookbook">) {
+  return row.name.trim().toLowerCase().startsWith("mẫu ") || Boolean(row.featured_in_lookbook);
 }
 
 function serviceToFormState(row: ServiceRow): ServiceFormState {
@@ -157,7 +157,7 @@ export default function ServicesPage() {
 
   const activeCount = useMemo(() => rows.filter((row) => row.active).length, [rows]);
   const featuredCount = useMemo(() => rows.filter((row) => row.featured_in_lookbook).length, [rows]);
-  const sampleCount = useMemo(() => rows.filter((row) => row.active && isLookbookSample(row)).length, [rows]);
+  const sampleCount = useMemo(() => rows.filter((row) => row.active && (isLookbookSample(row) || Boolean(row.featured_in_lookbook))).length, [rows]);
   const activeServiceCount = useMemo(() => rows.filter((row) => row.active && !isLookbookSample(row)).length, [rows]);
 
   const activeServiceRows = useMemo(() => filteredRows.filter((row) => !isLookbookSample(row)), [filteredRows]);
@@ -560,13 +560,127 @@ export default function ServicesPage() {
                               <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>Sửa</button>
                             )}
                           </div>
-                          {!isEditing ? (
+                          {isEditing && editForm ? (
+                            <div className="mt-3 rounded-2xl bg-neutral-50 p-3">
+                              <div className="space-y-2">
+                                <TextArea value={editForm.shortDescription} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, shortDescription: e.target.value } : prev))} placeholder="Mô tả ngắn" className="min-h-[52px] text-[12px]" />
+                                <div className="grid grid-cols-3 gap-2">
+                                  <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.priceInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, priceInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Giá" className="py-1.5 text-[12px]" />
+                                  <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.durationInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, durationInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Phút" className="py-1.5 text-[12px]" />
+                                  <TextInput inputMode="decimal" value={editForm.vatInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, vatInput: e.target.value.replace(/[^\d.]/g, "") } : prev))} placeholder="VAT %" className="py-1.5 text-[12px]" />
+                                </div>
+                                <TextInput value={editForm.imageUrl} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, imageUrl: e.target.value } : prev))} placeholder="URL hoặc storage path" className="py-1.5 text-[12px]" />
+                                <div className="flex flex-wrap gap-2">
+                                  <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.featuredInLookbook} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, featuredInLookbook: e.target.checked } : prev))} />
+                                    Lookbook
+                                  </label>
+                                  <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.active} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, active: e.target.checked } : prev))} />
+                                    Đang hoạt động
+                                  </label>
+                                  <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50">
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => void handleEditImageUpload(e.target.files?.[0])} />
+                                    {uploadingEditImage ? "Đang upload..." : "Upload ảnh"}
+                                  </label>
+                                </div>
+                                {editForm.imageUrl ? (
+                                  <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
+                                    <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                    <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
                             <div className="mt-1.5 flex flex-wrap items-center gap-1">
                               <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
                               <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
                               <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
                             </div>
-                          ) : null}
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Mẫu lookbook / trend</h4>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-medium text-amber-800">{lookbookSampleRows.length}</span>
+                  </div>
+                  <p className="mb-2 text-xs text-amber-800/80">Những mục bắt đầu bằng "Mẫu ..." là item phục vụ landing/lookbook, không phải dịch vụ vận hành chính.</p>
+                  <div className="space-y-1.5">
+                    {lookbookSampleRows.map((s) => {
+                      const isEditing = editingId === s.id;
+                      return (
+                        <div key={s.id} className="rounded-2xl border border-amber-200 bg-white p-2.5">
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="flex min-w-0 flex-1 items-start gap-2.5">
+                              {s.image_url ? <img src={s.image_url} alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" /> : null}
+                              <div className="min-w-0 flex-1">
+                                {isEditing && editForm ? (
+                                  <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1.5 text-[13px]" placeholder="Tên dịch vụ" />
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">Mẫu lookbook</span>
+                                    {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">Landing</span> : null}
+                                  </div>
+                                )}
+                                {!isEditing ? <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả ngắn."}</p> : null}
+                              </div>
+                            </div>
+                            {!canEdit ? null : isEditing ? (
+                              <div className="flex gap-1.5">
+                                <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void moveToTrash(s)} disabled={submitting}>Xóa</button>
+                                <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => { setEditingId(null); setEditForm(null); }}>Huỷ</button>
+                                <button className="cursor-pointer rounded-xl bg-rose-500 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>{submitting ? "Đang lưu..." : "Lưu"}</button>
+                              </div>
+                            ) : (
+                              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>Sửa</button>
+                            )}
+                          </div>
+                          {isEditing && editForm ? (
+                            <div className="mt-3 rounded-2xl bg-neutral-50 p-3">
+                              <div className="space-y-2">
+                                <TextArea value={editForm.shortDescription} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, shortDescription: e.target.value } : prev))} placeholder="Mô tả ngắn" className="min-h-[52px] text-[12px]" />
+                                <div className="grid grid-cols-3 gap-2">
+                                  <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.priceInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, priceInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Giá" className="py-1.5 text-[12px]" />
+                                  <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.durationInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, durationInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Phút" className="py-1.5 text-[12px]" />
+                                  <TextInput inputMode="decimal" value={editForm.vatInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, vatInput: e.target.value.replace(/[^\d.]/g, "") } : prev))} placeholder="VAT %" className="py-1.5 text-[12px]" />
+                                </div>
+                                <TextInput value={editForm.imageUrl} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, imageUrl: e.target.value } : prev))} placeholder="URL hoặc storage path" className="py-1.5 text-[12px]" />
+                                <div className="flex flex-wrap gap-2">
+                                  <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.featuredInLookbook} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, featuredInLookbook: e.target.checked } : prev))} />
+                                    Lookbook
+                                  </label>
+                                  <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                    <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.active} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, active: e.target.checked } : prev))} />
+                                    Đang hoạt động
+                                  </label>
+                                  <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50">
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => void handleEditImageUpload(e.target.files?.[0])} />
+                                    {uploadingEditImage ? "Đang upload..." : "Upload ảnh"}
+                                  </label>
+                                </div>
+                                {editForm.imageUrl ? (
+                                  <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
+                                    <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                    <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                              <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -609,19 +723,19 @@ export default function ServicesPage() {
             )}
           </div>
 
-          <div className="md:hidden">
-            <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Danh sách dịch vụ</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{filteredRows.length}</span></div>} open={mobileListOpen} onToggle={setMobileListOpen}>
+          <div className="md:hidden space-y-3">
+            <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span>Dịch vụ</span><span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[10px] font-medium text-neutral-700">{activeServiceRows.length}</span></div>} open={mobileListOpen} onToggle={setMobileListOpen}>
               <div className="space-y-2.5">
                 <TextInput placeholder="Tìm tên hoặc mô tả" value={search} onChange={(e) => setSearch(e.target.value)} className="py-2 text-sm" />
                 {loading ? (
                   <p className="text-sm text-neutral-500">Đang tải dữ liệu dịch vụ...</p>
-                ) : filteredRows.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-8 text-center text-sm text-neutral-500">
-                    {rows.length === 0 ? "Chưa có dịch vụ nào. Hãy tạo dịch vụ đầu tiên ở phía trên." : "Không có dịch vụ khớp bộ lọc hiện tại."}
+                ) : activeServiceRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-sm text-neutral-500">
+                    Chưa có dịch vụ nào.
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    {filteredRows.map((s) => {
+                    {activeServiceRows.map((s) => {
                       const isEditing = editingId === s.id;
                       return (
                         <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
@@ -633,9 +747,10 @@ export default function ServicesPage() {
                                   <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1 text-[12px]" placeholder="Tên dịch vụ" />
                                 ) : (
                                   <div className="flex flex-wrap items-center gap-1.5">
-                                    <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900 md:text-sm">{s.name}</h4>
+                                    <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900">{s.name}</h4>
+                                    {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">Lookbook</span> : null}
                                     <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${s.active ? "bg-emerald-100 text-emerald-700" : "bg-neutral-200 text-neutral-600"}`}>
-                                      {s.featured_in_lookbook ? `Lookbook · ${s.active ? "Đang dùng" : "Tạm ẩn"}` : (s.active ? "Đang dùng" : "Tạm ẩn")}
+                                      {s.active ? "Đang dùng" : "Tạm ẩn"}
                                     </span>
                                   </div>
                                 )}
@@ -648,10 +763,7 @@ export default function ServicesPage() {
                                 <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void moveToTrash(s)} disabled={submitting}>
                                   Xóa
                                 </button>
-                                <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => {
-                                  setEditingId(null);
-                                  setEditForm(null);
-                                }}>
+                                <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => { setEditingId(null); setEditForm(null); }}>
                                   Huỷ
                                 </button>
                                 <button className="cursor-pointer rounded-xl bg-rose-500 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>
@@ -708,6 +820,101 @@ export default function ServicesPage() {
                       );
                     })}
                   </div>
+                )}
+              </div>
+            </MobileCollapsible>
+
+            <MobileCollapsible summary={<div className="flex items-center justify-between gap-3 pr-2"><span className="text-amber-800">Mẫu lookbook</span><span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-medium text-amber-800">{lookbookSampleRows.length}</span></div>}>
+              <div className="space-y-1.5">
+                {loading ? (
+                  <p className="text-sm text-neutral-500">Đang tải...</p>
+                ) : lookbookSampleRows.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-amber-200 bg-amber-50/50 px-4 py-6 text-center text-sm text-amber-700/80">
+                    Chưa có mẫu lookbook nào.
+                  </div>
+                ) : (
+                  lookbookSampleRows.map((s) => {
+                    const isEditing = editingId === s.id;
+                    return (
+                      <div key={s.id} className="rounded-2xl border border-amber-200 bg-white p-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 flex-1 items-start gap-2">
+                            {s.image_url ? <img src={s.image_url} alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" /> : null}
+                            <div className="min-w-0 flex-1">
+                              {isEditing && editForm ? (
+                                <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1 text-[12px]" placeholder="Tên dịch vụ" />
+                              ) : (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <h4 className="text-[13px] font-semibold leading-4.5 text-neutral-900">{s.name}</h4>
+                                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-800">Mẫu</span>
+                                  {s.featured_in_lookbook ? <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold text-rose-700">Landing</span> : null}
+                                </div>
+                              )}
+                              {!isEditing ? <p className="mt-0.5 line-clamp-1 text-[10px] text-neutral-500">{s.short_description || "Chưa có mô tả."}</p> : null}
+                            </div>
+                          </div>
+
+                          {!canEdit ? null : isEditing ? (
+                            <div className="flex gap-1.5">
+                              <button className="cursor-pointer rounded-xl border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-medium text-red-700 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void moveToTrash(s)} disabled={submitting}>
+                                Xóa
+                              </button>
+                              <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => { setEditingId(null); setEditForm(null); }}>
+                                Huỷ
+                              </button>
+                              <button className="cursor-pointer rounded-xl bg-rose-500 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => void saveEdit()} disabled={submitting}>
+                                {submitting ? "Đang lưu..." : "Lưu"}
+                              </button>
+                            </div>
+                          ) : (
+                            <button className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-2.5 py-1.5 text-[11px] font-medium text-neutral-700" type="button" onClick={() => startEdit(s)}>
+                              Sửa
+                            </button>
+                          )}
+                        </div>
+
+                        {isEditing && editForm ? (
+                          <div className="mt-2 rounded-2xl bg-neutral-50 p-2.5">
+                            <div className="space-y-2">
+                              <TextArea value={editForm.shortDescription} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, shortDescription: e.target.value } : prev))} placeholder="Mô tả ngắn" className="min-h-[52px] text-[12px]" />
+                              <div className="grid grid-cols-3 gap-2">
+                                <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.priceInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, priceInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Giá" className="py-1 text-[12px]" />
+                                <TextInput inputMode="numeric" pattern="[0-9]*" value={editForm.durationInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, durationInput: e.target.value.replace(/\D/g, "") } : prev))} placeholder="Phút" className="py-1 text-[12px]" />
+                                <TextInput inputMode="decimal" value={editForm.vatInput} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, vatInput: e.target.value.replace(/[^\d.]/g, "") } : prev))} placeholder="VAT %" className="py-1 text-[12px]" />
+                              </div>
+                              <TextInput value={editForm.imageUrl} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, imageUrl: e.target.value } : prev))} placeholder="URL hoặc storage path" className="py-1 text-[12px]" />
+                              <div className="flex flex-wrap gap-2">
+                                <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                  <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.featuredInLookbook} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, featuredInLookbook: e.target.checked } : prev))} />
+                                  Lookbook
+                                </label>
+                                <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
+                                  <input type="checkbox" className="h-4 w-4 rounded border-neutral-300 text-rose-500 focus:ring-rose-400" checked={editForm.active} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, active: e.target.checked } : prev))} />
+                                  Đang hoạt động
+                                </label>
+                                <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50">
+                                  <input type="file" accept="image/*" className="hidden" onChange={(e) => void handleEditImageUpload(e.target.files?.[0])} />
+                                  {uploadingEditImage ? "Đang upload..." : "Upload ảnh"}
+                                </label>
+                              </div>
+                              {editForm.imageUrl ? (
+                                <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
+                                  <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                  <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{formatVnd(Number(s.base_price))}</div>
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">{s.duration_min}p</div>
+                            <div className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-700">VAT {Number(s.vat_rate) * 100}%</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </MobileCollapsible>

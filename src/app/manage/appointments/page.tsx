@@ -515,8 +515,7 @@ export default function OperationsPage() {
 
             <form onSubmit={onSubmit} className="grid gap-2.5 lg:grid-cols-[1.3fr_0.7fr]">
               <div className="grid gap-2 md:hidden">
-                <MobileCollapsible summary="Thông tin lịch hẹn" defaultOpen>
-                  <div className="grid gap-2">
+                <div className="grid gap-2">
                 <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-2.5">
                   <FieldLabel className="mb-0">Tên khách</FieldLabel>
                   <TextInput placeholder="Ví dụ: Nguyễn Thị A" value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
@@ -541,7 +540,6 @@ export default function OperationsPage() {
                 </div>
                 {!autoTime ? <div className="pt-0.5"><ManageDateTimePicker label="Thời gian lịch hẹn" value={bookingAt} onChange={setBookingAt} /></div> : null}
                   </div>
-                </MobileCollapsible>
               </div>
               <div className="hidden gap-2 md:grid">
                 <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-2.5">

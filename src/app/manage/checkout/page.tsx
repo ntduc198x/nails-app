@@ -2,9 +2,8 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
-import { MobileCollapsible, MobileInfoGrid, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
+import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
-import { ManageStatCard } from "@/components/manage-stat-card";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createCheckout, hasOpenShift, listCheckedInAppointments, listRecentTickets, listServices } from "@/lib/domain";
 import { formatVnd } from "@/lib/mock-data";
@@ -67,8 +66,8 @@ export default function CheckoutPage() {
   const [lines, setLines] = useState<Array<{ serviceId: string; qty: number }>>([{ serviceId: "", qty: 1 }]);
   const customerSectionRef = useRef<HTMLDivElement | null>(null);
   const serviceSectionRef = useRef<HTMLDivElement | null>(null);
-  const mobileSummaryRef = useRef<HTMLDivElement | null>(null);
   const receiptAlertRef = useRef<HTMLDivElement | null>(null);
+  const pageTopRef = useRef<HTMLDivElement | null>(null);
 
   const range = useMemo(() => {
     const now = new Date();
@@ -190,10 +189,13 @@ export default function CheckoutPage() {
       const result = await createCheckout({ customerName, paymentMethod, lines: valid, appointmentId: appointmentId ?? undefined, idempotencyKey });
       setLastReceipt(result.receiptToken || null);
       setReceiptLink(result.receiptToken && typeof window !== "undefined" ? `${window.location.origin}/receipt/${result.receiptToken}` : null);
-      requestAnimationFrame(() => receiptAlertRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }));
       if (result.deduped) setDedupeNotice("Đã chặn tạo bill trùng do thao tác bấm thanh toán lặp nhanh.");
       setCustomerName(""); setAppointmentId(null); setPaymentMethod("CASH"); setLines([{ serviceId: "", qty: 1 }]);
       await load();
+      requestAnimationFrame(() => {
+        pageTopRef.current?.focus();
+        pageTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (e) {
       if (e instanceof Error) setError(mapCheckoutError(e.message));
       else if (e && typeof e === "object" && "message" in e) setError(mapCheckoutError(String((e as { message?: unknown }).message ?? "Thanh toán thất bại")));
@@ -209,7 +211,7 @@ export default function CheckoutPage() {
 
   return (
     <AppShell>
-      <div className="space-y-5 pb-24 md:pb-0">
+      <div ref={pageTopRef} tabIndex={-1} className="space-y-5 outline-none">
         <ManageQuickNav items={operationsQuickNav("/manage/checkout")} />
 
         <MobileSectionHeader title="Thanh toán" meta={<div className="manage-info-box">{statusMeta}</div>} />
@@ -345,16 +347,6 @@ export default function CheckoutPage() {
                 </div>
               )}
 
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={addLine}
-                  className="cursor-pointer rounded-xl border border-dashed border-neutral-300 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)] md:text-sm"
-                >
-                  + Thêm dòng
-                </button>
-              </div>
-
               <div className="space-y-2">
                 {lines.map((line, idx) => {
                   const selectedService = services.find((service) => service.id === line.serviceId);
@@ -415,9 +407,108 @@ export default function CheckoutPage() {
                   );
                 })}
               </div>
+
+              <div className="space-y-3 border-t border-neutral-200 pt-3 xl:hidden">
+                <div className="hidden rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center justify-between gap-3 text-sm text-neutral-600">
+                    <span>Tóm tắt nhanh</span>
+                    <span>{selectedServices.length} dịch vụ</span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</div>
+                      <div className="mt-1 text-xl font-semibold text-neutral-900">{formatVnd(estimatedTotal)}</div>
+                    </div>
+                    <div className="text-right text-xs text-neutral-500">
+                      <div>{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
+                      <div className="mt-1">{customerName || "Chưa chọn khách"}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 space-y-1.5 rounded-xl bg-white/80 p-2.5">
+                    {selectedServices.length === 0 ? (
+                      <div className="text-xs text-neutral-500">ChÆ°a cÃ³ dá»‹ch vá»¥ nÃ o Ä‘Æ°á»£c chá»n.</div>
+                    ) : selectedServices.map((line, idx) => {
+                      const service = line.service;
+                      if (!service) return null;
+                      return (
+                        <div key={`quick-summary-${line.serviceId}-${idx}`} className="flex items-start justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-neutral-900">{service.name}</div>
+                            <div className="text-neutral-500">SL: {line.qty}</div>
+                          </div>
+                          <div className="shrink-0 font-medium text-neutral-900">
+                            {formatVnd(Number(service.base_price) * line.qty * (1 + Number(service.vat_rate)))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="cursor-pointer rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                  >
+                    + Thêm dòng
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting || role === "ACCOUNTANT" || (role === "TECH" && techShiftOpen === false)}
+                    className="btn btn-primary flex-1 cursor-pointer py-3 text-base disabled:cursor-not-allowed"
+                  >
+                    {submitting ? "Đang xử lý..." : "Thanh toán và đóng bill"}
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-center justify-between gap-3 text-sm text-neutral-600">
+                    <span>Tóm tắt nhanh</span>
+                    <span>{selectedServices.length} dịch vụ</span>
+                  </div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</div>
+                      <div className="mt-1 text-xl font-semibold text-neutral-900">{formatVnd(estimatedTotal)}</div>
+                    </div>
+                    <div className="text-right text-xs text-neutral-500">
+                      <div>{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
+                      <div className="mt-1">{customerName || "Chưa chọn khách"}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 space-y-1.5 rounded-xl bg-white/80 p-2.5">
+                    {selectedServices.length === 0 ? (
+                      <div className="text-xs text-neutral-500">Chưa có dịch vụ nào được chọn.</div>
+                    ) : selectedServices.map((line, idx) => {
+                      const service = line.service;
+                      if (!service) return null;
+                      return (
+                        <div key={`quick-summary-bottom-${line.serviceId}-${idx}`} className="flex items-start justify-between gap-3 text-xs">
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-neutral-900">{service.name}</div>
+                            <div className="text-neutral-500">SL: {line.qty}</div>
+                          </div>
+                          <div className="shrink-0 font-medium text-neutral-900">
+                            {formatVnd(Number(service.base_price) * line.qty * (1 + Number(service.vat_rate)))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {role === "TECH" && techShiftOpen === false ? (
+                  <p className="text-xs text-amber-700">
+                    Chưa mở ca, vào Ca làm để chuyển sang ca mới và mở ca trước khi thanh toán.
+                  </p>
+                ) : null}
+              </div>
             </div>
 
-            <div ref={mobileSummaryRef} className="card min-w-0 space-y-3 overflow-x-hidden p-4 md:hidden">
+            <div className="hidden">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-base font-semibold text-neutral-900">Tóm tắt bill</h3>
                 <div className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-600">{selectedServices.length} dịch vụ</div>
@@ -598,17 +689,17 @@ export default function CheckoutPage() {
           </div>
         </form>
 
-        <MobileStickyActions>
+        <div className="hidden">
           <button
             type="button"
-            onClick={() => requestAnimationFrame(() => mobileSummaryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))}
+            onClick={addLine}
             className="cursor-pointer rounded-lg border px-4 py-3 text-sm font-medium"
           >
             Xem bill {formatVnd(estimatedTotal)}
           </button>
           <button type="button" onClick={addLine} className="cursor-pointer rounded-lg border px-4 py-3 text-sm font-medium">+ Dòng</button>
           <button type="button" onClick={() => void onSubmit()} disabled={submitting || role === "ACCOUNTANT"} className="flex-1 btn btn-primary cursor-pointer py-3 disabled:cursor-not-allowed">{submitting ? "Đang xử lý..." : "Thanh toán"}</button>
-        </MobileStickyActions>
+        </div>
       </div>
     </AppShell>
   );

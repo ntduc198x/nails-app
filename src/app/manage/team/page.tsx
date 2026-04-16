@@ -46,6 +46,7 @@ function SelectInput(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
 
 export default function TeamPage() {
   const [rows, setRows] = useState<UserRoleRow[]>([]);
+  const [roleDrafts, setRoleDrafts] = useState<Record<string, AppRole>>({});
   const [myRole, setMyRole] = useState<AppRole>("RECEPTION");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,9 +71,18 @@ export default function TeamPage() {
   }, [rows]);
 
   const filteredRows = useMemo(() => {
+    const sortedRows = [...rows].sort((a, b) => {
+      if (a.role === "OWNER" && b.role !== "OWNER") return -1;
+      if (a.role !== "OWNER" && b.role === "OWNER") return 1;
+
+      const aLabel = (a.display_name ?? a.email ?? a.user_id).toLowerCase();
+      const bLabel = (b.display_name ?? b.email ?? b.user_id).toLowerCase();
+      return aLabel.localeCompare(bLabel, "vi");
+    });
+
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return rows;
-    return rows.filter((row) => `${row.display_name ?? ""} ${row.email ?? ""} ${row.phone ?? ""} ${row.user_id} ${row.role}`.toLowerCase().includes(keyword));
+    if (!keyword) return sortedRows;
+    return sortedRows.filter((row) => `${row.display_name ?? ""} ${row.email ?? ""} ${row.phone ?? ""} ${row.user_id} ${row.role}`.toLowerCase().includes(keyword));
   }, [rows, search]);
 
   async function load(opts?: { silent?: boolean }) {
@@ -95,6 +105,7 @@ export default function TeamPage() {
         canManageCurrent ? listInviteCodes() : Promise.resolve([]),
       ]);
       setRows(roleRows as UserRoleRow[]);
+      setRoleDrafts({});
       setInviteRows((invites as InviteCodeRow[]).filter((invite) => {
         const expired = new Date(invite.expires_at).getTime() <= Date.now();
         const used = invite.used_count >= invite.max_uses;
@@ -113,10 +124,19 @@ export default function TeamPage() {
     void load();
   }, []);
 
-  async function onChangeRole(id: string, role: AppRole) {
+  async function onSaveRole(id: string) {
+    const currentRow = rows.find((row) => row.id === id);
+    const nextRole = roleDrafts[id];
+    if (!currentRow || !nextRole || nextRole === currentRow.role) return;
+
     try {
       setError(null);
-      await updateUserRoleByRowId(id, role);
+      await updateUserRoleByRowId(id, nextRole);
+      setRoleDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       await load({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Update role failed");
@@ -305,6 +325,8 @@ export default function TeamPage() {
               <div className="space-y-2">
                 {filteredRows.map((m) => {
                   const isEditing = editingUserId === m.user_id;
+                  const roleDraft = roleDrafts[m.id] ?? m.role;
+                  const roleChanged = roleDraft !== m.role;
                   return (
                     <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
                       <div className="flex items-start justify-between gap-2.5">
@@ -349,12 +371,38 @@ export default function TeamPage() {
 
                       <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
                         {canManage && m.role !== "OWNER" ? (
-                          <div className="min-w-[180px]">
-                            <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
+                          <div className="flex min-w-[180px] flex-wrap items-center gap-2">
+                            <SelectInput
+                              value={roleDraft}
+                              onChange={(e) => setRoleDrafts((prev) => ({ ...prev, [m.id]: e.target.value as AppRole }))}
+                              className="min-w-[180px] py-2 text-xs"
+                            >
                               {roleOptions.map((r) => (
                                 <option key={r} value={r}>{getRoleLabel(r)}</option>
                               ))}
                             </SelectInput>
+                            {roleChanged ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                                  onClick={() => setRoleDrafts((prev) => {
+                                    const next = { ...prev };
+                                    delete next[m.id];
+                                    return next;
+                                  })}
+                                >
+                                  Huỷ
+                                </button>
+                                <button
+                                  type="button"
+                                  className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600"
+                                  onClick={() => void onSaveRole(m.id)}
+                                >
+                                  Lưu role
+                                </button>
+                              </>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
@@ -384,6 +432,8 @@ export default function TeamPage() {
                   <div className="space-y-2">
                     {filteredRows.map((m) => {
                       const isEditing = editingUserId === m.user_id;
+                      const roleDraft = roleDrafts[m.id] ?? m.role;
+                      const roleChanged = roleDraft !== m.role;
                       return (
                         <div key={m.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
                           <div className="flex items-start justify-between gap-2.5">
@@ -428,12 +478,38 @@ export default function TeamPage() {
 
                           <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
                             {canManage && m.role !== "OWNER" ? (
-                              <div className="min-w-[180px]">
-                                <SelectInput value={m.role} onChange={(e) => void onChangeRole(m.id, e.target.value as AppRole)} className="py-2 text-xs">
+                              <div className="flex min-w-[180px] flex-wrap items-center gap-2">
+                                <SelectInput
+                                  value={roleDraft}
+                                  onChange={(e) => setRoleDrafts((prev) => ({ ...prev, [m.id]: e.target.value as AppRole }))}
+                                  className="min-w-[180px] py-2 text-xs"
+                                >
                                   {roleOptions.map((r) => (
                                     <option key={r} value={r}>{getRoleLabel(r)}</option>
                                   ))}
                                 </SelectInput>
+                                {roleChanged ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 transition hover:bg-neutral-50"
+                                      onClick={() => setRoleDrafts((prev) => {
+                                        const next = { ...prev };
+                                        delete next[m.id];
+                                        return next;
+                                      })}
+                                    >
+                                      Huỷ
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="cursor-pointer rounded-xl bg-rose-500 px-3 py-2 text-xs font-semibold text-white transition hover:bg-rose-600"
+                                      onClick={() => void onSaveRole(m.id)}
+                                    >
+                                      Lưu role
+                                    </button>
+                                  </>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>

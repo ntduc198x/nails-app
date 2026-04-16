@@ -253,8 +253,6 @@ export async function deleteService(id: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
 
-  console.log("Attempting to delete service:", id, "orgId:", orgId);
-
   const { data, error } = await supabase
     .from("services")
     .delete()
@@ -262,9 +260,33 @@ export async function deleteService(id: string) {
     .eq("org_id", orgId)
     .select();
 
-  console.log("deleteService result:", JSON.stringify({ data, error }, null, 2));
   if (error) {
-    console.error("Delete service full error:", error);
+    if (error.code === "23503") {
+      const detach = await supabase
+        .from("ticket_items")
+        .update({ service_id: null })
+        .eq("org_id", orgId)
+        .eq("service_id", id);
+
+      if (detach.error) {
+        throw new Error(`Xóa thất bại: ${detach.error.message} (code: ${detach.error.code})`);
+      }
+
+      const retry = await supabase
+        .from("services")
+        .delete()
+        .eq("id", id)
+        .eq("org_id", orgId)
+        .select();
+
+      if (retry.error) {
+        throw new Error(`Xóa thất bại: ${retry.error.message} (code: ${retry.error.code})`);
+      }
+
+      servicesCache = null;
+      return retry.data;
+    }
+
     throw new Error(`Xóa thất bại: ${error.message} (code: ${error.code})`);
   }
   servicesCache = null;

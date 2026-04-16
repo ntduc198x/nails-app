@@ -3,8 +3,8 @@
 import { AppShell } from "@/components/app-shell";
 import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, reportsQuickNav } from "@/components/manage-quick-nav";
-import { buildTaxBook, type TaxBookRow } from "@/lib/tax-books";
 import { formatVnd } from "@/lib/mock-data";
+import { buildTaxBook, type TaxBookRow } from "@/lib/tax-books";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 function toDateInput(d: Date) {
@@ -16,6 +16,37 @@ function toDateInput(d: Date) {
 
 function toBookLabel() {
   return "S1a-HKD";
+}
+
+function shiftDate(base: Date, days: number) {
+  const next = new Date(base);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function getWeekRange() {
+  const today = new Date();
+  const day = today.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const start = new Date(today);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() + mondayOffset);
+
+  return {
+    from: toDateInput(start),
+    to: toDateInput(shiftDate(start, 7)),
+  };
+}
+
+function getMonthRange() {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  const end = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+
+  return {
+    from: toDateInput(start),
+    to: toDateInput(end),
+  };
 }
 
 function FieldLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -46,6 +77,12 @@ export default function TaxBooksPage() {
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const printRef = useRef<HTMLDivElement | null>(null);
+
+  function applyQuickRange(type: "week" | "month") {
+    const range = type === "week" ? getWeekRange() : getMonthRange();
+    setFromDate(range.from);
+    setToDate(range.to);
+  }
 
   async function load() {
     try {
@@ -215,11 +252,6 @@ export default function TaxBooksPage() {
               <div className="mt-1 text-sm font-semibold">{formatVnd(total)}</div>
             </div>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportExcel()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất Excel"}</button>
-            <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportPdf()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất PDF"}</button>
-          </div>
         </section>
 
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
@@ -235,6 +267,10 @@ export default function TaxBooksPage() {
               </div>
 
               <div className="space-y-2">
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => applyQuickRange("week")}>Chọn nhanh tuần</button>
+                  <button type="button" className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => applyQuickRange("month")}>Chọn nhanh tháng</button>
+                </div>
                 <InlineField label="Từ ngày"><input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
                 <InlineField label="Đến ngày"><input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
                 <InlineField label="Hộ KD"><input className="input py-2.5" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
@@ -249,6 +285,10 @@ export default function TaxBooksPage() {
             <div className="xl:hidden">
               <MobileCollapsible summary="Thông tin kỳ kê khai" defaultOpen>
                 <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => applyQuickRange("week")}>Chọn nhanh tuần</button>
+                    <button type="button" className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700" onClick={() => applyQuickRange("month")}>Chọn nhanh tháng</button>
+                  </div>
                   <InlineField label="Từ ngày"><input className="input py-2.5" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} /></InlineField>
                   <InlineField label="Đến ngày"><input className="input py-2.5" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} /></InlineField>
                   <InlineField label="Hộ KD"><input className="input py-2.5" placeholder="Tên hộ kinh doanh" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} /></InlineField>
@@ -263,6 +303,10 @@ export default function TaxBooksPage() {
           </div>
 
           <div id="tax-book-export-root" ref={printRef} className="card space-y-4">
+            <div className="flex flex-wrap justify-end gap-2 border-b border-neutral-200 pb-4">
+              <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportExcel()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất Excel"}</button>
+              <button className="cursor-pointer rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-medium text-neutral-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void exportPdf()} disabled={loading || exporting}>{exporting ? "Đang xuất..." : "Xuất PDF"}</button>
+            </div>
             <div className="text-sm leading-6">
               <div className="flex flex-col gap-3 md:flex-row md:justify-between">
                 <div>

@@ -1,4 +1,4 @@
-import type { AppRole } from "@/lib/auth";
+﻿import type { AppRole } from "@/lib/auth";
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   OWNER: "BOSS",

@@ -42,6 +42,11 @@ export default function AccountPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
+  const [telegramCode, setTelegramCode] = useState<string | null>(null);
+  const [telegramLinked, setTelegramLinked] = useState(false);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramError, setTelegramError] = useState<string | null>(null);
+
   const profileName = profileData.displayName.trim() || email.split("@")[0] || "User";
 
   async function load() {
@@ -155,6 +160,40 @@ export default function AccountPage() {
     }
   }
 
+  async function onGenerateTelegramCode() {
+    if (!supabase || !userId) return;
+    try {
+      setTelegramLoading(true);
+      setTelegramError(null);
+      const { data, error } = await supabase.rpc("generate_telegram_link_code", { p_user_id: userId });
+      if (error) throw error;
+      if (data?.code) {
+        setTelegramCode(data.code);
+      }
+    } catch (e) {
+      setTelegramError(e instanceof Error ? e.message : "Không thể tạo mã");
+    } finally {
+      setTelegramLoading(false);
+    }
+  }
+
+  async function onUnlinkTelegram() {
+    if (!supabase || !userId) return;
+    try {
+      setTelegramLoading(true);
+      setTelegramError(null);
+      const { error } = await supabase.rpc("unlink_telegram", { p_user_id: userId });
+      if (error) throw error;
+      setTelegramLinked(false);
+      setTelegramCode(null);
+      setMessage("Đã hủy liên kết Telegram.");
+    } catch (e) {
+      setTelegramError(e instanceof Error ? e.message : "Không thể hủy liên kết");
+    } finally {
+      setTelegramLoading(false);
+    }
+  }
+
   return (
     <AppShell>
       <div className="space-y-4 pb-24 md:pb-0">
@@ -242,6 +281,67 @@ export default function AccountPage() {
               </button>
             </div>
           </form>
+
+          {(role === "OWNER" || role === "MANAGER") && (
+          <section className="manage-surface space-y-3 p-3 md:p-4">
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Liên kết Telegram</h3>
+              <p className="text-xs text-neutral-500">Quản lý app từ Telegram bot.</p>
+            </div>
+
+            {telegramError && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{telegramError}</div>
+            )}
+
+            {telegramLinked ? (
+              <div className="space-y-2">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
+                  ✅ Đã liên kết với Telegram
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={onUnlinkTelegram}
+                    disabled={telegramLoading}
+                    className="cursor-pointer rounded-2xl border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {telegramLoading ? "Đang xử lý..." : "Hủy liên kết"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="rounded-2xl bg-neutral-50 p-3 text-xs text-neutral-600">
+                  <b>Cách liên kết:</b>
+                  <ol className="mt-1 list-decimal pl-4 space-y-0.5">
+                    <li>Bấm "Tạo mã liên kết" bên dưới</li>
+                    <li>Mở Telegram group → gửi <code className="bg-neutral-200 px-1 rounded">/link MÃ</code></li>
+                    <li>Ví dụ: <code className="bg-neutral-200 px-1 rounded">/link 482910</code></li>
+                  </ol>
+                  <p className="mt-1 text-neutral-400">Mã hết hạn sau 5 phút.</p>
+                </div>
+
+                {telegramCode && (
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-center">
+                    <div className="text-[10px] uppercase tracking-[0.08em] text-blue-500">Mã liên kết của bạn</div>
+                    <div className="mt-1 text-3xl font-mono font-bold tracking-[0.15em] text-blue-700">{telegramCode}</div>
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={onGenerateTelegramCode}
+                    disabled={telegramLoading}
+                    className="cursor-pointer rounded-2xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {telegramLoading ? "Đang tạo..." : "Tạo mã liên kết"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+          )}
         </div>
       </div>
     </AppShell>

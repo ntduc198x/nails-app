@@ -1,5 +1,6 @@
 "use client";
 
+import { createAppSession } from "@/lib/app-session";
 import { consumeInviteCode } from "@/lib/invite-codes";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -30,7 +31,7 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!supabase) return setMsg("Thiếu cấu hình Supabase env.");
+    if (!supabase) return setMsg("Thiếu cấu hình Supabase.");
 
     try {
       setLoading(true);
@@ -39,7 +40,10 @@ export default function LoginPage() {
       if (mode === "signup") {
         const displayName = name.trim();
         const invite = inviteCode.trim().toUpperCase();
-        if (!invite) throw new Error("Vui lòng nhập mã mời hợp lệ.");
+
+        if (!invite) {
+          throw new Error("Vui lòng nhập mã mời hợp lệ.");
+        }
 
         const { data: signUpData, error } = await supabase.auth.signUp({
           email,
@@ -53,7 +57,7 @@ export default function LoginPage() {
         if (error) throw error;
 
         const userId = signUpData.user?.id;
-        if (!userId) throw new Error("Không tạo được user mới.");
+        if (!userId) throw new Error("Không tạo được tài khoản mới.");
 
         try {
           await consumeInviteCode(invite, userId, displayName);
@@ -62,24 +66,38 @@ export default function LoginPage() {
           throw inviteError;
         }
 
-        setMsg("Tạo tài khoản thành công bằng mã mời. Nếu hệ thống bật xác nhận email, kiểm tra inbox rồi đăng nhập lại.");
+        setMsg("Tạo tài khoản thành công bằng mã mời. Nếu hệ thống bật xác nhận email, hãy kiểm tra inbox rồi đăng nhập lại.");
         setName("");
         setInviteCode("");
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        router.replace("/manage");
+        return;
       }
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+
+      const sessionResult = await createAppSession();
+      if (!sessionResult.success) {
+        await supabase.auth.signOut();
+        throw new Error(sessionResult.message || sessionResult.error || "Đăng nhập không hợp lệ. Vui lòng thử lại.");
+      }
+
+      if (sessionResult.replacedOwnerName) {
+        setMsg(`Đã đăng nhập thành công. Phiên đăng nhập của tài khoản "${sessionResult.replacedOwnerName}" trên thiết bị này đã được thay thế.`);
+      }
+
+      router.replace("/manage");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Xác thực thất bại");
+      setMsg(e instanceof Error ? e.message : "Xác thực thất bại.");
     } finally {
       setLoading(false);
     }
   }
 
   async function onForgotPassword() {
-    if (!supabase) return setMsg("Thiếu cấu hình Supabase env.");
-    if (!email.trim()) return setMsg("Bạn cần nhập email trước mới gửi link đặt lại mật khẩu được.");
+    if (!supabase) return setMsg("Thiếu cấu hình Supabase.");
+    if (!email.trim()) {
+      return setMsg("Bạn cần nhập email trước mới gửi link đặt lại mật khẩu được.");
+    }
 
     try {
       setResetting(true);
@@ -88,9 +106,9 @@ export default function LoginPage() {
         redirectTo: getResetRedirectUrl(),
       });
       if (error) throw error;
-      setMsg("Đã gửi link đặt lại mật khẩu. Hãy kiểm tra email.");
+      setMsg("Đã gửi link đặt lại mật khẩu. Hãy kiểm tra email.");
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Gửi yêu cầu đặt lại mật khẩu thất bại");
+      setMsg(e instanceof Error ? e.message : "Gửi yêu cầu đặt lại mật khẩu thất bại.");
     } finally {
       setResetting(false);
     }
@@ -132,7 +150,7 @@ export default function LoginPage() {
             <input
               className="w-full input"
               type="text"
-              placeholder="Tên của bạn"
+              placeholder="Tên của bạn"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -187,7 +205,7 @@ export default function LoginPage() {
         <div className="rounded-lg bg-neutral-50 p-3 text-xs leading-5 text-neutral-500">
           {mode === "signup"
             ? "Đăng ký cần mã mời dùng 1 lần, hiệu lực 15 phút. Tài khoản mới mặc định sẽ là Kỹ thuật viên."
-            : "Nếu bạn chưa có tài khoản, hãy xin Chủ tiệm mã mời rồi chuyển sang tab Tạo tài khoản."}
+            : "Nếu bạn chưa có tài khoản, hãy xin Chủ tiệm mã mời rồi chuyển sang tab Tạo tài khoản."}
         </div>
 
         {msg && <p className="rounded-lg bg-neutral-50 p-3 text-sm text-neutral-700">{msg}</p>}

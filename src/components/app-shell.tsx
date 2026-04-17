@@ -1,7 +1,9 @@
 "use client";
 
 import { countNewBookingRequests } from "@/lib/booking-requests";
+import { createAppSession, logoutWithSessionCleanup, validateAppSession } from "@/lib/app-session";
 import { getOrCreateRole, type AppRole } from "@/lib/auth";
+import { clearDomainCaches } from "@/lib/domain";
 import { getRoleLabel } from "@/lib/role-labels";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -42,15 +44,22 @@ function canAccess(role: AppRole, href: string) {
   if (href === "/manage/account") return true;
   if (role === "OWNER") return true;
   if (role === "MANAGER") return href !== "/manage/tax-books";
-  if (role === "RECEPTION") return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts"].includes(href);
-  if (role === "TECH") return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
-  if (role === "ACCOUNTANT") return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
+  if (role === "RECEPTION") {
+    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts"].includes(href);
+  }
+  if (role === "TECH") {
+    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
+  }
+  if (role === "ACCOUNTANT") {
+    return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
+  }
   return false;
 }
 
 type AuthCache = { userId: string; email: string; role: AppRole; cachedAt: number };
 let authCache: AuthCache | null = null;
 const AUTH_CACHE_TTL = 5 * 60 * 1000;
+const SESSION_VALIDATION_INTERVAL = 3_000;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -60,6 +69,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string>("");
   const [role, setRole] = useState<AppRole>("RECEPTION");
   const [authError, setAuthError] = useState<string | null>(null);
+  const [sessionReplaced, setSessionReplaced] = useState<{ ownerName?: string | null } | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [newBookingCount, setNewBookingCount] = useState(0);
@@ -70,13 +80,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     async function run() {
       try {
         if (!supabase) {
-          setLoading(false);
+          if (mounted) setLoading(false);
           return;
         }
 
-        if (authCache && Date.now() - authCache.cachedAt < AUTH_CACHE_TTL) {
-          setEmail(authCache.email);
-          setRole(authCache.role);
+        const { data } = await supabase.auth.getSession();
+        const session = data.session;
+        if (!session?.user) {
+          router.replace("/login");
+          return;
+        }
+
+        const validation = await validateAppSession();
+        if (!validation.valid) {
+          if (validation.reason === "SESSION_REPLACED") {
+            setSessionReplaced({ ownerName: validation.ownerName });
+          }
+          clearDomainCaches();
+          authCache = null;
+          sessionStorage.removeItem("nails.auth.cache");
+          sessionStorage.removeItem("nails_session_token");
+          await supabase.auth.signOut();
+          router.replace("/login");
+          return;
+        }
+
+        const cached = authCache && authCache.userId === session.user.id && Date.now() - authCache.cachedAt < AUTH_CACHE_TTL ? authCache : null;
+        if (cached) {
+          if (!mounted) return;
+          setEmail(cached.email);
+          setRole(cached.role);
           setLoading(false);
           return;
         }
@@ -85,8 +118,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           const raw = sessionStorage.getItem("nails.auth.cache");
           if (raw) {
             const parsed = JSON.parse(raw) as AuthCache;
-            if (Date.now() - parsed.cachedAt < AUTH_CACHE_TTL) {
+            if (parsed.userId === session.user.id && Date.now() - parsed.cachedAt < AUTH_CACHE_TTL) {
               authCache = parsed;
+              if (!mounted) return;
               setEmail(parsed.email);
               setRole(parsed.role);
               setLoading(false);
@@ -94,13 +128,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             }
           }
         } catch {}
-
-        const { data } = await supabase.auth.getSession();
-        const session = data.session;
-        if (!session?.user) {
-          router.replace("/login");
-          return;
-        }
 
         const userRole = await getOrCreateRole(session.user.id);
         if (!mounted) return;
@@ -129,6 +156,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       mounted = false;
     };
   }, [router]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let disposed = false;
+
+    async function validateSession() {
+      if (!supabase) return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session?.user || disposed) return;
+
+      const validation = await validateAppSession();
+      if (!validation.valid && !disposed) {
+        clearDomainCaches();
+        authCache = null;
+        sessionStorage.removeItem("nails.auth.cache");
+        await supabase.auth.signOut();
+        router.replace("/login");
+      }
+    }
+
+    void validateSession();
+    const id = setInterval(() => {
+      void validateSession();
+    }, SESSION_VALIDATION_INTERVAL);
+
+    return () => {
+      disposed = true;
+      clearInterval(id);
+    };
+  }, [router]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    let disposed = false;
+
+    async function ensureAppSession() {
+      if (!supabase) return;
+      const { data } = await supabase.auth.getSession();
+      if (!data.session?.user || disposed) return;
+
+      const validation = await validateAppSession();
+      if (!validation.valid && validation.reason === "INVALID_TOKEN") {
+        try {
+          await createAppSession();
+        } catch {}
+      }
+    }
+
+    void ensureAppSession();
+  }, [role]);
 
   useEffect(() => {
     if (!["OWNER", "MANAGER", "RECEPTION"].includes(role)) return;
@@ -173,6 +250,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      clearDomainCaches();
       if (!session) {
         authCache = null;
         sessionStorage.removeItem("nails.auth.cache");
@@ -195,7 +273,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   async function onLogout() {
     if (!supabase) return;
-    await supabase.auth.signOut();
+    await logoutWithSessionCleanup();
+    clearDomainCaches();
     authCache = null;
     sessionStorage.removeItem("nails.auth.cache");
     router.replace("/login");
@@ -215,14 +294,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (loading) return <div className="p-8 text-sm" style={{ color: "var(--color-text-secondary)" }}>Đang kiểm tra đăng nhập...</div>;
+  if (loading) {
+    return (
+      <div className="p-8 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   if (authError) {
     return (
       <div className="space-y-3 p-8 text-sm">
         <p className="font-semibold text-red-600">Không thể xác thực phiên đăng nhập.</p>
         <p className="text-neutral-700">Chi tiết: {authError}</p>
-        <button onClick={() => router.replace("/login")} className="rounded border px-3 py-2 text-xs">Về trang login</button>
+        <button onClick={() => router.replace("/login")} className="rounded border px-3 py-2 text-xs">
+          Về trang login
+        </button>
+      </div>
+    );
+  }
+
+  if (sessionReplaced) {
+    return (
+      <div className="space-y-3 p-8 text-sm">
+        <p className="font-semibold text-orange-600">Phiên đăng nhập đã bị thay thế.</p>
+        <p className="text-neutral-700">
+          {sessionReplaced.ownerName
+            ? `Tài khoản "${sessionReplaced.ownerName}" đã đăng nhập trên thiết bị này.`
+            : "Tài khoản khác đã đăng nhập trên thiết bị này."}
+        </p>
+        <p className="text-neutral-500">Bạn cần đăng nhập lại để tiếp tục.</p>
+        <button onClick={() => router.replace("/login")} className="rounded border px-3 py-2 text-xs">
+          Đăng nhập lại
+        </button>
       </div>
     );
   }
@@ -232,8 +336,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <header className="sticky top-0 z-20 backdrop-blur" style={{ borderBottom: "1px solid var(--color-border)", background: "rgba(255,253,249,.95)" }}>
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 p-3 md:p-4">
           <div>
-            <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Nails App</p>
-            <h1 className="text-lg font-semibold">Chạm Beauty</h1>
+            <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+              Nails App
+            </p>
+            <h1 className="text-lg font-semibold">Chạm Beauty</h1>
           </div>
 
           <nav className="hidden items-center gap-2 text-sm md:flex">
@@ -265,7 +371,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           const itemActive = pathname === item.href;
                           return (
                             <Link key={item.href} href={item.href} className="rounded-2xl px-4 py-3 transition hover:bg-[#faf7f2]" style={itemActive ? { background: "#fff1f3" } : undefined}>
-                              <p className="text-sm font-semibold" style={{ color: itemActive ? "var(--color-primary)" : "var(--color-text-main)" }}>{renderItemLabel(item.label, item.href)}</p>
+                              <p className="text-sm font-semibold" style={{ color: itemActive ? "var(--color-primary)" : "var(--color-text-main)" }}>
+                                {renderItemLabel(item.label, item.href)}
+                              </p>
                               <p className="mt-1 text-xs" style={{ color: "var(--color-text-secondary)" }}>{item.desc}</p>
                             </Link>
                           );
@@ -278,15 +386,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <button className="btn btn-outline md:hidden" type="button" onClick={() => setMobileOpen((v) => !v)}>Menu</button>
+          <button className="btn btn-outline md:hidden" type="button" onClick={() => setMobileOpen((v) => !v)}>
+            Menu
+          </button>
 
           <div className="hidden items-center gap-2 md:flex">
             <div className="rounded-2xl border px-4 py-2 text-right text-xs" style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}>
               <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
               <p className="font-semibold">{getRoleLabel(role)}</p>
             </div>
-            <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">Hồ sơ</Link>
-            <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">Đăng xuất</button>
+            <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">
+              Hồ sơ
+            </Link>
+            <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">
+              Đăng xuất
+            </button>
           </div>
         </div>
 

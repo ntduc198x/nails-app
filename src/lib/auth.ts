@@ -1,4 +1,5 @@
-import { ensureOrgContext } from "@/lib/domain";
+﻿import { ensureOrgContext } from "@/lib/domain";
+import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
 import { supabase } from "@/lib/supabase";
 
 export type AppRole = "OWNER" | "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
@@ -16,24 +17,18 @@ export async function getOrCreateRole(userId: string): Promise<AppRole> {
   const role = existing?.[0]?.role as AppRole | undefined;
   if (role) return role;
 
-  const { orgId, branchId } = await ensureOrgContext();
+  const { data: profile, error: profileErr } = await supabase
+    .from("profiles")
+    .select("user_id,org_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profileErr) throw profileErr;
 
-  // bootstrap profile để dùng với RLS helper my_org_id()
-  const { data: profile } = await supabase.from("profiles").select("user_id").eq("user_id", userId).maybeSingle();
-  if (!profile) {
-    const { data: sessionData } = await supabase.auth.getSession();
-    await supabase.from("profiles").insert({
-      user_id: userId,
-      org_id: orgId,
-      default_branch_id: branchId,
-      display_name: (sessionData.session?.user.user_metadata?.display_name as string | undefined)?.trim() || "User",
-      email: sessionData.session?.user.email ?? null,
-    });
+  const orgId = profile?.org_id as string | undefined;
+  if (!orgId) {
+    throw new Error("USER_NOT_BOUND_TO_ORG");
   }
 
-  // Quy tắc signup:
-  // - user đầu tiên trong org => OWNER
-  // - user đăng ký sau => RECEPTION
   const { count: ownerCount, error: ownerCountErr } = await supabase
     .from("user_roles")
     .select("id", { count: "exact", head: true })
@@ -159,4 +154,110 @@ export async function getCurrentSessionRole(): Promise<AppRole> {
   const user = data.session?.user;
   if (!user) throw new Error("Chưa đăng nhập");
   return getOrCreateRole(user.id);
+}
+
+export interface DeviceConflict {
+  conflict: boolean;
+  type?: string;
+  message?: string;
+  ownerName?: string;
+}
+
+export async function checkDeviceConflict(): Promise<DeviceConflict> {
+  if (!supabase) return { conflict: false };
+
+  const fingerprint = await getDeviceFingerprint();
+  const { data, error } = await supabase.rpc("check_device_conflict", {
+    p_fingerprint: fingerprint,
+  });
+
+  if (error) throw error;
+  return {
+    conflict: Boolean(data?.conflict),
+    type: typeof data?.type === "string" ? data.type : undefined,
+    message: typeof data?.message === "string" ? data.message : undefined,
+    ownerName: typeof data?.owner_name === "string" ? data.owner_name : undefined,
+  };
+}
+
+export async function registerDeviceSession(): Promise<{
+  success: boolean;
+  swapped?: boolean;
+  error?: string;
+  message?: string;
+}> {
+  if (!supabase) return { success: false };
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const user = sessionData?.session?.user;
+  if (!user) return { success: false };
+
+  const fingerprint = await getDeviceFingerprint();
+  const deviceInfo = await getDeviceInfo();
+
+  const { data, error } = await supabase.rpc("register_device_session", {
+    p_user_id: user.id,
+    p_fingerprint: fingerprint,
+    p_device_info: deviceInfo,
+  });
+
+  if (error) return { success: false, error: error.message };
+  return {
+    success: Boolean(data?.success),
+    swapped: Boolean(data?.swapped),
+    error: typeof data?.error === "string" ? data.error : undefined,
+    message: typeof data?.message === "string" ? data.message : undefined,
+  };
+}
+
+export interface MyDeviceSession {
+  registered: boolean;
+  deviceInfo?: unknown;
+  createdAt?: string | null;
+  fingerprint?: string | null;
+}
+
+export async function getMyDeviceSession(): Promise<MyDeviceSession> {
+  if (!supabase) return { registered: false };
+
+  const { data, error } = await supabase.rpc("get_my_device_session");
+  if (error) throw error;
+
+  return {
+    registered: Boolean(data?.registered),
+    deviceInfo: data?.device_info,
+    createdAt: typeof data?.created_at === "string" ? data.created_at : null,
+    fingerprint: typeof data?.fingerprint === "string" ? data.fingerprint : null,
+  };
+}
+
+export async function validateCurrentDeviceSession(): Promise<{
+  valid: boolean;
+  reason?: "NO_SESSION" | "NOT_REGISTERED" | "REPLACED";
+}> {
+  if (!supabase) return { valid: false, reason: "NO_SESSION" };
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session?.user) {
+    return { valid: false, reason: "NO_SESSION" };
+  }
+
+  const sessionInfo = await getMyDeviceSession();
+  if (!sessionInfo.registered) {
+    return { valid: false, reason: "NOT_REGISTERED" };
+  }
+
+  const fingerprint = await getDeviceFingerprint();
+  if (sessionInfo.fingerprint && sessionInfo.fingerprint !== fingerprint) {
+    return { valid: false, reason: "REPLACED" };
+  }
+
+  return { valid: true };
+}
+
+export async function removeDeviceSession(): Promise<void> {
+  if (!supabase) return;
+
+  const fingerprint = await getDeviceFingerprint();
+  await supabase.from("device_sessions").delete().eq("device_fingerprint", fingerprint);
 }

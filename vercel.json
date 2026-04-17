@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/telegram/notify",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/telegram/daily-summary",
+      "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/telegram/appointments-overdue",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

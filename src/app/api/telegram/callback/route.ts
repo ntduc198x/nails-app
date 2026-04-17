@@ -1,19 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
+import {
+  getAdminSupabase,
+  getTelegramUserRole,
+  isManagerOrOwner,
+  answerCallbackQuery as sharedAnswerCallback,
+  deleteTelegramMessage,
+  sendTelegramMessage,
+  handleStartCommand,
+  handleLinkCommand,
+  handleLichCommand,
+  handleDoanhthuCommand,
+  handleCaCommand,
+  handleBookingCommand,
+} from "@/lib/telegram-bot";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
-
-function getSupabase() {
-  if (!supabaseUrl || !supabaseServiceRoleKey) throw new Error("Thiếu NEXT_PUBLIC_SUPABASE_URL hoặc SUPABASE_SERVICE_ROLE_KEY.");
-  return createClient(supabaseUrl, supabaseServiceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
 
 function addMinutes(iso: string, minutes: number) {
   return new Date(new Date(iso).getTime() + minutes * 60 * 1000).toISOString();
@@ -26,44 +30,12 @@ function formatViDateTime(iso: string) {
   });
 }
 
-async function answerCallbackQuery(callbackQueryId: string, text: string) {
-  if (!telegramBotToken) return;
-  await fetch(`https://api.telegram.org/bot${telegramBotToken}/answerCallbackQuery`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: callbackQueryId, text }),
-  });
-}
-
-async function deleteMessage(chatId: string, messageId: number) {
-  if (!telegramBotToken) return;
-  await fetch(`https://api.telegram.org/bot${telegramBotToken}/deleteMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, message_id: messageId }),
-  });
-}
-
-async function sendStatusMessage(chatId: string, text: string) {
-  if (!telegramBotToken) return;
-  await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-    }),
-  });
-}
-
 function pickCustomerName(customers: { name?: string } | { name?: string }[] | null | undefined) {
   if (Array.isArray(customers)) return customers[0]?.name ?? "Khách";
   return customers?.name ?? "Khách";
 }
 
-async function ensureCustomer(supabase: ReturnType<typeof getSupabase>, booking: {
+async function ensureCustomer(supabase: ReturnType<typeof getAdminSupabase>, booking: {
   org_id: string;
   customer_name: string;
   customer_phone: string;
@@ -114,7 +86,7 @@ async function ensureCustomer(supabase: ReturnType<typeof getSupabase>, booking:
   return newCustomer.id;
 }
 
-async function convertBookingToAppointment(supabase: ReturnType<typeof getSupabase>, booking: {
+async function convertBookingToAppointment(supabase: ReturnType<typeof getAdminSupabase>, booking: {
   id: string;
   org_id: string;
   branch_id?: string | null;
@@ -173,25 +145,110 @@ async function convertBookingToAppointment(supabase: ReturnType<typeof getSupaba
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const callback = body?.callback_query;
-    if (!callback?.data) {
-      return NextResponse.json({ ok: true, ignored: true, debug: { reason: "missing_callback_data" } });
+
+    if (body?.message) {
+      return await handleMessage(body.message);
     }
 
+    const callback = body?.callback_query;
+    if (!callback?.data) {
+      return NextResponse.json({ ok: true, ignored: true, debug: { reason: "unsupported_update" } });
+    }
+
+    return await handleCallback(callback);
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Telegram webhook failed" },
+      { status: 500 },
+    );
+  }
+}
+
+async function handleMessage(message: { from?: { id: number; username?: string; first_name?: string }; chat?: { id: number | string }; text?: string }) {
+  const chatId = message.chat?.id ? String(message.chat.id) : null;
+  if (!chatId) return NextResponse.json({ ok: true, ignored: true });
+
+  const text = (message.text ?? "").trim();
+  const from = message.from;
+  if (!from?.id) return NextResponse.json({ ok: true, ignored: true });
+
+  const telegramUserId = from.id;
+  const telegramUsername = from.username;
+  const telegramFirstName = from.first_name;
+
+  const parts = text.split(/\s+/);
+  const command = parts[0]?.toLowerCase() ?? "";
+  const args = parts.slice(1);
+
+  if (command === "/start") {
+    await handleStartCommand(telegramUserId, chatId);
+    return NextResponse.json({ ok: true, command: "start" });
+  }
+
+  if (command === "/link") {
+    const code = args[0]?.trim();
+    if (!code) {
+      await sendTelegramMessage(chatId, "❗ Cú pháp: <code>/link MÃ_6_SỐ</code>\n\nLấy mã trong Nails App → Hồ sơ & bảo mật → Liên kết Telegram");
+      return NextResponse.json({ ok: true, command: "link", error: "missing_code" });
+    }
+    await handleLinkCommand(telegramUserId, telegramUsername, telegramFirstName, code, chatId);
+    return NextResponse.json({ ok: true, command: "link" });
+  }
+
+  if (["/lich", "/doanhthu", "/ca", "/booking"].includes(command)) {
+    const userInfo = await getTelegramUserRole(telegramUserId);
+
+    if (!userInfo.linked) {
+      await sendTelegramMessage(chatId, "❌ Bạn chưa liên kết tài khoản.\n\nDùng /start để bắt đầu.");
+      return NextResponse.json({ ok: true, command, error: "not_linked" });
+    }
+
+    if (!isManagerOrOwner(userInfo.role)) {
+      await sendTelegramMessage(chatId, "❌ Chỉ OWNER hoặc MANAGER mới được dùng lệnh này.");
+      return NextResponse.json({ ok: true, command, error: "forbidden", role: userInfo.role });
+    }
+
+    const orgId = userInfo.org_id!;
+    const supabase = getAdminSupabase();
+
+    switch (command) {
+      case "/lich":
+        await handleLichCommand(orgId, chatId);
+        break;
+      case "/doanhthu":
+        await handleDoanhthuCommand(orgId, chatId);
+        break;
+      case "/ca":
+        await handleCaCommand(orgId, chatId);
+        break;
+      case "/booking":
+        await handleBookingCommand(orgId, chatId);
+        break;
+    }
+
+    return NextResponse.json({ ok: true, command });
+  }
+
+  return NextResponse.json({ ok: true, ignored: true, text: text.slice(0, 50) });
+}
+
+async function handleCallback(callback: { id: string; data?: string; message?: { chat?: { id?: number | string }; message_id?: number } }) {
+  try {
     const parts = String(callback.data).split(":");
     const [prefix, action, ...rest] = parts;
     const bookingId = rest.join(":");
 
     if (prefix !== "booking" || !action || !bookingId) {
       return NextResponse.json({ ok: true, ignored: true, debug: { callbackData: callback.data, parsed: parts } });
-    }
+}
+
 
     const nextStatus = action === "confirm" ? "CONFIRMED" : action === "cancel" ? "CANCELLED" : null;
     if (!nextStatus) {
       return NextResponse.json({ ok: true, ignored: true, debug: { callbackData: callback.data, parsed: parts } });
     }
 
-    const supabase = getSupabase();
+    const supabase = getAdminSupabase();
 
     const { data: row, error: readErr } = await supabase
       .from("booking_requests")
@@ -201,7 +258,7 @@ export async function POST(req: Request) {
 
     if (readErr) throw readErr;
     if (!row?.id) {
-      await answerCallbackQuery(callback.id, "Không tìm thấy booking.");
+      await sharedAnswerCallback(callback.id, "Không tìm thấy booking.");
       return NextResponse.json({ ok: true, missing: true, debug: { callbackData: callback.data, parsed: parts, bookingId } });
     }
 
@@ -209,12 +266,12 @@ export async function POST(req: Request) {
     const oldMessageId = row.telegram_message_id ? Number(row.telegram_message_id) : callback.message?.message_id ? Number(callback.message.message_id) : null;
 
     if (row.status === "CANCELLED") {
-      await answerCallbackQuery(callback.id, "Booking này đã bị hủy trước đó.");
+      await sharedAnswerCallback(callback.id, "Booking này đã bị hủy trước đó.");
       return NextResponse.json({ ok: true, skipped: true, reason: "already_cancelled", debug: { bookingId, status: row.status } });
     }
 
     if (row.status === "CONVERTED" && row.appointment_id) {
-      await answerCallbackQuery(callback.id, "Booking này đã được tạo appointment trước đó.");
+      await sharedAnswerCallback(callback.id, "Booking này đã được tạo appointment trước đó.");
       return NextResponse.json({ ok: true, skipped: true, reason: "already_converted", debug: { bookingId, status: row.status, appointmentId: row.appointment_id } });
     }
 
@@ -231,9 +288,9 @@ export async function POST(req: Request) {
       if (updateRes.error) throw updateRes.error;
       await rebalanceOpenBookingRequests({ client: supabase, orgId: row.org_id });
 
-      if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+      if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
       if (chatId) {
-        await sendStatusMessage(chatId, [
+        await sendTelegramMessage(chatId, [
           "<b>🛑 BOOKING ĐÃ BỊ HỦY</b>",
           `• Booking ID: <code>${row.id}</code>`,
           `• Khách: <b>${row.customer_name}</b>`,
@@ -245,7 +302,7 @@ export async function POST(req: Request) {
         ].join("\n"));
       }
 
-      await answerCallbackQuery(callback.id, "Đã hủy booking");
+      await sharedAnswerCallback(callback.id, "Đã hủy booking");
       return NextResponse.json({ ok: true, status: "CANCELLED", debug: { bookingId } });
     }
 
@@ -280,7 +337,7 @@ export async function POST(req: Request) {
 
       if (updateRes.error) throw updateRes.error;
 
-      if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+      if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
       if (chatId) {
         const lines = [
           "<b>⚠️ BOOKING VƯỢT GIỚI HẠN KHUNG GIỜ</b>",
@@ -294,10 +351,10 @@ export async function POST(req: Request) {
           `• Quản trị: ${publicBaseUrl}/manage/booking-requests`,
         ];
 
-        await sendStatusMessage(chatId, lines.join("\n"));
+        await sendTelegramMessage(chatId, lines.join("\n"));
       }
 
-      await answerCallbackQuery(callback.id, `Booking vượt giới hạn ${MAX_SIMULTANEOUS_BOOKINGS} khách cùng giờ, cần dời lịch`);
+      await sharedAnswerCallback(callback.id, `Booking vượt giới hạn ${MAX_SIMULTANEOUS_BOOKINGS} khách cùng giờ, cần dời lịch`);
       return NextResponse.json({ ok: true, status: "LIMIT_EXCEEDED", debug: { bookingId, overlapCount, appointmentOverlaps } });
     }
 
@@ -314,9 +371,9 @@ export async function POST(req: Request) {
       requested_end_at: requestedEndAt,
     });
 
-    if (chatId && oldMessageId) await deleteMessage(chatId, oldMessageId);
+    if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
     if (chatId) {
-      await sendStatusMessage(chatId, [
+      await sendTelegramMessage(chatId, [
         "<b>✅ BOOKING ĐÃ XÁC NHẬN THÀNH CÔNG</b>",
         `• Booking ID: <code>${row.id}</code>`,
         `• Khách: <b>${row.customer_name}</b>`,
@@ -329,7 +386,7 @@ export async function POST(req: Request) {
       ].join("\n"));
     }
 
-    await answerCallbackQuery(callback.id, "Đã xác nhận và tạo appointment");
+    await sharedAnswerCallback(callback.id, "Đã xác nhận và tạo appointment");
 
     return NextResponse.json({
       ok: true,

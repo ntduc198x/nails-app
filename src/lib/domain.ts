@@ -24,7 +24,7 @@ let resourceSchedulingSupported: boolean | null = null;
 async function getCurrentSessionId(): Promise<string | null> {
   if (!supabase) return null;
   const { data } = await supabase.auth.getSession();
-  return data.session?.user?.id ?? null;
+  return data.session?.access_token ?? data.session?.user?.id ?? null;
 }
 
 function isFresh(cache: { at: number; sessionId: string } | null, ttl = TTL): boolean {
@@ -43,21 +43,24 @@ async function invalidateDataCaches() {
   }
 }
 
+export function clearDomainCaches() {
+  appointmentsCache = null;
+  ticketsCache = null;
+  resourcesCache = null;
+  servicesCache = null;
+  orgContextCache = null;
+  resourceSchedulingSupported = null;
+}
+
 async function invalidateAllCachesForSession() {
-  const sessionId = await getCurrentSessionId();
-  if (orgContextCache?.sessionId === sessionId) {
-    appointmentsCache = null;
-    ticketsCache = null;
-    resourcesCache = null;
-    servicesCache = null;
-    orgContextCache = null;
-  }
+  clearDomainCaches();
 }
 
 async function checkSessionChanged(): Promise<boolean> {
-  if (!orgContextCache) return false;
+  const cached = orgContextCache;
+  if (!cached) return false;
   const sessionId = await getCurrentSessionId();
-  return sessionId !== orgContextCache.sessionId;
+  return sessionId !== cached.sessionId;
 }
 
 function isMissingResourceSchema(error: unknown) {
@@ -77,6 +80,70 @@ export async function ensureOrgContext(opts?: { force?: boolean }): Promise<OrgC
   }
 
   const sessionId = await getCurrentSessionId();
+  const { data: currentSessionData } = await supabase.auth.getSession();
+  const currentUser = currentSessionData.session?.user;
+  if (!currentUser) {
+    throw new Error("ChÆ°a Ä‘Äƒng nháº­p");
+  }
+
+  const { data: currentProfile, error: currentProfileErr } = await supabase
+    .from("profiles")
+    .select("user_id,org_id,default_branch_id")
+    .eq("user_id", currentUser.id)
+    .maybeSingle();
+  if (currentProfileErr) throw currentProfileErr;
+
+  let safeOrgId = currentProfile?.org_id as string | undefined;
+  if (!safeOrgId) {
+    const { data: fallbackRole, error: fallbackRoleErr } = await supabase
+      .from("user_roles")
+      .select("org_id")
+      .eq("user_id", currentUser.id)
+      .limit(1)
+      .maybeSingle();
+    if (fallbackRoleErr) throw fallbackRoleErr;
+    safeOrgId = fallbackRole?.org_id as string | undefined;
+  }
+
+  if (!safeOrgId) {
+    throw new Error("USER_NOT_BOUND_TO_ORG");
+  }
+
+  const { data: currentBranches, error: currentBranchErr } = await supabase
+    .from("branches")
+    .select("id")
+    .eq("org_id", safeOrgId)
+    .limit(1);
+  if (currentBranchErr) throw currentBranchErr;
+
+  const safeBranchId = (currentProfile?.default_branch_id as string | undefined) ?? (currentBranches?.[0]?.id as string | undefined);
+  if (!safeBranchId) {
+    throw new Error("ORG_HAS_NO_BRANCH");
+  }
+
+  if (!currentProfile) {
+    const { error: insertProfileErr } = await supabase.from("profiles").insert({
+      user_id: currentUser.id,
+      org_id: safeOrgId,
+      default_branch_id: safeBranchId,
+      display_name: (currentUser.user_metadata?.display_name as string | undefined)?.trim() || currentUser.email?.split("@")[0] || "User",
+      email: currentUser.email ?? null,
+    });
+    if (insertProfileErr) throw insertProfileErr;
+  } else if (currentProfile.default_branch_id !== safeBranchId) {
+    const { error: updateProfileErr } = await supabase
+      .from("profiles")
+      .update({ default_branch_id: safeBranchId, email: currentUser.email ?? null })
+      .eq("user_id", currentUser.id)
+      .eq("org_id", safeOrgId);
+    if (updateProfileErr) throw updateProfileErr;
+  }
+
+  const safeCtx = { orgId: safeOrgId, branchId: safeBranchId };
+  orgContextCache = { value: safeCtx, at: Date.now(), sessionId: sessionId ?? "" };
+  return safeCtx;
+
+  /* legacy insecure bootstrap removed
   const { data: orgs, error: orgErr } = await supabase.from("orgs").select("id").limit(1);
   if (orgErr) throw orgErr;
 
@@ -146,6 +213,7 @@ export async function ensureOrgContext(opts?: { force?: boolean }): Promise<OrgC
   const ctx = { orgId, branchId };
   orgContextCache = { value: ctx, at: Date.now(), sessionId: sessionId ?? "" };
   return ctx;
+  */
 }
 
 export async function listServices(opts?: { force?: boolean }) {

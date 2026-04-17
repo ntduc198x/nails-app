@@ -501,19 +501,36 @@ export default function OperationsPage() {
       ? `Có ${criticalCheckedInRows.length} lịch check-in rất lâu cần xử lý`
       : staleCheckedInRows.length > 0
         ? `Có ${staleCheckedInRows.length} lịch check-in lâu chưa đóng bill`
-      : activeBookedRows.length > 0
-        ? `Có ${activeBookedRows.length} lịch đang ở trạng thái booked`
-        : pendingCheckoutRows.length > 0
-          ? `Có ${pendingCheckoutRows.length} lịch sẵn sàng mở phiếu`
-          : "Không có lịch cần xử lý gấp";
+        : activeBookedRows.length > 0
+          ? `Có ${activeBookedRows.length} lịch đang ở trạng thái booked`
+          : pendingCheckoutRows.length > 0
+            ? `Có ${pendingCheckoutRows.length} lịch sẵn sàng mở phiếu`
+            : "Không có lịch cần xử lý gấp";
 
+  const nextActionMetaClass = overdueBookedRows.length > 0
+    ? "rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-100 via-amber-50 to-white px-5 py-4 text-sm font-bold text-amber-900 shadow-lg shadow-amber-200/50 animate-pulse"
+    : criticalCheckedInRows.length > 0
+      ? "rounded-2xl border-2 border-fuchsia-400 bg-gradient-to-r from-fuchsia-100 via-fuchsia-50 to-white px-5 py-4 text-sm font-bold text-fuchsia-900 shadow-lg shadow-fuchsia-200/50 animate-pulse"
+      : staleCheckedInRows.length > 0
+        ? "rounded-2xl border-2 border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-5 py-4 text-sm font-bold text-violet-900 shadow-lg shadow-violet-200/50 animate-pulse"
+        : "rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-600 shadow-sm";
+
+  const topStatusBarClass = overdueBookedRows.length > 0
+    ? "rounded-2xl border border-amber-400 bg-gradient-to-r from-amber-100 via-amber-50 to-white px-4 py-3 text-sm font-semibold text-amber-950 ring-2 ring-amber-200 shadow-lg shadow-amber-100"
+    : criticalCheckedInRows.length > 0
+      ? "rounded-2xl border border-fuchsia-400 bg-gradient-to-r from-fuchsia-100 via-fuchsia-50 to-white px-4 py-3 text-sm font-semibold text-fuchsia-950 ring-2 ring-fuchsia-200 shadow-lg shadow-fuchsia-100"
+      : staleCheckedInRows.length > 0
+        ? "rounded-2xl border border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-4 py-3 text-sm font-semibold text-violet-950 ring-2 ring-violet-200 shadow-lg shadow-violet-100"
+        : "rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
   return (
     <AppShell>
       <div className="space-y-6 pb-24 md:pb-0">
         <ManageQuickNav items={operationsQuickNav("/manage/appointments")} />
 
-        <MobileSectionHeader title="Điều phối lịch" meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : nextActionLabel}</div>} />
-
+        <MobileSectionHeader
+          title="Điều phối lịch"
+          meta={<div className={nextActionMetaClass}>{refreshing ? "Đang làm mới..." : nextActionLabel}</div>}
+        />
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <>
@@ -705,3 +722,4 @@ export default function OperationsPage() {
     </AppShell>
   );
 }
+

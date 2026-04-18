@@ -508,12 +508,12 @@ function getAdminMenuKeyboard() {
     inline_keyboard: [
       [{ text: "CRM", callback_data: "menu:crm" }],
       [
-        { text: "📊 Tong quan", callback_data: "menu:overview" },
-        { text: "📈 Bao cao", callback_data: "menu:report" },
+        { text: "📊 Tổng quan", callback_data: "menu:overview" },
+        { text: "📈 Báo cáo", callback_data: "menu:report" },
       ],
       [
-        { text: "🕐 Ca lam", callback_data: "menu:ca" },
-        { text: "⚡ Tao nhanh", callback_data: "menu:quickcreate" },
+        { text: "🕐 Ca làm", callback_data: "menu:ca" },
+        { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
       ],
       [
         { text: "📌 Booking", callback_data: "menu:booking" },
@@ -527,7 +527,7 @@ function getQuickCreateKeyboard() {
     inline_keyboard: [
       [{ text: "1️⃣ Tao lich moi", callback_data: "quickcreate:new" }],
       [{ text: "2️⃣ Check-in nhanh", callback_data: "quickcreate:checkin" }],
-      [{ text: "◀️ Quay lai", callback_data: "menu:admin" }],
+      [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
     ],
   };
 }
@@ -536,10 +536,10 @@ function getQuickCreateConfirmKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "✅ Xac nhan tao lich", callback_data: "quickcreate:confirm" },
-        { text: "❌ Huy", callback_data: "quickcreate:cancel" },
+        { text: "✅ Xác nhận tao lich", callback_data: "quickcreate:confirm" },
+        { text: "❌ Hủy", callback_data: "quickcreate:cancel" },
       ],
-      [{ text: "◀️ Quay lai", callback_data: "menu:quickcreate" }],
+      [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
     ],
   };
 }
@@ -548,14 +548,14 @@ function getQuickCreateDateKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "📅 Hom nay", callback_data: "quickcreate:date:today" },
+        { text: "📅 Hôm nay", callback_data: "quickcreate:date:today" },
         { text: "📆 Mai", callback_data: "quickcreate:date:tomorrow" },
       ],
       [
         { text: "🗓️ Mot", callback_data: "quickcreate:date:day_after_tomorrow" },
         { text: "✍️ Tuy chon", callback_data: "quickcreate:date:custom" },
       ],
-      [{ text: "◀️ Quay lai", callback_data: "menu:quickcreate" }],
+      [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
     ],
   };
 }
@@ -576,7 +576,7 @@ function getQuickCreateServiceKeyboard(services: TelegramQuickCreateServiceSugge
     inline_keyboard: [
       ...serviceRows,
       [{ text: "✍️ Tu nhap dich vu", callback_data: "quickcreate:service:custom" }],
-      [{ text: "◀️ Quay lai", callback_data: "menu:quickcreate" }],
+      [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
     ],
   };
 }
@@ -585,37 +585,37 @@ export function getReportMenuKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "📅 Hom nay", callback_data: "report:today" },
-        { text: "📆 Tuan nay", callback_data: "report:week" },
+        { text: "📅 Hôm nay", callback_data: "report:today" },
+        { text: "📆 Tuần này", callback_data: "report:week" },
       ],
       [
-        { text: "🗓️ Thang nay", callback_data: "report:month" },
-        { text: "📊 Tuy chon", callback_data: "report:custom" },
+        { text: "🗓️ Tháng này", callback_data: "report:month" },
+        { text: "📊 Tùy chọn", callback_data: "report:custom" },
       ],
-      [{ text: "◀️ Quay lai", callback_data: "menu:admin" }],
+      [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
     ],
   };
 }
 
 function getBackToAdminKeyboard() {
   return {
-    inline_keyboard: [[{ text: "◀️ Quay lai", callback_data: "menu:admin" }]],
+    inline_keyboard: [[{ text: "◀️ Quay lại", callback_data: "menu:admin" }]],
   };
 }
 
 function getCrmMenuKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Den han cham soc", callback_data: "crm:followups" }],
-      [{ text: "Khach co nguy co", callback_data: "crm:at_risk" }],
-      [{ text: "Quay lai", callback_data: "menu:admin" }],
+      [{ text: "Đến hạn chăm sóc", callback_data: "crm:followups" }],
+      [{ text: "Khách có nguy cơ", callback_data: "crm:at_risk" }],
+      [{ text: "Quay lại", callback_data: "menu:admin" }],
     ],
   };
 }
 
 function getCrmBackKeyboard() {
   return {
-    inline_keyboard: [[{ text: "Ve CRM", callback_data: "menu:crm" }]],
+    inline_keyboard: [[{ text: "Về CRM", callback_data: "menu:crm" }]],
   };
 }
 
@@ -660,7 +660,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
 
   if (customerError) throw customerError;
   if (!customer?.id) {
-    return { ok: false, message: "Khong tim thay khach." };
+    return { ok: false, message: "Không tìm thấy khách." };
   }
 
   const { error: updateError } = await supabase
@@ -681,7 +681,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
       customer_id: customerId,
       type: "TELEGRAM_CONTACT",
       channel: "TELEGRAM",
-      content_summary: "Danh dau da lien he tu Telegram CRM",
+      content_summary: "Đánh dấu đã liên hệ từ Telegram CRM",
       created_by: null,
     });
 
@@ -689,7 +689,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
 
   return {
     ok: true,
-    message: `Da danh dau da lien he: ${customer.full_name || customer.name || "Khach"}`,
+    message: `Đã đánh dấu đã liên hệ: ${customer.full_name || customer.name || "Khach"}`,
   };
 }
 
@@ -738,10 +738,10 @@ function getQuickCreatePresetDateLabel(offsetDays: number): { iso: string; label
   date.setDate(date.getDate() + offsetDays);
 
   const label = offsetDays === 0
-    ? "Hom nay"
+    ? "Hôm nay"
     : offsetDays === 1
-      ? "Ngay mai"
-      : "Ngay mot";
+      ? "Ngày mai"
+      : "Ngày mốt";
 
   return {
     iso: date.toISOString(),
@@ -801,10 +801,10 @@ async function promptQuickCreateServiceSelection(chatId: string, orgId: string) 
   await sendTelegramMessage(
     chatId,
     [
-      "⚡ <b>TAO LICH MOI</b>",
+      "⚡ <b>TẠO LỊCH MỚI</b>",
       "",
-      "Chon dich vu theo mau Lookbook ben duoi",
-      "hoac tu nhap dich vu mong muon.",
+      "Chọn dịch vụ theo mẫu Lookbook bên dưới",
+      "hoặc tự nhập dịch vụ mong muốn.",
     ].join("\n"),
     {
       reply_markup: suggestions.length > 0
@@ -817,17 +817,17 @@ async function promptQuickCreateServiceSelection(chatId: string, orgId: string) 
 export async function handleQuickCreateDateSelection(telegramUserId: number, chatId: string, dateMode: string) {
   const state = await getConversationState(telegramUserId);
   if (!state || state.step !== "quickcreate:date") {
-    return { ok: false, message: "Khong tim thay buoc chon ngay." };
+    return { ok: false, message: "Không tìm thấy bước chọn ngày." };
   }
 
   if (dateMode === "custom") {
     await setConversationState(telegramUserId, "quickcreate:date_custom", state.data);
     await sendTelegramMessage(
       chatId,
-      "⚡ <b>TAO LICH MOI</b>\n\nNhap ngay hen theo dinh dang <code>dd/mm</code> hoac <code>dd/mm/yyyy</code>.",
+      "⚡ <b>TẠO LỊCH MỚI</b>\n\nNhập ngày hẹn theo định dạng <code>dd/mm</code> hoac <code>dd/mm/yyyy</code>.",
       { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
     );
-    return { ok: true, message: "Nhap ngay tuy chon" };
+    return { ok: true, message: "Nhập ngày tùy chọn" };
   }
 
   const presetDate = dateMode === "today"
@@ -839,7 +839,7 @@ export async function handleQuickCreateDateSelection(telegramUserId: number, cha
         : null;
 
   if (!presetDate) {
-    return { ok: false, message: "Lua chon ngay khong hop le." };
+    return { ok: false, message: "Lựa chọn ngày không hợp lệ." };
   }
 
   await setConversationState(telegramUserId, "quickcreate:time", {
@@ -849,10 +849,10 @@ export async function handleQuickCreateDateSelection(telegramUserId: number, cha
   });
   await sendTelegramMessage(
     chatId,
-    `⚡ <b>TAO LICH MOI</b>\n\nNgay hen: <b>${escapeHtml(presetDate.label)}</b>\nNhap gio hen. VD: <code>14:30</code>\nChi nhan khung gio <b>09:00 - 21:00</b>.`,
+    `⚡ <b>TẠO LỊCH MỚI</b>\n\nNgày hẹn: <b>${escapeHtml(presetDate.label)}</b>\nNhập giờ hẹn. VD: <code>14:30</code>\nChỉ nhận khung giờ <b>09:00 - 21:00</b>.`,
     { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
   );
-  return { ok: true, message: "Da chon ngay hen" };
+  return { ok: true, message: "Đã chọn ngày hẹn" };
 }
 
 async function findOrCreateTelegramCustomer(orgId: string, customerName: string, customerPhone: string, requestedService: string) {
@@ -938,14 +938,14 @@ async function createTelegramQuickAppointment(orgId: string, customerName: strin
 export async function handleQuickCreateServiceSelection(telegramUserId: number, chatId: string, serviceIdOrMode: string) {
   const state = await getConversationState(telegramUserId);
   if (!state || state.step !== "quickcreate:service" || !state.data.orgId) {
-    return { ok: false, message: "Khong tim thay buoc chon dich vu." };
+    return { ok: false, message: "Không tìm thấy bước chọn dịch vụ." };
   }
 
   if (serviceIdOrMode === "custom") {
-    await sendTelegramMessage(chatId, "⚡ <b>TAO LICH MOI</b>\n\nNhap dich vu mong muon:", {
+    await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nNhập dịch vụ mong muốn:", {
       reply_markup: getBackToAdminKeyboard(),
     });
-    return { ok: true, message: "Nhap dich vu mong muon" };
+    return { ok: true, message: "Nhập dịch vụ mong muốn" };
   }
 
   const supabase = getAdminSupabase();
@@ -959,7 +959,7 @@ export async function handleQuickCreateServiceSelection(telegramUserId: number, 
 
   if (error) throw error;
   if (!serviceRow?.name) {
-    return { ok: false, message: "Khong tim thay dich vu da chon." };
+    return { ok: false, message: "Không tìm thấy dịch vụ đã chọn." };
   }
 
   await setConversationState(telegramUserId, "quickcreate:service", {
@@ -969,18 +969,18 @@ export async function handleQuickCreateServiceSelection(telegramUserId: number, 
   await sendTelegramMessage(
     chatId,
     [
-      "⚡ <b>XAC NHAN TAO LICH</b>",
+      "⚡ <b>XÁC NHẬN TẠO LỊCH</b>",
       "",
-      `👤 Khach: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
-      `📞 SDT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
-      `📅 Ngay hen: <b>${escapeHtml(state.data.appointmentDateLabel || "-")}</b>`,
-      `🕐 Gio hen: <b>${escapeHtml(state.data.appointmentTimeLabel || "-")}</b>`,
+      `👤 Khách: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
+      `📞 SĐT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
+      `📅 Ngày hẹn: <b>${escapeHtml(state.data.appointmentDateLabel || "-")}</b>`,
+      `🕐 Giờ hẹn: <b>${escapeHtml(state.data.appointmentTimeLabel || "-")}</b>`,
       `💅 DV: <b>${escapeHtml(serviceRow.name)}</b>`,
     ].join("\n"),
     { reply_markup: getQuickCreateConfirmKeyboard() },
   );
 
-  return { ok: true, message: "Da chon dich vu" };
+  return { ok: true, message: "Đã chọn dịch vụ" };
 }
 
 export async function handleTelegramConversationMessage(telegramUserId: number, chatId: string, text: string) {
@@ -995,7 +995,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
         reply_markup: getReportMenuKeyboard(),
       });
     } else {
-      await sendTelegramMessage(chatId, "⚡ <b>TAO NHANH</b>\n\nChon chuc nang:", {
+      await sendTelegramMessage(chatId, "⚡ <b>TẠO NHANH</b>\n\nChọn chức năng:", {
         reply_markup: getQuickCreateKeyboard(),
       });
     }
@@ -1005,7 +1005,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
   if (state.step === "report:custom") {
     const parts = text.split("-").map((item) => item.trim());
     if (parts.length !== 2) {
-      await sendTelegramMessage(chatId, "❌ Dinh dang khong dung.\n\nVD: <code>01/04 - 30/04</code>\n\nThu lai:", {
+      await sendTelegramMessage(chatId, "❌ Dinh dang không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
         parse_mode: "HTML",
       });
       return true;
@@ -1014,7 +1014,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     const startDate = parseCustomReportDate(parts[0]);
     const endDate = parseCustomReportDate(parts[1]);
     if (!startDate || !endDate) {
-      await sendTelegramMessage(chatId, "❌ Dinh dang ngay khong dung.\n\nVD: <code>01/04 - 30/04</code>\n\nThu lai:", {
+      await sendTelegramMessage(chatId, "❌ Dinh dang ngay không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
         parse_mode: "HTML",
       });
       return true;
@@ -1032,7 +1032,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
       ...state.data,
       customerName: text.trim(),
     });
-    await sendTelegramMessage(chatId, "⚡ <b>TAO LICH MOI</b>\n\nSo dien thoai?", {
+    await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nSố điện thoại?", {
       reply_markup: getBackToAdminKeyboard(),
     });
     return true;
@@ -1043,7 +1043,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     if (!normalizedPhone) {
       await sendTelegramMessage(
         chatId,
-        "❌ So dien thoai khong hop le.\n\nChi nhan so di dong Viet Nam <b>10 so</b>.\nVD: <code>0901234567</code>",
+        "❌ Số điện thoại không hợp lệ.\n\nChỉ nhận số di động Việt Nam <b>10 số</b>.\nVD: <code>0901234567</code>",
         { parse_mode: "HTML" },
       );
       return true;
@@ -1053,7 +1053,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
       ...state.data,
       customerPhone: normalizedPhone,
     });
-    await sendTelegramMessage(chatId, "⚡ <b>TAO LICH MOI</b>\n\nChon ngay hen:", {
+    await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nChon ngay hen:", {
       parse_mode: "HTML",
       reply_markup: getQuickCreateDateKeyboard(),
     });
@@ -1065,7 +1065,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     if (!parsedDate) {
       await sendTelegramMessage(
         chatId,
-        "❌ Ngay hen khong hop le.\n\nNhap theo dinh dang <code>dd/mm</code> hoac <code>dd/mm/yyyy</code> va khong duoc nho hon hom nay.",
+        "❌ Ngày hẹn khong hop le.\n\nNhap theo dinh dang <code>dd/mm</code> hoac <code>dd/mm/yyyy</code> và không được nhỏ hơn hôm nay.",
         { parse_mode: "HTML" },
       );
       return true;
@@ -1078,7 +1078,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     });
     await sendTelegramMessage(
       chatId,
-      `⚡ <b>TAO LICH MOI</b>\n\nNgay hen: <b>${escapeHtml(parsedDate.label)}</b>\nNhap gio hen. VD: <code>14:30</code>\nChi nhan khung gio <b>09:00 - 21:00</b>.`,
+      `⚡ <b>TẠO LỊCH MỚI</b>\n\nNgày hẹn: <b>${escapeHtml(parsedDate.label)}</b>\nNhập giờ hẹn. VD: <code>14:30</code>\nChỉ nhận khung giờ <b>09:00 - 21:00</b>.`,
       { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
     );
     return true;
@@ -1093,7 +1093,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
 
     const parsedTime = parseQuickCreateTime(text, state.data.appointmentDateIso);
     if (!parsedTime) {
-      await sendTelegramMessage(chatId, "❌ Gio hen khong hop le.\n\nChi nhan trong khung <b>09:00 - 21:00</b>.\nVD: <code>14:30</code>\n\nThu lai:", {
+      await sendTelegramMessage(chatId, "❌ Giờ hẹn không hợp lệ.\n\nChi nhan trong khung <b>09:00 - 21:00</b>.\nVD: <code>14:30</code>\n\nThử lại:", {
         parse_mode: "HTML",
       });
       return true;
@@ -1116,12 +1116,12 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     await sendTelegramMessage(
       chatId,
       [
-        "⚡ <b>XAC NHAN TAO LICH</b>",
+        "⚡ <b>XÁC NHẬN TẠO LỊCH</b>",
         "",
-        `👤 Khach: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
-        `📞 SDT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
-        `📅 Ngay hen: <b>${escapeHtml(state.data.appointmentDateLabel || "-")}</b>`,
-        `🕐 Gio hen: <b>${escapeHtml(state.data.appointmentTimeLabel || "-")}</b>`,
+        `👤 Khách: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
+        `📞 SĐT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
+        `📅 Ngày hẹn: <b>${escapeHtml(state.data.appointmentDateLabel || "-")}</b>`,
+        `🕐 Giờ hẹn: <b>${escapeHtml(state.data.appointmentTimeLabel || "-")}</b>`,
         `💅 DV: <b>${escapeHtml(text.trim() || "-")}</b>`,
       ].join("\n"),
       { reply_markup: getQuickCreateConfirmKeyboard() },
@@ -1133,19 +1133,19 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
 }
 
 export async function handleManageCommand(chatId: string) {
-  await sendTelegramMessage(chatId, "⚙️ <b>MENU QUAN TRI</b>\n\nChon chuc nang:", {
+  await sendTelegramMessage(chatId, "⚙️ <b>MENU QUAN TRI</b>\n\nChọn chức năng:", {
     reply_markup: getAdminMenuKeyboard(),
   });
 }
 
 export async function handleCrmMenu(chatId: string) {
-  await sendTelegramMessage(chatId, "CRM <b>KHACH</b>\n\nChon che do quan tri CRM:", {
+  await sendTelegramMessage(chatId, "CRM <b>KHACH</b>\n\nChọn chế độ quản trị CRM:", {
     reply_markup: getCrmMenuKeyboard(),
   });
 }
 
 export async function handleQuickCreateMenu(chatId: string) {
-  await sendTelegramMessage(chatId, "⚡ <b>TAO NHANH</b>\n\nChon chuc nang:", {
+  await sendTelegramMessage(chatId, "⚡ <b>TẠO NHANH</b>\n\nChọn chức năng:", {
     reply_markup: getQuickCreateKeyboard(),
   });
 }
@@ -1153,13 +1153,13 @@ export async function handleQuickCreateMenu(chatId: string) {
 export async function handleMeCommand(telegramUserId: number, chatId: string) {
   const userInfo = await getTelegramUserRole(telegramUserId);
   if (!userInfo.linked) {
-    await sendTelegramMessage(chatId, "❌ <b>Chua lien ket</b>\n\nVui long lien ket tai khoan trong Nails App.");
+    await sendTelegramMessage(chatId, "❌ <b>Chưa liên kết</b>\n\nVui lòng liên kết tài khoản trong Nails App.");
     return;
   }
 
   await sendTelegramMessage(
     chatId,
-    `✅ <b>Da lien ket</b>\n\nTai khoan: <b>${userInfo.display_name || "N/A"}</b>\nVai tro: <b>${userInfo.role || "N/A"}</b>\n\nDung /manage de vao quan tri.`,
+    `✅ <b>Đã liên kết</b>\n\nTài khoản: <b>${userInfo.display_name || "N/A"}</b>\nVai trò: <b>${userInfo.role || "N/A"}</b>\n\nDùng /manage để vào quản trị.`,
   );
 }
 
@@ -1167,13 +1167,13 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
   const rows = await listTelegramCrmCustomers(orgId, "followups");
 
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "CRM <b>FOLLOW-UP</b>\n\nChua co khach nao den han cham soc.", {
+    await sendTelegramMessage(chatId, "CRM <b>FOLLOW-UP</b>\n\nChưa có khách nào đến hạn chăm sóc.", {
       reply_markup: getCrmBackKeyboard(),
     });
     return;
   }
 
-  const lines = ["CRM <b>FOLLOW-UP</b>", "", "Khach den han cham soc:"];
+  const lines = ["CRM <b>FOLLOW-UP</b>", "", "Khách đến hạn chăm sóc:"];
   const inlineKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
 
   for (const row of rows) {
@@ -1181,15 +1181,15 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
     const phone = escapeHtml(String(row.phone || "Chua co SDT"));
     const service = escapeHtml(String(row.last_service_summary || "-"));
     const nextFollowUp = row.next_follow_up_at ? formatViDateTime(String(row.next_follow_up_at)) : "-";
-    lines.push(`â€¢ <b>${displayName}</b> â€” ${phone}`);
+    lines.push(`• <b>${displayName}</b> — ${phone}`);
     lines.push(`  Follow-up: ${nextFollowUp} | DV gan nhat: ${service}`);
     inlineKeyboard.push([
       { text: `Done ${String(row.full_name || row.name || "Khach").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
-      { text: "Ho so", url: getCustomerCrmWebUrl(String(row.id)) },
+      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
     ]);
   }
 
-  inlineKeyboard.push([{ text: "Ve CRM", callback_data: "menu:crm" }]);
+  inlineKeyboard.push([{ text: "Về CRM", callback_data: "menu:crm" }]);
 
   await sendTelegramMessage(chatId, lines.join("\n"), {
     reply_markup: { inline_keyboard: inlineKeyboard },
@@ -1200,13 +1200,13 @@ export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
   const rows = await listTelegramCrmCustomers(orgId, "at_risk");
 
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "CRM <b>AT RISK</b>\n\nChua co khach nao o nhom AT_RISK/LOST.", {
+    await sendTelegramMessage(chatId, "CRM <b>AT RISK</b>\n\nChưa có khách nào ở nhóm AT_RISK/LOST.", {
       reply_markup: getCrmBackKeyboard(),
     });
     return;
   }
 
-  const lines = ["CRM <b>AT RISK</b>", "", "Khach can uu tien cham soc lai:"];
+  const lines = ["CRM <b>AT RISK</b>", "", "Khách cần ưu tiên chăm sóc lại:"];
   const inlineKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
 
   for (const row of rows) {
@@ -1214,15 +1214,15 @@ export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
     const phone = escapeHtml(String(row.phone || "Chua co SDT"));
     const lastVisit = row.last_visit_at ? formatViDateTime(String(row.last_visit_at)) : "Chua co";
     const status = escapeHtml(String(row.customer_status || "AT_RISK"));
-    lines.push(`â€¢ <b>${displayName}</b> â€” ${status}`);
-    lines.push(`  SDT: ${phone} | Lan ghe cuoi: ${lastVisit}`);
+    lines.push(`• <b>${displayName}</b> — ${status}`);
+    lines.push(`  SĐT: ${phone} | Lần ghé cuối: ${lastVisit}`);
     inlineKeyboard.push([
       { text: `Done ${String(row.full_name || row.name || "Khach").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
-      { text: "Ho so", url: getCustomerCrmWebUrl(String(row.id)) },
+      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
     ]);
   }
 
-  inlineKeyboard.push([{ text: "Ve CRM", callback_data: "menu:crm" }]);
+  inlineKeyboard.push([{ text: "Về CRM", callback_data: "menu:crm" }]);
 
   await sendTelegramMessage(chatId, lines.join("\n"), {
     reply_markup: { inline_keyboard: inlineKeyboard },
@@ -1311,7 +1311,7 @@ export async function handleRevenueReportCommand(orgId: string, chatId: string, 
   if (period === "custom" && customStartDate && customEndDate) {
     startDate = customStartDate;
     endDate = customEndDate;
-    title = "📊 BAO CAO TUY CHON";
+    title = "📊 BÁO CÁO TÙY CHỌN";
   } else if (period === "today") {
     startDate = new Date(now);
     startDate.setHours(0, 0, 0, 0);
@@ -1447,14 +1447,14 @@ export async function beginCustomReportConversation(telegramUserId: number, orgI
   await setConversationState(telegramUserId, "report:custom", { orgId });
   await sendTelegramMessage(
     chatId,
-    "📊 <b>BAO CAO TUY CHON</b>\n\nNhap theo dinh dang:\n• <code>01/04 - 30/04</code>\n\nGo <code>back</code> hoac <code>/cancel</code> de huy.",
+    "📊 <b>BÁO CÁO TÙY CHỌN</b>\n\nNhập theo định dạng:\n• <code>01/04 - 30/04</code>\n\nGõ <code>back</code> hoac <code>/cancel</code> để hủy.",
     { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
   );
 }
 
 export async function beginQuickCreateAppointmentConversation(telegramUserId: number, orgId: string, chatId: string) {
   await setConversationState(telegramUserId, "quickcreate:name", { orgId });
-  await sendTelegramMessage(chatId, "⚡ <b>TAO LICH MOI</b>\n\nTen khach hang?", {
+  await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nTên khách hàng?", {
     reply_markup: getBackToAdminKeyboard(),
   });
 }
@@ -1462,7 +1462,7 @@ export async function beginQuickCreateAppointmentConversation(telegramUserId: nu
 export async function confirmQuickCreateAppointment(telegramUserId: number, chatId: string) {
   const state = await getConversationState(telegramUserId);
   if (!state || state.step !== "quickcreate:service") {
-    return { ok: false, message: "Khong tim thay du lieu tao lich." };
+    return { ok: false, message: "Không tìm thấy dữ liệu tạo lịch." };
   }
 
   const appointment = await createTelegramQuickAppointment(
@@ -1477,18 +1477,18 @@ export async function confirmQuickCreateAppointment(telegramUserId: number, chat
   await sendTelegramMessage(
     chatId,
     [
-      "✅ <b>TAO LICH THANH CONG!</b>",
+      "✅ <b>TẠO LỊCH THÀNH CÔNG!</b>",
       "",
-      `👤 Khach: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
-      `📞 SDT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
-      `🕐 Gio hen: <b>${formatViDateTime(appointment.start_at as string)}</b>`,
+      `👤 Khách: <b>${escapeHtml(state.data.customerName || "-")}</b>`,
+      `📞 SĐT: <b>${escapeHtml(state.data.customerPhone || "-")}</b>`,
+      `🕐 Giờ hẹn: <b>${formatViDateTime(appointment.start_at as string)}</b>`,
       `💅 DV: <b>${escapeHtml(state.data.requestedService || "-")}</b>`,
       `🆔 Appointment: <code>${appointment.id}</code>`,
     ].join("\n"),
     { reply_markup: getBackToAdminKeyboard() },
   );
 
-  return { ok: true, message: "Da tao lich moi!" };
+  return { ok: true, message: "Đã tạo lịch mới!" };
 }
 
 export async function handleQuickCheckinMenu(orgId: string, chatId: string) {
@@ -1512,20 +1512,20 @@ export async function handleQuickCheckinMenu(orgId: string, chatId: string) {
 
   const rows = appointments ?? [];
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "<b>✅ CHECK-IN NHANH</b>\n\nKhong co khach cho check-in hom nay.", {
+    await sendTelegramMessage(chatId, "<b>✅ CHECK-IN NHANH</b>\n\nKhông có khách chờ check-in hôm nay.", {
       reply_markup: getBackToAdminKeyboard(),
     });
     return;
   }
 
-  const lines = ["<b>✅ CHECK-IN NHANH</b>", "", "Danh sach khach cho check-in:"];
+  const lines = ["<b>✅ CHECK-IN NHANH</b>", "", "Danh sách khách chờ check-in:"];
   const keyboardRows = rows.map((row) => [
     {
       text: `✅ ${pickCustomerName(row.customers as Parameters<typeof pickCustomerName>[0])} (${formatViTime(row.start_at as string)})`,
       callback_data: `checkin:${row.id}`,
     },
   ]);
-  keyboardRows.push([{ text: "◀️ Quay lai", callback_data: "menu:admin" }]);
+  keyboardRows.push([{ text: "◀️ Quay lại", callback_data: "menu:admin" }]);
 
   for (const row of rows) {
     lines.push(`• <b>${pickCustomerName(row.customers as Parameters<typeof pickCustomerName>[0])}</b> — ${formatViTime(row.start_at as string)}`);
@@ -1545,11 +1545,11 @@ export async function handleQuickCheckinAction(orgId: string, chatId: string, ap
 
   if (error) throw error;
   if (!appointment?.id) {
-    return { ok: false, message: "Khong tim thay lich." };
+    return { ok: false, message: "Không tìm thấy lịch." };
   }
 
   if (appointment.status === "CHECKED_IN" || appointment.status === "DONE") {
-    return { ok: false, message: "Lich nay da duoc xu ly." };
+    return { ok: false, message: "Lịch này đã được xử lý." };
   }
 
   const { error: updateError } = await supabase
@@ -1561,11 +1561,11 @@ export async function handleQuickCheckinAction(orgId: string, chatId: string, ap
 
   await sendTelegramMessage(
     chatId,
-    `✅ <b>CHECK-IN THANH CONG!</b>\n\nDa check-in khach: <b>${pickCustomerName(appointment.customers as Parameters<typeof pickCustomerName>[0])}</b>\nGio hen: ${formatViDateTime(appointment.start_at as string)}`,
+    `✅ <b>CHECK-IN THÀNH CÔNG!</b>\n\nĐã check-in khách: <b>${pickCustomerName(appointment.customers as Parameters<typeof pickCustomerName>[0])}</b>\nGiờ hẹn: ${formatViDateTime(appointment.start_at as string)}`,
     { reply_markup: getBackToAdminKeyboard() },
   );
 
-  return { ok: true, message: "Da check-in!" };
+  return { ok: true, message: "Đã check-in!" };
 }
 
 export async function handleBookingDetailCommand(orgId: string, chatId: string, bookingId: string) {
@@ -1585,28 +1585,28 @@ export async function handleBookingDetailCommand(orgId: string, chatId: string, 
     return;
   }
 
-  const statusLabel = booking.status === "NEW" ? "🆕 Moi" : "🔄 Can doi lich";
+  const statusLabel = booking.status === "NEW" ? "🆕 Mới" : "🔄 Cần đổi lịch";
   const lines = [
-    "<b>📌 CHI TIET BOOKING</b>",
+    "<b>📌 CHI TIẾT BOOKING</b>",
     "",
-    `<b>Trang thai:</b> ${statusLabel}`,
-    `<b>Khach:</b> ${escapeHtml(booking.customer_name)}`,
-    `<b>SDT:</b> ${escapeHtml(booking.customer_phone || "-")}`,
-    `<b>Dich vu:</b> ${escapeHtml(booking.requested_service || "-")}`,
-    `<b>Gio hen:</b> ${formatViDateTime(booking.requested_start_at as string)}`,
+    `<b>Trạng thái:</b> ${statusLabel}`,
+    `<b>Khách:</b> ${escapeHtml(booking.customer_name)}`,
+    `<b>SĐT:</b> ${escapeHtml(booking.customer_phone || "-")}`,
+    `<b>Dịch vụ:</b> ${escapeHtml(booking.requested_service || "-")}`,
+    `<b>Giờ hẹn:</b> ${formatViDateTime(booking.requested_start_at as string)}`,
   ];
-  if (booking.note) lines.push(`<b>Ghi chu:</b> ${escapeHtml(booking.note)}`);
+  if (booking.note) lines.push(`<b>Ghi chú:</b> ${escapeHtml(booking.note)}`);
 
   await sendTelegramMessage(chatId, lines.join("\n"), {
     reply_markup: {
       inline_keyboard: [
         [
-          { text: "✅ Xac nhan", callback_data: `booking:confirm:${booking.id}` },
-          { text: "❌ Huy", callback_data: `booking:cancel:${booking.id}` },
+          { text: "✅ Xác nhận", callback_data: `booking:confirm:${booking.id}` },
+          { text: "❌ Hủy", callback_data: `booking:cancel:${booking.id}` },
         ],
-        [{ text: "📅 Doi lich", callback_data: `booking:reschedule:${booking.id}` }],
-        ...(!isLocalManageUrl ? [[{ text: "🔗 Quan tri", url: manageUrl }]] : []),
-        [{ text: "◀️ Quay lai", callback_data: "menu:booking" }],
+        [{ text: "📅 Đổi lịch", callback_data: `booking:reschedule:${booking.id}` }],
+        ...(!isLocalManageUrl ? [[{ text: "🔗 Quản trị", url: manageUrl }]] : []),
+        [{ text: "◀️ Quay lại", callback_data: "menu:booking" }],
       ],
     },
   });
@@ -1658,11 +1658,11 @@ export function getMainMenuKeyboard() {
     inline_keyboard: [
       [{ text: "CRM", callback_data: "menu:crm" }],
       [
-        { text: "⚙️ Quan tri", callback_data: "menu:admin" },
-        { text: "📊 Tong quan", callback_data: "menu:overview" },
+        { text: "⚙️ Quản trị", callback_data: "menu:admin" },
+        { text: "📊 Tổng quan", callback_data: "menu:overview" },
       ],
       [
-        { text: "📈 Bao cao", callback_data: "menu:report" },
+        { text: "📈 Báo cáo", callback_data: "menu:report" },
         { text: "📌 Booking", callback_data: "menu:booking" },
       ],
     ],

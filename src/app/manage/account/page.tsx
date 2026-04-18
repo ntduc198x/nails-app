@@ -44,6 +44,7 @@ export default function AccountPage() {
 
   const [telegramCode, setTelegramCode] = useState<string | null>(null);
   const [telegramLinked, setTelegramLinked] = useState(false);
+  const [telegramBotTarget, setTelegramBotTarget] = useState<string>("");
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
 
@@ -78,6 +79,16 @@ export default function AccountPage() {
       setProfileData({ displayName: nextDisplayName, phone: nextPhone });
       setDisplayName(nextDisplayName);
       setPhone(nextPhone);
+
+      const { data: telegramLink, error: telegramLinkErr } = await supabase
+        .from("telegram_links")
+        .select("telegram_chat_id,telegram_user_id,telegram_username,telegram_first_name")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (telegramLinkErr) throw telegramLinkErr;
+      setTelegramLinked(Boolean(telegramLink?.telegram_user_id));
+      setTelegramBotTarget(telegramLink?.telegram_username ? `@${telegramLink.telegram_username}` : String(telegramLink?.telegram_first_name || telegramLink?.telegram_chat_id || ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load account failed");
     } finally {
@@ -296,7 +307,7 @@ export default function AccountPage() {
             {telegramLinked ? (
               <div className="space-y-2">
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">
-                  ✅ Đã liên kết với Telegram
+                  ✅ Đã liên kết với Telegram{telegramBotTarget ? ` (${telegramBotTarget})` : ""}
                 </div>
                 <div className="flex justify-end">
                   <button
@@ -315,7 +326,7 @@ export default function AccountPage() {
                   <b>Cách liên kết:</b>
                   <ol className="mt-1 list-decimal pl-4 space-y-0.5">
                     <li>Bấm "Tạo mã liên kết" bên dưới</li>
-                    <li>Mở Telegram group → gửi <code className="bg-neutral-200 px-1 rounded">/link MÃ</code></li>
+                    <li>Mở bot hoặc chat Telegram đã cấu hình → gửi <code className="bg-neutral-200 px-1 rounded">/link MÃ</code></li>
                     <li>Ví dụ: <code className="bg-neutral-200 px-1 rounded">/link 482910</code></li>
                   </ol>
                   <p className="mt-1 text-neutral-400">Mã hết hạn sau 5 phút.</p>

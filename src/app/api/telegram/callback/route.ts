@@ -1,4 +1,4 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
 import { verifyTelegramWebhookRequest } from "@/lib/route-secrets";
 import {
@@ -50,8 +50,8 @@ function formatViDateTime(iso: string) {
 }
 
 function pickCustomerName(customers: { name?: string } | { name?: string }[] | null | undefined) {
-  if (Array.isArray(customers)) return customers[0]?.name ?? "Khach";
-  return customers?.name ?? "Khach";
+  if (Array.isArray(customers)) return customers[0]?.name ?? "Khách";
+  return customers?.name ?? "Khách";
 }
 
 function escapeHtml(value: string) {
@@ -74,15 +74,15 @@ function buildBookingResultMessage(payload: {
   extraLines?: string[];
 }) {
   const lines = [
-    "\u{1F514} ===================",
+    "🔔 ═══════════════════",
     payload.title,
-    "---------------------",
-    `\u{1F464} Khach: <b>${escapeHtml(payload.customerName)}</b>`,
-    `\u{1F4DE} SDT: <b>${escapeHtml(payload.customerPhone || "-")}</b>`,
-    `\u{1F485} DV: ${escapeHtml(payload.requestedService || "-")}`,
-    `\u{1F550} Hen: ${formatViDateTime(payload.requestedStartAt)}`,
-    `\u{1F4DD} Ghi chu: ${escapeHtml(payload.note || "-")}`,
-    "---------------------",
+    "─────────────────────",
+    `👤 Khách: <b>${escapeHtml(payload.customerName)}</b>`,
+    `📞 SĐT: <b>${escapeHtml(payload.customerPhone || "-")}</b>`,
+    `💅 DV: ${escapeHtml(payload.requestedService || "-")}`,
+    `🕐 Hẹn: ${formatViDateTime(payload.requestedStartAt)}`,
+    `📝 Ghi chú: ${escapeHtml(payload.note || "-")}`,
+    "─────────────────────",
     payload.resultLine,
     ...(payload.extraLines ?? []),
   ];
@@ -112,7 +112,7 @@ async function ensureCustomer(supabase: ReturnType<typeof getAdminSupabase>, boo
   const mergedNotes = [
     existingCustomer?.notes,
     booking.requested_service ? `DV: ${booking.requested_service}` : null,
-    booking.preferred_staff ? `Tho mong muon: ${booking.preferred_staff}` : null,
+    booking.preferred_staff ? `Thợ mong muốn: ${booking.preferred_staff}` : null,
     booking.note || null,
   ].filter(Boolean).join(" | ");
 
@@ -200,19 +200,19 @@ async function convertBookingToAppointment(supabase: ReturnType<typeof getAdminS
 async function handleMenuCallback(callback: { id: string; data?: string; message?: { from?: { id: number } } }, action: string, chatId: string) {
   const telegramUserId = callback.message?.from?.id;
   if (!telegramUserId) {
-    await sharedAnswerCallback(callback.id, "KhÃƒÂ´ng xÃƒÂ¡c Ã„â€˜Ã¡Â»â€¹nh Ã„â€˜Ã†Â°Ã¡Â»Â£c ngÃ†Â°Ã¡Â»Âi dÃƒÂ¹ng.");
+    await sharedAnswerCallback(callback.id, "Không xác định được người dùng.");
     return NextResponse.json({ ok: false, error: "no_user_id" });
   }
 
   const userInfo = await getTelegramUserRole(telegramUserId);
 
   if (!userInfo.linked) {
-    await sharedAnswerCallback(callback.id, "BÃ¡ÂºÂ¡n chÃ†Â°a liÃƒÂªn kÃ¡ÂºÂ¿t tÃƒÂ i khoÃ¡ÂºÂ£n. DÃƒÂ¹ng /start Ã„â€˜Ã¡Â»Æ’ bÃ¡ÂºÂ¯t Ã„â€˜Ã¡ÂºÂ§u.");
+    await sharedAnswerCallback(callback.id, "Bạn chưa liên kết tài khoản. Dùng /start để bắt đầu.");
     return NextResponse.json({ ok: true, reason: "not_linked" });
   }
 
   if (!isManagerOrOwner(userInfo.role)) {
-    await sharedAnswerCallback(callback.id, "ChÃ¡Â»â€° OWNER hoÃ¡ÂºÂ·c MANAGER mÃ¡Â»â€ºi Ã„â€˜Ã†Â°Ã¡Â»Â£c sÃ¡Â»Â­ dÃ¡Â»Â¥ng chÃ¡Â»Â©c nÃ„Æ’ng nÃƒÂ y.");
+    await sharedAnswerCallback(callback.id, "Chỉ OWNER hoặc MANAGER mới được sử dụng chức năng này.");
     return NextResponse.json({ ok: true, reason: "forbidden" });
   }
 
@@ -221,56 +221,56 @@ async function handleMenuCallback(callback: { id: string; data?: string; message
   switch (action) {
     case "admin":
       await handleManageCommand(chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ menu quÃ¡ÂºÂ£n trÃ¡Â»â€¹");
+      await sharedAnswerCallback(callback.id, "Đã mở menu quản trị");
       break;
     case "overview":
       await handleOverviewCommand(orgId, chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t tÃ¡Â»â€¢ng quan");
+      await sharedAnswerCallback(callback.id, "Đã cập nhật tổng quan");
       break;
     case "report":
-      await sendTelegramMessage(chatId, "Ã°Å¸â€œË† <b>BÃƒÂO CÃƒÂO DOANH THU</b>\n\nChÃ¡Â»Ân khoÃ¡ÂºÂ£ng thÃ¡Â»Âi gian:", {
+      await sendTelegramMessage(chatId, "📈 <b>BÁO CÁO DOANH THU</b>\n\nChọn khoảng thời gian:", {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "Ã°Å¸â€œâ€¦ HÃƒÂ´m nay", callback_data: "report:today" },
-              { text: "Ã°Å¸â€œâ€  TuÃ¡ÂºÂ§n nÃƒÂ y", callback_data: "report:week" },
+              { text: "📅 Hôm nay", callback_data: "report:today" },
+              { text: "📆 Tuần này", callback_data: "report:week" },
             ],
             [
-              { text: "Ã°Å¸â€”â€œÃ¯Â¸Â ThÃƒÂ¡ng nÃƒÂ y", callback_data: "report:month" },
-              { text: "Ã°Å¸â€œÅ  TÃƒÂ¹y chÃ¡Â»Ân", callback_data: "report:custom" },
+              { text: "🗓️ Tháng này", callback_data: "report:month" },
+              { text: "📊 Tùy chọn", callback_data: "report:custom" },
             ],
-            [{ text: "Ã¢â€”â‚¬Ã¯Â¸Â Quay lÃ¡ÂºÂ¡i", callback_data: "menu:admin" }],
+            [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
           ],
         },
       });
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ menu bÃƒÂ¡o cÃƒÂ¡o");
+      await sharedAnswerCallback(callback.id, "Đã mở menu báo cáo");
       break;
     case "crm":
       await handleCrmMenu(chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ CRM");
+      await sharedAnswerCallback(callback.id, "Đã mở CRM");
       break;
     case "quickcreate":
       await handleQuickCreateMenu(chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ tÃ¡ÂºÂ¡o nhanh");
+      await sharedAnswerCallback(callback.id, "Đã mở tạo nhanh");
       break;
     case "lich":
       await handleLichCommand(orgId, chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t lÃ¡Â»â€¹ch hÃƒÂ´m nay");
+      await sharedAnswerCallback(callback.id, "Đã cập nhật lịch hôm nay");
       break;
     case "doanhthu":
       await handleDoanhthuCommand(orgId, chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t doanh thu");
+      await sharedAnswerCallback(callback.id, "Đã cập nhật doanh thu");
       break;
     case "ca":
       await handleCaCommand(orgId, chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t ca lÃƒÂ m");
+      await sharedAnswerCallback(callback.id, "Đã cập nhật ca làm");
       break;
     case "booking":
       await handleBookingCommand(orgId, chatId);
-      await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t booking");
+      await sharedAnswerCallback(callback.id, "Đã cập nhật booking");
       break;
     default:
-      await sharedAnswerCallback(callback.id, "ChÃ¡Â»Â©c nÃ„Æ’ng khÃƒÂ´ng hÃ¡Â»â€” trÃ¡Â»Â£.");
+      await sharedAnswerCallback(callback.id, "Chức năng không hỗ trợ.");
   }
 
   return NextResponse.json({ ok: true, action });
@@ -283,8 +283,7 @@ export async function processTelegramUpdate(body: unknown) {
       callback_query?: Parameters<typeof handleCallback>[0] | null;
     };
 
-    const update =
-      typeof body === "object" && body !== null ? (body as TelegramUpdatePayload) : null;
+    const update = typeof body === "object" && body !== null ? (body as TelegramUpdatePayload) : null;
 
     if (update?.message) {
       return await handleMessage(update.message);
@@ -319,7 +318,7 @@ export async function GET() {
     ok: true,
     route: "/api/telegram/callback",
     mode: process.env.NODE_ENV,
-    note: "GET chi de health-check. Telegram webhook that su dung POST.",
+    note: "GET chỉ để health-check. Telegram webhook thật sự dùng POST.",
     local_test: {
       message: {
         method: "POST",
@@ -378,7 +377,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
   if (command === "/link") {
     const code = args[0]?.trim();
     if (!code) {
-      await sendTelegramMessage(chatId, "Ã¢Ââ€” CÃƒÂº phÃƒÂ¡p: <code>/link MÃƒÆ’_6_SÃ¡Â»Â</code>\n\nLÃ¡ÂºÂ¥y mÃƒÂ£ trong Nails App Ã¢â€ â€™ HÃ¡Â»â€œ sÃ†Â¡ & bÃ¡ÂºÂ£o mÃ¡ÂºÂ­t Ã¢â€ â€™ LiÃƒÂªn kÃ¡ÂºÂ¿t Telegram");
+      await sendTelegramMessage(chatId, "❌ Cú pháp: <code>/link MÃ_6_SỐ</code>\n\nLấy mã trong Nails App → Hồ sơ & bảo mật → Liên kết Telegram");
       return NextResponse.json({ ok: true, command: "link", error: "missing_code" });
     }
     await handleLinkCommand(telegramUserId, telegramUsername, telegramFirstName, code, chatId);
@@ -389,12 +388,12 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
     const userInfo = await getTelegramUserRole(telegramUserId);
 
     if (!userInfo.linked) {
-      await sendTelegramMessage(chatId, "Ã¢ÂÅ’ BÃ¡ÂºÂ¡n chÃ†Â°a liÃƒÂªn kÃ¡ÂºÂ¿t tÃƒÂ i khoÃ¡ÂºÂ£n.\n\nDÃƒÂ¹ng /start Ã„â€˜Ã¡Â»Æ’ bÃ¡ÂºÂ¯t Ã„â€˜Ã¡ÂºÂ§u.");
+      await sendTelegramMessage(chatId, "❌ Bạn chưa liên kết tài khoản.\n\nDùng /start để bắt đầu.");
       return NextResponse.json({ ok: true, command, error: "not_linked" });
     }
 
     if (command !== "/me" && !isManagerOrOwner(userInfo.role)) {
-      await sendTelegramMessage(chatId, "Ã¢ÂÅ’ ChÃ¡Â»â€° OWNER hoÃ¡ÂºÂ·c MANAGER mÃ¡Â»â€ºi Ã„â€˜Ã†Â°Ã¡Â»Â£c dÃƒÂ¹ng lÃ¡Â»â€¡nh nÃƒÂ y.");
+      await sendTelegramMessage(chatId, "❌ Chỉ OWNER hoặc MANAGER mới được dùng lệnh này.");
       return NextResponse.json({ ok: true, command, error: "forbidden", role: userInfo.role });
     }
 
@@ -441,7 +440,8 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
     const bookingId = rest.join(":");
 
     if (prefix === "menu") {
-      return await handleMenuCallback(callback, action!, chatId!);
+      if (!chatId || !action) return NextResponse.json({ ok: true, ignored: true });
+      return await handleMenuCallback(callback, action, chatId);
     }
 
     if (prefix === "report") {
@@ -451,19 +451,19 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
       const userInfo = await getTelegramUserRole(telegramUserId);
       if (!userInfo.linked || !isManagerOrOwner(userInfo.role) || !userInfo.org_id) {
-        await sharedAnswerCallback(callback.id, "BÃ¡ÂºÂ¡n khÃƒÂ´ng cÃƒÂ³ quyÃ¡Â»Ân sÃ¡Â»Â­ dÃ¡Â»Â¥ng chÃ¡Â»Â©c nÃ„Æ’ng nÃƒÂ y.");
+        await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_report" });
       }
 
       if (action === "custom") {
         await beginCustomReportConversation(telegramUserId, userInfo.org_id, chatId);
-        await sharedAnswerCallback(callback.id, "NhÃ¡ÂºÂ­p khoÃ¡ÂºÂ£ng ngÃƒÂ y Ã„â€˜Ã¡Â»Æ’ xem bÃƒÂ¡o cÃƒÂ¡o");
+        await sharedAnswerCallback(callback.id, "Nhập khoảng ngày để xem báo cáo");
         return NextResponse.json({ ok: true, action: "report_custom" });
       }
 
       if (action === "today" || action === "week" || action === "month") {
         await handleRevenueReportCommand(userInfo.org_id, chatId, action);
-        await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ cÃ¡ÂºÂ­p nhÃ¡ÂºÂ­t bÃƒÂ¡o cÃƒÂ¡o");
+        await sharedAnswerCallback(callback.id, "Đã cập nhật báo cáo");
         return NextResponse.json({ ok: true, action: `report_${action}` });
       }
 
@@ -477,19 +477,19 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
       const userInfo = await getTelegramUserRole(telegramUserId);
       if (!userInfo.linked || !isManagerOrOwner(userInfo.role) || !userInfo.org_id) {
-        await sharedAnswerCallback(callback.id, "BÃ¡ÂºÂ¡n khÃƒÂ´ng cÃƒÂ³ quyÃ¡Â»Ân sÃ¡Â»Â­ dÃ¡Â»Â¥ng chÃ¡Â»Â©c nÃ„Æ’ng nÃƒÂ y.");
+        await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_crm" });
       }
 
       if (action === "followups") {
         await handleCrmFollowUpCommand(userInfo.org_id, chatId);
-        await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ danh sÃƒÂ¡ch follow-up");
+        await sharedAnswerCallback(callback.id, "Đã mở danh sách follow-up");
         return NextResponse.json({ ok: true, action: "crm_followups" });
       }
 
       if (action === "at_risk") {
         await handleCrmAtRiskCommand(userInfo.org_id, chatId);
-        await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ nhÃƒÂ³m khÃƒÂ¡ch cÃ¡ÂºÂ§n chÄƒm sÃƒÂ³c");
+        await sharedAnswerCallback(callback.id, "Đã mở nhóm khách cần chăm sóc");
         return NextResponse.json({ ok: true, action: "crm_at_risk" });
       }
 
@@ -510,19 +510,19 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
       const userInfo = await getTelegramUserRole(telegramUserId);
       if (!userInfo.linked || !isManagerOrOwner(userInfo.role) || !userInfo.org_id) {
-        await sharedAnswerCallback(callback.id, "BÃ¡ÂºÂ¡n khÃƒÂ´ng cÃƒÂ³ quyÃ¡Â»Ân sÃ¡Â»Â­ dÃ¡Â»Â¥ng chÃ¡Â»Â©c nÃ„Æ’ng nÃƒÂ y.");
+        await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_quickcreate" });
       }
 
       if (action === "new") {
         await beginQuickCreateAppointmentConversation(telegramUserId, userInfo.org_id, chatId);
-        await sharedAnswerCallback(callback.id, "NhÃ¡ÂºÂ­p tÃƒÂªn khÃƒÂ¡ch hÃƒÂ ng");
+        await sharedAnswerCallback(callback.id, "Nhập tên khách hàng");
         return NextResponse.json({ ok: true, action: "quickcreate_new" });
       }
 
       if (action === "checkin") {
         await handleQuickCheckinMenu(userInfo.org_id, chatId);
-        await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ mÃ¡Â»Å¸ check-in nhanh");
+        await sharedAnswerCallback(callback.id, "Đã mở check-in nhanh");
         return NextResponse.json({ ok: true, action: "quickcreate_checkin" });
       }
 
@@ -549,7 +549,7 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
       if (action === "cancel") {
         await cancelTelegramConversation(telegramUserId);
         await handleQuickCreateMenu(chatId);
-        await sharedAnswerCallback(callback.id, "Ã„ÂÃƒÂ£ hÃ¡Â»Â§y tÃ¡ÂºÂ¡o lÃ¡Â»â€¹ch");
+        await sharedAnswerCallback(callback.id, "Đã hủy tạo lịch");
         return NextResponse.json({ ok: true, action: "quickcreate_cancel" });
       }
 
@@ -563,7 +563,7 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
       const userInfo = await getTelegramUserRole(telegramUserId);
       if (!userInfo.linked || !isManagerOrOwner(userInfo.role) || !userInfo.org_id) {
-        await sharedAnswerCallback(callback.id, "BÃ¡ÂºÂ¡n khÃƒÂ´ng cÃƒÂ³ quyÃ¡Â»Ân sÃ¡Â»Â­ dÃ¡Â»Â¥ng chÃ¡Â»Â©c nÃ„Æ’ng nÃƒÂ y.");
+        await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_checkin" });
       }
 
@@ -583,15 +583,14 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
       const userInfo = await getTelegramUserRole(telegramUserId);
       if (!userInfo.linked || !isManagerOrOwner(userInfo.role) || !userInfo.org_id) {
-        await sharedAnswerCallback(callback.id, "Ban khong co quyen su dung chuc nang nay.");
+        await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_booking_view" });
       }
 
       await handleBookingDetailCommand(userInfo.org_id, chatId, bookingId);
-      await sharedAnswerCallback(callback.id, "Da mo chi tiet booking");
+      await sharedAnswerCallback(callback.id, "Đã mở chi tiết booking");
       return NextResponse.json({ ok: true, action: "booking_view", bookingId });
     }
-
 
     const nextStatus =
       action === "confirm" ? "CONFIRMED"
@@ -612,24 +611,24 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
 
     if (readErr) throw readErr;
     if (!row?.id) {
-      await sharedAnswerCallback(callback.id, "Khong tim thay booking.");
+      await sharedAnswerCallback(callback.id, "Không tìm thấy booking.");
       return NextResponse.json({ ok: true, missing: true, debug: { callbackData: callback.data, parsed: parts, bookingId } });
     }
 
     const oldMessageId = row.telegram_message_id ? Number(row.telegram_message_id) : messageId ? Number(messageId) : null;
 
     if (row.status === "CANCELLED") {
-      await sharedAnswerCallback(callback.id, "Booking nay da bi huy truoc do.");
+      await sharedAnswerCallback(callback.id, "Booking này đã bị hủy trước đó.");
       return NextResponse.json({ ok: true, skipped: true, reason: "already_cancelled", debug: { bookingId, status: row.status } });
     }
 
     if (row.status === "NEEDS_RESCHEDULE" && nextStatus === "NEEDS_RESCHEDULE") {
-      await sharedAnswerCallback(callback.id, "Booking nay da o trang thai can doi lich.");
+      await sharedAnswerCallback(callback.id, "Booking này đã ở trạng thái cần đổi lịch.");
       return NextResponse.json({ ok: true, skipped: true, reason: "already_reschedule", debug: { bookingId, status: row.status } });
     }
 
     if (row.status === "CONVERTED" && row.appointment_id) {
-      await sharedAnswerCallback(callback.id, "Booking nay da duoc tao appointment truoc do.");
+      await sharedAnswerCallback(callback.id, "Booking này đã được tạo appointment trước đó.");
       return NextResponse.json({ ok: true, skipped: true, reason: "already_converted", debug: { bookingId, status: row.status, appointmentId: row.appointment_id } });
     }
 
@@ -647,18 +646,18 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
       if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
       if (chatId) {
         await sendTelegramMessage(chatId, buildBookingResultMessage({
-          title: "<b>\u{274C} BOOKING DA HUY</b>",
+          title: "<b>❌ BOOKING ĐÃ HỦY</b>",
           customerName: row.customer_name,
           customerPhone: row.customer_phone,
           requestedService: row.requested_service,
           requestedStartAt: row.requested_start_at,
           note: row.note,
-          resultLine: "\u{274C} Ket qua: <b>Da huy tu Telegram</b>",
-          extraLines: [`\u{1F517} Quan tri: ${publicBaseUrl}/manage/booking-requests`],
+          resultLine: "❌ Kết quả: <b>Đã hủy từ Telegram</b>",
+          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/booking-requests`],
         }));
       }
 
-      await sharedAnswerCallback(callback.id, "Da huy booking");
+      await sharedAnswerCallback(callback.id, "Đã hủy booking");
       return NextResponse.json({ ok: true, status: "CANCELLED", debug: { bookingId } });
     }
 
@@ -676,18 +675,18 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
       if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
       if (chatId) {
         await sendTelegramMessage(chatId, buildBookingResultMessage({
-          title: "<b>\u{1F4C5} BOOKING CAN DOI LICH</b>",
+          title: "<b>📅 BOOKING CẦN ĐỔI LỊCH</b>",
           customerName: row.customer_name,
           customerPhone: row.customer_phone,
           requestedService: row.requested_service,
           requestedStartAt: row.requested_start_at,
           note: row.note,
-          resultLine: "\u{1F4C5} Ket qua: <b>Da chuyen sang trang thai can doi lich</b>",
-          extraLines: [`\u{1F517} Quan tri: ${publicBaseUrl}/manage/booking-requests`],
+          resultLine: "📅 Kết quả: <b>Đã chuyển sang trạng thái cần đổi lịch</b>",
+          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/booking-requests`],
         }));
       }
 
-      await sharedAnswerCallback(callback.id, "Da chuyen booking sang can doi lich");
+      await sharedAnswerCallback(callback.id, "Đã chuyển booking sang cần đổi lịch");
       return NextResponse.json({ ok: true, status: "NEEDS_RESCHEDULE", debug: { bookingId } });
     }
 
@@ -725,23 +724,23 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
       if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
       if (chatId) {
         await sendTelegramMessage(chatId, buildBookingResultMessage({
-          title: "<b>\u{26A0}\u{FE0F} BOOKING VUOT GIOI HAN KHUNG GIO</b>",
+          title: "<b>⚠️ BOOKING VƯỢT GIỚI HẠN KHUNG GIỜ</b>",
           customerName: row.customer_name,
           customerPhone: row.customer_phone,
           requestedService: row.requested_service,
           requestedStartAt: row.requested_start_at,
           note: row.note,
-          resultLine: "\u{1F4C5} Ket qua: <b>Da chuyen sang can doi lich, chua tao appointment</b>",
+          resultLine: "📅 Kết quả: <b>Đã chuyển sang cần đổi lịch, chưa tạo appointment</b>",
           extraLines: [
-            `\u{26A0}\u{FE0F} Trung/vuot gioi han voi <b>${overlapCount}</b> lich hien co`,
+            `⚠️ Trùng/vượt giới hạn với <b>${overlapCount}</b> lịch hiện có`,
             ...appointmentOverlaps.slice(0, 3).map((item) => `• ${escapeHtml(pickCustomerName(item.customers))} — ${formatViDateTime(item.start_at)}`),
-            `\u{2139}\u{FE0F} Canh bao sat lich trong khoang ±${NEARBY_WARNING_MINUTES} phut chi dung de nhac`,
-            `\u{1F517} Quan tri: ${publicBaseUrl}/manage/booking-requests`,
+            `ℹ️ Cảnh báo sát lịch trong khoảng ±${NEARBY_WARNING_MINUTES} phút chỉ dùng để nhắc`,
+            `🔗 Quản trị: ${publicBaseUrl}/manage/booking-requests`,
           ],
         }));
       }
 
-      await sharedAnswerCallback(callback.id, `Booking vuot gioi han ${MAX_SIMULTANEOUS_BOOKINGS} khach cung gio, can doi lich`);
+      await sharedAnswerCallback(callback.id, `Booking vượt giới hạn ${MAX_SIMULTANEOUS_BOOKINGS} khách cùng giờ, cần đổi lịch`);
       return NextResponse.json({ ok: true, status: "LIMIT_EXCEEDED", debug: { bookingId, overlapCount, appointmentOverlaps } });
     }
 
@@ -761,23 +760,23 @@ async function handleCallback(callback: { id: string; data?: string; message?: {
     if (chatId && oldMessageId) await deleteTelegramMessage(chatId, oldMessageId);
     if (chatId) {
       await sendTelegramMessage(chatId, buildBookingResultMessage({
-        title: "<b>\u{2705} BOOKING DA XAC NHAN</b>",
+        title: "<b>✅ BOOKING ĐÃ XÁC NHẬN</b>",
         customerName: row.customer_name,
         customerPhone: row.customer_phone,
         requestedService: row.requested_service,
         requestedStartAt: row.requested_start_at,
         note: row.note,
-        resultLine: "\u{2705} Ket qua: <b>Da xac nhan va tao appointment</b>",
+        resultLine: "✅ Kết quả: <b>Đã xác nhận và tạo appointment</b>",
         extraLines: [
-          `\u{1F194} Appointment: <code>${appointmentId}</code>`,
-          `\u{1F4CC} Trang thai moi: <b>BOOKED ONLINE</b>`,
-          `\u{2139}\u{FE0F} Gioi han hien tai: toi da <b>${MAX_SIMULTANEOUS_BOOKINGS}</b> khach cung gio, canh bao sat lich ±${NEARBY_WARNING_MINUTES} phut`,
-          `\u{1F517} Quan tri: ${publicBaseUrl}/manage/appointments`,
+          `🆔 Appointment: <code>${appointmentId}</code>`,
+          `📌 Trạng thái mới: <b>BOOKED ONLINE</b>`,
+          `ℹ️ Giới hạn hiện tại: tối đa <b>${MAX_SIMULTANEOUS_BOOKINGS}</b> khách cùng giờ, cảnh báo sát lịch ±${NEARBY_WARNING_MINUTES} phút`,
+          `🔗 Quản trị: ${publicBaseUrl}/manage/appointments`,
         ],
       }));
     }
 
-    await sharedAnswerCallback(callback.id, "Da xac nhan va tao appointment");
+    await sharedAnswerCallback(callback.id, "Đã xác nhận và tạo appointment");
 
     return NextResponse.json({
       ok: true,

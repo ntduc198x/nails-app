@@ -10,14 +10,14 @@ const telegramWebhookSecret = getTelegramWebhookSecret();
 const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.chambeauty.io.vn";
 
 const BOT_COMMANDS = [
-  { command: "start", description: "Bat dau su dung bot" },
-  { command: "link", description: "Lien ket tai khoan Nails App" },
-  { command: "manage", description: "Mo menu quan tri Telegram" },
-  { command: "me", description: "Xem trang thai lien ket Telegram" },
-  { command: "lich", description: "Xem lich hom nay" },
-  { command: "doanhthu", description: "Doanh thu hom nay" },
-  { command: "ca", description: "Ca lam dang mo" },
-  { command: "booking", description: "Booking cho xu ly" },
+  { command: "start", description: "Bắt đầu sử dụng bot" },
+  { command: "link", description: "Liên kết tài khoản Nails App" },
+  { command: "manage", description: "Mở menu quản trị Telegram" },
+  { command: "me", description: "Xem trạng thái liên kết Telegram" },
+  { command: "lich", description: "Xem lịch hôm nay" },
+  { command: "doanhthu", description: "Doanh thu hôm nay" },
+  { command: "ca", description: "Ca làm đang mở" },
+  { command: "booking", description: "Booking chờ xử lý" },
 ];
 
 export async function POST(req: Request) {
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       ok: false,
       webhookUrl,
       publicBaseUrl,
-      warning: "Telegram khong the goi webhook vao localhost truc tiep. Dung route /api/telegram/dev de test local, hoac expose localhost bang tunnel nhu ngrok/cloudflared roi moi setWebhook.",
+      warning: "Telegram không thể gọi webhook vào localhost trực tiếp. Dùng route /api/telegram/dev để test local, hoặc expose localhost bằng tunnel như ngrok/cloudflared rồi mới setWebhook.",
       localTestRoute: `${publicBaseUrl}/api/telegram/dev`,
     }, { status: 400 });
   }

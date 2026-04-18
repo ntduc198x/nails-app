@@ -25,8 +25,10 @@ body {
   overflow-x: hidden;
   background: radial-gradient(circle at top, #fff6f7 0%, var(--color-background) 28%);
   color: var(--color-text-main);
-  font-family: var(--font-inter), Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), "Inter", "Segoe UI", Roboto, Arial, Helvetica, sans-serif;
   -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
 }
 
 img {

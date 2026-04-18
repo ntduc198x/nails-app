@@ -369,12 +369,12 @@ export default function CheckoutPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-semibold">CRM</span>
                     {selectedCustomerCrm.customer_status ? <span className="font-semibold">{selectedCustomerCrm.customer_status}</span> : null}
-                    {typeof selectedCustomerCrm.total_visits === "number" ? <span>{selectedCustomerCrm.total_visits} luot</span> : null}
+                    {typeof selectedCustomerCrm.total_visits === "number" ? <span>{selectedCustomerCrm.total_visits} lượt</span> : null}
                     {typeof selectedCustomerCrm.total_spend === "number" ? <span>{selectedCustomerCrm.total_spend.toLocaleString("vi-VN")} VND</span> : null}
                   </div>
-                  {selectedCustomerCrm.phone ? <div className="mt-1 text-xs text-violet-900">Phone: {selectedCustomerCrm.phone}</div> : null}
-                  {selectedCustomerCrm.last_service_summary ? <div className="mt-1 text-xs text-violet-900">Dich vu gan nhat: {selectedCustomerCrm.last_service_summary}</div> : null}
-                  {selectedCustomerCrm.care_note ? <div className="mt-1 text-xs text-violet-900">Ghi chu: {selectedCustomerCrm.care_note}</div> : null}
+                  {selectedCustomerCrm.phone ? <div className="mt-1 text-xs text-violet-900">Số điện thoại: {selectedCustomerCrm.phone}</div> : null}
+                  {selectedCustomerCrm.last_service_summary ? <div className="mt-1 text-xs text-violet-900">Dịch vụ gần nhất: {selectedCustomerCrm.last_service_summary}</div> : null}
+                  {selectedCustomerCrm.care_note ? <div className="mt-1 text-xs text-violet-900">Ghi chú: {selectedCustomerCrm.care_note}</div> : null}
                   {selectedCustomerCrm.next_follow_up_at ? <div className="mt-1 text-xs text-violet-900">Follow-up hien tai: {formatCompactDate(selectedCustomerCrm.next_follow_up_at)}</div> : null}
                 </div>
               ) : null}
@@ -529,7 +529,7 @@ export default function CheckoutPage() {
 
                   <div className="mt-3 space-y-1.5 rounded-xl bg-white/80 p-2.5">
                     {selectedServices.length === 0 ? (
-                      <div className="text-xs text-neutral-500">ChÆ°a cÃ³ dá»‹ch vá»¥ nÃ o Ä‘Æ°á»£c chá»n.</div>
+                      <div className="text-xs text-neutral-500">Chưa có dịch vụ nào được chọn.</div>
                     ) : selectedServices.map((line, idx) => {
                       const service = line.service;
                       if (!service) return null;

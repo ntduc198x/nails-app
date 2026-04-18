@@ -44,7 +44,7 @@ export default async function ReceiptPage({ params }: { params: Promise<Params> 
   return (
     <main className="mx-auto max-w-2xl space-y-4 bg-white p-6 print:max-w-full print:p-2">
       <div className="flex items-center justify-between print:hidden">
-        <h1 className="text-2xl font-bold">Receipt</h1>
+        <h1 className="text-2xl font-bold">Hóa đơn</h1>
         <div className="flex gap-2">
           <Link href="/manage/reports" className="rounded border px-3 py-1 text-sm">
             Về báo cáo
@@ -85,7 +85,7 @@ export default async function ReceiptPage({ params }: { params: Promise<Params> 
       </div>
 
       <div className="rounded-xl border p-4 text-sm">
-        <p>Subtotal: {formatVnd(Number(totals.subtotal ?? 0))}</p>
+        <p>Tạm tính: {formatVnd(Number(totals.subtotal ?? 0))}</p>
         <p>VAT: {formatVnd(Number(totals.vat_total ?? 0))}</p>
         <p className="mt-2 text-lg font-semibold">Tổng: {formatVnd(Number(totals.grand_total ?? 0))}</p>
       </div>

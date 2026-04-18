@@ -15,7 +15,6 @@ import {
   handleCaCommand,
   handleBookingCommand,
   handleManageCommand,
-  handleHelpCommand,
   handleCrmMenu,
   handleMeCommand,
   handleOverviewCommand,

@@ -10,8 +10,7 @@ const telegramWebhookSecret = getTelegramWebhookSecret();
 const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.chambeauty.io.vn";
 
 const BOT_COMMANDS = [
-  { command: "manage", description: "Mở menu quản trị" },
-  { command: "help", description: "Xem hướng dẫn sử dụng" },
+  { command: "start", description: "Bắt đầu và mở menu quản trị" },
 ];
 
 export async function POST(req: Request) {

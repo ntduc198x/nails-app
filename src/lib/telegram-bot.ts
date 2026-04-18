@@ -1649,7 +1649,8 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
     `Tài khoản: <b>${displayName}</b>`,
     `Vai trò: <b>${role}</b>`,
     "",
-    "Dùng /manage để mở menu quản trị.",
+    "Từ giờ anh chỉ cần bấm nút trong chat là dùng được.
+",
   ].join("\n"), { reply_markup: getAdminMenuKeyboard() });
 }
 
@@ -1678,14 +1679,3 @@ export async function handleStartCommand(telegramUserId: number, chatId: string)
   }
 }
 
-export async function handleHelpCommand(chatId: string) {
-  await sendTelegramMessage(chatId, [
-    "📘 <b>HƯỚNG DẪN SỬ DỤNG</b>",
-    "",
-    "• <code>/manage</code> — mở menu quản trị",
-    "• <code>/help</code> — xem hướng dẫn này",
-    "",
-    "Nếu đang ở group, anh có thể gõ dạng <code>/manage@chambeauty_bot</code> hoặc <code>/help@chambeauty_bot</code>.",
-    "Nếu chưa liên kết tài khoản thì dùng <code>/link MÃ_6_SỐ</code>.",
-  ].join("\n"));
-}

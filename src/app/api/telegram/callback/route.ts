@@ -388,11 +388,6 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
     return NextResponse.json({ ok: true, command: "manage" });
   }
 
-  if (command === "/help") {
-    await handleHelpCommand(chatId);
-    return NextResponse.json({ ok: true, command: "help" });
-  }
-
   if (command === "/link") {
     const code = args[0]?.trim();
     if (!code) {

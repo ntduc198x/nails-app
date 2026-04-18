@@ -41,7 +41,8 @@ const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES
 
 function normalizeTelegramMenuText(text: string) {
   return text
-    .normalize("NFKC")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ");
@@ -383,14 +384,17 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "🧭 mo menu quan tri":
         case "mo menu quan tri":
         case "menu quan tri":
+        case "⚙️ menu quan tri":
           await handleManageCommand(chatId);
           return NextResponse.json({ ok: true, handled: "reply_keyboard_manage" });
         case "📊 tong quan":
         case "tong quan":
+        case "📊 tổng quan":
           await handleOverviewCommand(userInfo.org_id, chatId);
           return NextResponse.json({ ok: true, handled: "reply_keyboard_overview" });
         case "📈 bao cao":
         case "bao cao":
+        case "📈 báo cáo":
           await sendTelegramMessage(chatId, "📈 <b>BAO CAO DOANH THU</b>\n\nChon khoang thoi gian:", {
             reply_markup: {
               inline_keyboard: [
@@ -416,14 +420,17 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
           return NextResponse.json({ ok: true, handled: "reply_keyboard_booking" });
         case "🕐 ca lam":
         case "ca lam":
+        case "🕐 ca làm":
           await handleCaCommand(userInfo.org_id, chatId);
           return NextResponse.json({ ok: true, handled: "reply_keyboard_shift" });
         case "⚡ tao nhanh":
         case "tao nhanh":
+        case "⚡ tạo nhanh":
           await handleQuickCreateMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_keyboard_quickcreate" });
         case "🔽 thu gon menu":
         case "thu gon menu":
+        case "🔽 thu gọn menu":
           await handleCompactManageCommand(chatId);
           return NextResponse.json({ ok: true, handled: "reply_keyboard_compact" });
       }

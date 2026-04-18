@@ -195,10 +195,30 @@ export async function convertBookingRequestToAppointment(input: {
   });
 
   if (error) {
-    const message = [error.message, (error as { details?: string }).details, (error as { hint?: string }).hint]
+    const rawMessage = [error.message, (error as { details?: string }).details, (error as { hint?: string }).hint]
       .filter(Boolean)
       .join(" | ");
-    throw new Error(message || "Không convert được booking request");
+
+    if (rawMessage.includes("DEFAULT_BRANCH_REQUIRED")) {
+      throw new Error("Chưa có chi nhánh mặc định để tạo lịch. Hãy cấu hình default_branch_id cho tài khoản hoặc booking này.");
+    }
+    if (rawMessage.includes("BOOKING_START_REQUIRED")) {
+      throw new Error("Thiếu thời gian chốt lịch mới.");
+    }
+    if (rawMessage.includes("INVALID_TIME_RANGE")) {
+      throw new Error("Khoảng thời gian không hợp lệ.");
+    }
+    if (rawMessage.includes("BOOKING_REQUEST_ALREADY_FINALIZED")) {
+      throw new Error("Booking này đã được xử lý trước đó.");
+    }
+    if (rawMessage.includes("BOOKING_REQUEST_NOT_FOUND")) {
+      throw new Error("Không tìm thấy booking request.");
+    }
+    if (rawMessage.includes("FORBIDDEN")) {
+      throw new Error("Tài khoản hiện tại không có quyền tạo lịch từ booking này.");
+    }
+
+    throw new Error(rawMessage || "Không convert được booking request");
   }
 
   const { orgId } = await ensureOrgContext();

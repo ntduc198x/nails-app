@@ -197,8 +197,8 @@ async function convertBookingToAppointment(supabase: ReturnType<typeof getAdminS
   return appointment.id;
 }
 
-async function handleMenuCallback(callback: { id: string; data?: string; message?: { from?: { id: number } } }, action: string, chatId: string) {
-  const telegramUserId = callback.message?.from?.id;
+async function handleMenuCallback(callback: { id: string; data?: string; from?: { id: number }; message?: { from?: { id: number } } }, action: string, chatId: string) {
+  const telegramUserId = callback.from?.id ?? callback.message?.from?.id;
   if (!telegramUserId) {
     await sharedAnswerCallback(callback.id, "Không xác định được người dùng.");
     return NextResponse.json({ ok: false, error: "no_user_id" });
@@ -429,11 +429,11 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
   return NextResponse.json({ ok: true, ignored: true, text: text.slice(0, 50) });
 }
 
-async function handleCallback(callback: { id: string; data?: string; message?: { chat?: { id?: number | string }; message_id?: number; from?: { id: number } } }) {
+async function handleCallback(callback: { id: string; data?: string; from?: { id: number }; message?: { chat?: { id?: number | string }; message_id?: number; from?: { id: number } } }) {
   try {
     const chatId = callback.message?.chat?.id ? String(callback.message.chat.id) : null;
     const messageId = callback.message?.message_id;
-    const telegramUserId = callback.message?.from?.id;
+    const telegramUserId = callback.from?.id ?? callback.message?.from?.id;
 
     const parts = String(callback.data).split(":");
     const [prefix, action, ...rest] = parts;

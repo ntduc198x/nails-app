@@ -282,6 +282,28 @@ export async function editTelegramMessage(chatId: string, messageId: number, tex
   return payload;
 }
 
+export async function editTelegramMessageReplyMarkup(chatId: string, messageId: number, replyMarkup?: unknown) {
+  if (!telegramBotToken) throw new Error("Thiếu TELEGRAM_BOT_TOKEN");
+
+  const res = await fetch(`https://api.telegram.org/bot${telegramBotToken}/editMessageReplyMarkup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: replyMarkup ?? { inline_keyboard: [] },
+    }),
+  });
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.ok === false) {
+    const description = payload?.description || (payload ? JSON.stringify(payload) : await res.text());
+    throw new Error(`Telegram editMessageReplyMarkup failed: ${description}`);
+  }
+
+  return payload;
+}
+
 export async function sendManagedReplyPanel(chatId: string, text: string, replyMarkup: unknown) {
   const tracked = await getReplyPanelState(chatId);
   if (tracked?.messageId) {

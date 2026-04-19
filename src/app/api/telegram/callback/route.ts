@@ -17,6 +17,7 @@ import {
   handleManageCommand,
   handleCompactManageCommand,
   editTelegramMessage,
+  editTelegramMessageReplyMarkup,
   handleCrmMenu,
   handleMeCommand,
   handleOverviewCommand,
@@ -239,7 +240,21 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
       await sharedAnswerCallback(callback.id, "Đã cập nhật tổng quan");
       break;
     case "report":
-      await handleRevenueReportCommand(orgId, chatId, "today");
+      await sendTelegramMessage(chatId, "📈 <b>BÁO CÁO DOANH THU</b>\n\nChọn khoảng thời gian:", {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "📅 Hôm nay", callback_data: "report:today" },
+              { text: "📆 Tuần này", callback_data: "report:week" },
+            ],
+            [
+              { text: "🗓️ Tháng này", callback_data: "report:month" },
+              { text: "📊 Tùy chỉnh", callback_data: "report:custom" },
+            ],
+            [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
+          ],
+        },
+      });
       await sharedAnswerCallback(callback.id);
       break;
     case "crm":
@@ -493,7 +508,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
             inline_keyboard: [[{ text: "📂 Mở menu xử lý", callback_data: toggleData }]],
           };
 
-      await editTelegramMessage(chatId, Number(messageId), callback.message && "text" in callback.message ? String((callback.message as unknown as { text?: string }).text || "⚙️ <b>MENU QUẢN TRỊ</b>") : "⚙️ <b>MENU QUẢN TRỊ</b>", reply_markup);
+      await editTelegramMessageReplyMarkup(chatId, Number(messageId), reply_markup);
 
       await sharedAnswerCallback(callback.id);
       return NextResponse.json({ ok: true, action: expanded ? "bookingmenu_show" : "bookingmenu_hide" });

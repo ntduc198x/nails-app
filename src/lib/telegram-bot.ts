@@ -690,6 +690,7 @@ function getAdminReplyKeyboard() {
       [{ text: "⚡ Tao nhanh" }],
     ],
     resize_keyboard: true,
+    one_time_keyboard: false,
     is_persistent: false,
     input_field_placeholder: "Chon chuc nang quan tri...",
   };
@@ -1331,6 +1332,10 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
 
 export async function sendFreshAdminReplyKeyboard(chatId: string) {
   await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được làm mới.", {
+    reply_markup: { remove_keyboard: true },
+  });
+
+  await sendTelegramMessage(chatId, "⏳ Dang dong ban phim cu...", {
     reply_markup: { remove_keyboard: true },
   });
 

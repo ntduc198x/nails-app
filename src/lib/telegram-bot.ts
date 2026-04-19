@@ -240,7 +240,7 @@ async function setReplyPanelState(chatId: string, messageId: number) {
   await setFileReplyPanelState(chatId, messageId);
 }
 
-async function clearReplyPanelState(chatId: string) {
+export async function clearReplyPanelState(chatId: string) {
   clearInMemoryReplyPanelState(chatId);
   await clearFileReplyPanelState(chatId);
 }
@@ -1327,6 +1327,16 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
     },
     { forceNew: opts?.forceNew },
   );
+}
+
+export async function sendFreshAdminReplyKeyboard(chatId: string) {
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được làm mới.", {
+    reply_markup: { remove_keyboard: true },
+  });
+
+  await sendTelegramMessage(chatId, "⚙️ <b>MENU QUẢN TRỊ</b>\n\nChọn chức năng bằng các nút dưới ô chat.", {
+    reply_markup: getAdminReplyKeyboard(),
+  });
 }
 
 export async function handleCompactManageCommand(chatId: string) {

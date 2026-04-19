@@ -16,6 +16,8 @@ import {
   handleBookingCommand,
   handleManageCommand,
   handleCompactManageCommand,
+  sendFreshAdminReplyKeyboard,
+  clearReplyPanelState,
   editTelegramMessage,
   handleCrmMenu,
   handleMeCommand,
@@ -368,25 +370,30 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "mo menu quan tri":
         case "menu quan tri":
         case "⚙️ menu quan tri":
-          await handleManageCommand(chatId, { forceNew: true });
+          await sendFreshAdminReplyKeyboard(chatId);
           return NextResponse.json({ ok: true, handled: "reply_manage" });
         case "📊 tong quan":
         case "tong quan":
+          await clearReplyPanelState(chatId);
           await handleOverviewCommand(userInfo.org_id, chatId);
           return NextResponse.json({ ok: true, handled: "reply_overview" });
         case "crm":
+          await clearReplyPanelState(chatId);
           await handleCrmMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_crm" });
         case "📌 booking":
         case "booking":
+          await clearReplyPanelState(chatId);
           await handleBookingCommand(userInfo.org_id, chatId);
           return NextResponse.json({ ok: true, handled: "reply_booking" });
         case "🕐 ca lam":
         case "ca lam":
+          await clearReplyPanelState(chatId);
           await handleCaCommand(userInfo.org_id, chatId);
           return NextResponse.json({ ok: true, handled: "reply_shift" });
         case "⚡ tao nhanh":
         case "tao nhanh":
+          await clearReplyPanelState(chatId);
           await handleQuickCreateMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_quickcreate" });
       }

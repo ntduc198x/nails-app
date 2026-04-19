@@ -651,9 +651,7 @@ export async function handleBookingCommand(orgId: string, chatId: string) {
   lines.push("", `👉 ${publicBaseUrl}/manage/booking-requests`);
   keyboardRows.push([{ text: "◀️ Quay lại", callback_data: "menu:admin" }]);
 
-  await sendManagedReplyPanel(chatId, lines.join("\n"), {
-    reply_markup: { inline_keyboard: keyboardRows },
-  });
+  await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
 }
 
 function getCompactAdminReplyKeyboard() {
@@ -1472,7 +1470,7 @@ export async function handleOverviewCommand(orgId: string, chatId: string) {
     `📌 Booking: <b>${newBookings.length}</b> mới, <b>${rescheduleBookings.length}</b> cần dời lịch`,
   ];
 
-  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getReportMenuKeyboard());
 }
 
 export async function handleRevenueReportCommand(orgId: string, chatId: string, period: "today" | "week" | "month" | "custom", customStartDate?: Date, customEndDate?: Date) {
@@ -1619,10 +1617,10 @@ export async function handleRevenueReportCommand(orgId: string, chatId: string, 
 
 export async function beginCustomReportConversation(telegramUserId: number, orgId: string, chatId: string) {
   await setConversationState(telegramUserId, "report:custom", { orgId });
-  await sendTelegramMessage(
+  await sendManagedReplyPanel(
     chatId,
     "📊 <b>BÁO CÁO TÙY CHỌN</b>\n\nNhập theo định dạng:\n• <code>01/04 - 30/04</code>\n\nGõ <code>back</code> hoac <code>/cancel</code> để hủy.",
-    { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
+    getBackToAdminKeyboard(),
   );
 }
 

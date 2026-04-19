@@ -239,21 +239,7 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
       await sharedAnswerCallback(callback.id, "Đã cập nhật tổng quan");
       break;
     case "report":
-      await sendTelegramMessage(chatId, "📈 <b>BÁO CÁO DOANH THU</b>\n\nChọn khoảng thời gian:", {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "📅 Hôm nay", callback_data: "report:today" },
-              { text: "📆 Tuần này", callback_data: "report:week" },
-            ],
-            [
-              { text: "🗓️ Tháng này", callback_data: "report:month" },
-              { text: "📊 Tùy chọn", callback_data: "report:custom" },
-            ],
-            [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
-          ],
-        },
-      });
+      await handleRevenueReportCommand(orgId, chatId, "today");
       await sharedAnswerCallback(callback.id);
       break;
     case "crm":

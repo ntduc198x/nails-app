@@ -685,17 +685,9 @@ function getCompactAdminReplyKeyboard() {
 function getAdminReplyKeyboard() {
   return {
     keyboard: [
-      [
-        { text: "📊 Tong quan" },
-      ],
-      [
-        { text: "CRM" },
-        { text: "📌 Booking" },
-      ],
-      [
-        { text: "🕐 Ca lam" },
-        { text: "⚡ Tao nhanh" },
-      ],
+      [{ text: "📊 Tong quan" }, { text: "CRM" }],
+      [{ text: "📌 Booking" }, { text: "🕐 Ca lam" }],
+      [{ text: "⚡ Tao nhanh" }],
     ],
     resize_keyboard: true,
     is_persistent: false,

@@ -370,6 +370,25 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "⚙️ menu quan tri":
           await handleManageCommand(chatId, { forceNew: true });
           return NextResponse.json({ ok: true, handled: "reply_manage" });
+        case "📊 tong quan":
+        case "tong quan":
+          await handleOverviewCommand(userInfo.org_id, chatId);
+          return NextResponse.json({ ok: true, handled: "reply_overview" });
+        case "crm":
+          await handleCrmMenu(chatId);
+          return NextResponse.json({ ok: true, handled: "reply_crm" });
+        case "📌 booking":
+        case "booking":
+          await handleBookingCommand(userInfo.org_id, chatId);
+          return NextResponse.json({ ok: true, handled: "reply_booking" });
+        case "🕐 ca lam":
+        case "ca lam":
+          await handleCaCommand(userInfo.org_id, chatId);
+          return NextResponse.json({ ok: true, handled: "reply_shift" });
+        case "⚡ tao nhanh":
+        case "tao nhanh":
+          await handleQuickCreateMenu(chatId);
+          return NextResponse.json({ ok: true, handled: "reply_quickcreate" });
       }
     }
   }

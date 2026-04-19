@@ -114,26 +114,14 @@ function buildBookingMessageText(payload: {
   return lines.filter(Boolean).join("\n");
 }
 
-function buildBookingToggleKeyboard(payload: { bookingId: string; expanded?: boolean }) {
-  const toggleData = `bookingmenu:${payload.expanded ? "hide" : "show"}:${payload.bookingId}`;
-  const confirmData = `booking:confirm:${payload.bookingId}`;
-  const cancelData = `booking:cancel:${payload.bookingId}`;
-  const rescheduleData = `booking:reschedule:${payload.bookingId}`;
-
-  if (!payload.expanded) {
-    return {
-      inline_keyboard: [[{ text: "📂 Mở menu xử lý", callback_data: toggleData }]],
-    };
-  }
-
+function buildBookingActionKeyboard(payload: { bookingId: string }) {
   return {
     inline_keyboard: [
       [
-        { text: "✅ Xác nhận", callback_data: confirmData },
-        { text: "❌ Hủy", callback_data: cancelData },
+        { text: "✅ Xác nhận", callback_data: `booking:confirm:${payload.bookingId}` },
+        { text: "❌ Hủy", callback_data: `booking:cancel:${payload.bookingId}` },
       ],
-      [{ text: "📅 Dời lịch", callback_data: rescheduleData }],
-      [{ text: "📁 Thu gọn", callback_data: toggleData }],
+      [{ text: "📅 Dời lịch", callback_data: `booking:reschedule:${payload.bookingId}` }],
     ],
   };
 }
@@ -164,9 +152,8 @@ async function sendTelegramBookingMessageV2(payload: {
       text: buildBookingMessageText(payload),
       parse_mode: "HTML",
       disable_web_page_preview: true,
-      reply_markup: buildBookingToggleKeyboard({
+      reply_markup: buildBookingActionKeyboard({
         bookingId: payload.bookingId,
-        expanded: false,
       }),
     }),
   });

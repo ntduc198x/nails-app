@@ -17,7 +17,6 @@ import {
   handleManageCommand,
   handleCompactManageCommand,
   editTelegramMessage,
-  editTelegramMessageReplyMarkup,
   handleCrmMenu,
   handleMeCommand,
   handleOverviewCommand,
@@ -462,38 +461,6 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
     if (prefix === "menu") {
       if (!chatId || !action) return NextResponse.json({ ok: true, ignored: true });
       return await handleMenuCallback(callback, action, chatId);
-    }
-
-    if (prefix === "bookingmenu") {
-      if (!chatId || !messageId) {
-        return NextResponse.json({ ok: true, ignored: true, debug: { callbackData: callback.data, parsed: parts } });
-      }
-
-      const bookingIdForMenu = rest.join(":");
-      const expanded = action === "show";
-      const confirmData = `booking:confirm:${bookingIdForMenu}`;
-      const cancelData = `booking:cancel:${bookingIdForMenu}`;
-      const rescheduleData = `booking:reschedule:${bookingIdForMenu}`;
-      const toggleData = `bookingmenu:${expanded ? "hide" : "show"}:${bookingIdForMenu}`;
-      const reply_markup = expanded
-        ? {
-            inline_keyboard: [
-              [
-                { text: "✅ Xác nhận", callback_data: confirmData },
-                { text: "❌ Hủy", callback_data: cancelData },
-              ],
-              [{ text: "📅 Dời lịch", callback_data: rescheduleData }],
-              [{ text: "📁 Thu gọn", callback_data: toggleData }],
-            ],
-          }
-        : {
-            inline_keyboard: [[{ text: "📂 Mở menu xử lý", callback_data: toggleData }]],
-          };
-
-      await editTelegramMessageReplyMarkup(chatId, Number(messageId), reply_markup);
-
-      await sharedAnswerCallback(callback.id);
-      return NextResponse.json({ ok: true, action: expanded ? "bookingmenu_show" : "bookingmenu_hide" });
     }
 
     if (prefix === "report") {

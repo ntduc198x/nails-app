@@ -687,7 +687,6 @@ function getAdminReplyKeyboard() {
     keyboard: [
       [
         { text: "📊 Tong quan" },
-        { text: "📈 Bao cao" },
       ],
       [
         { text: "CRM" },
@@ -1320,10 +1319,7 @@ export async function handleManageCommand(chatId: string) {
     "⚙️ <b>MENU QUẢN TRỊ</b>\n\nChọn chức năng để thao tác.",
     {
       inline_keyboard: [
-        [
-          { text: "📊 Tổng quan", callback_data: "menu:overview" },
-          { text: "📈 Báo cáo", callback_data: "menu:report" },
-        ],
+        [{ text: "📊 Tổng quan", callback_data: "menu:overview" }],
         [
           { text: "CRM", callback_data: "menu:crm" },
           { text: "📌 Booking", callback_data: "menu:booking" },

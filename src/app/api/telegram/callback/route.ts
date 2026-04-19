@@ -16,6 +16,7 @@ import {
   handleBookingCommand,
   handleManageCommand,
   handleCompactManageCommand,
+  editTelegramMessage,
   handleCrmMenu,
   handleMeCommand,
   handleOverviewCommand,
@@ -386,53 +387,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "menu quan tri":
         case "⚙️ menu quan tri":
           await handleManageCommand(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_manage" });
-        case "📊 tong quan":
-        case "tong quan":
-        case "📊 tổng quan":
-          await handleOverviewCommand(userInfo.org_id, chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_overview" });
-        case "📈 bao cao":
-        case "bao cao":
-        case "📈 báo cáo":
-          await sendTelegramMessage(chatId, "📈 <b>BAO CAO DOANH THU</b>\n\nChon khoang thoi gian:", {
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  { text: "📅 Hôm nay", callback_data: "report:today" },
-                  { text: "📆 Tuần này", callback_data: "report:week" },
-                ],
-                [
-                  { text: "🗓️ Tháng này", callback_data: "report:month" },
-                  { text: "📊 Tùy chọn", callback_data: "report:custom" },
-                ],
-                [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
-              ],
-            },
-          });
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_report" });
-        case "crm":
-          await handleCrmMenu(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_crm" });
-        case "📌 booking":
-        case "booking":
-          await handleBookingCommand(userInfo.org_id, chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_booking" });
-        case "🕐 ca lam":
-        case "ca lam":
-        case "🕐 ca làm":
-          await handleCaCommand(userInfo.org_id, chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_shift" });
-        case "⚡ tao nhanh":
-        case "tao nhanh":
-        case "⚡ tạo nhanh":
-          await handleQuickCreateMenu(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_quickcreate" });
-        case "🔽 thu gon menu":
-        case "thu gon menu":
-        case "🔽 thu gọn menu":
-          await handleCompactManageCommand(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_keyboard_compact" });
+          return NextResponse.json({ ok: true, handled: "reply_manage" });
       }
     }
   }
@@ -552,21 +507,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
             inline_keyboard: [[{ text: "📂 Mở menu xử lý", callback_data: toggleData }]],
           };
 
-      const token = process.env.TELEGRAM_BOT_TOKEN;
-      const editRes = await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          message_id: messageId,
-          reply_markup,
-        }),
-      });
-
-      if (!editRes.ok) {
-        const errText = await editRes.text();
-        throw new Error(`Telegram editMessageReplyMarkup failed: ${errText}`);
-      }
+      await editTelegramMessage(chatId, Number(messageId), callback.message && "text" in callback.message ? String((callback.message as unknown as { text?: string }).text || "⚙️ <b>MENU QUẢN TRỊ</b>") : "⚙️ <b>MENU QUẢN TRỊ</b>", reply_markup);
 
       await sharedAnswerCallback(callback.id);
       return NextResponse.json({ ok: true, action: expanded ? "bookingmenu_show" : "bookingmenu_hide" });

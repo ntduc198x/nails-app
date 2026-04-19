@@ -257,8 +257,43 @@ async function deleteTrackedReplyPanel(chatId: string) {
   }
 }
 
-async function sendManagedReplyPanel(chatId: string, text: string, replyMarkup: unknown) {
-  await deleteTrackedReplyPanel(chatId);
+export async function editTelegramMessage(chatId: string, messageId: number, text: string, replyMarkup?: unknown) {
+  if (!telegramBotToken) throw new Error("Thiếu TELEGRAM_BOT_TOKEN");
+
+  const res = await fetch(`https://api.telegram.org/bot${telegramBotToken}/editMessageText`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      ...(replyMarkup ? { reply_markup: replyMarkup } : {}),
+    }),
+  });
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || payload?.ok === false) {
+    const description = payload?.description || (payload ? JSON.stringify(payload) : await res.text());
+    throw new Error(`Telegram editMessageText failed: ${description}`);
+  }
+
+  return payload;
+}
+
+export async function sendManagedReplyPanel(chatId: string, text: string, replyMarkup: unknown) {
+  const tracked = await getReplyPanelState(chatId);
+  if (tracked?.messageId) {
+    try {
+      await editTelegramMessage(chatId, tracked.messageId, text, replyMarkup);
+      await setReplyPanelState(chatId, tracked.messageId);
+      return { ok: true, result: { message_id: tracked.messageId } };
+    } catch {
+      await clearReplyPanelState(chatId);
+    }
+  }
+
   const response = await sendTelegramMessage(chatId, text, { reply_markup: replyMarkup });
   const messageId = response.result?.message_id;
   if (messageId) {
@@ -502,7 +537,7 @@ export async function handleLichCommand(orgId: string, chatId: string) {
     lines.push("Chưa có lịch nào hôm nay.");
   }
 
-  await sendTelegramMessage(chatId, lines.join("\n"));
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
 export async function handleDoanhthuCommand(orgId: string, chatId: string) {
@@ -525,7 +560,7 @@ export async function handleDoanhthuCommand(orgId: string, chatId: string) {
     trendLine,
   ];
 
-  await sendTelegramMessage(chatId, lines.join("\n"));
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
   */
 }
 
@@ -544,7 +579,7 @@ export async function handleCaCommand(orgId: string, chatId: string) {
 
   const shifts = openShifts ?? [];
   if (!shifts.length) {
-    await sendTelegramMessage(chatId, "<b>🕐 CA LÀM</b>\n\nKhông có ai đang mở ca.");
+    await sendManagedReplyPanel(chatId, "<b>🕐 CA LÀM</b>\n\nKhông có ai đang mở ca.", getBackToAdminKeyboard());
     return;
   }
 
@@ -568,7 +603,7 @@ export async function handleCaCommand(orgId: string, chatId: string) {
     lines.push(`• <b>${name}</b> — ${duration} (vào ${formatViTime(s.clock_in as string)})${warning}`);
   }
 
-  await sendTelegramMessage(chatId, lines.join("\n"));
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
 export async function handleBookingCommand(orgId: string, chatId: string) {
@@ -587,7 +622,7 @@ export async function handleBookingCommand(orgId: string, chatId: string) {
 
   const rows = bookings ?? [];
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "<b>📌 BOOKING</b>\n\nKhông có booking mới chờ xử lý.");
+    await sendManagedReplyPanel(chatId, "<b>📌 BOOKING</b>\n\nKhông có booking mới chờ xử lý.", getBackToAdminKeyboard());
     return;
   }
 
@@ -616,7 +651,7 @@ export async function handleBookingCommand(orgId: string, chatId: string) {
   lines.push("", `👉 ${publicBaseUrl}/manage/booking-requests`);
   keyboardRows.push([{ text: "◀️ Quay lại", callback_data: "menu:admin" }]);
 
-  await sendTelegramMessage(chatId, lines.join("\n"), {
+  await sendManagedReplyPanel(chatId, lines.join("\n"), {
     reply_markup: { inline_keyboard: keyboardRows },
   });
 }
@@ -724,7 +759,7 @@ export function getReportMenuKeyboard() {
   };
 }
 
-function getBackToAdminKeyboard() {
+export function getBackToAdminKeyboard() {
   return {
     inline_keyboard: [[{ text: "◀️ Quay lại", callback_data: "menu:admin" }]],
   };
@@ -1262,8 +1297,23 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
 export async function handleManageCommand(chatId: string) {
   await sendManagedReplyPanel(
     chatId,
-    "⚙️ <b>MENU QUAN TRI</b>\n\nChon chuc nang bang nut menu canh emoji de thao tac.",
-    getAdminReplyKeyboard(),
+    "⚙️ <b>MENU QUẢN TRỊ</b>\n\nChọn chức năng để thao tác.",
+    {
+      inline_keyboard: [
+        [
+          { text: "📊 Tổng quan", callback_data: "menu:overview" },
+          { text: "📈 Báo cáo", callback_data: "menu:report" },
+        ],
+        [
+          { text: "CRM", callback_data: "menu:crm" },
+          { text: "📌 Booking", callback_data: "menu:booking" },
+        ],
+        [
+          { text: "🕐 Ca làm", callback_data: "menu:ca" },
+          { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
+        ],
+      ],
+    },
   );
 }
 
@@ -1275,9 +1325,7 @@ export async function handleCompactManageCommand(chatId: string) {
 }
 
 export async function handleCrmMenu(chatId: string) {
-  await sendTelegramMessage(chatId, "CRM <b>KHACH</b>\n\nChọn chế độ quản trị CRM:", {
-    reply_markup: getCrmMenuKeyboard(),
-  });
+  await sendManagedReplyPanel(chatId, "CRM <b>KHÁCH</b>\n\nChọn chế độ quản trị CRM:", getCrmMenuKeyboard());
 }
 
 export async function handleQuickCreateMenu(chatId: string) {
@@ -1303,9 +1351,7 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
   const rows = await listTelegramCrmCustomers(orgId, "followups");
 
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "CRM <b>FOLLOW-UP</b>\n\nChưa có khách nào đến hạn chăm sóc.", {
-      reply_markup: getCrmBackKeyboard(),
-    });
+    await sendManagedReplyPanel(chatId, "CRM <b>FOLLOW-UP</b>\n\nChưa có khách nào đến hạn chăm sóc.", getCrmBackKeyboard());
     return;
   }
 
@@ -1327,18 +1373,14 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
 
   inlineKeyboard.push([{ text: "Về CRM", callback_data: "menu:crm" }]);
 
-  await sendTelegramMessage(chatId, lines.join("\n"), {
-    reply_markup: { inline_keyboard: inlineKeyboard },
-  });
+  await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: inlineKeyboard });
 }
 
 export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
   const rows = await listTelegramCrmCustomers(orgId, "at_risk");
 
   if (!rows.length) {
-    await sendTelegramMessage(chatId, "CRM <b>AT RISK</b>\n\nChưa có khách nào ở nhóm AT_RISK/LOST.", {
-      reply_markup: getCrmBackKeyboard(),
-    });
+    await sendManagedReplyPanel(chatId, "CRM <b>AT RISK</b>\n\nChưa có khách nào ở nhóm AT_RISK/LOST.", getCrmBackKeyboard());
     return;
   }
 
@@ -1360,16 +1402,12 @@ export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
 
   inlineKeyboard.push([{ text: "Về CRM", callback_data: "menu:crm" }]);
 
-  await sendTelegramMessage(chatId, lines.join("\n"), {
-    reply_markup: { inline_keyboard: inlineKeyboard },
-  });
+  await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: inlineKeyboard });
 }
 
 export async function handleCrmContactedCommand(orgId: string, chatId: string, customerId: string) {
   const result = await markTelegramCrmContacted(orgId, customerId);
-  await sendTelegramMessage(chatId, `${result.ok ? "OK" : "ERR"} <b>CRM</b>\n\n${escapeHtml(result.message)}`, {
-    reply_markup: getCrmBackKeyboard(),
-  });
+  await sendManagedReplyPanel(chatId, `${result.ok ? "OK" : "ERR"} <b>CRM</b>\n\n${escapeHtml(result.message)}`, getCrmBackKeyboard());
   return result;
 }
 
@@ -1434,7 +1472,7 @@ export async function handleOverviewCommand(orgId: string, chatId: string) {
     `📌 Booking: <b>${newBookings.length}</b> mới, <b>${rescheduleBookings.length}</b> cần dời lịch`,
   ];
 
-  await sendTelegramMessage(chatId, lines.join("\n"), { reply_markup: getBackToAdminKeyboard() });
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
 export async function handleRevenueReportCommand(orgId: string, chatId: string, period: "today" | "week" | "month" | "custom", customStartDate?: Date, customEndDate?: Date) {
@@ -1576,7 +1614,7 @@ export async function handleRevenueReportCommand(orgId: string, chatId: string, 
     }
   }
 
-  await sendTelegramMessage(chatId, lines.join("\n"), { reply_markup: getBackToAdminKeyboard() });
+  await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
 export async function beginCustomReportConversation(telegramUserId: number, orgId: string, chatId: string) {
@@ -1821,4 +1859,3 @@ export async function handleStartCommand(telegramUserId: number, chatId: string)
     ].join("\n"));
   }
 }
-

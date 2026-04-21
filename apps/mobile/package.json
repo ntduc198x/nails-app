@@ -1,0 +1,36 @@
+{
+  "name": "@nails/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "start": "node ../../scripts/run-mobile-expo.mjs start",
+    "android": "node ../../scripts/run-mobile-expo.mjs run:android",
+    "prebuild:android": "node ../../scripts/run-mobile-expo.mjs prebuild --platform android --no-install",
+    "config": "node ../../scripts/run-mobile-expo.mjs config --json",
+    "doctor": "npx expo-doctor",
+    "ios": "node ../../scripts/run-mobile-expo.mjs run:ios",
+    "lint": "eslint . --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nails/shared": "0.1.0",
+    "@react-native-async-storage/async-storage": "2.1.2",
+    "expo": "^53.0.0",
+    "expo-constants": "~17.1.8",
+    "expo-linking": "~7.1.7",
+    "expo-router": "^5.0.0",
+    "expo-secure-store": "^14.2.3",
+    "expo-status-bar": "^2.2.3",
+    "react": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-screens": "~4.11.1"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~9.2.0",
+    "typescript": "~5.8.3"
+  }
+}

@@ -137,6 +137,88 @@ Ghi chu:
 - `TELEGRAM_WEBHOOK_SECRET` duoc dung de xac thuc request webhook tu Telegram
 - `TELEGRAM_INTERNAL_ROUTE_SECRET` duoc dung de bao ve cac route noi bo nhu setup, notify, daily summary, overdue alerts
 
+### Mobile env contract
+
+Mobile app trong `apps/mobile` doc bien moi truong qua Expo va chi dung cac key `EXPO_PUBLIC_*`.
+
+Can co day du cac bien sau trong root `.env.local`:
+
+```env
+EXPO_PUBLIC_SUPABASE_URL=...
+EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+EXPO_PUBLIC_API_BASE_URL=...
+EXPO_PUBLIC_PASSWORD_RESET_URL=...
+```
+
+Luu y:
+- Khong duoc chi co `NEXT_PUBLIC_*` neu muon chay mobile Android lane
+- `EXPO_PUBLIC_API_BASE_URL` phai tro ve domain/backend dang phuc vu route `/api/booking-request`
+- `EXPO_PUBLIC_PASSWORD_RESET_URL` tam thoi nen tro ve trang login web cho flow reset password
+- Co the chay `npm run mobile:env` de kiem tra contract truoc khi prebuild Android
+
+## 6.1 Android local build
+
+Moc build-ready dau tien la `local Android debug APK` bang Expo prebuild lane, khong dung EAS.
+
+### Yeu cau bo sung
+
+- Android Studio: `D:\Program Files\Android\Android Studio`
+- Android SDK: `C:\Users\Admin\AppData\Local\Android\Sdk`
+- Shell dang chay Expo/Gradle phai co:
+
+```powershell
+$env:ANDROID_HOME='C:\Users\Admin\AppData\Local\Android\Sdk'
+$env:ANDROID_SDK_ROOT='C:\Users\Admin\AppData\Local\Android\Sdk'
+$env:Path += ';C:\Users\Admin\AppData\Local\Android\Sdk\platform-tools'
+```
+
+### Lenh build local Android
+
+```bash
+npm install
+npm run mobile:env
+npm run mobile:typecheck
+npm run mobile:lint
+npm run mobile:config
+npm run mobile:prebuild
+npm run mobile:android
+```
+
+### Muc tieu verify sau khi boot emulator
+
+- App mo duoc tren Android emulator
+- Guest booking screen vao duoc ma khong can auth
+- Guest booking submit qua `/api/booking-request`
+- Staff sign-in van vao `/(admin)`
+- Admin overview van tai duoc du lieu that
+
+### Trang thai da verify tren may local nay
+
+- `npm run mobile:env`: pass
+- `npm run mobile:typecheck`: pass
+- `npm run mobile:lint`: pass
+- `npm run mobile:config`: pass
+- `npm run mobile:prebuild`: pass
+- Gradle `assembleDebug`: pass
+- Debug APK da duoc sinh ra tai:
+
+```text
+apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+### Blocker local con lai
+
+- Chua co Android emulator (AVD) duoc cau hinh tren may nay
+- `npm run mobile:android` se dung o buoc tim device/emulator cho toi khi co AVD hoac thiet bi that
+- `npm run mobile:doctor` con 1 warning expected cua prebuild workflow:
+  - khi thu muc native `android/` ton tai, phai tiep tuc chay `prebuild` trong build pipeline de sync `app.json`
+
+### Chinh sach native generation
+
+- `android/` co the duoc Expo sinh ra trong local prebuild lane de compile native
+- Khong sua tay file native duoc sinh ra, tru khi co blocker cu the
+- Neu sau nay can commit native directories, do la mot quyet dinh rieng, khong thuoc moc build-ready hien tai
+
 ## 7. Database
 
 SQL chinh:
@@ -265,6 +347,10 @@ npm run dev
 npm run build
 npm run lint
 npx tsc --noEmit
+npm run mobile:env
+npm run mobile:config
+npm run mobile:prebuild
+npm run mobile:android
 ```
 
 Neu can setup webhook sau deploy:

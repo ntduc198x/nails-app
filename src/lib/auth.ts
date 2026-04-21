@@ -1,8 +1,9 @@
 ﻿import { ensureOrgContext } from "@/lib/domain";
 import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
 import { supabase } from "@/lib/supabase";
+import type { AppRole } from "@nails/shared";
 
-export type AppRole = "OWNER" | "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
+export type { AppRole } from "@nails/shared";
 
 export async function getOrCreateRole(userId: string): Promise<AppRole> {
   if (!supabase) throw new Error("Supabase chưa cấu hình");

@@ -2,22 +2,41 @@
   "name": "nails-app",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/build-utf8.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "mobile:start": "npm run start --workspace @nails/mobile",
+    "mobile:android": "npm run android --workspace @nails/mobile",
+    "mobile:prebuild": "npm run prebuild:android --workspace @nails/mobile",
+    "mobile:config": "npm run config --workspace @nails/mobile",
+    "mobile:doctor": "npm run doctor --workspace @nails/mobile",
+    "mobile:env": "node scripts/check-mobile-env.mjs",
+    "mobile:ios": "npm run ios --workspace @nails/mobile",
+    "mobile:lint": "npm run lint --workspace @nails/mobile",
+    "mobile:typecheck": "npm run typecheck --workspace @nails/mobile"
   },
   "dependencies": {
+    "@nails/shared": "0.1.0",
     "@supabase/supabase-js": "^2.98.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "next": "^16.2.3",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6"
+  },
+  "overrides": {
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
@@ -27,6 +46,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.2.3",
     "postcss": "^8.5.10",
+    "react-native": "0.79.6",
     "tailwindcss": "^4.2.2",
     "typescript": "5.9.3"
   }

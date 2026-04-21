@@ -23,6 +23,12 @@
       }
     ],
     "paths": {
+      "@nails/shared": [
+        "./packages/shared/src/index.ts"
+      ],
+      "@nails/shared/*": [
+        "./packages/shared/src/*"
+      ],
       "@/*": [
         "./src/*"
       ]
@@ -38,6 +44,7 @@
     ".next/dev/dev/types/**/*.ts"
   ],
   "exclude": [
+    "apps/mobile",
     "node_modules"
   ]
 }

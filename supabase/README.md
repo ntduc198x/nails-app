@@ -1,41 +1,53 @@
-﻿# Supabase SQL layout
+# Supabase SQL layout
 
-## Canonical deploy
+## Canonical bootstrap for a brand new project
+
+- `bootstrap.sql`
+  - the one-shot file for a fresh Supabase project
+  - already includes:
+    - core schema / RLS / RPC from `deploy.sql`
+    - CRM patch from `crm_patch_2026_04.sql`
+    - latest booking conversion patch from `fix_convert_booking_request_secure.sql`
+    - self-contained device + app session setup from `app_sessions.sql`
+    - default workspace bootstrap and auto-bind trigger for new `auth.users`
+
+## Core and patch files
 
 - `deploy.sql`
-  - file deploy chuan duy nhat
-  - chua schema, RLS, RPC, indexes, invite codes, landing booking, storage setup
-  - da bao gom Telegram setup (`telegram_links`, `telegram_link_codes`, `telegram_conversations`, RPC cho Telegram)
-  - da bao gom cac cot runtime app dang dung nhu `appointments.checked_in_at` va `appointments.overdue_alert_sent_at`
-
-## Split files
-
+  - legacy core schema deploy
+  - keeps schema, RLS, base RPC, Telegram tables, landing booking core
+- `crm_patch_2026_04.sql`
+  - CRM/customer retention layer
+- `fix_convert_booking_request_secure.sql`
+  - latest safe version of booking-to-appointment conversion
 - `app_sessions.sql`
-  - setup session / single-device login
-- `telegram_links.sql`
-  - ban tach rieng cho Telegram link + RPC
-  - giu lai de patch chon loc khi khong muon chay lai `deploy.sql`
-- `telegram_conversations.sql`
-  - ban tach rieng cho Telegram conversation state
-  - giu lai de patch nhanh khi can
+  - self-contained single-device + app-session layer
+  - now includes `device_sessions`, `app_sessions`, `online_users`, and related RPCs
+- `fresh_project_patch.sql`
+  - default org/branch bootstrap
+  - auto-create `profiles` + first role on `auth.users` insert
+
+## Recommended usage
+
+For a brand new Supabase project:
+
+1. Open SQL Editor in Supabase
+2. Run `bootstrap.sql`
+3. Create the first auth user
+4. The first user is auto-bound to the default org/branch and gets role `OWNER`
+
+For selective patching on an existing project:
+
+1. `crm_patch_2026_04.sql`
+2. `fix_convert_booking_request_secure.sql`
+3. `app_sessions.sql`
+4. `fresh_project_patch.sql`
+
+## Optional seed files
+
 - `lookbook_trend_seed.sql`
-  - seed mau lookbook
+  - sample lookbook services
 - `update_services_from_priceboard.sql`
-  - seed/update bang gia thanh services
+  - priceboard-to-services seed/update
 
-## Notes
-
-- Neu can setup moi truong moi, uu tien chay `deploy.sql`.
-- Chi chay cac file split rieng khi can patch mot phan cu the.
-
-## Recommended order
-
-1. `deploy.sql` - Schema + RLS + RPC + Telegram + runtime patches
-2. `app_sessions.sql` - Single-device login
-3. `lookbook_trend_seed.sql` - seed mau lookbook khi can
-4. `update_services_from_priceboard.sql` - seed bang gia khi can
-
-## Selective patch order
-
-1. `telegram_links.sql` - patch Telegram link + RPC
-2. `telegram_conversations.sql` - patch Telegram conversation state
+Run these only after the core bootstrap is already in place.

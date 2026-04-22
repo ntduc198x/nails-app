@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { ensureOrgContext, type AppRole } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
-import { AdminScreen, SectionTitleRow, styles } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminScreen, styles } from "@/src/features/admin/ui";
 
 type RangeMode = "week" | "month";
 
@@ -99,6 +100,7 @@ function ShiftRowCard({
 }
 
 export default function AdminShiftsScreen() {
+  const router = useRouter();
   const { isHydrated, role, user } = useSession();
   const [entries, setEntries] = useState<Entry[]>([]);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -126,37 +128,29 @@ export default function AdminShiftsScreen() {
         }
         setError(null);
 
-        const [entriesRes, rolesRes, profilesRes] = await Promise.all([
+        const [entriesRes, teamRpc] = await Promise.all([
           mobileSupabase
             .from("time_entries")
             .select("id,staff_user_id,clock_in,clock_out")
             .eq("org_id", targetOrgId)
             .order("clock_in", { ascending: false })
             .limit(100),
-          mobileSupabase.from("user_roles").select("user_id,role").eq("org_id", targetOrgId),
-          mobileSupabase.from("profiles").select("user_id,display_name").eq("org_id", targetOrgId),
+          mobileSupabase.rpc("list_team_members_secure_v2"),
         ]);
 
         if (entriesRes.error) throw entriesRes.error;
-        if (rolesRes.error) throw rolesRes.error;
-        if (profilesRes.error) throw profilesRes.error;
-
-        const profileMap = new Map(
-          (profilesRes.data ?? []).map((profile) => [
-            String(profile.user_id),
-            typeof profile.display_name === "string" && profile.display_name.trim()
-              ? profile.display_name.trim()
-              : null,
-          ]),
-        );
+        if (teamRpc.error) throw teamRpc.error;
 
         setEntries((entriesRes.data ?? []) as Entry[]);
         setTeamMembers(
-          (rolesRes.data ?? [])
+          ((teamRpc.data as Array<Record<string, unknown>>) ?? [])
             .filter((row) => String(row.role ?? "") !== "OWNER")
             .map((row) => ({
               user_id: String(row.user_id),
-              display_name: profileMap.get(String(row.user_id)) ?? String(row.user_id).slice(0, 8),
+              display_name:
+                typeof row.display_name === "string" && row.display_name.trim().length > 0
+                  ? row.display_name.trim()
+                  : String(row.user_id).slice(0, 8),
               role: typeof row.role === "string" ? row.role : null,
             })),
         );
@@ -334,40 +328,35 @@ export default function AdminShiftsScreen() {
   return (
     <AdminScreen
       title="Ca lam"
-      subtitle="Mang flow mo ca / dong ca tu web sang mobile de ky thuat vien va le tan chap hanh dung quy trinh truoc khi checkout hay chot doanh thu."
+      subtitle=""
       role={role}
       userEmail={user?.email}
+      compactHeader
+      onRefresh={() => {
+        if (orgId) {
+          void loadEntries(orgId);
+        }
+      }}
+      refreshing={loading || refreshing}
+      footer={
+        <AdminBottomNav
+          current="shifts"
+          onNavigate={(target) => {
+            void router.replace(`/(admin)/${target}`);
+          }}
+        />
+      }
     >
       <View style={styles.section}>
-        <SectionTitleRow
-          title="Trang thai ca lam"
-          actionLabel={loading || refreshing ? "Dang tai..." : "Tai lai"}
-          onActionPress={() => {
-            if (orgId) {
-              void loadEntries(orgId);
-            }
-          }}
-          actionDisabled={loading || refreshing}
-        />
-        <Text style={styles.sectionBody}>{error ?? headerMeta}</Text>
+        <View style={styles.rowHeader}>
+          <Text style={styles.sectionTitle}>Trang thai</Text>
+          <Text style={styles.rowMeta}>{headerMeta}</Text>
+        </View>
+        {error ? <Text style={styles.warningText}>{error}</Text> : null}
         {overdueOpenEntries.length > 0 ? (
           <Text style={styles.warningText}>{overdueOpenEntries.length} ca dang mo qua {LONG_OPEN_SHIFT_HOURS} gio.</Text>
         ) : null}
-      </View>
-
-      {canUse ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Cham cong nhanh</Text>
-          <Text style={styles.sectionBody}>
-            {role === "OWNER"
-              ? "Chu cua hang chi xem trang thai ca lam cua doi ngu."
-              : activeEntry
-                ? `Da mo ca luc ${new Date(activeEntry.clock_in).toLocaleTimeString("vi-VN", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })} - ${formatDuration(activeEntry.clock_in, null, nowTs)}`
-                : "Mo ca ngay khi bat dau phuc vu."}
-          </Text>
+        {canUse ? (
           <View style={styles.inlineWrap}>
             <Pressable
               style={styles.primaryButton}
@@ -384,43 +373,44 @@ export default function AdminShiftsScreen() {
               <Text style={styles.secondaryButtonText}>{submitting ? "Dang xu ly..." : "Dong ca"}</Text>
             </Pressable>
           </View>
-        </View>
-      ) : null}
-
-      <View style={styles.quickGrid}>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Dang mo</Text>
-          <Text style={styles.metricValue}>{openEntries.length}</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Qua lau</Text>
-          <Text style={styles.metricValue}>{overdueOpenEntries.length}</Text>
-        </View>
-        <View style={styles.metricCard}>
-          <Text style={styles.metricLabel}>Tong gio</Text>
-          <Text style={styles.metricValue}>{`${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`}</Text>
-        </View>
+        ) : null}
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Pham vi xem</Text>
-        <View style={styles.inlineWrap}>
-          {([
-            ["week", "Tuan nay"],
-            ["month", "Thang nay"],
-          ] as const).map(([value, label]) => (
-            <Pressable
-              key={value}
-              style={[styles.inlineChipSelectable, rangeMode === value ? styles.inlineChipSelectableActive : null]}
-              onPress={() => setRangeMode(value)}
-            >
-              <Text
-                style={[styles.inlineChipSelectableText, rangeMode === value ? styles.inlineChipSelectableTextActive : null]}
+        <View style={styles.rowHeader}>
+          <Text style={styles.sectionTitle}>Tong quan</Text>
+          <View style={styles.inlineWrap}>
+            {([
+              ["week", "Tuan nay"],
+              ["month", "Thang nay"],
+            ] as const).map(([value, label]) => (
+              <Pressable
+                key={value}
+                style={[styles.inlineChipSelectable, rangeMode === value ? styles.inlineChipSelectableActive : null]}
+                onPress={() => setRangeMode(value)}
               >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[styles.inlineChipSelectableText, rangeMode === value ? styles.inlineChipSelectableTextActive : null]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={[styles.quickGrid, { flexDirection: 'row'}]}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Dang mo</Text>
+            <Text style={styles.metricValue}>{openEntries.length}</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Qua lau</Text>
+            <Text style={styles.metricValue}>{overdueOpenEntries.length}</Text>
+          </View>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Tong gio</Text>
+            <Text style={styles.metricValue}>{`${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`}</Text>
+          </View>
         </View>
       </View>
 
@@ -429,8 +419,8 @@ export default function AdminShiftsScreen() {
           <Text style={styles.sectionTitle}>Ca dang mo</Text>
           <Text style={styles.rowMeta}>{openEntries.length}</Text>
         </View>
-        {loading ? <Text style={styles.sectionBody}>Dang tai...</Text> : null}
-        {!loading && openEntries.length === 0 ? <Text style={styles.sectionBody}>Khong co ca nao dang mo.</Text> : null}
+        {loading ? <Text style={styles.rowMeta}>Dang tai...</Text> : null}
+        {!loading && openEntries.length === 0 ? <Text style={styles.rowMeta}>Khong co ca nao dang mo</Text> : null}
         {openEntries.map((entry) => {
           const member = memberMap.get(entry.staff_user_id);
           const overdue = (nowTs - new Date(entry.clock_in).getTime()) / 3600000 >= LONG_OPEN_SHIFT_HOURS;
@@ -452,10 +442,10 @@ export default function AdminShiftsScreen() {
       <View style={styles.section}>
         <View style={styles.rowHeader}>
           <Text style={styles.sectionTitle}>Lich su ca</Text>
-          <Text style={styles.rowMeta}>{closedEntries.length}</Text>
+          <Text style={styles.rowMeta}>{Math.min(closedEntries.length, 6)}</Text>
         </View>
-        {closedEntries.length === 0 ? <Text style={styles.sectionBody}>Chua co ca dong trong khoang nay.</Text> : null}
-        {closedEntries.slice(0, 12).map((entry) => {
+        {closedEntries.length === 0 ? <Text style={styles.rowMeta}>Chua co ca dong</Text> : null}
+        {closedEntries.slice(0, 6).map((entry) => {
           const member = memberMap.get(entry.staff_user_id);
           return (
             <ShiftRowCard

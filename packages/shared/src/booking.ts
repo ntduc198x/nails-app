@@ -129,6 +129,43 @@ export async function createPublicBookingRequest<
   } satisfies PublicBookingSubmissionResult<TData>;
 }
 
+export async function createPublicBookingRequestForMobile(
+  client: SharedSupabaseClient,
+  input: PublicBookingInput,
+) {
+  const payload = publicBookingInputSchema.parse(input);
+  const { data, error } = await client.rpc("create_booking_request_public", {
+    p_customer_name: payload.customerName,
+    p_customer_phone: payload.customerPhone,
+    p_requested_service: payload.requestedService ?? null,
+    p_preferred_staff: payload.preferredStaff ?? null,
+    p_note: payload.note ?? null,
+    p_requested_start_at: payload.requestedStartAt,
+    p_requested_end_at: payload.requestedEndAt ?? null,
+    p_source: payload.source ?? "mobile_guest",
+  });
+
+  if (error) {
+    const message = [error.message, (error as { details?: string }).details, (error as { hint?: string }).hint]
+      .filter(Boolean)
+      .join(" | ");
+    throw new Error(message || "Khong tao duoc booking request");
+  }
+
+  const bookingRequestId = typeof data === "string"
+    ? data
+    : typeof data === "object" && data
+      ? String((data as { booking_request_id?: string; id?: string }).booking_request_id ?? (data as { id?: string }).id ?? "")
+      : "";
+
+  return {
+    bookingRequestId: bookingRequestId || null,
+    bookingRequestStatus: bookingRequestId ? "NEW" : null,
+    data: null,
+    telegramNotification: null,
+  } satisfies PublicBookingSubmissionResult<null>;
+}
+
 export async function listBookingRequestsForMobile(
   client: SharedSupabaseClient,
 ): Promise<MobileBookingRequestSummary[]> {

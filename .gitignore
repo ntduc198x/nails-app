@@ -15,6 +15,7 @@
 
 # next.js
 /.next/
+/apps/web/.next/
 /out/
 /apps/mobile/.expo/
 /apps/mobile/dist/

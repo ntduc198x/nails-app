@@ -1,230 +1,429 @@
-CREATE TABLE IF NOT EXISTS public.app_sessions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.profiles(user_id) ON DELETE CASCADE,
-  session_token TEXT NOT NULL UNIQUE,
-  device_fingerprint TEXT,
-  device_info JSONB DEFAULT '{}',
-  expires_at TIMESTAMPTZ DEFAULT now() + interval '7 days',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+create table if not exists public.device_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null unique references public.profiles(user_id) on delete cascade,
+  device_fingerprint text not null unique,
+  device_info jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_app_sessions_token ON public.app_sessions(session_token);
-CREATE INDEX IF NOT EXISTS idx_app_sessions_user ON public.app_sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_app_sessions_expires ON public.app_sessions(expires_at);
+create index if not exists idx_device_sessions_user on public.device_sessions(user_id);
+create index if not exists idx_device_sessions_fingerprint on public.device_sessions(device_fingerprint);
 
-ALTER TABLE public.app_sessions ENABLE ROW LEVEL SECURITY;
+alter table public.device_sessions enable row level security;
 
-DROP POLICY IF EXISTS "service role full access" ON public.app_sessions;
-CREATE POLICY "service role full access" ON public.app_sessions
-  FOR ALL TO service_role USING (true) WITH CHECK (true);
+drop policy if exists "service role full access device sessions" on public.device_sessions;
+create policy "service role full access device sessions" on public.device_sessions
+  for all to service_role using (true) with check (true);
 
-DROP POLICY IF EXISTS "users can view own session" ON public.app_sessions;
-CREATE POLICY "users can view own session" ON public.app_sessions
-  FOR SELECT USING (user_id = auth.uid());
+drop policy if exists "users can view own device session" on public.device_sessions;
+create policy "users can view own device session" on public.device_sessions
+  for select using (user_id = auth.uid());
 
-CREATE TABLE IF NOT EXISTS public.online_users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL UNIQUE REFERENCES public.profiles(user_id) ON DELETE CASCADE,
-  device_fingerprint TEXT,
-  device_info JSONB DEFAULT '{}',
-  last_heartbeat TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+drop policy if exists "users can delete own device session" on public.device_sessions;
+create policy "users can delete own device session" on public.device_sessions
+  for delete using (user_id = auth.uid());
+
+create or replace function public.touch_device_sessions_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_touch_device_sessions_updated_at on public.device_sessions;
+create trigger trg_touch_device_sessions_updated_at
+before update on public.device_sessions
+for each row
+execute function public.touch_device_sessions_updated_at();
+
+create table if not exists public.app_sessions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(user_id) on delete cascade,
+  session_token text not null unique,
+  device_fingerprint text,
+  device_info jsonb default '{}',
+  expires_at timestamptz default now() + interval '7 days',
+  created_at timestamptz not null default now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_online_users_user ON public.online_users(user_id);
+create index if not exists idx_app_sessions_token on public.app_sessions(session_token);
+create index if not exists idx_app_sessions_user on public.app_sessions(user_id);
+create index if not exists idx_app_sessions_expires on public.app_sessions(expires_at);
 
-ALTER TABLE public.online_users ENABLE ROW LEVEL SECURITY;
+alter table public.app_sessions enable row level security;
 
-DROP POLICY IF EXISTS "service role full access online" ON public.online_users;
-CREATE POLICY "service role full access online" ON public.online_users
-  FOR ALL TO service_role USING (true) WITH CHECK (true);
+drop policy if exists "service role full access" on public.app_sessions;
+create policy "service role full access" on public.app_sessions
+  for all to service_role using (true) with check (true);
 
-DROP POLICY IF EXISTS "users can view own online status" ON public.online_users;
-CREATE POLICY "users can view own online status" ON public.online_users
-  FOR SELECT USING (user_id = auth.uid());
+drop policy if exists "users can view own session" on public.app_sessions;
+create policy "users can view own session" on public.app_sessions
+  for select using (user_id = auth.uid());
 
-CREATE OR REPLACE FUNCTION public.create_app_session(
-  p_user_id UUID,
-  p_device_fingerprint TEXT DEFAULT NULL,
-  p_device_info JSONB DEFAULT '{}'
+create table if not exists public.online_users (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null unique references public.profiles(user_id) on delete cascade,
+  device_fingerprint text,
+  device_info jsonb default '{}',
+  last_heartbeat timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_online_users_user on public.online_users(user_id);
+
+alter table public.online_users enable row level security;
+
+drop policy if exists "service role full access online" on public.online_users;
+create policy "service role full access online" on public.online_users
+  for all to service_role using (true) with check (true);
+
+drop policy if exists "users can view own online status" on public.online_users;
+create policy "users can view own online status" on public.online_users
+  for select using (user_id = auth.uid());
+
+create or replace function public.check_device_conflict(p_fingerprint text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_owner_id uuid;
+  v_owner_name text;
+begin
+  if p_fingerprint is null or btrim(p_fingerprint) = '' then
+    return jsonb_build_object('conflict', false);
+  end if;
+
+  select
+    ds.user_id,
+    coalesce(nullif(trim(p.display_name), ''), nullif(trim(p.email), ''), left(ds.user_id::text, 8))
+  into v_owner_id, v_owner_name
+  from public.device_sessions ds
+  left join public.profiles p on p.user_id = ds.user_id
+  where ds.device_fingerprint = p_fingerprint
+  limit 1;
+
+  if v_owner_id is null or v_owner_id = auth.uid() then
+    return jsonb_build_object('conflict', false);
+  end if;
+
+  return jsonb_build_object(
+    'conflict', true,
+    'type', 'DEVICE_TAKEN',
+    'message', 'This device is already linked to another account.',
+    'owner_name', v_owner_name
+  );
+end;
+$$;
+
+create or replace function public.register_device_session(
+  p_user_id uuid,
+  p_fingerprint text,
+  p_device_info jsonb default '{}'::jsonb
 )
-RETURNS JSONB AS $$
-DECLARE
-  v_token TEXT;
-  v_old_session RECORD;
-  v_device_owner_id UUID;
-  v_device_owner_name TEXT;
-  v_current_user_id UUID;
-BEGIN
-  v_current_user_id := auth.uid();
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current_user_id uuid := auth.uid();
+  v_existing_user_id uuid;
+  v_existing_owner_name text;
+  v_swapped boolean := false;
+begin
+  if v_current_user_id is null or v_current_user_id <> p_user_id then
+    raise exception 'UNAUTHORIZED';
+  end if;
 
-  IF v_current_user_id IS NULL OR v_current_user_id <> p_user_id THEN
-    RAISE EXCEPTION 'Unauthorized: Cannot create session for another user';
-  END IF;
+  if p_fingerprint is null or btrim(p_fingerprint) = '' then
+    raise exception 'DEVICE_FINGERPRINT_REQUIRED';
+  end if;
 
-  DELETE FROM public.online_users WHERE true;
+  select
+    ds.user_id,
+    coalesce(nullif(trim(p.display_name), ''), nullif(trim(p.email), ''), left(ds.user_id::text, 8))
+  into v_existing_user_id, v_existing_owner_name
+  from public.device_sessions ds
+  left join public.profiles p on p.user_id = ds.user_id
+  where ds.device_fingerprint = p_fingerprint
+  limit 1;
 
-  IF p_device_fingerprint IS NOT NULL THEN
-    SELECT ds.user_id, p.display_name
-    INTO v_device_owner_id, v_device_owner_name
-    FROM device_sessions ds
-    LEFT JOIN profiles p ON p.user_id = ds.user_id
-    WHERE ds.device_fingerprint = p_device_fingerprint
-    LIMIT 1;
+  if v_existing_user_id is not null and v_existing_user_id <> p_user_id then
+    delete from public.app_sessions where user_id = v_existing_user_id;
+    delete from public.online_users where user_id = v_existing_user_id;
+    delete from public.device_sessions where user_id = v_existing_user_id or device_fingerprint = p_fingerprint;
+    v_swapped := true;
+  end if;
 
-    IF v_device_owner_id IS NOT NULL AND v_device_owner_id <> p_user_id THEN
-      DELETE FROM public.app_sessions
-      WHERE user_id = v_device_owner_id;
-    END IF;
-  END IF;
+  delete from public.device_sessions
+  where user_id = p_user_id or device_fingerprint = p_fingerprint;
 
-  SELECT id, session_token INTO v_old_session
-  FROM public.app_sessions
-  WHERE user_id = p_user_id
-  ORDER BY created_at DESC
-  LIMIT 1;
+  insert into public.device_sessions (user_id, device_fingerprint, device_info)
+  values (p_user_id, p_fingerprint, coalesce(p_device_info, '{}'::jsonb));
 
-  DELETE FROM public.app_sessions
-  WHERE user_id = p_user_id;
+  return jsonb_build_object(
+    'success', true,
+    'swapped', v_swapped,
+    'message', case when v_swapped then 'Device session reassigned.' else 'Device session registered.' end
+  );
+end;
+$$;
+
+create or replace function public.get_my_device_session()
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current_user_id uuid := auth.uid();
+  v_session record;
+begin
+  if v_current_user_id is null then
+    return jsonb_build_object('registered', false);
+  end if;
+
+  select *
+  into v_session
+  from public.device_sessions
+  where user_id = v_current_user_id
+  limit 1;
+
+  if v_session.id is null then
+    return jsonb_build_object('registered', false);
+  end if;
+
+  return jsonb_build_object(
+    'registered', true,
+    'fingerprint', v_session.device_fingerprint,
+    'device_info', v_session.device_info,
+    'created_at', v_session.created_at
+  );
+end;
+$$;
+
+create or replace function public.create_app_session(
+  p_user_id uuid,
+  p_device_fingerprint text default null,
+  p_device_info jsonb default '{}'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_token text;
+  v_existing_user_id uuid;
+  v_existing_owner_name text;
+  v_current_user_id uuid := auth.uid();
+begin
+  if v_current_user_id is null or v_current_user_id <> p_user_id then
+    raise exception 'UNAUTHORIZED';
+  end if;
+
+  if p_device_fingerprint is not null then
+    select
+      ds.user_id,
+      coalesce(nullif(trim(p.display_name), ''), nullif(trim(p.email), ''), left(ds.user_id::text, 8))
+    into v_existing_user_id, v_existing_owner_name
+    from public.device_sessions ds
+    left join public.profiles p on p.user_id = ds.user_id
+    where ds.device_fingerprint = p_device_fingerprint
+    limit 1;
+
+    if v_existing_user_id is not null and v_existing_user_id <> p_user_id then
+      delete from public.app_sessions where user_id = v_existing_user_id;
+      delete from public.online_users where user_id = v_existing_user_id;
+      delete from public.device_sessions where user_id = v_existing_user_id or device_fingerprint = p_device_fingerprint;
+    end if;
+
+    delete from public.device_sessions
+    where user_id = p_user_id or device_fingerprint = p_device_fingerprint;
+
+    insert into public.device_sessions (user_id, device_fingerprint, device_info)
+    values (p_user_id, p_device_fingerprint, coalesce(p_device_info, '{}'::jsonb));
+  end if;
+
+  delete from public.app_sessions where user_id = p_user_id;
+  delete from public.online_users where user_id = p_user_id;
 
   v_token := encode(gen_random_bytes(32), 'hex');
 
-  INSERT INTO public.app_sessions (user_id, session_token, device_fingerprint, device_info)
-  VALUES (p_user_id, v_token, p_device_fingerprint, COALESCE(p_device_info, '{}'::jsonb));
+  insert into public.app_sessions (user_id, session_token, device_fingerprint, device_info)
+  values (p_user_id, v_token, p_device_fingerprint, coalesce(p_device_info, '{}'::jsonb));
 
-  INSERT INTO public.online_users (user_id, device_fingerprint, device_info)
-  VALUES (p_user_id, p_device_fingerprint, COALESCE(p_device_info, '{}'::jsonb));
+  insert into public.online_users (user_id, device_fingerprint, device_info)
+  values (p_user_id, p_device_fingerprint, coalesce(p_device_info, '{}'::jsonb));
 
-  RETURN jsonb_build_object(
+  return jsonb_build_object(
     'success', true,
     'token', v_token,
-    'old_session_exists', v_old_session.id IS NOT NULL,
-    'device_replaced', v_device_owner_id IS NOT NULL AND v_device_owner_id <> p_user_id,
-    'replaced_user_id', v_device_owner_id,
-    'replaced_owner_name', v_device_owner_name
+    'device_replaced', v_existing_user_id is not null and v_existing_user_id <> p_user_id,
+    'replaced_user_id', case when v_existing_user_id <> p_user_id then v_existing_user_id else null end,
+    'replaced_owner_name', case when v_existing_user_id <> p_user_id then v_existing_owner_name else null end,
+    'message', 'Session created.'
   );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+end;
+$$;
 
-CREATE OR REPLACE FUNCTION public.validate_app_session(p_token TEXT)
-RETURNS JSONB AS $$
-DECLARE
-  v_session RECORD;
-  v_device_owner_id UUID;
-  v_device_owner_name TEXT;
-  v_is_online BOOLEAN;
-  v_current_user_id UUID;
-BEGIN
-  v_current_user_id := auth.uid();
+create or replace function public.validate_app_session(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_session record;
+  v_device_session record;
+  v_current_user_id uuid := auth.uid();
+begin
+  select
+    s.id,
+    s.user_id,
+    s.device_fingerprint,
+    s.device_info,
+    s.created_at,
+    coalesce(nullif(trim(p.display_name), ''), nullif(trim(p.email), ''), left(s.user_id::text, 8)) as owner_name
+  into v_session
+  from public.app_sessions s
+  left join public.profiles p on p.user_id = s.user_id
+  where s.session_token = p_token
+    and s.expires_at > now()
+  limit 1;
 
-  SELECT s.id, s.user_id, s.device_fingerprint, s.device_info, s.created_at,
-         p.display_name as owner_name
-  INTO v_session
-  FROM public.app_sessions s
-  LEFT JOIN public.profiles p ON p.user_id = s.user_id
-  WHERE s.session_token = p_token
-    AND s.expires_at > now();
-
-  IF v_session.id IS NULL THEN
-    RETURN jsonb_build_object(
+  if v_session.id is null then
+    return jsonb_build_object(
       'valid', false,
       'reason', 'INVALID_TOKEN',
-      'message', 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'
+      'message', 'Session token is invalid or expired.'
     );
-  END IF;
+  end if;
 
-  IF v_current_user_id IS NOT NULL AND v_session.user_id <> v_current_user_id THEN
-    RETURN jsonb_build_object(
+  if v_current_user_id is not null and v_session.user_id <> v_current_user_id then
+    return jsonb_build_object(
       'valid', false,
       'reason', 'INVALID_TOKEN',
-      'message', 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'
+      'message', 'Session token does not belong to the current user.'
     );
-  END IF;
+  end if;
 
-  SELECT EXISTS(SELECT 1 FROM online_users WHERE user_id = v_session.user_id)
-  INTO v_is_online;
-
-  IF NOT v_is_online THEN
-    RETURN jsonb_build_object(
+  if not exists (select 1 from public.online_users where user_id = v_session.user_id) then
+    return jsonb_build_object(
       'valid', false,
       'reason', 'SESSION_REPLACED',
-      'message', 'Tài khoản đã được đăng nhập ở nơi khác. Bạn cần đăng nhập lại.'
+      'message', 'Session was replaced by a newer login.'
     );
-  END IF;
+  end if;
 
-  IF v_session.device_fingerprint IS NOT NULL THEN
-    SELECT ds.user_id, p.display_name
-    INTO v_device_owner_id, v_device_owner_name
-    FROM device_sessions ds
-    LEFT JOIN profiles p ON p.user_id = ds.user_id
-    WHERE ds.device_fingerprint = v_session.device_fingerprint
-    LIMIT 1;
+  if v_session.device_fingerprint is not null then
+    select *
+    into v_device_session
+    from public.device_sessions
+    where user_id = v_session.user_id
+    limit 1;
 
-    IF v_device_owner_id IS NOT NULL AND v_device_owner_id <> v_session.user_id THEN
-      RETURN jsonb_build_object(
+    if v_device_session.id is null then
+      return jsonb_build_object(
         'valid', false,
-        'reason', 'DEVICE_TAKEN',
-        'message', 'Thiết bị này đã được đăng nhập bởi tài khoản khác.',
-        'owner_name', v_device_owner_name
+        'reason', 'SESSION_REPLACED',
+        'message', 'Device session is no longer active.'
       );
-    END IF;
-  END IF;
+    end if;
 
-  UPDATE public.app_sessions
-  SET expires_at = now() + interval '7 days'
-  WHERE id = v_session.id;
+    if v_device_session.device_fingerprint <> v_session.device_fingerprint then
+      return jsonb_build_object(
+        'valid', false,
+        'reason', 'SESSION_REPLACED',
+        'message', 'Device session changed after login.'
+      );
+    end if;
+  end if;
 
-  UPDATE public.online_users
-  SET last_heartbeat = now()
-  WHERE user_id = v_session.user_id;
+  update public.app_sessions
+  set expires_at = now() + interval '7 days'
+  where id = v_session.id;
 
-  RETURN jsonb_build_object(
+  update public.online_users
+  set last_heartbeat = now()
+  where user_id = v_session.user_id;
+
+  return jsonb_build_object(
     'valid', true,
     'user_id', v_session.user_id,
     'device_fingerprint', v_session.device_fingerprint,
     'device_info', v_session.device_info,
     'owner_name', v_session.owner_name
   );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+end;
+$$;
 
-CREATE OR REPLACE FUNCTION public.revoke_app_session(p_token TEXT)
-RETURNS JSONB AS $$
-DECLARE
-  v_user_id UUID;
-BEGIN
-  SELECT user_id INTO v_user_id FROM public.app_sessions WHERE session_token = p_token;
-  DELETE FROM public.app_sessions WHERE session_token = p_token;
-  IF v_user_id IS NOT NULL THEN
-    DELETE FROM public.online_users WHERE user_id = v_user_id;
-  END IF;
-  RETURN jsonb_build_object('success', true);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+create or replace function public.revoke_app_session(p_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_user_id uuid;
+begin
+  select user_id into v_user_id
+  from public.app_sessions
+  where session_token = p_token
+  limit 1;
 
-CREATE OR REPLACE FUNCTION public.revoke_all_user_sessions(p_user_id UUID)
-RETURNS JSONB AS $$
-BEGIN
-  DELETE FROM public.app_sessions WHERE user_id = p_user_id;
-  DELETE FROM public.online_users WHERE user_id = p_user_id;
-  RETURN jsonb_build_object('success', true);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+  delete from public.app_sessions where session_token = p_token;
 
-CREATE OR REPLACE FUNCTION public.heartbeat_online_user(p_user_id UUID)
-RETURNS JSONB AS $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM online_users WHERE user_id = p_user_id) THEN
-    UPDATE online_users SET last_heartbeat = now() WHERE user_id = p_user_id;
-  END IF;
-  RETURN jsonb_build_object('success', true);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+  if v_user_id is not null then
+    delete from public.online_users where user_id = v_user_id;
+  end if;
 
-GRANT EXECUTE ON FUNCTION public.create_app_session TO authenticated;
-GRANT EXECUTE ON FUNCTION public.validate_app_session TO authenticated;
-GRANT EXECUTE ON FUNCTION public.revoke_app_session TO authenticated;
-GRANT EXECUTE ON FUNCTION public.revoke_all_user_sessions TO authenticated;
-GRANT EXECUTE ON FUNCTION public.heartbeat_online_user TO authenticated;
+  return jsonb_build_object('success', true);
+end;
+$$;
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.online_users TO authenticated;
+create or replace function public.revoke_all_user_sessions(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.app_sessions where user_id = p_user_id;
+  delete from public.online_users where user_id = p_user_id;
+  return jsonb_build_object('success', true);
+end;
+$$;
+
+create or replace function public.heartbeat_online_user(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  update public.online_users
+  set last_heartbeat = now()
+  where user_id = p_user_id;
+
+  return jsonb_build_object('success', true);
+end;
+$$;
+
+grant execute on function public.check_device_conflict(text) to authenticated;
+grant execute on function public.register_device_session(uuid, text, jsonb) to authenticated;
+grant execute on function public.get_my_device_session() to authenticated;
+grant execute on function public.create_app_session(uuid, text, jsonb) to authenticated;
+grant execute on function public.validate_app_session(text) to authenticated;
+grant execute on function public.revoke_app_session(text) to authenticated;
+grant execute on function public.revoke_all_user_sessions(uuid) to authenticated;
+grant execute on function public.heartbeat_online_user(uuid) to authenticated;
+
+grant select, delete on public.device_sessions to authenticated;
+grant select, insert, update, delete on public.online_users to authenticated;

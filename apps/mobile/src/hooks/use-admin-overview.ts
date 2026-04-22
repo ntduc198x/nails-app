@@ -63,7 +63,13 @@ export function useAdminOverview() {
   }, [isHydrated, role]);
 
   useEffect(() => {
-    void load();
+    const timeoutId = setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [load]);
 
   return {

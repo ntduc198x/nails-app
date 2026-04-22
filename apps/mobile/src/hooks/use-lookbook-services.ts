@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { mobileEnv } from "@/src/lib/env";
 import { mobileSupabase } from "@/src/lib/supabase";
 
@@ -64,9 +64,7 @@ export function useLookbookServices(fallbackServices: LookbookService[]) {
   const [source, setSource] = useState<LookbookSource>("fallback");
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-
+  const loadServices = useCallback(async (isActive: () => boolean = () => true) => {
     async function loadFromApi() {
       if (!mobileEnv.apiBaseUrl) return false;
 
@@ -81,7 +79,7 @@ export function useLookbookServices(fallbackServices: LookbookService[]) {
       const normalized = normalizeLookbookRows(json.data);
       if (!normalized.length) return false;
 
-      if (!cancelled) {
+      if (isActive()) {
         setServices(normalized);
         setSource("api");
       }
@@ -104,47 +102,56 @@ export function useLookbookServices(fallbackServices: LookbookService[]) {
       const normalized = normalizeLookbookRows(data);
       if (!normalized.length) return false;
 
-      if (!cancelled) {
+      if (isActive()) {
         setServices(normalized);
         setSource("supabase");
       }
       return true;
     }
 
-    async function bootstrap() {
-      setIsLoading(true);
+    setIsLoading(true);
 
-      try {
-        const loadedFromApi = await loadFromApi();
-        if (loadedFromApi) return;
+    try {
+      const loadedFromApi = await loadFromApi();
+      if (loadedFromApi) return;
 
-        const loadedFromSupabase = await loadFromSupabase();
-        if (loadedFromSupabase) return;
+      const loadedFromSupabase = await loadFromSupabase();
+      if (loadedFromSupabase) return;
 
-        if (!cancelled) {
-          setServices(fallbackServices);
-          setSource("fallback");
-        }
-      } catch {
-        if (!cancelled) {
-          setServices(fallbackServices);
-          setSource("fallback");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+      if (isActive()) {
+        setServices(fallbackServices);
+        setSource("fallback");
+      }
+    } catch {
+      if (isActive()) {
+        setServices(fallbackServices);
+        setSource("fallback");
+      }
+    } finally {
+      if (isActive()) {
+        setIsLoading(false);
       }
     }
-
-    void bootstrap();
-
-    return () => {
-      cancelled = true;
-    };
   }, [fallbackServices]);
 
+  const refresh = useCallback(async () => {
+    await loadServices();
+  }, [loadServices]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const timeoutId = setTimeout(() => {
+      void loadServices(() => !cancelled);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      cancelled = true;
+    };
+  }, [loadServices]);
+
   return {
+    refresh,
     isLoading,
     services,
     source,

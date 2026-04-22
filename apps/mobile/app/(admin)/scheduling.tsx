@@ -1,27 +1,63 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Pressable, Text, TextInput, View } from "react-native";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import {
-  type AppointmentFilter,
-  AdminScreen,
-  formatDateTime,
-  fromDateTimeInputValue,
-  InfoTile,
-  MetricCard,
-  SectionTitleRow,
-  StatusBadge,
-  styles,
-  toDateTimeInputValue,
-} from "@/src/features/admin/ui";
+import { type AppointmentFilter, AdminBottomNav, AdminScreen, formatDateTime, StatusBadge, styles } from "@/src/features/admin/ui";
 
-function normalizeFilter(value: string | string[] | undefined): AppointmentFilter {
+type SchedulingFilter = AppointmentFilter | "OTHER";
+
+function normalizeFilter(value: string | string[] | undefined): SchedulingFilter {
   const next = Array.isArray(value) ? value[0] : value;
-  if (next === "BOOKED" || next === "CHECKED_IN" || next === "DONE" || next === "NO_SHOW" || next === "CANCELLED") {
+  if (
+    next === "BOOKED" ||
+    next === "CHECKED_IN" ||
+    next === "DONE" ||
+    next === "NO_SHOW" ||
+    next === "CANCELLED" ||
+    next === "OTHER"
+  ) {
     return next;
   }
   return "ALL";
 }
+
+function toLocalDateInput(isoValue: string) {
+  const date = new Date(isoValue);
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function toLocalTimeInput(isoValue: string) {
+  const date = new Date(isoValue);
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mm = String(date.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
+  if (!dateValue || !timeValue) {
+    return null;
+  }
+
+  const parsed = new Date(`${dateValue}T${timeValue}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function createDefaultStartAt() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() < 30 ? 30 : 60, 0, 0);
+  return now.toISOString();
+}
+
+const STATUS_WEIGHT: Record<string, number> = {
+  BOOKED: 0,
+  CHECKED_IN: 1,
+  DONE: 2,
+  NO_SHOW: 3,
+  CANCELLED: 4,
+};
 
 export default function AdminSchedulingScreen() {
   const router = useRouter();
@@ -32,104 +68,42 @@ export default function AdminSchedulingScreen() {
     role,
     staffOptions,
     user,
-    busyTargetId,
-    error,
     loading,
     mutating,
     reload,
     saveAppointment,
-    updateAppointmentStatus,
   } = useAdminOperations();
-  const [filterOverride, setFilterOverride] = useState<AppointmentFilter | null>(null);
-  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
-  const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null);
+  const [filterOverride, setFilterOverride] = useState<SchedulingFilter | null>(null);
   const [appointmentCustomerName, setAppointmentCustomerName] = useState("");
-  const [appointmentStartInput, setAppointmentStartInput] = useState("");
+  const defaultStartAt = useMemo(() => createDefaultStartAt(), []);
+  const [appointmentDateInput, setAppointmentDateInput] = useState(() => toLocalDateInput(defaultStartAt));
+  const [appointmentTimeInput, setAppointmentTimeInput] = useState(() => toLocalTimeInput(defaultStartAt));
   const [appointmentDurationMinutes, setAppointmentDurationMinutes] = useState("60");
-  const [appointmentStaffUserId, setAppointmentStaffUserId] = useState("");
+  const [appointmentStaffUserId, setAppointmentStaffUserId] = useState(role === "TECH" ? user?.id ?? "" : "");
   const [appointmentResourceId, setAppointmentResourceId] = useState("");
-  const [nowTs, setNowTs] = useState(() => Date.now());
-
-  useEffect(() => {
-    const timer = setInterval(() => setNowTs(Date.now()), 60_000);
-    return () => clearInterval(timer);
-  }, []);
 
   const requestedFilter = normalizeFilter(params.filter);
   const appointmentFilter = filterOverride ?? requestedFilter;
 
   const filteredAppointments = useMemo(() => {
-    if (appointmentFilter === "ALL") {
-      return appointments;
-    }
-    return appointments.filter((item) => item.status === appointmentFilter);
+    const rows =
+      appointmentFilter === "ALL"
+        ? appointments.filter((item) => item.status === "BOOKED" || item.status === "CHECKED_IN" || item.status === "DONE")
+        : appointmentFilter === "OTHER"
+          ? appointments.filter((item) => item.status === "NO_SHOW" || item.status === "CANCELLED")
+          : appointments.filter((item) => item.status === appointmentFilter);
+
+    return [...rows].sort((left, right) => {
+      const statusDelta = (STATUS_WEIGHT[left.status] ?? 99) - (STATUS_WEIGHT[right.status] ?? 99);
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+      return new Date(left.startAt).getTime() - new Date(right.startAt).getTime();
+    });
   }, [appointmentFilter, appointments]);
-  const effectiveSelectedAppointmentId = useMemo(() => {
-    if (selectedAppointmentId && filteredAppointments.some((item) => item.id === selectedAppointmentId)) {
-      return selectedAppointmentId;
-    }
-    return filteredAppointments[0]?.id ?? null;
-  }, [filteredAppointments, selectedAppointmentId]);
-  const selectedAppointment = useMemo(
-    () => appointments.find((item) => item.id === effectiveSelectedAppointmentId) ?? null,
-    [appointments, effectiveSelectedAppointmentId],
-  );
-  const staffNameById = useMemo(() => new Map(staffOptions.map((staff) => [staff.userId, staff.name])), [staffOptions]);
-  const resourceNameById = useMemo(
-    () => new Map(resourceOptions.map((resource) => [resource.id, resource.name])),
-    [resourceOptions],
-  );
-  const bookedAppointments = useMemo(() => appointments.filter((item) => item.status === "BOOKED").length, [appointments]);
-  const checkedInAppointments = useMemo(
-    () => appointments.filter((item) => item.status === "CHECKED_IN").length,
-    [appointments],
-  );
-  const overdueBooked = useMemo(
-    () => appointments.filter((item) => item.status === "BOOKED" && new Date(item.startAt).getTime() < nowTs).length,
-    [appointments, nowTs],
-  );
-  const staleCheckedIn = useMemo(
-    () =>
-      appointments.filter((item) => {
-        if (item.status !== "CHECKED_IN" || !item.checkedInAt) {
-          return false;
-        }
-        return nowTs - new Date(item.checkedInAt).getTime() > 2 * 60 * 60 * 1000;
-      }).length,
-    [appointments, nowTs],
-  );
 
-  function resetAppointmentForm() {
-    setEditingAppointmentId(null);
-    setAppointmentCustomerName("");
-    setAppointmentStartInput("");
-    setAppointmentDurationMinutes("60");
-    setAppointmentStaffUserId(role === "TECH" ? user?.id ?? "" : "");
-    setAppointmentResourceId("");
-  }
-
-  function startEditingAppointment() {
-    if (!selectedAppointment) {
-      return;
-    }
-
-    setEditingAppointmentId(selectedAppointment.id);
-    setAppointmentCustomerName(selectedAppointment.customerName);
-    setAppointmentStartInput(toDateTimeInputValue(selectedAppointment.startAt));
-    setAppointmentDurationMinutes(
-      String(
-        Math.max(
-          15,
-          Math.round((new Date(selectedAppointment.endAt).getTime() - new Date(selectedAppointment.startAt).getTime()) / 60000),
-        ),
-      ),
-    );
-    setAppointmentStaffUserId(selectedAppointment.staffUserId ?? (role === "TECH" ? user?.id ?? "" : ""));
-    setAppointmentResourceId(selectedAppointment.resourceId ?? "");
-  }
-
-  async function handleSaveAppointment() {
-    const normalizedStart = fromDateTimeInputValue(appointmentStartInput);
+  async function handleCreateAppointment() {
+    const normalizedStart = combineDateAndTimeToIso(appointmentDateInput, appointmentTimeInput);
     const durationMinutes = Number(appointmentDurationMinutes);
     if (!appointmentCustomerName.trim() || !normalizedStart || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
       return;
@@ -139,7 +113,6 @@ export default function AdminSchedulingScreen() {
     endAt.setMinutes(endAt.getMinutes() + durationMinutes);
 
     await saveAppointment({
-      appointmentId: editingAppointmentId,
       customerName: appointmentCustomerName.trim(),
       startAt: normalizedStart,
       endAt: endAt.toISOString(),
@@ -147,49 +120,120 @@ export default function AdminSchedulingScreen() {
       resourceId: appointmentResourceId || null,
     });
 
-    resetAppointmentForm();
+    setAppointmentCustomerName("");
+    setAppointmentDurationMinutes("60");
   }
 
   return (
     <AdminScreen
       title="Dieu phoi lich"
-      subtitle="Mang man appointments tu web sang mobile de le tan va ky thuat vien theo doi lich BOOKED, CHECKED_IN, no-show va checkout theo tung ca."
+      subtitle=""
       role={role}
       userEmail={user?.email}
-    >
-      <View style={styles.metrics}>
-        <MetricCard label="Tong lich hen" value={String(appointments.length)} />
-        <MetricCard label="Cho check-in" value={String(bookedAppointments)} />
-        <MetricCard label="Da check-in" value={String(checkedInAppointments)} />
-      </View>
-
-      <View style={styles.quickGrid}>
-        <MetricCard label="Qua gio BOOKED" value={String(overdueBooked)} />
-        <MetricCard label="Check-in lau" value={String(staleCheckedIn)} />
-      </View>
-
-      <View style={styles.section}>
-        <SectionTitleRow
-          title="Trang thai dieu phoi"
-          actionLabel={loading || mutating ? "Dang tai..." : "Tai lai"}
-          onActionPress={() => void reload()}
-          actionDisabled={loading || mutating}
+      compactHeader
+      onRefresh={() => void reload()}
+      refreshing={loading}
+      footer={
+        <AdminBottomNav
+          current="scheduling"
+          onNavigate={(target) => {
+            void router.replace(`/(admin)/${target}`);
+          }}
         />
-        <Text style={styles.sectionBody}>{error ?? "Loc theo trang thai roi mo tung lich hen de check-in, doi lich hoac chuyen qua thanh toan."}</Text>
-        {overdueBooked > 0 ? <Text style={styles.warningText}>{overdueBooked} lich BOOKED da qua gio bat dau.</Text> : null}
-        {staleCheckedIn > 0 ? <Text style={styles.warningText}>{staleCheckedIn} lich CHECKED_IN dang mo kha lau, nen checkout hoac dong trang thai.</Text> : null}
+      }
+    >
+      <View style={styles.section}>
+        <TextInput
+          style={styles.input}
+          value={appointmentCustomerName}
+          onChangeText={setAppointmentCustomerName}
+          placeholder="Ten khach"
+          placeholderTextColor="#9d8a79"
+        />
+        <View style={styles.quickRow}>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              style={styles.input}
+              value={appointmentDateInput}
+              onChangeText={setAppointmentDateInput}
+              placeholder="2026-04-21"
+              placeholderTextColor="#9d8a79"
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <TextInput
+              style={styles.input}
+              value={appointmentTimeInput}
+              onChangeText={setAppointmentTimeInput}
+              placeholder="10:00"
+              placeholderTextColor="#9d8a79"
+            />
+          </View>
+        </View>
+        <View style={[styles.quickRow, { alignItems: "center" }]}>
+          <Text style={styles.rowMeta}>Thoi luong</Text>
+          <View style={{ width: 112 }}>
+            <TextInput
+              style={styles.input}
+              value={appointmentDurationMinutes}
+              onChangeText={setAppointmentDurationMinutes}
+              keyboardType="number-pad"
+              placeholder="60"
+              placeholderTextColor="#9d8a79"
+            />
+          </View>
+        </View>
+        <Text style={styles.fieldTitle}>Chon tho</Text>
+        <View style={styles.inlineWrap}>
+          {staffOptions.map((staff) => (
+            <Pressable
+              key={staff.userId}
+              style={[styles.inlineChipSelectable, appointmentStaffUserId === staff.userId ? styles.inlineChipSelectableActive : null]}
+              onPress={() => setAppointmentStaffUserId(staff.userId)}
+            >
+              <Text
+                style={[
+                  styles.inlineChipSelectableText,
+                  appointmentStaffUserId === staff.userId ? styles.inlineChipSelectableTextActive : null,
+                ]}
+              >
+                {staff.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Text style={styles.fieldTitle}>Chon tai nguyen</Text>
+        <View style={styles.inlineWrap}>
+          {resourceOptions.map((resource) => (
+            <Pressable
+              key={resource.id}
+              style={[styles.inlineChipSelectable, appointmentResourceId === resource.id ? styles.inlineChipSelectableActive : null]}
+              onPress={() => setAppointmentResourceId(resource.id)}
+            >
+              <Text
+                style={[
+                  styles.inlineChipSelectableText,
+                  appointmentResourceId === resource.id ? styles.inlineChipSelectableTextActive : null,
+                ]}
+              >
+                {resource.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        <Pressable style={styles.primaryButton} disabled={mutating} onPress={() => void handleCreateAppointment()}>
+          <Text style={styles.primaryButtonText}>{mutating ? "Dang tao..." : "Tao lich nhanh"}</Text>
+        </Pressable>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Loc lich hen</Text>
         <View style={styles.inlineWrap}>
           {([
             ["ALL", "Tat ca"],
             ["BOOKED", "Cho check-in"],
             ["CHECKED_IN", "Dang phuc vu"],
             ["DONE", "Hoan tat"],
-            ["NO_SHOW", "No-show"],
-            ["CANCELLED", "Da huy"],
+            ["OTHER", "Khac"],
           ] as const).map(([filter, label]) => (
             <Pressable
               key={filter}
@@ -210,17 +254,22 @@ export default function AdminSchedulingScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Danh sach lich hen</Text>
+        {filteredAppointments.length === 0 ? <Text style={styles.rowMeta}>Khong co lich</Text> : null}
         {filteredAppointments.map((item) => {
-          const isLate = item.status === "BOOKED" && new Date(item.startAt).getTime() < nowTs;
-          const isStale = item.status === "CHECKED_IN" && item.checkedInAt
-            ? nowTs - new Date(item.checkedInAt).getTime() > 2 * 60 * 60 * 1000
-            : false;
+          const actionable = item.status === "BOOKED" || item.status === "CHECKED_IN";
           return (
             <Pressable
               key={item.id}
-              style={[styles.listRow, item.id === effectiveSelectedAppointmentId ? styles.listRowActive : null]}
-              onPress={() => setSelectedAppointmentId(item.id)}
+              style={styles.listRow}
+              onPress={() => {
+                if (!actionable) {
+                  return;
+                }
+                void router.push({
+                  pathname: "/(admin)/scheduling/[appointmentId]",
+                  params: { appointmentId: item.id },
+                });
+              }}
             >
               <View style={styles.rowHeader}>
                 <Text style={styles.rowTitle}>{item.customerName}</Text>
@@ -228,170 +277,9 @@ export default function AdminSchedulingScreen() {
               </View>
               <Text style={styles.rowMeta}>{formatDateTime(item.startAt)}</Text>
               <Text style={styles.rowMeta}>{item.customerPhone ?? "-"}</Text>
-              {isLate ? <Text style={styles.warningText}>Qua gio check-in</Text> : null}
-              {isStale ? <Text style={styles.warningText}>Dang CHECKED_IN lau</Text> : null}
             </Pressable>
           );
         })}
-        {filteredAppointments.length === 0 ? <Text style={styles.sectionBody}>Khong co lich hen theo bo loc nay.</Text> : null}
-      </View>
-
-      {selectedAppointment ? (
-        <View style={styles.section}>
-          <View style={styles.rowHeader}>
-            <Text style={styles.sectionTitle}>Chi tiet lich hen</Text>
-            <StatusBadge status={selectedAppointment.status} />
-          </View>
-
-          <View style={styles.infoGrid}>
-            <InfoTile label="Khach" value={selectedAppointment.customerName} />
-            <InfoTile label="So dien thoai" value={selectedAppointment.customerPhone ?? "-"} />
-            <InfoTile label="Bat dau" value={formatDateTime(selectedAppointment.startAt)} />
-            <InfoTile label="Ket thuc" value={formatDateTime(selectedAppointment.endAt)} />
-            <InfoTile label="Nhan vien" value={staffNameById.get(selectedAppointment.staffUserId ?? "") ?? "-"} />
-            <InfoTile label="Tai nguyen" value={resourceNameById.get(selectedAppointment.resourceId ?? "") ?? "-"} />
-            {selectedAppointment.checkedInAt ? (
-              <InfoTile label="Check-in" value={formatDateTime(selectedAppointment.checkedInAt)} />
-            ) : null}
-          </View>
-
-          <View style={styles.actionColumn}>
-            {selectedAppointment.status === "BOOKED" ? (
-              <>
-                <Pressable style={styles.secondaryButton} onPress={startEditingAppointment}>
-                  <Text style={styles.secondaryButtonText}>Sua lich da chon</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.primaryButton}
-                  disabled={mutating || busyTargetId === selectedAppointment.id}
-                  onPress={() => void updateAppointmentStatus(selectedAppointment.id, "CHECKED_IN")}
-                >
-                  <Text style={styles.primaryButtonText}>
-                    {busyTargetId === selectedAppointment.id ? "Dang xu ly..." : "Check-in nhanh"}
-                  </Text>
-                </Pressable>
-                <Pressable
-                  style={styles.secondaryButton}
-                  disabled={mutating || busyTargetId === selectedAppointment.id}
-                  onPress={() => void updateAppointmentStatus(selectedAppointment.id, "NO_SHOW")}
-                >
-                  <Text style={styles.secondaryButtonText}>Danh dau no-show</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.ghostDangerButton}
-                  disabled={mutating || busyTargetId === selectedAppointment.id}
-                  onPress={() => void updateAppointmentStatus(selectedAppointment.id, "CANCELLED")}
-                >
-                  <Text style={styles.ghostDangerButtonText}>Huy lich hen</Text>
-                </Pressable>
-                <Pressable style={styles.secondaryButton} onPress={() => void router.push("/(admin)/booking")}>
-                  <Text style={styles.secondaryButtonText}>Quay lai Web Booking</Text>
-                </Pressable>
-              </>
-            ) : null}
-
-            {selectedAppointment.status === "CHECKED_IN" ? (
-              <>
-                <Pressable
-                  style={styles.primaryButton}
-                  onPress={() => router.push({ pathname: "/(admin)/checkout", params: { appointmentId: selectedAppointment.id } })}
-                >
-                  <Text style={styles.primaryButtonText}>Mo Thanh toan cho lich nay</Text>
-                </Pressable>
-                <Pressable
-                  style={styles.secondaryButton}
-                  disabled={mutating || busyTargetId === selectedAppointment.id}
-                  onPress={() => void updateAppointmentStatus(selectedAppointment.id, "DONE")}
-                >
-                  <Text style={styles.secondaryButtonText}>Danh dau hoan tat nhanh</Text>
-                </Pressable>
-              </>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{editingAppointmentId ? "Sua lich hen" : "Tao lich hen nhanh"}</Text>
-
-        <Text style={styles.fieldTitle}>Ten khach</Text>
-        <TextInput style={styles.input} value={appointmentCustomerName} onChangeText={setAppointmentCustomerName} />
-
-        <Text style={styles.fieldTitle}>Bat dau</Text>
-        <TextInput
-          style={styles.input}
-          value={appointmentStartInput}
-          onChangeText={setAppointmentStartInput}
-          placeholder="2026-04-21T10:00"
-          placeholderTextColor="#9d8a79"
-        />
-
-        <Text style={styles.fieldTitle}>So phut</Text>
-        <TextInput
-          style={styles.input}
-          value={appointmentDurationMinutes}
-          onChangeText={setAppointmentDurationMinutes}
-          keyboardType="number-pad"
-          placeholder="60"
-          placeholderTextColor="#9d8a79"
-        />
-
-        <Text style={styles.fieldTitle}>Nhan vien</Text>
-        <View style={styles.inlineWrap}>
-          {staffOptions.map((staff) => (
-            <Pressable
-              key={staff.userId}
-              style={[
-                styles.inlineChipSelectable,
-                appointmentStaffUserId === staff.userId ? styles.inlineChipSelectableActive : null,
-              ]}
-              onPress={() => setAppointmentStaffUserId(staff.userId)}
-            >
-              <Text
-                style={[
-                  styles.inlineChipSelectableText,
-                  appointmentStaffUserId === staff.userId ? styles.inlineChipSelectableTextActive : null,
-                ]}
-              >
-                {staff.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <Text style={styles.fieldTitle}>Tai nguyen</Text>
-        <View style={styles.inlineWrap}>
-          {resourceOptions.map((resource) => (
-            <Pressable
-              key={resource.id}
-              style={[
-                styles.inlineChipSelectable,
-                appointmentResourceId === resource.id ? styles.inlineChipSelectableActive : null,
-              ]}
-              onPress={() => setAppointmentResourceId(resource.id)}
-            >
-              <Text
-                style={[
-                  styles.inlineChipSelectableText,
-                  appointmentResourceId === resource.id ? styles.inlineChipSelectableTextActive : null,
-                ]}
-              >
-                {resource.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        <View style={styles.actionColumn}>
-          <Pressable style={styles.primaryButton} disabled={mutating} onPress={() => void handleSaveAppointment()}>
-            <Text style={styles.primaryButtonText}>{editingAppointmentId ? "Luu cap nhat" : "Tao lich hen"}</Text>
-          </Pressable>
-          {editingAppointmentId ? (
-            <Pressable style={styles.secondaryButton} onPress={resetAppointmentForm}>
-              <Text style={styles.secondaryButtonText}>Huy sua</Text>
-            </Pressable>
-          ) : null}
-        </View>
       </View>
     </AdminScreen>
   );

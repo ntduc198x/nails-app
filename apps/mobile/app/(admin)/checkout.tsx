@@ -1,14 +1,14 @@
-import { useMemo, useState } from "react";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useCallback, useMemo, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { Linking, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
+import { mobileEnv } from "@/src/lib/env";
 import {
+  AdminBottomNav,
   AdminScreen,
   createCheckoutKey,
   formatDateTime,
   formatVnd,
-  InfoTile,
-  SectionTitleRow,
   StatusBadge,
   styles,
 } from "@/src/features/admin/ui";
@@ -20,22 +20,33 @@ export default function AdminCheckoutScreen() {
     appointments,
     checkoutServices,
     createCheckout,
-    recentTickets,
+    reload,
+    loading,
     role,
     techShiftOpen,
     user,
     busyTargetId,
     error,
-    loading,
     mutating,
-    reload,
   } = useAdminOperations();
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
-  const [checkoutCustomerName, setCheckoutCustomerName] = useState("");
+  const [checkoutCustomerName] = useState("");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [checkoutLines, setCheckoutLines] = useState<Array<{ serviceId: string; qty: number }>>([{ serviceId: "", qty: 1 }]);
+  const [serviceQueries, setServiceQueries] = useState<string[]>([""]);
+  const [openServicePickerIndex, setOpenServicePickerIndex] = useState<number | null>(0);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
+  const [lastReceiptToken, setLastReceiptToken] = useState<string | null>(null);
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
+
+  useFocusEffect(
+    useCallback(
+      () => () => {
+        void reload();
+      },
+      [reload],
+    ),
+  );
 
   const checkedInAppointments = useMemo(
     () => appointments.filter((item) => item.status === "CHECKED_IN"),
@@ -50,11 +61,8 @@ export default function AdminCheckoutScreen() {
       null,
     [checkedInAppointments, requestedAppointmentId, selectedAppointmentId],
   );
+
   const activeCheckoutServices = useMemo(() => checkoutServices.filter((item) => item.active), [checkoutServices]);
-  const quickCheckoutServices = useMemo(
-    () => activeCheckoutServices.filter((item) => item.featuredInLookbook).slice(0, 6),
-    [activeCheckoutServices],
-  );
   const checkoutSummary = useMemo(() => {
     const selectedLines = checkoutLines
       .map((line) => ({
@@ -71,15 +79,15 @@ export default function AdminCheckoutScreen() {
       return sum + service.basePrice * line.qty * (1 + service.vatRate);
     }, 0);
 
-    return {
-      selectedLines,
-      total,
-    };
+    return { selectedLines, total };
   }, [activeCheckoutServices, checkoutLines]);
+
   const effectiveCheckoutCustomerName = checkoutCustomerName.trim() || selectedAppointment?.customerName || "";
 
   function addCheckoutLine() {
     setCheckoutLines((current) => [...current, { serviceId: "", qty: 1 }]);
+    setServiceQueries((current) => [...current, ""]);
+    setOpenServicePickerIndex(checkoutLines.length);
   }
 
   function updateCheckoutLine(index: number, patch: Partial<{ serviceId: string; qty: number }>) {
@@ -89,25 +97,30 @@ export default function AdminCheckoutScreen() {
   }
 
   function removeCheckoutLine(index: number) {
-    setCheckoutLines((current) => (current.length === 1 ? current : current.filter((_, lineIndex) => lineIndex !== index)));
+    if (checkoutLines.length === 1) {
+      return;
+    }
+
+    setCheckoutLines((current) => current.filter((_, lineIndex) => lineIndex !== index));
+    setServiceQueries((current) => current.filter((_, lineIndex) => lineIndex !== index));
+    setOpenServicePickerIndex((current) => {
+      if (current == null) {
+        return current;
+      }
+      if (current === index) {
+        return null;
+      }
+      return current > index ? current - 1 : current;
+    });
   }
 
-  function addQuickCheckoutService(serviceId: string) {
-    setCheckoutLines((current) => {
-      const existingIndex = current.findIndex((line) => line.serviceId === serviceId);
-      if (existingIndex >= 0) {
-        return current.map((line, lineIndex) =>
-          lineIndex === existingIndex ? { ...line, qty: line.qty + 1 } : line,
-        );
-      }
+  function updateServiceQuery(index: number, value: string) {
+    setServiceQueries((current) => current.map((query, lineIndex) => (lineIndex === index ? value : query)));
+  }
 
-      const firstEmptyIndex = current.findIndex((line) => !line.serviceId);
-      if (firstEmptyIndex >= 0) {
-        return current.map((line, lineIndex) => (lineIndex === firstEmptyIndex ? { serviceId, qty: 1 } : line));
-      }
-
-      return [...current, { serviceId, qty: 1 }];
-    });
+  function updateCheckoutQty(index: number, nextQty: number) {
+    const safeQty = Number.isFinite(nextQty) ? Math.max(1, Math.floor(nextQty)) : 1;
+    updateCheckoutLine(index, { qty: safeQty });
   }
 
   async function handleCreateCheckout() {
@@ -120,7 +133,7 @@ export default function AdminCheckoutScreen() {
       return;
     }
 
-    await createCheckout({
+    const result = await createCheckout({
       customerName: effectiveCheckoutCustomerName.trim(),
       paymentMethod: checkoutPaymentMethod,
       lines: validLines,
@@ -128,79 +141,97 @@ export default function AdminCheckoutScreen() {
       idempotencyKey: createCheckoutKey(),
     });
 
-    setCheckoutNotice("Da thanh toan thanh cong.");
+    await reload();
+
+    setCheckoutNotice("Da thanh toan.");
+    setLastReceiptToken(result?.receiptToken ?? null);
     setCheckoutLines([{ serviceId: "", qty: 1 }]);
+    setServiceQueries([""]);
+    setOpenServicePickerIndex(0);
+    setSelectedAppointmentId(null);
+  }
+
+  async function openReceipt() {
+    if (!lastReceiptToken || !mobileEnv.apiBaseUrl) {
+      return;
+    }
+
+    const receiptUrl = new URL(`/receipt/${lastReceiptToken}`, mobileEnv.apiBaseUrl).toString();
+    await Linking.openURL(receiptUrl);
   }
 
   return (
     <AdminScreen
       title="Thanh toan"
-      subtitle="Mang logic checkout tu web sang mobile de staff dong bill tu lich da check-in, kiem tra mo ca va theo doi bill gan day ngay trong menu van hanh."
+      subtitle=""
       role={role}
       userEmail={user?.email}
+      compactHeader
+      onRefresh={() => {
+        void reload();
+      }}
+      refreshing={loading}
+      footer={
+        <AdminBottomNav
+          current="checkout"
+          onNavigate={(target) => {
+            void router.replace(`/(admin)/${target}`);
+          }}
+        />
+      }
     >
       <View style={styles.section}>
-        <SectionTitleRow
-          title="Trang thai checkout"
-          actionLabel={loading || mutating ? "Dang tai..." : "Tai lai"}
-          onActionPress={() => void reload()}
-          actionDisabled={loading || mutating}
-        />
-        <Text style={styles.sectionBody}>
-          {error ??
-            (selectedAppointment
-              ? "Chon dich vu, phuong thuc thanh toan va dong bill."
-              : "Chua co lich check-in nao san sang checkout.")}
-        </Text>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Lich da check-in</Text>
-        {checkedInAppointments.map((item) => (
-          <Pressable
-            key={item.id}
-            style={[styles.listRow, item.id === selectedAppointment?.id ? styles.listRowActive : null]}
-            onPress={() => setSelectedAppointmentId(item.id)}
-          >
-            <View style={styles.rowHeader}>
-              <Text style={styles.rowTitle}>{item.customerName}</Text>
-              <StatusBadge status={item.status} />
-            </View>
-            <Text style={styles.rowMeta}>{formatDateTime(item.startAt)}</Text>
-          </Pressable>
-        ))}
-        {checkedInAppointments.length === 0 ? <Text style={styles.sectionBody}>Khong co lich check-in nao.</Text> : null}
+        <Text style={styles.sectionTitle}>Khach dang phuc vu</Text>
+        <View style={styles.inlineWrap}>
+          {checkedInAppointments.map((item) => (
+            <Pressable
+              key={item.id}
+              style={[styles.inlineChipSelectable, item.id === selectedAppointment?.id ? styles.inlineChipSelectableActive : null]}
+              onPress={() => setSelectedAppointmentId(item.id)}
+            >
+              <Text
+                style={[
+                  styles.inlineChipSelectableText,
+                  item.id === selectedAppointment?.id ? styles.inlineChipSelectableTextActive : null,
+                ]}
+              >
+                {item.customerName}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+        {checkedInAppointments.length === 0 ? <Text style={styles.rowMeta}>Khong co khach dang phuc vu</Text> : null}
       </View>
 
       {selectedAppointment ? (
         <View style={styles.section}>
           <View style={styles.rowHeader}>
-            <Text style={styles.sectionTitle}>Chi tiet checkout</Text>
+            <Text style={styles.sectionTitle}>{selectedAppointment.customerName}</Text>
             <StatusBadge status={selectedAppointment.status} />
           </View>
 
-          <View style={styles.infoGrid}>
-            <InfoTile label="Khach" value={selectedAppointment.customerName} />
-            <InfoTile label="So dien thoai" value={selectedAppointment.customerPhone ?? "-"} />
-            <InfoTile label="Bat dau" value={formatDateTime(selectedAppointment.startAt)} />
-            <InfoTile label="Check-in" value={selectedAppointment.checkedInAt ? formatDateTime(selectedAppointment.checkedInAt) : "-"} />
+          <View style={styles.inlineWrap}>
+            {selectedAppointment.customerPhone ? (
+              <View style={styles.inlineChip}>
+                <Text style={styles.inlineChipText}>{selectedAppointment.customerPhone}</Text>
+              </View>
+            ) : null}
+            <View style={styles.inlineChip}>
+              <Text style={styles.inlineChipText}>{formatDateTime(selectedAppointment.startAt)}</Text>
+            </View>
+            {selectedAppointment.checkedInAt ? (
+              <View style={styles.inlineChip}>
+                <Text style={styles.inlineChipText}>{formatDateTime(selectedAppointment.checkedInAt)}</Text>
+              </View>
+            ) : null}
           </View>
 
+          {error ? <Text style={styles.warningText}>{error}</Text> : null}
           {role === "TECH" && techShiftOpen === false ? (
-            <Text style={styles.warningText}>Chua mo ca. Ky thuat vien can mo Ca lam truoc khi thanh toan.</Text>
+            <Text style={styles.warningText}>Chua mo ca. Mo ca truoc khi thanh toan.</Text>
           ) : null}
           {checkoutNotice ? <Text style={styles.successText}>{checkoutNotice}</Text> : null}
 
-          <Text style={styles.fieldTitle}>Ten khach tren bill</Text>
-          <TextInput
-            style={styles.input}
-            value={checkoutCustomerName}
-            onChangeText={setCheckoutCustomerName}
-            placeholder={selectedAppointment.customerName}
-            placeholderTextColor="#9d8a79"
-          />
-
-          <Text style={styles.fieldTitle}>Phuong thuc thanh toan</Text>
           <View style={styles.inlineWrap}>
             {(["CASH", "TRANSFER"] as const).map((method) => (
               <Pressable
@@ -220,78 +251,130 @@ export default function AdminCheckoutScreen() {
             ))}
           </View>
 
-          {quickCheckoutServices.length > 0 ? (
-            <>
-              <Text style={styles.fieldTitle}>Them nhanh dich vu</Text>
-              <View style={styles.inlineWrap}>
-                {quickCheckoutServices.map((service) => (
-                  <Pressable key={service.id} style={styles.inlineAction} onPress={() => addQuickCheckoutService(service.id)}>
-                    <Text style={styles.inlineActionText}>{service.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </>
-          ) : null}
-
           <View style={styles.sectionSubCard}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionSubtitle}>Dich vu checkout</Text>
-              <Pressable style={styles.inlineAction} onPress={addCheckoutLine}>
-                <Text style={styles.inlineActionText}>Them dong</Text>
-              </Pressable>
-            </View>
+            <Text style={styles.sectionSubtitle}>Dich vu</Text>
 
             {checkoutLines.map((line, index) => (
               <View key={`checkout-line-${index}`} style={styles.sectionSubCard}>
-                <Text style={styles.fieldTitle}>Dich vu</Text>
-                <View style={styles.inlineWrap}>
-                  {activeCheckoutServices.slice(0, 12).map((service) => (
-                    <Pressable
-                      key={`${index}-${service.id}`}
-                      style={[styles.inlineChipSelectable, line.serviceId === service.id ? styles.inlineChipSelectableActive : null]}
-                      onPress={() => updateCheckoutLine(index, { serviceId: service.id })}
+                <Pressable
+                  style={[styles.input, { justifyContent: "center" }]}
+                  onPress={() => setOpenServicePickerIndex((current) => (current === index ? null : index))}
+                >
+                  <Text style={line.serviceId ? { color: "#2b1d12" } : styles.rowMeta}>
+                    {activeCheckoutServices.find((service) => service.id === line.serviceId)?.name ?? "Chon dich vu"}
+                  </Text>
+                </Pressable>
+
+                {openServicePickerIndex === index ? (
+                  <View style={styles.sectionSubCard}>
+                    <TextInput
+                      style={styles.input}
+                      value={serviceQueries[index] ?? ""}
+                      onChangeText={(value) => updateServiceQuery(index, value)}
+                      placeholder="Tim dich vu"
+                      placeholderTextColor="#9d8a79"
+                    />
+                    <View
+                      style={{
+                        maxHeight: 240,
+                        borderWidth: 1,
+                        borderColor: "#eadbc8",
+                        borderRadius: 16,
+                        overflow: "hidden",
+                        backgroundColor: "#fffaf5",
+                      }}
                     >
-                      <Text
-                        style={[
-                          styles.inlineChipSelectableText,
-                          line.serviceId === service.id ? styles.inlineChipSelectableTextActive : null,
-                        ]}
-                      >
-                        {service.name}
-                      </Text>
+                      <ScrollView nestedScrollEnabled showsVerticalScrollIndicator>
+                        <View style={{ gap: 8, padding: 8 }}>
+                          {activeCheckoutServices.filter((service) => {
+                          const query = (serviceQueries[index] ?? "").trim().toLowerCase();
+                          if (!query) {
+                            return true;
+                          }
+                          return service.name.toLowerCase().includes(query);
+                        }).map((service) => (
+                            <Pressable
+                              key={`${index}-${service.id}`}
+                              style={[
+                                styles.listRow,
+                                line.serviceId === service.id ? styles.inlineChipSelectableActive : null,
+                              ]}
+                              onPress={() => {
+                                updateCheckoutLine(index, { serviceId: service.id });
+                                updateServiceQuery(index, service.name);
+                                setOpenServicePickerIndex(null);
+                              }}
+                            >
+                              <View style={styles.rowHeader}>
+                                <Text
+                                  style={[
+                                    styles.rowTitle,
+                                    line.serviceId === service.id ? styles.inlineChipSelectableTextActive : null,
+                                  ]}
+                                >
+                                  {service.name}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.rowMeta,
+                                    line.serviceId === service.id ? styles.inlineChipSelectableTextActive : null,
+                                  ]}
+                                >
+                                  {formatVnd(service.basePrice * (1 + service.vatRate))}
+                                </Text>
+                              </View>
+                            </Pressable>
+                          ))}
+                          {activeCheckoutServices.filter((service) => {
+                            const query = (serviceQueries[index] ?? "").trim().toLowerCase();
+                            if (!query) {
+                              return true;
+                            }
+                            return service.name.toLowerCase().includes(query);
+                          }).length === 0 ? <Text style={styles.rowMeta}>Khong tim thay dich vu</Text> : null}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  </View>
+                ) : null}
+
+                <View style={[styles.quickRow, { alignItems: "center", justifyContent: "space-between" }]}>
+                  <Text style={styles.fieldTitle}>So luong</Text>
+                  <View style={[styles.quickRow, { alignItems: "center" }]}>
+                    <Pressable style={styles.inlineAction} onPress={() => updateCheckoutQty(index, line.qty - 1)}>
+                      <Text style={styles.inlineActionText}>-</Text>
                     </Pressable>
-                  ))}
+                    <View style={{ width: 72 }}>
+                      <TextInput
+                        style={styles.input}
+                        value={String(line.qty || 1)}
+                        onChangeText={(value) => updateCheckoutQty(index, Number(value || "1"))}
+                        keyboardType="number-pad"
+                        placeholder="1"
+                        placeholderTextColor="#9d8a79"
+                      />
+                    </View>
+                    <Pressable style={styles.inlineAction} onPress={() => updateCheckoutQty(index, line.qty + 1)}>
+                      <Text style={styles.inlineActionText}>+</Text>
+                    </Pressable>
+                  </View>
                 </View>
 
-                <View style={styles.inlineWrap}>
-                  {[1, 2, 3].map((qty) => (
-                    <Pressable
-                      key={`${index}-qty-${qty}`}
-                      style={[styles.inlineChipSelectable, line.qty === qty ? styles.inlineChipSelectableActive : null]}
-                      onPress={() => updateCheckoutLine(index, { qty })}
-                    >
-                      <Text
-                        style={[
-                          styles.inlineChipSelectableText,
-                          line.qty === qty ? styles.inlineChipSelectableTextActive : null,
-                        ]}
-                      >
-                        SL {qty}
-                      </Text>
-                    </Pressable>
-                  ))}
+                <View style={[styles.quickRow, { justifyContent: "space-between" }]}>
                   {checkoutLines.length > 1 ? (
                     <Pressable style={styles.secondaryButton} onPress={() => removeCheckoutLine(index)}>
                       <Text style={styles.secondaryButtonText}>Bo dong</Text>
                     </Pressable>
-                  ) : null}
+                  ) : <View />}
+                  <Pressable style={styles.inlineAction} onPress={addCheckoutLine}>
+                    <Text style={styles.inlineActionText}>Them dong</Text>
+                  </Pressable>
                 </View>
               </View>
             ))}
           </View>
 
           <View style={styles.sectionSubCard}>
-            <Text style={styles.sectionSubtitle}>Tom tat bill</Text>
             <Text style={styles.detailLine}>
               {checkoutSummary.selectedLines.length} dich vu - {formatVnd(checkoutSummary.total)}
             </Text>
@@ -314,43 +397,27 @@ export default function AdminCheckoutScreen() {
             onPress={() => void handleCreateCheckout()}
           >
             <Text style={styles.primaryButtonText}>
-              {busyTargetId === selectedAppointment.id ? "Dang thanh toan..." : "Thanh toan va dong bill"}
+              {busyTargetId === selectedAppointment.id ? "Dang thanh toan..." : "Thanh toan"}
             </Text>
           </Pressable>
 
-          <Pressable
-            style={styles.secondaryButton}
-            onPress={() => {
-              if (!selectedAppointment) {
-                return;
-              }
-              void router.push({ pathname: "/(admin)/scheduling", params: { filter: "CHECKED_IN" } });
-            }}
-          >
-            <Text style={styles.secondaryButtonText}>Mo lai Dieu phoi lich</Text>
+          <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/(admin)/scheduling")}>
+            <Text style={styles.secondaryButtonText}>Ve lich</Text>
           </Pressable>
 
+          {lastReceiptToken && mobileEnv.apiBaseUrl ? (
+            <Pressable style={styles.secondaryButton} onPress={() => void openReceipt()}>
+              <Text style={styles.secondaryButtonText}>Mo hoa don</Text>
+            </Pressable>
+          ) : null}
+
           {role === "TECH" && techShiftOpen === false ? (
-            <Pressable style={styles.secondaryButton} onPress={() => void router.push("/(admin)/shifts")}>
-              <Text style={styles.secondaryButtonText}>Mo man Ca lam</Text>
+            <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/(admin)/shifts")}>
+              <Text style={styles.secondaryButtonText}>Mo ca</Text>
             </Pressable>
           ) : null}
         </View>
       ) : null}
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Bill gan day</Text>
-        {recentTickets.slice(0, 4).map((ticket) => (
-          <View key={ticket.id} style={styles.ticketRow}>
-            <View style={styles.ticketMeta}>
-              <Text style={styles.ticketCustomer}>{ticket.customerName ?? "Khach le"}</Text>
-              <Text style={styles.ticketDate}>{formatDateTime(ticket.createdAt)}</Text>
-            </View>
-            <Text style={styles.ticketTotal}>{formatVnd(ticket.grandTotal)}</Text>
-          </View>
-        ))}
-        {recentTickets.length === 0 ? <Text style={styles.detailLine}>Chua co bill nao gan day.</Text> : null}
-      </View>
     </AdminScreen>
   );
 }

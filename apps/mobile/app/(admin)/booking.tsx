@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { AdminScreen, formatDateTime, styles } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminScreen, formatDateTime, styles } from "@/src/features/admin/ui";
 
 function resolveStaffName(
   rawValue: string | null | undefined,
@@ -93,6 +93,14 @@ export default function AdminBookingScreen() {
       compactHeader
       onRefresh={() => void reload()}
       refreshing={loading}
+      footer={
+        <AdminBottomNav
+          current="booking"
+          onNavigate={(target) => {
+            void router.replace(`/(admin)/${target}`);
+          }}
+        />
+      }
     >
       <View style={styles.section}>
         <View style={styles.quickRow}>

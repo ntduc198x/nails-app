@@ -4,6 +4,7 @@ import { Pressable, Text, TextInput, View } from "react-native";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import {
   addMinutesToIso,
+  AdminBottomNav,
   AdminScreen,
   formatDateTime,
   StatusBadge,
@@ -300,9 +301,17 @@ export default function BookingRequestDetailScreen() {
       role={role}
       userEmail={user?.email}
       compactHeader
+      footer={
+        <AdminBottomNav
+          current="booking"
+          onNavigate={(target) => {
+            void router.replace(`/(admin)/${target}`);
+          }}
+        />
+      }
     >
       <View style={styles.section}>
-        <Pressable style={styles.secondaryButton} onPress={() => router.back()}>
+        <Pressable style={styles.secondaryButton} onPress={() => router.replace("/(admin)/booking")}>
           <Text style={styles.secondaryButtonText}>Quay lại</Text>
         </Pressable>
       </View>

@@ -8,6 +8,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -101,14 +102,16 @@ export default function CustomerHomeScreen() {
   const { role, user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, reset, submit, submitError, successResult, timeSlots, updateValue, values } =
     useGuestBooking();
-  const { isLoading: lookbookLoading, services: lookbookServices, source: lookbookSource } = useLookbookServices(FALLBACK_SERVICES);
+  const { isLoading: lookbookLoading, refresh: refreshLookbook, services: lookbookServices, source: lookbookSource } =
+    useLookbookServices(FALLBACK_SERVICES);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [scheduleExpanded, setScheduleExpanded] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<(typeof NAV_ITEMS)[number]["key"]>("services");
   const [activeLookbookIndex, setActiveLookbookIndex] = useState(0);
   const scrollRef = useRef<ScrollView | null>(null);
   const lookbookScrollerRef = useRef<ScrollView | null>(null);
-  const sectionOffsets = useRef<Record<string, number>>({});
+  const [sectionOffsets, setSectionOffsets] = useState<Record<string, number>>({});
   const slotLabel = useMemo(() => formatBookingSlot(values.selectedDate, values.selectedTime), [values.selectedDate, values.selectedTime]);
   const selectedService = useMemo(
     () => lookbookServices.find((service) => service.title === values.requestedService),
@@ -121,17 +124,27 @@ export default function CustomerHomeScreen() {
     return <Redirect href="/(admin)" />;
   }
 
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    try {
+      await refreshLookbook();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
+
   const registerSection =
     (key: string) =>
     (event: LayoutChangeEvent) => {
-      sectionOffsets.current[key] = event.nativeEvent.layout.y;
+      const nextY = event.nativeEvent.layout.y;
+      setSectionOffsets((current) => (current[key] === nextY ? current : { ...current, [key]: nextY }));
     };
 
   function handleScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
     const currentY = event.nativeEvent.contentOffset.y + 180;
     const candidates = NAV_ITEMS.map((item) => ({
       key: item.key,
-      y: sectionOffsets.current[item.key] ?? Number.POSITIVE_INFINITY,
+      y: sectionOffsets[item.key] ?? Number.POSITIVE_INFINITY,
     }))
       .filter((item) => Number.isFinite(item.y))
       .sort((left, right) => left.y - right.y);
@@ -153,7 +166,7 @@ export default function CustomerHomeScreen() {
   function jumpToSection(key: (typeof NAV_ITEMS)[number]["key"]) {
     setActiveSection(key);
     scrollRef.current?.scrollTo({
-      y: Math.max(0, (sectionOffsets.current[key] ?? 0) - 18),
+      y: Math.max(0, (sectionOffsets[key] ?? 0) - 18),
       animated: true,
     });
   }
@@ -171,6 +184,15 @@ export default function CustomerHomeScreen() {
           ref={scrollRef}
           contentContainerStyle={styles.content}
           onScroll={handleScroll}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={() => void handleRefresh()}
+              tintColor="#2f241d"
+              colors={["#2f241d"]}
+              progressBackgroundColor="#fffaf5"
+            />
+          }
           scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
         >

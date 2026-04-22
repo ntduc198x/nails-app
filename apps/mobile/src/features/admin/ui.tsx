@@ -5,6 +5,18 @@ import { SessionActions } from "@/src/providers/session-provider";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 
+function getStatusLabel(status: string) {
+  if (status === "NEEDS_RESCHEDULE") return "Cần dời lịch";
+  if (status === "BOOKED") return "Chờ Check-in";
+  if (status === "CHECKED_IN") return "Đang phục vụ";
+  if (status === "DONE") return "Đã xong";
+  if (status === "NO_SHOW") return "Không tới";
+  if (status === "CANCELLED") return "Hủy lịch";
+  if (status === "NEW") return "Mới";
+  if (status === "CONVERTED") return "Đã chốt";
+  return status;
+}
+
 export function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.metricCard}>
@@ -26,7 +38,7 @@ export function InfoTile({ label, value }: { label: string; value: string }) {
 export function StatusBadge({ status }: { status: string }) {
   return (
     <View style={[styles.statusBadge, getStatusToneStyle(status)]}>
-      <Text style={styles.statusBadgeText}>{status}</Text>
+      <Text style={styles.statusBadgeText}>{getStatusLabel(status)}</Text>
     </View>
   );
 }
@@ -39,6 +51,7 @@ export function AdminScreen({
   compactHeader,
   onRefresh,
   refreshing,
+  footer,
   children,
 }: {
   title: string;
@@ -48,6 +61,7 @@ export function AdminScreen({
   compactHeader?: boolean;
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -82,6 +96,7 @@ export function AdminScreen({
 
         <SessionActions />
       </ScrollView>
+      {footer ? <View style={styles.footerShell}>{footer}</View> : null}
     </SafeAreaView>
   );
 }
@@ -173,6 +188,36 @@ export function AdminNavLinks({
   );
 }
 
+export function AdminBottomNav({
+  current,
+  onNavigate,
+}: {
+  current: "booking" | "scheduling" | "checkout" | "shifts";
+  onNavigate: (target: "booking" | "scheduling" | "checkout" | "shifts") => void;
+}) {
+  return (
+    <View style={styles.bottomNav}>
+      {([
+        ["booking", "Booking"],
+        ["scheduling", "Điều phối"],
+        ["checkout", "Thu tiền"],
+        ["shifts", "Ca làm"],
+      ] as const).map(([value, label]) => {
+        const active = current === value;
+        return (
+          <Pressable
+            key={value}
+            style={[styles.bottomNavItem, active ? styles.bottomNavItemActive : null]}
+            onPress={() => onNavigate(value)}
+          >
+            <Text style={[styles.bottomNavText, active ? styles.bottomNavTextActive : null]}>{label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 export function formatDateTime(value: string) {
   return new Date(value).toLocaleString("vi-VN", {
     day: "2-digit",
@@ -226,6 +271,7 @@ export const styles = StyleSheet.create({
   content: {
     padding: 24,
     gap: 20,
+    paddingBottom: 28,
   },
   header: {
     marginTop: 24,
@@ -542,6 +588,38 @@ export const styles = StyleSheet.create({
     color: "#a32d2d",
     textAlign: "center",
     fontWeight: "700",
+  },
+  footerShell: {
+    borderTopWidth: 1,
+    borderTopColor: "#eadbc8",
+    backgroundColor: "#fffaf5",
+    paddingHorizontal: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  bottomNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 4,
+  },
+  bottomNavItem: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+  },
+  bottomNavItemActive: {
+    backgroundColor: "#f0e7dc",
+  },
+  bottomNavText: {
+    textAlign: "center",
+    color: "#8a7869",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  bottomNavTextActive: {
+    color: "#2b241f",
   },
   ticketRow: {
     flexDirection: "row",

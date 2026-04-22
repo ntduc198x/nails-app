@@ -17,6 +17,7 @@ export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" |
 
 type AppointmentMutationInput = {
   customerName: string;
+  customerPhone?: string | null;
   startAt: string;
   endAt: string;
   staffUserId?: string | null;
@@ -131,8 +132,14 @@ export async function updateAppointmentStatusForMobile(
   }
 }
 
-async function findOrCreateCustomerForMobile(client: SharedSupabaseClient, orgId: string, customerName: string) {
+async function findOrCreateCustomerForMobile(
+  client: SharedSupabaseClient,
+  orgId: string,
+  customerName: string,
+  customerPhone?: string | null,
+) {
   const normalizedName = customerName.trim();
+  const normalizedPhone = customerPhone?.trim() ? customerPhone.trim() : null;
   if (!normalizedName) {
     throw new Error("Ten khach hang la bat buoc.");
   }
@@ -149,6 +156,18 @@ async function findOrCreateCustomerForMobile(client: SharedSupabaseClient, orgId
   }
 
   if (existing.data?.[0]?.id) {
+    if (normalizedPhone) {
+      const updateRes = await client
+        .from("customers")
+        .update({ phone: normalizedPhone })
+        .eq("id", String(existing.data[0].id))
+        .eq("org_id", orgId);
+
+      if (updateRes.error) {
+        throw updateRes.error;
+      }
+    }
+
     return String(existing.data[0].id);
   }
 
@@ -157,6 +176,7 @@ async function findOrCreateCustomerForMobile(client: SharedSupabaseClient, orgId
     .insert({
       org_id: orgId,
       name: normalizedName,
+      phone: normalizedPhone,
     })
     .select("id")
     .single();
@@ -173,7 +193,7 @@ export async function saveAppointmentForMobile(
   input: AppointmentMutationInput,
 ) {
   const { orgId, branchId } = await ensureOrgContext(client);
-  const customerId = await findOrCreateCustomerForMobile(client, orgId, input.customerName);
+  const customerId = await findOrCreateCustomerForMobile(client, orgId, input.customerName, input.customerPhone);
 
   const payload = {
     customer_id: customerId,
@@ -188,8 +208,7 @@ export async function saveAppointmentForMobile(
       .from("appointments")
       .update(payload)
       .eq("id", input.appointmentId)
-      .eq("org_id", orgId)
-      .eq("status", "BOOKED");
+      .eq("org_id", orgId);
 
     if (updateRes.error) {
       throw updateRes.error;
@@ -214,4 +233,21 @@ export async function saveAppointmentForMobile(
   }
 
   return { appointmentId: String(insertRes.data.id), mode: "created" as const };
+}
+
+export async function deleteAppointmentForMobile(
+  client: SharedSupabaseClient,
+  appointmentId: string,
+) {
+  const { orgId } = await ensureOrgContext(client);
+
+  const { error } = await client
+    .from("appointments")
+    .delete()
+    .eq("id", appointmentId)
+    .eq("org_id", orgId);
+
+  if (error) {
+    throw error;
+  }
 }

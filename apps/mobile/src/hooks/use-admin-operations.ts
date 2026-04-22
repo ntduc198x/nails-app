@@ -9,6 +9,7 @@ import {
   type MobileBookingRequestSummary,
   type MobileDashboardSnapshot,
   createCheckoutForMobile,
+  deleteAppointmentForMobile,
   convertBookingRequestToAppointmentForMobile,
   deleteBookingRequestForMobile,
   ensureOrgContext,
@@ -225,7 +226,13 @@ export function useAdminOperations() {
   }, [isHydrated, role]);
 
   useEffect(() => {
-    void load();
+    const timeoutId = setTimeout(() => {
+      void load();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [load]);
 
   const runMutation = useCallback(
@@ -364,6 +371,7 @@ export function useAdminOperations() {
   const saveAppointment = useCallback(
     async (input: {
       customerName: string;
+      customerPhone?: string | null;
       startAt: string;
       endAt: string;
       staffUserId?: string | null;
@@ -391,7 +399,12 @@ export function useAdminOperations() {
       appointmentId?: string | null;
       dedupeWindowMs?: number;
       idempotencyKey?: string | null;
-    }) => {
+    }): Promise<{
+      ticketId: string;
+      receiptToken: string;
+      grandTotal: number;
+      deduped: boolean;
+    } | null> => {
       const client = mobileSupabase;
       if (!client) {
         throw new Error("Thieu cau hinh Supabase mobile.");
@@ -414,6 +427,20 @@ export function useAdminOperations() {
     [runMutation],
   );
 
+  const deleteAppointment = useCallback(
+    async (appointmentId: string) => {
+      const client = mobileSupabase;
+      if (!client) {
+        throw new Error("Thieu cau hinh Supabase mobile.");
+      }
+
+      await runMutation(appointmentId, async () => {
+        await deleteAppointmentForMobile(client, appointmentId);
+      });
+    },
+    [runMutation],
+  );
+
   return {
     ...state,
     role: role as AppRole | null,
@@ -430,5 +457,6 @@ export function useAdminOperations() {
     updateAppointmentStatus,
     saveAppointment,
     createCheckout,
+    deleteAppointment,
   };
 }

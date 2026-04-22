@@ -9,6 +9,7 @@ export type LookbookService = {
   tone: string;
   price: string;
   image: string;
+  aspectRatio?: number;
 };
 
 type LookbookSource = "api" | "supabase" | "fallback";
@@ -56,6 +57,7 @@ function normalizeLookbookRows(rows: ApiLookbookRow[]): LookbookService[] {
       tone: inferTone(`${row.name ?? ""} ${row.short_description ?? ""}`),
       price: formatPrice(row.base_price),
       image: String(row.image_url ?? ""),
+      aspectRatio: 1.2,
     }));
 }
 

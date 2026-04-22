@@ -13,7 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 const navGroups = [
   {
     label: "Vận hành",
-    href: "/manage/appointments",
+    href: "/manage/booking-requests",
     items: [
       { href: "/manage/booking-requests", label: "Web Booking", desc: "Booking từ landing page" },
       { href: "/manage/appointments", label: "Điều phối lịch", desc: "Lịch hẹn, check-in, mở phiếu, vận hành" },
@@ -25,7 +25,6 @@ const navGroups = [
     label: "Thiết lập",
     href: "/manage/services",
     items: [
-      { href: "/manage/customers", label: "CRM khách", desc: "Hồ sơ khách, follow-up, chăm sóc lại" },
       { href: "/manage/services", label: "Dịch vụ", desc: "Menu dịch vụ và VAT" },
       { href: "/manage/resources", label: "Ghế/Bàn", desc: "Quản lý chair, table, room" },
       { href: "/manage/team", label: "Nhân sự", desc: "Role và nhân sự" },
@@ -35,6 +34,7 @@ const navGroups = [
     label: "Báo cáo",
     href: "/manage/reports",
     items: [
+      { href: "/manage/customers", label: "CRM khách", desc: "Hồ sơ khách, follow-up, chăm sóc lại" },
       { href: "/manage/reports", label: "Báo cáo", desc: "Doanh thu và phân tích" },
       { href: "/manage/tax-books", label: "Sổ thuế", desc: "Mẫu S1a xuất file" },
     ],
@@ -442,7 +442,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
                 <div className="mt-2 grid gap-2">
                   <Link href="/manage/account" className="rounded-xl border px-3 py-2 text-sm font-medium hover:bg-[#faf7f2]" style={{ borderColor: "var(--color-border)" }} onClick={() => setMobileOpen(false)}>
-                    Hồ sơ & báº£o máº­t
+                    Hồ sơ & bảo mật
                   </Link>
                   <button onClick={onLogout} className="rounded-xl border px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50" style={{ borderColor: "#fecaca" }}>
                     Đăng xuất

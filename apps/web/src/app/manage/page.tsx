@@ -22,7 +22,7 @@ export default function ManageEntryPage() {
           return;
         }
 
-        router.replace("/manage/appointments");
+        router.replace("/manage/booking-requests");
       } catch (e) {
         if (!mounted) return;
         setError(e instanceof Error ? e.message : "Không thể mở trang manage");

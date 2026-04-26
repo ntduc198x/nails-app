@@ -100,15 +100,16 @@ export function useLookbookServices(
       return true;
     }
 
-async function loadFromSupabase() {
+    async function loadFromSupabase() {
       if (!mobileSupabase) return false;
 
       const { data, error } = await mobileSupabase
         .from("services")
         .select("id,name,short_description,image_url,duration_min,base_price")
         .eq("active", true)
+        .eq("featured_in_lookbook", true)
         .order("created_at", { ascending: true })
-        .limit(50);
+        .limit(6);
 
       if (error || !data?.length) return false;
 

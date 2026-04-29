@@ -1,13 +1,14 @@
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router, useRouter } from "expo-router";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 import { ensureOrgContext } from "@nails/shared";
+import { getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
 
 const palette = {
   bg: "#FCFAF8",
@@ -27,10 +28,9 @@ type EditField = "fullName" | "phone" | "address" | null;
 
 export default function AdminSettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, signOut } = useSession();
+  const { user, signOut, role } = useSession();
 
   const [profileData, setProfileData] = useState<{ phone: string; address: string; fullName: string } | null>(null);
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
   // Edit state
@@ -40,7 +40,6 @@ export default function AdminSettingsScreen() {
   useEffect(() => {
     async function loadProfileData() {
       if (!mobileSupabase || !user?.id) {
-        setLoading(false);
         return;
       }
 
@@ -61,10 +60,8 @@ export default function AdminSettingsScreen() {
             fullName: typeof data.display_name === "string" ? data.display_name : "",
           });
         }
-      } catch (e) {
-        console.error("Failed to load profile data:", e);
-      } finally {
-        setLoading(false);
+      } catch (error) {
+        console.error("Failed to load profile data:", error);
       }
     }
 
@@ -117,7 +114,7 @@ export default function AdminSettingsScreen() {
       setProfileData(prev => prev ? { ...prev, [editingField]: editValue.trim() } : null);
       setEditingField(null);
       Alert.alert("Đã lưu", "Thông tin đã được cập nhật.");
-    } catch (e) {
+    } catch {
       Alert.alert("Lỗi", "Không thể lưu thông tin. Vui lòng thử lại.");
     } finally {
       setSaving(false);
@@ -171,7 +168,7 @@ export default function AdminSettingsScreen() {
         >
           {/* Header */}
           <View style={styles.header}>
-            <Pressable style={styles.headerButton} onPress={() => router.replace("/(admin)/shifts")}>
+            <Pressable style={styles.headerButton} onPress={() => router.replace(getAdminProfileDestination(role))}>
               <Feather name="chevron-left" size={24} color={palette.textPrimary} />
             </Pressable>
             <Text style={styles.headerTitle}>Cài đặt cá nhân</Text>
@@ -284,18 +281,18 @@ export default function AdminSettingsScreen() {
 
         {/* Bottom Navigation */}
         <View style={[styles.bottomBar, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current="shifts" onNavigate={(target) => void router.replace(`/(admin)/${target}`)} />
+          <AdminBottomNav current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
       </View>
     </SafeAreaView>
   );
 }
 
-function InfoRow({ icon, label, value, onPress, isLast = false }: { icon: string; label: string; value: string; onPress: (() => void) | null; isLast?: boolean }) {
+function InfoRow({ icon, label, value, onPress, isLast = false }: { icon: React.ComponentProps<typeof Feather>["name"]; label: string; value: string; onPress: (() => void) | null; isLast?: boolean }) {
   return (
     <Pressable style={[styles.infoRow, !isLast && styles.infoRowBorder]} onPress={onPress} disabled={!onPress}>
       <View style={styles.infoIconCircle}>
-        <Feather name={icon as any} size={16} color={palette.primary} />
+        <Feather name={icon} size={16} color={palette.primary} />
       </View>
       <View style={styles.infoContent}>
         <Text style={styles.infoLabel}>{label}</Text>
@@ -306,11 +303,11 @@ function InfoRow({ icon, label, value, onPress, isLast = false }: { icon: string
   );
 }
 
-function SecurityRow({ icon, title, subtitle, onPress, isLast = false }: { icon: string; title: string; subtitle: string; onPress: () => void; isLast?: boolean }) {
+function SecurityRow({ icon, title, subtitle, onPress, isLast = false }: { icon: React.ComponentProps<typeof Feather>["name"]; title: string; subtitle: string; onPress: () => void; isLast?: boolean }) {
   return (
     <Pressable style={[styles.securityRow, !isLast && styles.securityRowBorder]} onPress={onPress}>
       <View style={styles.securityIconCircle}>
-        <Feather name={icon as any} size={18} color={palette.primary} />
+        <Feather name={icon} size={18} color={palette.primary} />
       </View>
       <View style={styles.securityContent}>
         <Text style={styles.securityTitle}>{title}</Text>

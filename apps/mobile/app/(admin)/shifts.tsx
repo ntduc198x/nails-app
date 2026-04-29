@@ -1,4 +1,4 @@
-import Feather from "@expo/vector-icons/Feather";
+﻿import Feather from "@expo/vector-icons/Feather";
 import { Alert } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
@@ -16,6 +16,7 @@ import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } fr
 import { ensureOrgContext, type AppRole } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
+import { getAdminNavHref } from "@/src/features/admin/navigation";
 
 type Entry = {
   id: string;
@@ -52,6 +53,14 @@ const c = {
 
 function canManageTeamView(role: AppRole | null) {
   return role === "OWNER" || role === "MANAGER";
+}
+
+function roleBadgeLabel(role: AppRole | null) {
+  if (role === "OWNER") return "OWNER";
+  if (role === "MANAGER") return "MANAGER";
+  if (role === "RECEPTION") return "RECEPTION";
+  if (role === "ACCOUNTANT") return "ACCOUNTANT";
+  return "TECH";
 }
 
 function fmtTime(value: string | null | undefined) {
@@ -127,6 +136,7 @@ export default function AdminShiftsScreen() {
   const [orgId, setOrgId] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<"week" | "month">("month");
   const [nowTs, setNowTs] = useState(() => Date.now());
+  const isOwner = role === "OWNER";
 
   const loadEntries = useCallback(
     async (targetOrgId: string) => {
@@ -288,9 +298,6 @@ export default function AdminShiftsScreen() {
     [teamMembers],
   );
 
-  const currentName =
-    memberMap.get(user?.id ?? "")?.name || displayName(user?.email);
-
   const visibleEntries = useMemo(() => {
     const base = canManageTeamView(role)
       ? entries
@@ -310,6 +317,59 @@ export default function AdminShiftsScreen() {
   );
 
   const today = useMemo(() => new Date(nowTs), [nowTs]);
+  const currentName =
+    memberMap.get(user?.id ?? "")?.name || displayName(user?.email);
+
+  const activeTeamEntries = useMemo(
+    () => visibleEntries.filter((entry) => !entry.clock_out),
+    [visibleEntries],
+  );
+
+  const todayTeamEntries = useMemo(
+    () =>
+      visibleEntries.filter((entry) =>
+        isSameDate(new Date(entry.clock_in), today),
+      ),
+    [today, visibleEntries],
+  );
+
+  const activeTeamCount = useMemo(
+    () => new Set(activeTeamEntries.map((entry) => entry.staff_user_id)).size,
+    [activeTeamEntries],
+  );
+
+  const checkedInTodayCount = useMemo(
+    () => new Set(todayTeamEntries.map((entry) => entry.staff_user_id)).size,
+    [todayTeamEntries],
+  );
+
+  const monthlyTeamEntries = useMemo(() => {
+    const from = startOfMonth(today).getTime();
+    const to = endOfMonth(today).getTime();
+
+    return visibleEntries.filter((entry) => {
+      const ts = new Date(entry.clock_in).getTime();
+      return ts >= from && ts <= to;
+    });
+  }, [today, visibleEntries]);
+
+  const monthlyTeamMinutes = useMemo(
+    () =>
+      monthlyTeamEntries.reduce((acc, entry) => {
+        const end = entry.clock_out
+          ? new Date(entry.clock_out).getTime()
+          : nowTs;
+        return (
+          acc +
+          Math.max(
+            0,
+            Math.round((end - new Date(entry.clock_in).getTime()) / 60000),
+          )
+        );
+      }, 0),
+    [monthlyTeamEntries, nowTs],
+  );
+
   const userEntries = useMemo(
     () => entries.filter((entry) => entry.staff_user_id === user?.id),
     [entries, user?.id],
@@ -419,39 +479,74 @@ export default function AdminShiftsScreen() {
   ).padStart(2, "0")}m`;
   const workingDaysTarget = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
 
-  const actionItems = [
-    {
-      icon: "calendar",
-      label: "Lịch làm việc",
-      onPress: () => setRangeMode("month"),
-    },
-    {
-      icon: "repeat",
-      label: "Đổi ca",
-      onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng đổi ca sẽ được ra mắt sớm."),
-    },
-    {
-      icon: "clock",
-      label: "Xin nghỉ",
-      onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng xin nghỉ sẽ được ra mắt sớm."),
-    },
-    {
-      icon: "file-text",
-      label: activeEntry ? "Đóng ca" : "Ca linh hoạt",
-      onPress: () => {
-        if (activeEntry) void clockOut();
-        else void clockIn();
-      },
-    },
-  ] as const;
+  const actionItems: Array<{
+    icon: React.ComponentProps<typeof Feather>["name"];
+    label: string;
+    onPress: () => void;
+  }> = isOwner
+    ? [
+        {
+          icon: "calendar",
+          label: "Quản lý nhân sự",
+          onPress: () => void router.push("/(admin)/manage-team"),
+        },
+        {
+          icon: "users",
+          label: "Ca đang mở",
+          onPress: () => setRangeMode("week"),
+        },
+        {
+          icon: "bar-chart-2",
+          label: "Chấm công hôm nay",
+          onPress: () => setRangeMode("month"),
+        },
+        {
+          icon: "calendar",
+          label: "Phân ca nhân sự",
+          onPress: () => Alert.alert("Đang tách flow", "Phân ca nhân sự sẽ được tách sang màn riêng, không dùng chung với điều phối lịch khách hàng."),
+        },
+      ]
+    : [
+        {
+          icon: "calendar",
+          label: "Lịch làm việc",
+          onPress: () => setRangeMode("month"),
+        },
+        {
+          icon: "repeat",
+          label: "Đổi ca",
+          onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng đổi ca sẽ được ra mắt sớm."),
+        },
+        {
+          icon: "clock",
+          label: "Xin nghỉ",
+          onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng xin nghỉ sẽ được ra mắt sớm."),
+        },
+        {
+          icon: "file-text",
+          label: activeEntry ? "Đóng ca" : "Ca linh hoạt",
+          onPress: () => {
+            if (activeEntry) void clockOut();
+            else void clockIn();
+          },
+        },
+      ] as const;
 
-  const notificationTitle = nextEntry
-    ? `Ca ${new Date(nextEntry.clock_in).getHours() < 12 ? "sáng" : "chiều"} ngày ${new Date(nextEntry.clock_in).toLocaleDateString("vi-VN")}`
-    : "Chưa có thông báo mới";
+  const notificationTitle = isOwner
+    ? overdueOpenEntries.length
+      ? `${overdueOpenEntries.length} ca đang mở quá ${LONG_OPEN_SHIFT_HOURS}h`
+      : "Theo dõi ca làm của đội ngũ"
+    : nextEntry
+      ? `Ca ${new Date(nextEntry.clock_in).getHours() < 12 ? "sáng" : "chiều"} ngày ${new Date(nextEntry.clock_in).toLocaleDateString("vi-VN")}`
+      : "Chưa có thông báo mới";
 
-  const notificationSubtext = nextEntry
-    ? `${fmtTime(nextEntry.clock_in)} - ${fmtTime(nextEntry.clock_out)} • Chi nhánh Hà Nội`
-    : "Không có lịch ca nào sắp tới";
+  const notificationSubtext = isOwner
+    ? overdueOpenEntries.length
+      ? "Kiểm tra các ca đang mở lâu và xử lý nhân sự cần hỗ trợ."
+      : "Màn này chỉ dùng để theo dõi ca làm và chấm công nhân sự."
+    : nextEntry
+      ? `${fmtTime(nextEntry.clock_in)} - ${fmtTime(nextEntry.clock_out)} • Chi nhánh Hà Nội`
+      : "Không có lịch ca nào sắp tới";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -485,11 +580,11 @@ export default function AdminShiftsScreen() {
               <View style={styles.titleRow}>
                 <Text style={styles.title}>{currentName}</Text>
                 <View style={styles.techBadge}>
-                  <Text style={styles.techBadgeText}>TECH</Text>
+                  <Text style={styles.techBadgeText}>{roleBadgeLabel(role)}</Text>
                 </View>
               </View>
               <Text style={styles.subtitle}>
-                Quản lý công việc, ca làm và tài khoản
+                {isOwner ? "Theo dõi chấm công, ca làm và nhân sự; tách biệt với điều phối lịch khách hàng" : "Quản lý công việc, ca làm và tài khoản"}
               </Text>
             </View>
 
@@ -513,7 +608,7 @@ export default function AdminShiftsScreen() {
           <View style={styles.mainCard}>
             <View style={styles.sectionTitleRow}>
               <Feather name="calendar" size={18} color={c.sub} />
-              <Text style={styles.sectionTitle}>Ca làm hôm nay</Text>
+              <Text style={styles.sectionTitle}>{isOwner ? "Theo dõi ca nhân sự" : "Ca làm hôm nay"}</Text>
             </View>
 
             <View style={styles.dateRow}>
@@ -525,22 +620,20 @@ export default function AdminShiftsScreen() {
               <View style={styles.shiftTopRow}>
                 <View style={styles.row}>
                   <View style={styles.greenDot} />
-                  <Text style={styles.shiftLabel}>{shiftName}</Text>
+                  <Text style={styles.shiftLabel}>{isOwner ? "Nhân sự đang hoạt động" : shiftName}</Text>
                 </View>
                 <View style={styles.stateBadge}>
-                  <Text style={styles.stateBadgeText}>{shiftStatus}</Text>
+                  <Text style={styles.stateBadgeText}>{isOwner ? `${activeTeamCount}/${teamMembers.length || 0} online` : shiftStatus}</Text>
                 </View>
               </View>
 
               <View style={styles.shiftMainRow}>
-                <Text style={styles.bigTime}>
-                  {fmtTime(todayEntry?.clock_in)} - {fmtTime(todayEntry?.clock_out)}
-                </Text>
+                <Text style={styles.bigTime}>{isOwner ? `${activeTeamCount} người đang mở ca` : `${fmtTime(todayEntry?.clock_in)} - ${fmtTime(todayEntry?.clock_out)}`}</Text>
                 <View style={styles.divider} />
                 <View style={styles.durationWrap}>
                   <Feather name="clock" size={17} color={c.sub} />
                   <Text style={styles.durationText}>
-                    {todayEntry ? fmtDuration(todayEntry.clock_in, todayEntry.clock_out, nowTs) : "0h 00m"} đã làm
+                    {isOwner ? `${checkedInTodayCount} người đã chấm công hôm nay` : `${todayEntry ? fmtDuration(todayEntry.clock_in, todayEntry.clock_out, nowTs) : "0h 00m"} đã làm`}
                   </Text>
                 </View>
               </View>
@@ -548,9 +641,9 @@ export default function AdminShiftsScreen() {
               <View style={styles.shiftBottomRow}>
                 <View style={styles.metaItem}>
                   <Feather name="map-pin" size={15} color={c.sub} />
-                  <Text style={styles.metaText}>Chi nhánh Hà Nội</Text>
+                  <Text style={styles.metaText}>{isOwner ? "Theo dõi đội ngũ toàn cửa hàng" : "Chi nhánh Hà Nội"}</Text>
                 </View>
-                <Text style={styles.metaText}>Nghỉ trưa: 12:00 - 13:00</Text>
+                <Text style={styles.metaText}>{isOwner ? `${overdueOpenEntries.length} ca cần kiểm tra` : "Nghỉ trưa: 12:00 - 13:00"}</Text>
               </View>
             </View>
 
@@ -565,7 +658,7 @@ export default function AdminShiftsScreen() {
           </View>
 
           <View style={styles.statusCard}>
-            <Text style={styles.sectionTitle}>Trạng thái hôm nay</Text>
+            <Text style={styles.sectionTitle}>{isOwner ? "Tình hình nhân sự hôm nay" : "Trạng thái hôm nay"}</Text>
 
             <View style={styles.statusRow}>
               <View style={styles.statusBox}>
@@ -575,8 +668,8 @@ export default function AdminShiftsScreen() {
                   </View>
                   <Text style={styles.statusLabel}>Mở ca</Text>
                 </View>
-                <Text style={styles.statusValue}>{fmtTime(todayEntry?.clock_in)}</Text>
-                <Text style={[styles.statusMeta, { color: c.success }]}>Đã mở</Text>
+                <Text style={styles.statusValue}>{isOwner ? String(activeTeamCount) : fmtTime(todayEntry?.clock_in)}</Text>
+                <Text style={[styles.statusMeta, { color: c.success }]}>{isOwner ? "nhân sự" : "Đã mở"}</Text>
               </View>
 
               <View style={styles.statusBox}>
@@ -586,9 +679,9 @@ export default function AdminShiftsScreen() {
                   </View>
                   <Text style={styles.statusLabel}>Đóng ca</Text>
                 </View>
-                <Text style={styles.statusValue}>{fmtTime(todayEntry?.clock_out)}</Text>
-                <Text style={[styles.statusMeta, { color: todayEntry?.clock_out ? c.success : c.error }]}>
-                  {todayEntry?.clock_out ? "Đã đóng" : "Chưa đóng"}
+                <Text style={styles.statusValue}>{isOwner ? String(checkedInTodayCount) : fmtTime(todayEntry?.clock_out)}</Text>
+                <Text style={[styles.statusMeta, { color: isOwner || todayEntry?.clock_out ? c.success : c.error }]}>
+                  {isOwner ? "đã chấm công" : todayEntry?.clock_out ? "Đã đóng" : "Chưa đóng"}
                 </Text>
               </View>
 
@@ -599,11 +692,9 @@ export default function AdminShiftsScreen() {
                   </View>
                   <Text style={styles.statusLabel}>Tổng giờ làm</Text>
                 </View>
-                <Text style={styles.statusValue}>
-                  {`${Math.floor(todayMinutes / 60)}h ${String(todayMinutes % 60).padStart(2, "0")}m`}
-                </Text>
+                <Text style={styles.statusValue}>{isOwner ? String(overdueOpenEntries.length) : `${Math.floor(todayMinutes / 60)}h ${String(todayMinutes % 60).padStart(2, "0")}m`}</Text>
                 <Text style={[styles.statusMeta, { color: c.warn }]}>
-                  {activeEntry ? "Đang làm" : "Hôm nay"}
+                  {isOwner ? "ca quá giờ" : activeEntry ? "Đang làm" : "Hôm nay"}
                 </Text>
               </View>
             </View>
@@ -612,36 +703,78 @@ export default function AdminShiftsScreen() {
           <View style={styles.sectionBlock}>
             <View style={styles.sectionHeader}>
               <Text style={styles.bigSectionTitle}>
-                Tổng quan tháng {String(today.getMonth() + 1).padStart(2, "0")}
+                {isOwner ? `Tổng quan đội ngũ tháng ${String(today.getMonth() + 1).padStart(2, "0")}` : `Tổng quan tháng ${String(today.getMonth() + 1).padStart(2, "0")}`}
               </Text>
               <Pressable style={styles.ghostPill} onPress={() => setRangeMode(rangeMode === "month" ? "week" : "month")}>
-                <Text style={styles.ghostPillText}>Xem chi tiết</Text>
+                <Text style={styles.ghostPillText}>{isOwner ? "Đổi chế độ xem" : "Xem chi tiết"}</Text>
               </Pressable>
             </View>
 
             <View style={styles.overviewGrid}>
               <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>Tổng giờ làm</Text>
-                <Text style={styles.overviewValue}>{totalHoursText}</Text>
-                <Text style={styles.overviewSub}>/ 176h</Text>
+                <Text style={styles.overviewLabel}>{isOwner ? "Tổng giờ đội ngũ" : "Tổng giờ làm"}</Text>
+                <Text style={styles.overviewValue}>{isOwner ? `${Math.floor(monthlyTeamMinutes / 60)}h` : totalHoursText}</Text>
+                <Text style={styles.overviewSub}>{isOwner ? "tháng này" : "/ 176h"}</Text>
               </View>
               <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>Số ngày làm</Text>
-                <Text style={styles.overviewValue}>{monthlyDays}</Text>
-                <Text style={styles.overviewSub}>/ {workingDaysTarget} ngày</Text>
+                <Text style={styles.overviewLabel}>{isOwner ? "Nhân sự hoạt động" : "Số ngày làm"}</Text>
+                <Text style={styles.overviewValue}>{isOwner ? checkedInTodayCount : monthlyDays}</Text>
+                <Text style={styles.overviewSub}>{isOwner ? "hôm nay" : `/ ${workingDaysTarget} ngày`}</Text>
               </View>
               <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>Ngày nghỉ phép</Text>
-                <Text style={styles.overviewValue}>2</Text>
-                <Text style={styles.overviewSub}>còn lại</Text>
+                <Text style={styles.overviewLabel}>{isOwner ? "Tổng nhân sự" : "Ngày nghỉ phép"}</Text>
+                <Text style={styles.overviewValue}>{isOwner ? teamMembers.length : 2}</Text>
+                <Text style={styles.overviewSub}>{isOwner ? "đang quản lý" : "còn lại"}</Text>
               </View>
               <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>Đi muộn</Text>
-                <Text style={styles.overviewValue}>{lateDays}</Text>
-                <Text style={styles.overviewSub}>lần</Text>
+                <Text style={styles.overviewLabel}>{isOwner ? "Ca cần xử lý" : "Đi muộn"}</Text>
+                <Text style={styles.overviewValue}>{isOwner ? overdueOpenEntries.length : lateDays}</Text>
+                <Text style={styles.overviewSub}>{isOwner ? "mở quá giờ" : "lần"}</Text>
               </View>
             </View>
           </View>
+
+          {isOwner ? (
+            <View style={styles.sectionBlock}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.bigSectionTitle}>Nhân sự đang mở ca</Text>
+                <Pressable style={styles.ghostPill} onPress={() => void router.push("/(admin)/manage-team")}> 
+                  <Text style={styles.ghostPillText}>Quản lý</Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.teamStack}>
+                {activeTeamEntries.length ? (
+                  activeTeamEntries.map((entry) => {
+                    const member = memberMap.get(entry.staff_user_id);
+                    return (
+                      <View key={entry.id} style={styles.teamCard}>
+                        <View style={styles.teamAvatar}>
+                          <Text style={styles.teamAvatarText}>{initials(member?.name || "NV")}</Text>
+                        </View>
+                        <View style={styles.teamCopy}>
+                          <Text style={styles.teamName}>{member?.name || entry.staff_user_id.slice(0, 8)}</Text>
+                          <Text style={styles.teamMeta}>{member?.role || "STAFF"} • Mở ca {fmtTime(entry.clock_in)}</Text>
+                        </View>
+                        <Text style={styles.teamDuration}>{fmtDuration(entry.clock_in, entry.clock_out, nowTs)}</Text>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View style={styles.noticeCard}>
+                    <View style={styles.noticeIcon}>
+                      <Feather name="users" size={18} color={c.text} />
+                    </View>
+                    <View style={styles.noticeBody}>
+                      <Text style={styles.noticeTitle}>Chưa có nhân sự nào mở ca</Text>
+                      <Text style={styles.noticeSub}>Theo dõi chấm công và cập nhật nhân sự từ khu quản lý riêng.</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+            </View>
+          ) : null}
+
 
           <View style={styles.sectionBlock}>
             <View style={styles.sectionHeader}>
@@ -665,7 +798,7 @@ export default function AdminShiftsScreen() {
         </ScrollView>
 
         <View style={[styles.navShell, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current="shifts" onNavigate={(target) => void router.replace(`/(admin)/${target}`)} />
+          <AdminBottomNav current={role === "OWNER" ? null : "profile"} role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
       </View>
     </SafeAreaView>
@@ -1082,6 +1215,55 @@ const styles = StyleSheet.create({
     color: c.sub,
     fontSize: 13,
     lineHeight: 18,
+  },
+  teamStack: {
+    gap: 10,
+  },
+  teamCard: {
+    backgroundColor: c.white,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: c.border,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  teamAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ead9ca",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  teamAvatarText: {
+    color: "#5d4c3f",
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: "800",
+  },
+  teamCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  teamName: {
+    color: c.text,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  teamMeta: {
+    color: c.sub,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  teamDuration: {
+    color: c.text,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
   },
   navShell: {
     position: "absolute",

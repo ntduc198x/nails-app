@@ -66,9 +66,10 @@ export async function GET() {
     const [lookbookResult, contentResult, offersResult] = await Promise.all([
       supabase
         .from("services")
-        .select("id,name,short_description,image_url,duration_min,base_price,created_at")
+        .select("id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at")
         .eq("active", true)
-        .eq("featured_in_lookbook", true)
+        .eq("featured_in_home", true)
+        .order("display_order_home", { ascending: true })
         .order("name", { ascending: true })
         .limit(6),
       supabase
@@ -88,7 +89,7 @@ export async function GET() {
 
     const lookbook =
       !lookbookResult.error && lookbookResult.data
-        ? normalizeLookbookRows(lookbookResult.data as LookbookRow[])
+        ? normalizeLookbookRows(lookbookResult.data as LookbookRow[], { context: "home" })
         : [];
 
     const contentPosts =

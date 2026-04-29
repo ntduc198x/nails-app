@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminBottomNav, createCheckoutKey, formatVnd, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileEnv } from "@/src/lib/env";
 import { useSession } from "@/src/providers/session-provider";
@@ -370,7 +371,7 @@ export default function AdminCheckoutScreen() {
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current="checkout" onNavigate={(target) => void router.replace(`/(admin)/${target}`)} />
+          <AdminBottomNav current="checkout" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
       </View>
     </SafeAreaView>

@@ -67,6 +67,19 @@ function isMissingAppSessionFunctionError(error: { code?: string; message?: stri
   );
 }
 
+function isMissingCustomerAccountLinkInfraError(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message ?? "";
+  return (
+    error?.code === "42883" ||
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    message.includes("link_customer_account_by_phone") ||
+    message.includes("customer_accounts") ||
+    message.includes("merged_into_customer_id") ||
+    (message.includes("does not exist") && message.includes("public."))
+  );
+}
+
 function buildProfileDisplayName(user: User) {
   const metadataDisplayName =
     typeof user.user_metadata?.display_name === "string"
@@ -207,6 +220,33 @@ async function ensureCurrentUserProfile(client: SharedSupabaseClient, userId?: s
   }
 }
 
+async function ensureCustomerAccountLink(client: SharedSupabaseClient, user: User) {
+  const existingLink = await client
+    .from("customer_accounts")
+    .select("customer_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!existingLink.error && existingLink.data?.customer_id) {
+    return existingLink.data.customer_id as string;
+  }
+
+  if (existingLink.error && !isMissingCustomerAccountLinkInfraError(existingLink.error)) {
+    throw existingLink.error;
+  }
+
+  const { data, error } = await client.rpc("link_customer_account_by_phone");
+  if (error) {
+    if (isMissingCustomerAccountLinkInfraError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+
+  return typeof data === "string" ? data : null;
+}
+
 export async function getOrCreateRole(client: SharedSupabaseClient, userId: string): Promise<AppRole> {
   const { data: existing, error: readErr } = await client
     .from("user_roles")
@@ -277,6 +317,9 @@ export async function getAuthenticatedUserSummary(
 
   await ensureCurrentUserProfile(client, user.id);
   const role = await getOrCreateRole(client, user.id);
+  if (role === "USER") {
+    await ensureCustomerAccountLink(client, user);
+  }
   return mapSessionUser(user, role);
 }
 

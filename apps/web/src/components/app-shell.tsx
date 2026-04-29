@@ -1,7 +1,17 @@
 ﻿"use client";
 
-import { countNewBookingRequests } from "@/lib/booking-requests";
-import { createAppSession, logoutWithSessionCleanup, validateAppSession } from "@/lib/app-session";
+import {
+  loadManageNotifications,
+  type ManageNotificationItem,
+} from "@/lib/manage-notifications";
+import {
+  clearStoredSessionToken,
+  createAppSession,
+  getSafeSupabaseSession,
+  logoutWithSessionCleanup,
+  recoverFromInvalidAuthState,
+  validateAppSession,
+} from "@/lib/app-session";
 import { getOrCreateRole, type AppRole } from "@/lib/auth";
 import { clearDomainCaches } from "@/lib/domain";
 import { getRoleLabel } from "@/lib/role-labels";
@@ -73,7 +83,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sessionReplaced, setSessionReplaced] = useState<{ ownerName?: string | null } | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
-  const [newBookingCount, setNewBookingCount] = useState(0);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
+  const [notificationsSeenAt, setNotificationsSeenAt] = useState<string | null>(null);
+  const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
 
   useEffect(() => {
     let mounted = true;
@@ -85,8 +98,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        const { data } = await supabase.auth.getSession();
-        const session = data.session;
+        const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+        if (invalidRefreshToken) {
+          clearDomainCaches();
+          authCache = null;
+          router.replace("/login");
+          return;
+        }
         if (!session?.user) {
           router.replace("/login");
           return;
@@ -100,8 +118,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           clearDomainCaches();
           authCache = null;
           sessionStorage.removeItem("nails.auth.cache");
-          sessionStorage.removeItem("nails_session_token");
-          await supabase.auth.signOut();
+          clearStoredSessionToken();
+          await recoverFromInvalidAuthState();
           router.replace("/login");
           return;
         }
@@ -164,15 +182,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     async function validateSession() {
       if (!supabase) return;
-      const { data } = await supabase.auth.getSession();
-      if (!data.session?.user || disposed) return;
+      const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+      if (invalidRefreshToken && !disposed) {
+        clearDomainCaches();
+        authCache = null;
+        sessionStorage.removeItem("nails.auth.cache");
+        clearStoredSessionToken();
+        router.replace("/login");
+        return;
+      }
+      if (!session?.user || disposed) return;
 
       const validation = await validateAppSession();
       if (!validation.valid && !disposed) {
         clearDomainCaches();
         authCache = null;
         sessionStorage.removeItem("nails.auth.cache");
-        await supabase.auth.signOut();
+        clearStoredSessionToken();
+        await recoverFromInvalidAuthState();
         router.replace("/login");
       }
     }
@@ -194,8 +221,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     async function ensureAppSession() {
       if (!supabase) return;
-      const { data } = await supabase.auth.getSession();
-      if (!data.session?.user || disposed) return;
+      const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+      if (invalidRefreshToken || !session?.user || disposed) return;
 
       const validation = await validateAppSession();
       if (!validation.valid && validation.reason === "INVALID_TOKEN") {
@@ -209,19 +236,29 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [role]);
 
   useEffect(() => {
-    if (!["OWNER", "MANAGER", "RECEPTION"].includes(role)) return;
+    if (!email) return;
+    try {
+      const stored = sessionStorage.getItem(`nails.manage.notifications.seenAt.${email}`);
+      setNotificationsSeenAt(stored);
+    } catch {
+      setNotificationsSeenAt(null);
+    }
+  }, [email]);
+
+  useEffect(() => {
+    if (!["OWNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;
     let disposed = false;
 
-    async function loadBookingBadge() {
+    async function loadNotifications() {
       try {
-        const count = await countNewBookingRequests();
-        if (!disposed) setNewBookingCount(count);
+        const rows = await loadManageNotifications(role);
+        if (!disposed) setNotifications(rows);
       } catch {}
     }
 
-    void loadBookingBadge();
+    void loadNotifications();
     const id = setInterval(() => {
-      void loadBookingBadge();
+      void loadNotifications();
     }, 30000);
 
     return () => {
@@ -229,6 +266,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(id);
     };
   }, [role]);
+
+  useEffect(() => {
+    if (!notificationsOpen || !email) return;
+    const seenAt = new Date().toISOString();
+    setNotificationsSeenAt(seenAt);
+    try {
+      sessionStorage.setItem(`nails.manage.notifications.seenAt.${email}`, seenAt);
+    } catch {}
+  }, [email, notificationsOpen]);
 
   const visibleGroups = useMemo(() => {
     if (role === "TECH") {
@@ -262,6 +308,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .filter((group) => group.items.length > 0);
   }, [role]);
 
+  const actionableNotificationCount = useMemo(
+    () => notifications.filter((item) => item.kind === "booking_request" && item.actionRequired).length,
+    [notifications],
+  );
+
+  const unreadNotificationCount = useMemo(() => {
+    const seenAtMs = notificationsSeenAt ? new Date(notificationsSeenAt).getTime() : 0;
+    return notifications.filter((item) => {
+      if (item.actionRequired) return true;
+      return new Date(item.createdAt).getTime() > seenAtMs;
+    }).length;
+  }, [notifications, notificationsSeenAt]);
+
+  const actionNotifications = useMemo(
+    () => notifications.filter((item) => item.actionRequired),
+    [notifications],
+  );
+
+  const feedNotifications = useMemo(
+    () => notifications.filter((item) => !item.actionRequired),
+    [notifications],
+  );
+
+  const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
+
   useEffect(() => {
     if (!supabase) return;
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -279,6 +350,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       for (const item of group.items) router.prefetch(item.href);
     }
   }, [router, visibleGroups]);
+
+  useEffect(() => {
+    setNotificationsOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    setNotificationTab(actionNotifications.length ? "action" : "feed");
+  }, [actionNotifications.length, notificationsOpen]);
 
   useEffect(() => {
     if (!loading && !canAccess(role, pathname)) {
@@ -300,13 +380,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return (
       <span className="inline-flex items-center gap-2">
         <span>{label}</span>
-        {isBookingRequests && newBookingCount > 0 && (
+        {isBookingRequests && actionableNotificationCount > 0 && (
           <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-[var(--color-primary)] px-1.5 py-0.5 text-[10px] font-bold text-white">
-            {newBookingCount > 99 ? "99+" : newBookingCount}
+            {actionableNotificationCount > 99 ? "99+" : actionableNotificationCount}
           </span>
         )}
       </span>
     );
+  }
+
+  function renderNotificationTone(item: ManageNotificationItem) {
+    if (item.actionRequired) return "border-amber-200 bg-amber-50";
+    if (item.kind === "customer_checked_in") return "border-blue-200 bg-blue-50";
+    if (item.kind === "customer_checked_out") return "border-emerald-200 bg-emerald-50";
+    return "border-neutral-200 bg-white";
   }
 
   if (loading) {
@@ -401,21 +488,126 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <button className="btn btn-outline md:hidden" type="button" onClick={() => setMobileOpen((v) => !v)}>
-            Menu
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((current) => !current)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white text-base transition hover:bg-[#faf7f2]"
+                style={{ borderColor: "var(--color-border)" }}
+                aria-label="Mở thông báo"
+              >
+                <span>🔔</span>
+                {unreadNotificationCount > 0 ? (
+                  <span className="absolute right-0 top-0 inline-flex min-w-5 -translate-y-1/4 translate-x-1/4 items-center justify-center rounded-full bg-[var(--color-primary)] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {unreadNotificationCount > 99 ? "99+" : unreadNotificationCount}
+                  </span>
+                ) : null}
+              </button>
 
-          <div className="hidden items-center gap-2 md:flex">
-            <div className="rounded-2xl border px-4 py-2 text-right text-xs" style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}>
-              <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
-              <p className="font-semibold">{getRoleLabel(role)}</p>
+              {notificationsOpen ? (
+                <div className="absolute right-0 top-full z-40 mt-3 w-[360px] max-w-[calc(100vw-24px)] rounded-[28px] border bg-white p-3 shadow-xl" style={{ borderColor: "var(--color-border)" }}>
+                  <div className="flex items-center justify-between gap-3 px-2 py-2">
+                    <div>
+                      <p className="text-sm font-semibold text-neutral-900">Thông báo</p>
+                      <p className="text-xs text-neutral-500">
+                        {unreadNotificationCount > 0 ? `${unreadNotificationCount} mục cần chú ý` : "Chưa có mục mới"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationsOpen(false)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm text-neutral-500"
+                      style={{ borderColor: "var(--color-border)" }}
+                      aria-label="Đóng thông báo"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="mt-2 grid grid-cols-2 gap-2 px-2">
+                    <button
+                      type="button"
+                      onClick={() => setNotificationTab("action")}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        notificationTab === "action"
+                          ? "bg-[var(--color-primary)] text-white"
+                          : "border border-neutral-200 bg-white text-neutral-700"
+                      }`}
+                    >
+                      Cần xử lý {actionNotifications.length ? `(${actionNotifications.length})` : ""}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNotificationTab("feed")}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        notificationTab === "feed"
+                          ? "bg-[var(--color-primary)] text-white"
+                          : "border border-neutral-200 bg-white text-neutral-700"
+                      }`}
+                    >
+                      Dòng sự kiện {feedNotifications.length ? `(${feedNotifications.length})` : ""}
+                    </button>
+                  </div>
+
+                  <div className="mt-2 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                    {visibleNotifications.length ? (
+                      visibleNotifications.map((item) => (
+                        <Link
+                          key={item.id}
+                          href={item.href}
+                          onClick={() => setNotificationsOpen(false)}
+                          className={`block rounded-2xl border px-4 py-3 transition hover:bg-[#faf7f2] ${renderNotificationTone(item)}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-neutral-900">{item.title}</p>
+                              <p className="mt-1 text-sm text-neutral-600">{item.message}</p>
+                            </div>
+                            {item.actionRequired ? (
+                              <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-amber-700">
+                                Cần xử lý
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-2 text-xs text-neutral-400">
+                            {new Intl.DateTimeFormat("vi-VN", {
+                              day: "2-digit",
+                              month: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            }).format(new Date(item.createdAt))}
+                          </p>
+                        </Link>
+                      ))
+                    ) : (
+                      <div className="rounded-2xl border border-dashed px-4 py-6 text-center text-sm text-neutral-500" style={{ borderColor: "var(--color-border)" }}>
+                        {notificationTab === "action"
+                          ? "Hiện không có mục nào cần xử lý."
+                          : "Chưa có sự kiện nào gần đây."}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
-            <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">
-              Hồ sơ
-            </Link>
-            <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">
-              Đăng xuất
+
+            <button className="btn btn-outline md:hidden" type="button" onClick={() => setMobileOpen((v) => !v)}>
+              Menu
             </button>
+
+            <div className="hidden items-center gap-2 md:flex">
+              <div className="rounded-2xl border px-4 py-2 text-right text-xs" style={{ borderColor: "var(--color-border)", background: "#fff8cf" }}>
+                <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
+                <p className="font-semibold">{getRoleLabel(role)}</p>
+              </div>
+              <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">
+                Hồ sơ
+              </Link>
+              <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">
+                Đăng xuất
+              </button>
+            </div>
           </div>
         </div>
 

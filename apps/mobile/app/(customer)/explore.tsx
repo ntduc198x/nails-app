@@ -13,29 +13,16 @@ import {
   TextInput,
   View,
 } from "react-native";
-import {
-  CATEGORY_ITEMS,
-  EXPLORE_SHOP_PRODUCTS,
-  EXPLORE_STATS,
-  EXPLORE_STORE_INFO,
-  EXPLORE_TEAM,
-  matchesCategory,
-} from "@/src/features/customer/data";
+import type { ExploreGalleryItem, ExploreProduct, ExploreTeamMember, LookbookItem, MarketingOfferCard } from "@nails/shared";
+import { CATEGORY_ITEMS, matchesCategory } from "@/src/features/customer/data";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
-import { mobileSupabase } from "@/src/lib/supabase";
+import { useCustomerExplore } from "@/src/hooks/use-customer-explore";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
-import { useLookbookServices, type LookbookService } from "@/src/hooks/use-lookbook-services";
 
 const { colors, radius, shadow, spacing } = premiumTheme;
 
 type CategoryKey = (typeof CATEGORY_ITEMS)[number]["key"];
-type TeamMember = {
-  id: string;
-  name: string;
-  role: string;
-  image: string;
-};
 
 const SERVICE_CARD_WIDTH = 182;
 const SERVICE_CARD_GAP = 14;
@@ -44,81 +31,69 @@ const SERVICE_AUTO_SCROLL_INTERVAL = 4000;
 export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([...EXPLORE_TEAM]);
   const [activeServiceIndex, setActiveServiceIndex] = useState(0);
   const servicesScrollerRef = useRef<ScrollView>(null);
-  const { isLoading, isRefreshing, lastError, refresh, services } = useLookbookServices([], {
-    allowFallback: true,
-    preferApi: false,
-  });
+  const {
+    storefront,
+    stats,
+    featuredServices,
+    products,
+    team,
+    gallery,
+    offers,
+    map,
+    isLoading,
+    isRefreshing,
+    lastError,
+    refresh,
+  } = useCustomerExplore();
   const { isFavorite, toggleFavorite } = useCustomerFavorites();
 
   const filteredServices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return services.filter((service) => {
-      const haystack = `${service.title} ${service.blurb} ${service.tone}`.toLowerCase();
+    return featuredServices.filter((service) => {
+      const haystack = `${service.title} ${service.blurb} ${service.tone} ${service.badge}`.toLowerCase();
       return (!query || haystack.includes(query)) && matchesCategory(service, activeCategory);
     });
-  }, [activeCategory, searchQuery, services]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadTeamMembers() {
-      if (!mobileSupabase) return;
-
-      try {
-        const { data, error } = await mobileSupabase
-          .from("profiles")
-          .select("user_id, display_name, role, avatar_url")
-          .in("role", ["OWNER", "MANAGER", "TECH"])
-          .limit(4);
-
-        if (cancelled || error || !data?.length) return;
-
-        setTeamMembers(
-          data.map((item, index) => ({
-            id: String(item.user_id ?? `staff-${index}`),
-            name: item.display_name?.trim() || `Nhân viên ${index + 1}`,
-            role: item.role === "TECH" ? "Nail Artist" : item.role === "MANAGER" ? "Quản lý" : "Chủ cửa hàng",
-            image: item.avatar_url?.trim() || EXPLORE_TEAM[index % EXPLORE_TEAM.length]?.image || EXPLORE_TEAM[0].image,
-          })),
-        );
-      } catch {
-        // giữ fallback tĩnh
-      }
-    }
-
-    void loadTeamMembers();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [activeCategory, featuredServices, searchQuery]);
 
   useEffect(() => {
     if (!filteredServices.length) return;
 
     const interval = setInterval(() => {
-      const nextIndex = (activeServiceIndex + 1) % filteredServices.length;
-      servicesScrollerRef.current?.scrollTo({
-        x: nextIndex * (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP),
-        animated: true,
+      setActiveServiceIndex((currentIndex) => {
+        const nextIndex = (currentIndex + 1) % filteredServices.length;
+
+        servicesScrollerRef.current?.scrollTo({
+          x: nextIndex * (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP),
+          animated: true,
+        });
+
+        return nextIndex;
       });
-      setActiveServiceIndex(nextIndex);
     }, SERVICE_AUTO_SCROLL_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [activeServiceIndex, filteredServices.length]);
-
-  const onServicesScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const scrollX = event.nativeEvent.contentOffset.x;
-    const nextIndex = Math.max(0, Math.min(filteredServices.length - 1, Math.round(scrollX / (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP))));
-    setActiveServiceIndex(nextIndex);
   }, [filteredServices.length]);
 
+  const onServicesScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const scrollX = event.nativeEvent.contentOffset.x;
+      const nextIndex = Math.max(
+        0,
+        Math.min(filteredServices.length - 1, Math.round(scrollX / (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP))),
+      );
+
+      setActiveServiceIndex(nextIndex);
+    },
+    [filteredServices.length],
+  );
+
   async function openMap() {
-    await Linking.openURL(EXPLORE_STORE_INFO.mapUrl);
+    if (map?.mapUrl) {
+      await Linking.openURL(map.mapUrl);
+    }
   }
 
   return (
@@ -134,35 +109,43 @@ export default function ExploreScreen() {
         <CustomerTopActions />
       </View>
 
-      <View style={styles.storeHero}>
-        <Image alt={EXPLORE_STORE_INFO.name} source={{ uri: EXPLORE_STORE_INFO.coverImage }} style={styles.storeImage} />
+      {storefront ? (
+        <View style={styles.storeHero}>
+          {storefront.coverImageUrl ? (
+            <Image alt={storefront.name} source={{ uri: storefront.coverImageUrl }} style={styles.storeImage} />
+          ) : null}
 
-        <View style={styles.storeCopy}>
-          <Text style={styles.storeName}>{EXPLORE_STORE_INFO.name}</Text>
-          <Text style={styles.storeCategory}>{EXPLORE_STORE_INFO.category}</Text>
+          <View style={styles.storeCopy}>
+            <Text style={styles.storeName}>{storefront.name}</Text>
+            {storefront.category ? <Text style={styles.storeCategory}>{storefront.category}</Text> : null}
+            {storefront.description ? <Text style={styles.storeDescription}>{storefront.description}</Text> : null}
 
-          <View style={styles.ratingRow}>
-            <Feather color="#d7a24c" name="star" size={15} />
-            <Text style={styles.ratingText}>
-              {EXPLORE_STORE_INFO.rating} ({EXPLORE_STORE_INFO.reviews})
-            </Text>
-          </View>
-
-          <View style={styles.highlightRow}>
-            {EXPLORE_STORE_INFO.highlights.map((item) => (
-              <View key={item} style={styles.highlightItem}>
-                <Feather color={colors.textSoft} name="shield" size={13} />
-                <Text style={styles.highlightText}>{item}</Text>
+            {(storefront.rating || storefront.reviewsLabel) ? (
+              <View style={styles.ratingRow}>
+                <Feather color="#d7a24c" name="star" size={15} />
+                <Text style={styles.ratingText}>
+                  {storefront.rating ? storefront.rating.toFixed(1) : "4.9"}
+                  {storefront.reviewsLabel ? ` (${storefront.reviewsLabel})` : ""}
+                </Text>
               </View>
-            ))}
+            ) : null}
+
+            <View style={styles.highlightRow}>
+              {storefront.highlights.map((item) => (
+                <View key={item} style={styles.highlightItem}>
+                  <Feather color={colors.textSoft} name="shield" size={13} />
+                  <Text style={styles.highlightText}>{item}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         </View>
-      </View>
+      ) : null}
 
       <View style={styles.statsGrid}>
-        {EXPLORE_STATS.map((item) => (
+        {stats.map((item) => (
           <SurfaceCard key={item.id} style={styles.statCard}>
-            <Feather color={colors.textSoft} name={item.icon as React.ComponentProps<typeof Feather>["name"]} size={16} />
+            <Feather color={colors.textSoft} name={(item.icon as React.ComponentProps<typeof Feather>["name"]) || "circle"} size={16} />
             <Text style={styles.statLabel}>{item.label}</Text>
             <Text style={styles.statValue}>{item.value}</Text>
           </SurfaceCard>
@@ -183,24 +166,21 @@ export default function ExploreScreen() {
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {CATEGORY_ITEMS.map((item) => {
           const active = item.key === activeCategory;
+
           return (
-            <Pressable
-              key={item.key}
-              style={[styles.chip, active ? styles.chipActive : null]}
-              onPress={() => setActiveCategory(item.key)}
-            >
+            <Pressable key={item.key} style={[styles.chip, active ? styles.chipActive : null]} onPress={() => setActiveCategory(item.key)}>
               <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{item.label}</Text>
             </Pressable>
           );
         })}
       </ScrollView>
 
-      <SectionHeader title="Dịch vụ nổi bật" actionLabel="Xem tất cả" />
+      <SectionHeader title="Dịch vụ nổi bật" actionLabel="Đặt lịch" />
 
       {isLoading && filteredServices.length === 0 ? (
         <SurfaceCard style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Đang tải lookbook…</Text>
-          <Text style={styles.stateDescription}>Đang đồng bộ dịch vụ nổi bật từ hệ thống.</Text>
+          <Text style={styles.stateTitle}>Đang tải Explore…</Text>
+          <Text style={styles.stateDescription}>Storefront, lookbook và đội ngũ đang được đồng bộ từ hệ thống.</Text>
         </SurfaceCard>
       ) : null}
 
@@ -208,7 +188,7 @@ export default function ExploreScreen() {
         <SurfaceCard style={styles.stateCard}>
           <Text style={styles.stateTitle}>Chưa có dịch vụ phù hợp</Text>
           <Text style={styles.stateDescription}>
-            {lastError ? `Không tải được dữ liệu lúc này. ${lastError}` : "Hãy thử đổi bộ lọc hoặc kéo xuống để làm mới."}
+            {lastError ? `Hiện chưa tải được dữ liệu Explore. ${lastError}` : "Hãy đổi bộ lọc hoặc kéo xuống để làm mới."}
           </Text>
           <Pressable style={styles.retryButton} onPress={() => void refresh()}>
             <Text style={styles.retryButtonText}>Thử lại</Text>
@@ -216,7 +196,7 @@ export default function ExploreScreen() {
         </SurfaceCard>
       ) : null}
 
-      {filteredServices.length > 0 ? (
+      {filteredServices.length ? (
         <>
           <ScrollView
             ref={servicesScrollerRef}
@@ -244,55 +224,60 @@ export default function ExploreScreen() {
               />
             ))}
           </View>
-
         </>
       ) : null}
 
-      <SectionHeader title="Sản phẩm & phụ kiện" actionLabel="Xem tất cả" />
+      <SectionHeader title="Sản phẩm & phụ kiện" actionLabel="Xem thêm" />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
-        {EXPLORE_SHOP_PRODUCTS.map((item) => (
-          <SurfaceCard key={item.id} style={styles.productCard}>
-            <Image alt={item.title} source={{ uri: item.image }} style={styles.productImage} />
-            <Text numberOfLines={2} style={styles.productTitle}>{item.title}</Text>
-            <Text style={styles.productSubLabel}>Phụ kiện bán tại cửa hàng</Text>
-            <View style={styles.productFooter}>
-              <Text style={styles.productPrice}>{item.price}</Text>
-              <Pressable style={styles.productAddButton}>
-                <Feather color={colors.surface} name="plus" size={14} />
-              </Pressable>
-            </View>
-          </SurfaceCard>
+        {products.map((item) => (
+          <ProductCard key={item.id} item={item} />
         ))}
       </ScrollView>
 
-      <SectionHeader title="Đội ngũ nhân viên" actionLabel="Xem tất cả" />
+      <SectionHeader title="Đội ngũ nhân viên" actionLabel={`${team.length} người`} />
       <View style={styles.teamRow}>
-        {teamMembers.map((member) => (
-          <View key={member.id} style={styles.teamCard}>
-            <Image alt={member.name} source={{ uri: member.image }} style={styles.teamAvatar} />
-            <Text style={styles.teamName}>{member.name}</Text>
-            <Text style={styles.teamRole}>{member.role}</Text>
-          </View>
+        {team.map((member) => (
+          <TeamCard key={member.id} member={member} />
         ))}
       </View>
 
+      <SectionHeader title="Không gian cửa hàng" actionLabel={`${gallery.length} ảnh`} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
+        {gallery.map((item) => (
+          <GalleryCard key={item.id} item={item} />
+        ))}
+      </ScrollView>
+
+      {offers.length ? (
+        <>
+          <SectionHeader title="Ưu đãi đang có" actionLabel="Mở thẻ" />
+          <View style={styles.offerList}>
+            {offers.map((offer) => (
+              <OfferCard key={offer.id} offer={offer} />
+            ))}
+          </View>
+        </>
+      ) : null}
+
       <SectionHeader title="Địa chỉ cửa hàng" />
       <SurfaceCard style={styles.mapCard}>
-        <Image alt="Bản đồ cửa hàng" source={{ uri: EXPLORE_STORE_INFO.mapImage }} style={styles.mapImage} />
+        {map?.imageUrl ? <Image alt="Bản đồ cửa hàng" source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
         <View style={styles.mapCopy}>
-          <Text style={styles.mapAddress}>{EXPLORE_STORE_INFO.address}</Text>
-          <View style={styles.mapMetaRow}>
-            <Feather color={colors.textSoft} name="clock" size={14} />
-            <Text style={styles.mapMetaText}>{EXPLORE_STORE_INFO.openingHours}</Text>
-          </View>
+          {map?.addressLine ? <Text style={styles.mapAddress}>{map.addressLine}</Text> : null}
+          {map?.openingHours ? (
+            <View style={styles.mapMetaRow}>
+              <Feather color={colors.textSoft} name="clock" size={14} />
+              <Text style={styles.mapMetaText}>{map.openingHours}</Text>
+            </View>
+          ) : null}
         </View>
-        <Pressable style={styles.directionButton} onPress={() => void openMap()}>
-          <Feather color={colors.accent} name="navigation" size={15} />
-          <Text style={styles.directionButtonText}>Chỉ đường</Text>
-        </Pressable>
+        {map?.mapUrl ? (
+          <Pressable style={styles.directionButton} onPress={() => void openMap()}>
+            <Feather color={colors.accent} name="navigation" size={15} />
+            <Text style={styles.directionButtonText}>Chỉ đường</Text>
+          </Pressable>
+        ) : null}
       </SurfaceCard>
-
-      {isRefreshing ? <Text style={styles.refreshHint}>Đang làm mới nội dung khám phá…</Text> : null}
     </CustomerScreen>
   );
 }
@@ -316,7 +301,7 @@ function ExploreServiceCard({
   favorite,
   onToggleFavorite,
 }: {
-  service: LookbookService;
+  service: LookbookItem;
   favorite: boolean;
   onToggleFavorite: () => void;
 }) {
@@ -350,6 +335,56 @@ function ExploreServiceCard({
           </Pressable>
         </View>
       </View>
+    </Pressable>
+  );
+}
+
+function ProductCard({ item }: { item: ExploreProduct }) {
+  return (
+    <SurfaceCard style={styles.productCard}>
+      {item.imageUrl ? <Image alt={item.name} source={{ uri: item.imageUrl }} style={styles.productImage} /> : null}
+      <Text numberOfLines={2} style={styles.productTitle}>{item.name}</Text>
+      {item.subtitle ? <Text style={styles.productSubLabel}>{item.subtitle}</Text> : null}
+      <View style={styles.productFooter}>
+        <Text style={styles.productPrice}>{item.priceLabel ?? "Liên hệ"}</Text>
+        <View style={styles.productTag}>
+          <Text style={styles.productTagText}>{item.isFeatured ? "Featured" : item.productType ?? "Item"}</Text>
+        </View>
+      </View>
+    </SurfaceCard>
+  );
+}
+
+function TeamCard({ member }: { member: ExploreTeamMember }) {
+  return (
+    <View style={styles.teamCard}>
+      {member.avatarUrl ? <Image alt={member.displayName} source={{ uri: member.avatarUrl }} style={styles.teamAvatar} /> : null}
+      <Text style={styles.teamName}>{member.displayName}</Text>
+      {member.roleLabel ? <Text style={styles.teamRole}>{member.roleLabel}</Text> : null}
+    </View>
+  );
+}
+
+function GalleryCard({ item }: { item: ExploreGalleryItem }) {
+  return (
+    <View style={styles.galleryCard}>
+      <Image alt={item.title ?? "Gallery"} source={{ uri: item.imageUrl }} style={styles.galleryImage} />
+      {item.title ? <Text style={styles.galleryTitle}>{item.title}</Text> : null}
+    </View>
+  );
+}
+
+function OfferCard({ offer }: { offer: MarketingOfferCard }) {
+  return (
+    <Pressable style={styles.offerCard} onPress={() => router.replace("/(customer)/membership")}>
+      <View style={styles.offerIcon}>
+        <Feather color="#a7744d" name="percent" size={16} />
+      </View>
+      <View style={styles.offerCopy}>
+        <Text style={styles.offerTitle}>{offer.title}</Text>
+        <Text style={styles.offerDescription}>{offer.description}</Text>
+      </View>
+      <Feather color="#aa9785" name="chevron-right" size={18} />
     </Pressable>
   );
 }
@@ -392,6 +427,11 @@ const styles = StyleSheet.create({
   storeCategory: {
     color: colors.textSoft,
     fontSize: 13,
+    lineHeight: 18,
+  },
+  storeDescription: {
+    color: colors.textSoft,
+    fontSize: 12,
     lineHeight: 18,
   },
   ratingRow: {
@@ -649,7 +689,7 @@ const styles = StyleSheet.create({
     paddingRight: 8,
   },
   productCard: {
-    width: 138,
+    width: 148,
     gap: 9,
     padding: 10,
   },
@@ -672,9 +712,6 @@ const styles = StyleSheet.create({
     marginTop: -3,
   },
   productFooter: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
     gap: 8,
   },
   productPrice: {
@@ -682,13 +719,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
-  productAddButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
+  productTag: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fff7ef",
     borderRadius: radius.pill,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  productTagText: {
+    color: colors.accentWarm,
+    fontSize: 10,
+    fontWeight: "800",
   },
   teamRow: {
     flexDirection: "row",
@@ -717,6 +758,61 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 11,
     textAlign: "center",
+  },
+  galleryRow: {
+    gap: 12,
+    paddingRight: 8,
+  },
+  galleryCard: {
+    width: 172,
+    gap: 8,
+  },
+  galleryImage: {
+    width: 172,
+    height: 116,
+    borderRadius: 18,
+  },
+  galleryTitle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 16,
+  },
+  offerList: {
+    gap: 10,
+  },
+  offerCard: {
+    ...shadow.card,
+    alignItems: "center",
+    backgroundColor: "#fff4e9",
+    borderColor: "#ebdfd0",
+    borderRadius: 20,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  offerIcon: {
+    alignItems: "center",
+    backgroundColor: "#fffaf4",
+    borderRadius: 14,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  offerCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  offerTitle: {
+    color: "#3c3026",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  offerDescription: {
+    color: "#847265",
+    fontSize: 12,
+    lineHeight: 18,
   },
   mapCard: {
     gap: 12,
@@ -761,10 +857,5 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 13,
     fontWeight: "800",
-  },
-  refreshHint: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: -2,
   },
 });

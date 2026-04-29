@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 
 const palette = {
@@ -462,7 +463,7 @@ export default function AdminSchedulingScreen() {
       </Modal>
 
       <View style={[styles.footerShell, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-        <AdminBottomNav current="scheduling" onNavigate={(target) => void router.replace(`/(admin)/${target}`)} />
+        <AdminBottomNav current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
       </View>
     </SafeAreaView>
   );

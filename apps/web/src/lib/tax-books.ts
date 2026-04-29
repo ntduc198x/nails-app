@@ -44,12 +44,12 @@ export async function buildTaxBook(type: TaxBookType, fromIso: string, toIso: st
   }
 
   const entries = await listTimeEntriesInRange(fromIso, toIso);
-  return (entries as Array<{ staff_user_id: string; clock_in: string; clock_out: string | null }>).map((e) => {
-    const start = new Date(e.clock_in).getTime();
-    const end = e.clock_out ? new Date(e.clock_out).getTime() : Date.now();
+  return (entries as Array<{ staff_user_id: string; effective_clock_in: string; effective_clock_out: string | null }>).map((e) => {
+    const start = new Date(e.effective_clock_in).getTime();
+    const end = e.effective_clock_out ? new Date(e.effective_clock_out).getTime() : Date.now();
     const mins = Math.max(0, Math.round((end - start) / 60000));
     return {
-      date: e.clock_in,
+      date: e.effective_clock_in,
       description: `Công thợ ${e.staff_user_id.slice(0, 8)} (${mins} phút)`,
       amount: 0,
     };

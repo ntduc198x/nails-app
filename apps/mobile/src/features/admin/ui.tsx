@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import Feather from "@expo/vector-icons/Feather";
-import { formatViDate, formatVnd } from "@nails/shared";
+import { formatViDate, formatVnd, type AppRole } from "@nails/shared";
 import { Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { SessionActions } from "@/src/providers/session-provider";
+import { getAdminProfileDestination, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
-export type AdminNavTarget = "booking" | "scheduling" | "checkout" | "shifts";
 export const ADMIN_HEADER_TOP_OFFSET = 12;
 export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 0;
 
@@ -25,7 +25,7 @@ const ADMIN_NAV_ITEMS: Array<{
   { key: "booking", label: "Booking", icon: "calendar" },
   { key: "scheduling", label: "\u0110i\u1ec1u ph\u1ed1i", icon: "users" },
   { key: "checkout", label: "Thu ti\u1ec1n", icon: "briefcase" },
-  { key: "shifts", label: "C\u00e1 nh\u00e2n", icon: "user" },
+  { key: "profile", label: "C\u00e1 nh\u00e2n", icon: "user" },
 ];
 
 function getStatusLabel(status: string) {
@@ -176,31 +176,46 @@ export function QuickStatCard({
 
 export function AdminNavLinks({
   current,
+  role,
   onNavigate,
 }: {
-  current: AdminNavTarget;
+  current: AdminNavTarget | null;
+  role: string | null | undefined;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>\u0110i\u1ec1u h\u01b0\u1edbng nhanh</Text>
       <View style={styles.inlineWrap}>
-        {ADMIN_NAV_ITEMS.map(({ key, label }) => (
-          <Pressable
-            key={key}
-            style={[styles.inlineChipSelectable, current === key ? styles.inlineChipSelectableActive : null]}
-            onPress={() => onNavigate(key)}
-          >
-            <Text
-              style={[
-                styles.inlineChipSelectableText,
-                current === key ? styles.inlineChipSelectableTextActive : null,
-              ]}
+        {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
+          const isProfile = key === "profile";
+          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Manage" : label;
+          const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
+
+          return (
+            <Pressable
+              key={`${key}-${resolvedLabel}`}
+              style={[styles.inlineChipSelectable, current === key ? styles.inlineChipSelectableActive : null]}
+              onPress={() => onNavigate(key)}
             >
-              {label}
-            </Text>
-          </Pressable>
-        ))}
+              <View style={styles.inlineChipInner}>
+                <Feather
+                  name={resolvedIcon}
+                  size={14}
+                  color={current === key ? "#fff" : "#5d4f46"}
+                />
+                <Text
+                  style={[
+                    styles.inlineChipSelectableText,
+                    current === key ? styles.inlineChipSelectableTextActive : null,
+                  ]}
+                >
+                  {resolvedLabel}
+                </Text>
+              </View>
+            </Pressable>
+          );
+        })}
       </View>
     </View>
   );
@@ -208,20 +223,31 @@ export function AdminNavLinks({
 
 export function AdminBottomNav({
   current,
+  role,
   onNavigate,
 }: {
-  current: AdminNavTarget;
+  current: AdminNavTarget | null;
+  role: string | null | undefined;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
   return (
     <View style={styles.bottomNav}>
       {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
+        const isProfile = key === "profile";
         const active = current === key;
+        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Manage" : label;
+        const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
+        const targetHref = isProfile ? getAdminProfileDestination(role as AppRole | null | undefined) : null;
         return (
-          <Pressable key={key} style={styles.bottomNavItem} onPress={() => onNavigate(key)}>
+          <Pressable
+            key={`${key}-${resolvedLabel}`}
+            style={styles.bottomNavItem}
+            accessibilityHint={targetHref ? `M\u1edf ${targetHref}` : undefined}
+            onPress={() => onNavigate(key)}
+          >
             <View style={[styles.bottomNavPill, active ? styles.bottomNavPillActive : null]}>
-              <Feather name={icon} size={19} color={active ? "#2b241f" : "#9e9184"} />
-              <Text style={[styles.bottomNavText, active ? styles.bottomNavTextActive : null]}>{label}</Text>
+              <Feather name={resolvedIcon} size={19} color={active ? "#2b241f" : "#9e9184"} />
+              <Text style={[styles.bottomNavText, active ? styles.bottomNavTextActive : null]}>{resolvedLabel}</Text>
             </View>
           </Pressable>
         );
@@ -560,6 +586,11 @@ export const styles = StyleSheet.create({
   inlineChipSelectableTextActive: {
     color: "#fff",
   },
+  inlineChipInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   actionColumn: {
     gap: 10,
     marginTop: 10,
@@ -602,9 +633,7 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
   footerShell: {
-    borderTopWidth: 1,
-    borderTopColor: "rgba(47, 36, 29, 0.06)",
-    backgroundColor: "rgba(255,255,255,0.98)",
+    backgroundColor: "transparent",
     paddingHorizontal: 14,
     paddingTop: 8,
     paddingBottom: 8,
@@ -614,29 +643,40 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 6,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#efe4d8",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    shadowColor: "#2a1e14",
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
   },
   bottomNavItem: {
     flex: 1,
     alignItems: "center",
   },
   bottomNavPill: {
-    minWidth: 78,
-    height: 52,
+    minWidth: 76,
+    height: 50,
     borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     gap: 3,
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
   },
   bottomNavPillActive: {
-    backgroundColor: "#f3ebe2",
+    backgroundColor: "#f4ece3",
   },
   bottomNavText: {
     textAlign: "center",
     color: "#9e9184",
     fontSize: 11,
-    fontWeight: "500",
+    fontWeight: "600",
     letterSpacing: -0.1,
   },
   bottomNavTextActive: {

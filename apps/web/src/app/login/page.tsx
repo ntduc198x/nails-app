@@ -1,6 +1,6 @@
 "use client";
 
-import { createAppSession } from "@/lib/app-session";
+import { createAppSession, recoverFromInvalidAuthState } from "@/lib/app-session";
 import { consumeInviteCode } from "@/lib/invite-codes";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,12 @@ import { useMemo, useState } from "react";
 function getResetRedirectUrl() {
   if (typeof window === "undefined") return undefined;
   return `${window.location.origin}/login`;
+}
+
+function isInvalidRefreshTokenError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const normalized = error.message.toLowerCase();
+  return normalized.includes("invalid refresh token") || normalized.includes("refresh token not found");
 }
 
 export default function LoginPage() {
@@ -72,6 +78,9 @@ export default function LoginPage() {
         return;
       }
 
+      // Browser có thể đang giữ refresh token hỏng từ phiên trước, cần dọn trước khi đăng nhập lại.
+      await recoverFromInvalidAuthState();
+
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
 
@@ -86,16 +95,23 @@ export default function LoginPage() {
       }
 
       router.replace("/manage");
-    } catch (e) {
-      if (e instanceof TypeError && /fetch/i.test(e.message)) {
+    } catch (error) {
+      if (error instanceof TypeError && /fetch/i.test(error.message)) {
         console.error("Supabase sign-in network error", {
           hasSupabaseClient: Boolean(supabase),
-          error: e,
+          error,
         });
         setMsg("Không kết nối được tới Supabase khi đăng nhập local. Kiểm tra `.env.local`, mạng, hoặc chạy lại server dev để nạp env mới.");
-      } else {
-        setMsg(e instanceof Error ? e.message : "Xác thực thất bại.");
+        return;
       }
+
+      if (isInvalidRefreshTokenError(error)) {
+        await recoverFromInvalidAuthState();
+        setMsg("Phiên đăng nhập cũ trên trình duyệt đã hết hạn. Hệ thống đã dọn lại trạng thái cục bộ, anh thử đăng nhập lại giúp em.");
+        return;
+      }
+
+      setMsg(error instanceof Error ? error.message : "Xác thực thất bại.");
     } finally {
       setLoading(false);
     }
@@ -115,8 +131,8 @@ export default function LoginPage() {
       });
       if (error) throw error;
       setMsg("Đã gửi link đặt lại mật khẩu. Hãy kiểm tra email.");
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Gửi yêu cầu đặt lại mật khẩu thất bại.");
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : "Gửi yêu cầu đặt lại mật khẩu thất bại.");
     } finally {
       setResetting(false);
     }

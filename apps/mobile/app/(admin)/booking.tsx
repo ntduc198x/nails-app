@@ -13,6 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
+import { getAdminNavHref } from "@/src/features/admin/navigation";
 
 const PALETTE = {
   screen: "#fbf6f0",
@@ -294,7 +295,7 @@ export default function AdminBookingScreen() {
         </ScrollView>
 
         <View style={[styles.bottomBar, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current="booking" onNavigate={(target) => void router.replace(`/(admin)/${target}`)} />
+          <AdminBottomNav current="booking" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
       </View>
     </SafeAreaView>

@@ -1667,6 +1667,264 @@ with check (
 
 -- ===== END shifts.sql =====
 
+-- ===== BEGIN shift_attendance_requests_2026_04.sql =====
+alter table public.time_entries
+  add column if not exists effective_clock_in timestamptz,
+  add column if not exists effective_clock_out timestamptz,
+  add column if not exists scheduled_date date,
+  add column if not exists scheduled_week_start date,
+  add column if not exists scheduled_shift_type text check (scheduled_shift_type in ('MORNING', 'AFTERNOON', 'FULL_DAY', 'OFF')),
+  add column if not exists scheduled_shift_label text,
+  add column if not exists scheduled_start timestamptz,
+  add column if not exists scheduled_end timestamptz,
+  add column if not exists approval_status text not null default 'PENDING' check (approval_status in ('PENDING', 'APPROVED', 'REJECTED')),
+  add column if not exists approval_note text,
+  add column if not exists approved_by uuid references public.profiles(user_id) on delete set null,
+  add column if not exists approved_at timestamptz,
+  add column if not exists auto_closed boolean not null default false;
+
+create index if not exists idx_time_entries_staff_status_day
+  on public.time_entries (staff_user_id, approval_status, scheduled_date desc, clock_in desc);
+
+create index if not exists idx_time_entries_open_shift_end
+  on public.time_entries (org_id, scheduled_end)
+  where clock_out is null;
+
+drop policy if exists "time_entries role write" on public.time_entries;
+drop policy if exists "time_entries owner manager write" on public.time_entries;
+create policy "time_entries owner manager write" on public.time_entries
+for all
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+)
+with check (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "time_entries staff self write" on public.time_entries;
+create policy "time_entries staff self write" on public.time_entries
+for all
+using (
+  org_id = public.my_org_id()
+  and staff_user_id = auth.uid()
+  and (
+    public.has_role('RECEPTION')
+    or public.has_role('TECH')
+    or public.has_role('ACCOUNTANT')
+    or public.has_role('MANAGER')
+  )
+)
+with check (
+  org_id = public.my_org_id()
+  and staff_user_id = auth.uid()
+  and (
+    public.has_role('RECEPTION')
+    or public.has_role('TECH')
+    or public.has_role('ACCOUNTANT')
+    or public.has_role('MANAGER')
+  )
+);
+
+create table if not exists public.shift_leave_requests (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  staff_user_id uuid not null references public.profiles(user_id) on delete cascade,
+  request_type text not null check (request_type in ('DAY_OFF', 'EARLY_LEAVE')),
+  status text not null default 'PENDING' check (status in ('PENDING', 'APPROVED', 'REJECTED')),
+  scheduled_date date,
+  requested_at timestamptz not null default now(),
+  requested_end_at timestamptz,
+  note text,
+  owner_note text,
+  reviewed_at timestamptz,
+  reviewed_by uuid references public.profiles(user_id) on delete set null,
+  time_entry_id uuid references public.time_entries(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_shift_leave_requests_org_status
+  on public.shift_leave_requests (org_id, status, requested_at desc);
+
+create index if not exists idx_shift_leave_requests_staff_date
+  on public.shift_leave_requests (staff_user_id, scheduled_date desc, requested_at desc);
+
+alter table public.shift_leave_requests enable row level security;
+
+drop policy if exists "shift_leave_requests owner manager read" on public.shift_leave_requests;
+create policy "shift_leave_requests owner manager read" on public.shift_leave_requests
+for select
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "shift_leave_requests owner manager write" on public.shift_leave_requests;
+create policy "shift_leave_requests owner manager write" on public.shift_leave_requests
+for all
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+)
+with check (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "shift_leave_requests staff read self" on public.shift_leave_requests;
+create policy "shift_leave_requests staff read self" on public.shift_leave_requests
+for select
+using (
+  org_id = public.my_org_id()
+  and staff_user_id = auth.uid()
+);
+
+drop policy if exists "shift_leave_requests staff write self" on public.shift_leave_requests;
+create policy "shift_leave_requests staff write self" on public.shift_leave_requests
+for insert
+with check (
+  org_id = public.my_org_id()
+  and staff_user_id = auth.uid()
+);
+
+drop trigger if exists trg_shift_leave_requests_touch_updated_at on public.shift_leave_requests;
+create trigger trg_shift_leave_requests_touch_updated_at
+before update on public.shift_leave_requests
+for each row
+execute function public.touch_updated_at();
+-- ===== END shift_attendance_requests_2026_04.sql =====
+
+-- ===== BEGIN staff_shift_profiles_2026_04.sql =====
+create table if not exists public.staff_shift_profiles (
+  user_id uuid primary key references public.profiles(user_id) on delete cascade,
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  branch_id uuid not null references public.branches(id) on delete cascade,
+  staff_role text not null check (staff_role in ('MANAGER', 'RECEPTION', 'TECH', 'ACCOUNTANT')),
+  skills_json jsonb not null default '[]'::jsonb,
+  availability_json jsonb not null default '[]'::jsonb,
+  leave_dates_json jsonb not null default '[]'::jsonb,
+  max_weekly_hours integer not null default 40 check (max_weekly_hours between 0 and 84),
+  fairness_offset_hours integer not null default 0 check (fairness_offset_hours between 0 and 24),
+  performance_score integer not null default 7 check (performance_score between 1 and 10),
+  notes_json jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_staff_shift_profiles_org_branch
+  on public.staff_shift_profiles (org_id, branch_id, staff_role);
+
+alter table public.staff_shift_profiles enable row level security;
+
+drop policy if exists "staff_shift_profiles owner manager read" on public.staff_shift_profiles;
+create policy "staff_shift_profiles owner manager read" on public.staff_shift_profiles
+for select
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "staff_shift_profiles owner manager write" on public.staff_shift_profiles;
+create policy "staff_shift_profiles owner manager write" on public.staff_shift_profiles
+for all
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+)
+with check (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "staff_shift_profiles staff read self" on public.staff_shift_profiles;
+create policy "staff_shift_profiles staff read self" on public.staff_shift_profiles
+for select
+using (
+  user_id = auth.uid()
+  and org_id = public.my_org_id()
+);
+
+drop trigger if exists trg_staff_shift_profiles_touch_updated_at on public.staff_shift_profiles;
+create trigger trg_staff_shift_profiles_touch_updated_at
+before update on public.staff_shift_profiles
+for each row
+execute function public.touch_updated_at();
+-- ===== END staff_shift_profiles_2026_04.sql =====
+
+-- ===== BEGIN shift_plans_2026_04.sql =====
+create table if not exists public.shift_plans (
+  id uuid primary key default gen_random_uuid(),
+  org_id uuid not null references public.orgs(id) on delete cascade,
+  branch_id uuid not null references public.branches(id) on delete cascade,
+  week_start date not null,
+  status text not null default 'draft' check (status in ('draft', 'published')),
+  assignments_json jsonb not null default '[]'::jsonb,
+  demands_json jsonb not null default '[]'::jsonb,
+  forecast_json jsonb not null default '{}'::jsonb,
+  employee_summaries_json jsonb not null default '[]'::jsonb,
+  day_summaries_json jsonb not null default '[]'::jsonb,
+  conflicts_json jsonb not null default '[]'::jsonb,
+  suggestions_json jsonb not null default '[]'::jsonb,
+  notes_json jsonb not null default '{}'::jsonb,
+  published_at timestamptz,
+  created_by uuid references public.profiles(user_id) on delete set null,
+  updated_by uuid references public.profiles(user_id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists idx_shift_plans_org_branch_week
+  on public.shift_plans (org_id, branch_id, week_start);
+
+create index if not exists idx_shift_plans_org_status_week
+  on public.shift_plans (org_id, status, week_start desc);
+
+alter table public.shift_plans enable row level security;
+
+drop policy if exists "shift_plans owner manager read all" on public.shift_plans;
+create policy "shift_plans owner manager read all" on public.shift_plans
+for select
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "shift_plans owner manager write" on public.shift_plans;
+create policy "shift_plans owner manager write" on public.shift_plans
+for all
+using (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+)
+with check (
+  org_id = public.my_org_id()
+  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+);
+
+drop policy if exists "shift_plans staff read published" on public.shift_plans;
+create policy "shift_plans staff read published" on public.shift_plans
+for select
+using (
+  org_id = public.my_org_id()
+  and status = 'published'
+  and (
+    public.has_role('OWNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+    or public.has_role('ACCOUNTANT')
+  )
+);
+
+drop trigger if exists trg_shift_plans_touch_updated_at on public.shift_plans;
+create trigger trg_shift_plans_touch_updated_at
+before update on public.shift_plans
+for each row
+execute function public.touch_updated_at();
+-- ===== END shift_plans_2026_04.sql =====
+
 -- ===== BEGIN data_integrity.sql =====
 -- Data integrity hardening (appointments + tickets)
 -- Run this after schema.sql

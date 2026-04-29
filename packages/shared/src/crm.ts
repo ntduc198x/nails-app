@@ -35,6 +35,14 @@ export type CrmDashboardMetrics = {
   repeat30: number;
 };
 
+export type CustomerCrmFilters = {
+  search?: string;
+  status?: CustomerStatus | "ALL";
+  dormantDays?: number | null;
+  vipOnly?: boolean;
+  source?: string | "ALL";
+};
+
 function normalizePhone(raw: string | null | undefined) {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
@@ -127,15 +135,18 @@ async function selectCustomersBase(client: SharedSupabaseClient, orgId: string) 
     .order("created_at", { ascending: false });
 }
 
-export async function listCustomersCrmForMobile(client: SharedSupabaseClient): Promise<CustomerCrmSummary[]> {
+export async function listCustomersCrmForMobile(
+  client: SharedSupabaseClient,
+  filters: CustomerCrmFilters = {},
+): Promise<CustomerCrmSummary[]> {
   const { orgId } = await ensureOrgContext(client);
 
   const rpc = await client.rpc("list_customers_crm", {
-    p_search: null,
-    p_status: null,
-    p_dormant_days: null,
-    p_vip_only: false,
-    p_source: null,
+    p_search: filters.search?.trim() || null,
+    p_status: filters.status && filters.status !== "ALL" ? filters.status : null,
+    p_dormant_days: filters.dormantDays ?? null,
+    p_vip_only: Boolean(filters.vipOnly),
+    p_source: filters.source && filters.source !== "ALL" ? filters.source : null,
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {
@@ -147,7 +158,57 @@ export async function listCustomersCrmForMobile(client: SharedSupabaseClient): P
     throw error;
   }
 
-  return (data ?? []).map((row) => parseCustomerRow(row as Record<string, unknown>));
+  let rows = (data ?? []).map((row) => parseCustomerRow(row as Record<string, unknown>));
+
+  if (filters.search?.trim()) {
+    const query = filters.search.trim().toLowerCase();
+    rows = rows.filter((row) =>
+      row.fullName.toLowerCase().includes(query) || (row.phone ?? "").includes(normalizePhone(query) ?? query),
+    );
+  }
+
+  if (filters.status && filters.status !== "ALL") {
+    rows = rows.filter((row) => row.customerStatus === filters.status);
+  }
+
+  if (filters.source && filters.source !== "ALL") {
+    rows = rows.filter((row) => row.source === filters.source);
+  }
+
+  if (filters.vipOnly) {
+    rows = rows.filter((row) => row.customerStatus === "VIP");
+  }
+
+  if (filters.dormantDays != null) {
+    const minimumDormantDays = filters.dormantDays;
+    rows = rows.filter((row) => (row.dormantDays ?? -1) >= minimumDormantDays);
+  }
+
+  return rows;
+}
+
+export async function listFollowUpCandidatesForMobile(
+  client: SharedSupabaseClient,
+  range?: { fromIso?: string | null; toIso?: string | null },
+): Promise<CustomerCrmSummary[]> {
+  const rpc = await client.rpc("list_follow_up_candidates", {
+    p_from: range?.fromIso ?? null,
+    p_to: range?.toIso ?? null,
+  });
+
+  if (!rpc.error && Array.isArray(rpc.data)) {
+    return rpc.data.map((row) => parseCustomerRow(row as Record<string, unknown>));
+  }
+
+  const rows = await listCustomersCrmForMobile(client);
+  return rows.filter((row) => {
+    if (!row.nextFollowUpAt) return false;
+    const time = new Date(row.nextFollowUpAt).getTime();
+    if (Number.isNaN(time)) return false;
+    if (range?.fromIso && time < new Date(range.fromIso).getTime()) return false;
+    if (range?.toIso && time > new Date(range.toIso).getTime()) return false;
+    return row.followUpStatus !== "DONE";
+  });
 }
 
 export async function getCrmDashboardMetricsForMobile(client: SharedSupabaseClient): Promise<CrmDashboardMetrics> {

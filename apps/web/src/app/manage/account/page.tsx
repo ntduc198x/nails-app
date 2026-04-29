@@ -82,13 +82,13 @@ export default function AccountPage() {
 
       const { data: telegramLink, error: telegramLinkErr } = await supabase
         .from("telegram_links")
-        .select("telegram_chat_id,telegram_user_id,telegram_username,telegram_first_name")
-        .eq("user_id", user.id)
+        .select("telegram_user_id,telegram_username,telegram_first_name")
+        .eq("app_user_id", user.id)
         .maybeSingle();
 
       if (telegramLinkErr) throw telegramLinkErr;
       setTelegramLinked(Boolean(telegramLink?.telegram_user_id));
-      setTelegramBotTarget(telegramLink?.telegram_username ? `@${telegramLink.telegram_username}` : String(telegramLink?.telegram_first_name || telegramLink?.telegram_chat_id || ""));
+      setTelegramBotTarget(telegramLink?.telegram_username ? `@${telegramLink.telegram_username}` : String(telegramLink?.telegram_first_name || ""));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Load account failed");
     } finally {
@@ -176,10 +176,27 @@ export default function AccountPage() {
     try {
       setTelegramLoading(true);
       setTelegramError(null);
-      const { data, error } = await supabase.rpc("generate_telegram_link_code", { p_user_id: userId });
-      if (error) throw error;
-      if (data?.code) {
-        setTelegramCode(data.code);
+      let nextCode: string | null = null;
+
+      const currentRpc = await supabase.rpc("generate_telegram_link_code", {
+        p_app_user_id: userId,
+        p_ttl_minutes: 5,
+      });
+
+      if (!currentRpc.error) {
+        nextCode = typeof currentRpc.data === "string" ? currentRpc.data : null;
+      } else {
+        const legacyRpc = await supabase.rpc("generate_telegram_link_code", { p_user_id: userId });
+        if (legacyRpc.error) throw legacyRpc.error;
+        if (typeof legacyRpc.data === "string") {
+          nextCode = legacyRpc.data;
+        } else if (legacyRpc.data && typeof legacyRpc.data === "object" && "code" in legacyRpc.data) {
+          nextCode = String((legacyRpc.data as { code?: unknown }).code ?? "");
+        }
+      }
+
+      if (nextCode) {
+        setTelegramCode(nextCode);
       }
     } catch (e) {
       setTelegramError(e instanceof Error ? e.message : "Không thể tạo mã");
@@ -193,10 +210,14 @@ export default function AccountPage() {
     try {
       setTelegramLoading(true);
       setTelegramError(null);
-      const { error } = await supabase.rpc("unlink_telegram", { p_user_id: userId });
-      if (error) throw error;
+      const currentRpc = await supabase.rpc("unlink_telegram", { p_app_user_id: userId });
+      if (currentRpc.error) {
+        const legacyRpc = await supabase.rpc("unlink_telegram", { p_user_id: userId });
+        if (legacyRpc.error) throw legacyRpc.error;
+      }
       setTelegramLinked(false);
       setTelegramCode(null);
+      setTelegramBotTarget("");
       setMessage("Đã hủy liên kết Telegram.");
     } catch (e) {
       setTelegramError(e instanceof Error ? e.message : "Không thể hủy liên kết");

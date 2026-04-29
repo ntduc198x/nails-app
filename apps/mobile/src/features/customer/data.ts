@@ -4,6 +4,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   {
     id: "luxury-gel",
     title: "Luxury Gel",
+    category: "sang-trong",
     blurb: "Form móng tối giản, nền đen bóng và chi tiết đá béo hiện đại.",
     tone: "Nhẹ nhàng",
     price: "350.000đ",
@@ -13,6 +14,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   {
     id: "nail-art-design",
     title: "Nail Art Design",
+    category: "noi-bat",
     blurb: "Phối màu xám bạc và white milk cho layout sang trọng, sáng da.",
     tone: "Nổi bật",
     price: "500.000đ",
@@ -21,6 +23,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   },
   {
     id: "nail-han-quoc",
+    category: "don-gian",
     title: "Nail Hàn Quốc",
     blurb: "Base nude trong veo, điểm nhấn phụ kiện kim loại nhỏ và sáng.",
     tone: "Nhẹ nhàng",
@@ -30,6 +33,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   },
   {
     id: "french-chic",
+    category: "sang-trong",
     title: "French Chic",
     blurb: "French mỏng và gam beige hồng, hợp hẹn hò và đi làm mỗi ngày.",
     tone: "Sang trọng",
@@ -39,6 +43,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   },
   {
     id: "matcha-mood",
+    category: "ca-tinh",
     title: "Matcha Mood",
     blurb: "Gam xanh olive mix sticker mini cho bộ móng cá tính nhưng vẫn mềm.",
     tone: "Cá tính",
@@ -48,6 +53,7 @@ export const FALLBACK_SERVICES: LookbookService[] = [
   },
   {
     id: "milky-glow",
+    category: "don-gian",
     title: "Milky Glow",
     blurb: "Overlay ánh ngọc trai và những điểm nhấn nhỏ cho da tay sáng hơn.",
     tone: "Đơn giản",
@@ -69,6 +75,33 @@ export const QUICK_CONTACTS = [
   { label: "Hotline", value: "0916 080 398", actionLabel: "Gọi", href: "tel:0916080398" },
   { label: "Messenger", value: "m.me/chambeautyyy", actionLabel: "Chat", href: "https://m.me/chambeautyyy" },
   { label: "Instagram", value: "@cham.beautyy", actionLabel: "Xem", href: "https://www.instagram.com/cham.beautyy" },
+] as const;
+
+export const QUICK_CONTACTS_CARD = [
+  {
+    label: "Hotline",
+    value: "0916 080 398",
+    actionLabel: "Gọi",
+    href: "tel:0916080398",
+    icon: "phone-call",
+    actionIcon: "phone",
+  },
+  {
+    label: "Messenger",
+    value: "m.me/chambeautyyy",
+    actionLabel: "Chat",
+    href: "https://m.me/chambeautyyy",
+    icon: "message-circle",
+    actionIcon: "message-circle",
+  },
+  {
+    label: "Instagram",
+    value: "@cham.beautyy",
+    actionLabel: "Xem",
+    href: "https://www.instagram.com/cham.beautyy",
+    icon: "instagram",
+    actionIcon: "external-link",
+  },
 ] as const;
 
 export const EXPLORE_STATS = [
@@ -145,6 +178,33 @@ export const EXPLORE_STORE_INFO = {
   mapUrl: "https://maps.app.goo.gl/Qu9oyq4emP3iWHDd6",
 } as const;
 
+export const EXPLORE_GALLERY = [
+  {
+    id: "gallery-1",
+    title: "Khong gian storefront",
+    image: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?q=80&w=1200",
+    kind: "salon",
+  },
+  {
+    id: "gallery-2",
+    title: "Ban tiep don",
+    image: "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?q=80&w=1200",
+    kind: "decor",
+  },
+  {
+    id: "gallery-3",
+    title: "Mau french chic",
+    image: "https://images.unsplash.com/photo-1522337660859-02fbefca4702?q=80&w=1200",
+    kind: "work",
+  },
+  {
+    id: "gallery-4",
+    title: "Team tai cua hang",
+    image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800",
+    kind: "team",
+  },
+] as const;
+
 export const NEWS_ITEMS = [
   {
     id: "news-1",
@@ -190,6 +250,23 @@ export const MEMBERSHIP = {
 export const UPCOMING_BOOKINGS = [
   { id: "upcoming-1", title: "Luxury Gel", slot: "09:00 24/04/2026", staff: "Bùi Thị Tuyết" },
   { id: "upcoming-2", title: "French Chic", slot: "14:30 27/04/2026", staff: "Võ Hà Linh" },
+] as const;
+
+export const UPCOMING_BOOKING_CARDS = [
+  {
+    id: "upcoming-card-1",
+    title: "Luxury Gel",
+    slot: "09:00 - 24/04/2026",
+    staff: "Bùi Thị Tuyết",
+    image: FALLBACK_SERVICES[0].image,
+  },
+  {
+    id: "upcoming-card-2",
+    title: "French Chic",
+    slot: "14:30 - 27/04/2026",
+    staff: "Võ Hà Linh",
+    image: FALLBACK_SERVICES[3].image,
+  },
 ] as const;
 
 export const BOOKING_HISTORY = [
@@ -341,6 +418,7 @@ export const PROFILE_LINKS = [
 
 export function matchesCategory(service: LookbookService, category: (typeof CATEGORY_ITEMS)[number]["key"]) {
   if (category === "all") return true;
+  if (service.category) return service.category === category;
 
   const haystack = `${service.title} ${service.tone} ${service.blurb}`.toLowerCase();
 

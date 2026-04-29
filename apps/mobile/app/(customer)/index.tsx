@@ -19,10 +19,11 @@ const HOME_FILTERS = [
 type HomeFilterKey = (typeof HOME_FILTERS)[number]["key"];
 
 function getLookbookTags(item: LookbookItem): HomeFilterKey[] {
-  const haystack = `${item.title} ${item.blurb} ${item.tone}`.toLowerCase();
   const tags: HomeFilterKey[] = ["hot"];
+  const badge = item.badge.toLowerCase();
+  const category = item.category?.toLowerCase() ?? "";
 
-  if (haystack.includes("trend") || haystack.includes("chrome") || haystack.includes("cat-eye") || haystack.includes("french")) {
+  if (badge.includes("trend") || badge.includes("hot") || category === "sang-trong" || category === "noi-bat") {
     tags.push("trend");
   }
 
@@ -246,13 +247,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#fdf2e8",
     flexDirection: "row",
     overflow: "hidden",
-    padding: 12,
+    padding: 14,
+    gap: 10,
   },
   heroTextColumn: {
     flex: 1,
     gap: 10,
     justifyContent: "space-between",
     paddingVertical: 4,
+    paddingRight: 4,
     zIndex: 2,
   },
   heroMiniBadge: {
@@ -268,25 +271,27 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "800",
     letterSpacing: -0.4,
-    lineHeight: 28,
-    maxWidth: 190,
+    lineHeight: 26,
+    maxWidth: 180,
   },
   heroSubtitle: {
     color: "#8c7b6d",
     fontSize: 12,
     lineHeight: 18,
-    maxWidth: 190,
+    maxWidth: 178,
   },
   heroActions: {
-    flexDirection: "row",
-    gap: 10,
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 2,
   },
   heroImage: {
     alignSelf: "flex-end",
     borderRadius: 24,
-    height: 184,
-    marginLeft: -16,
-    width: 150,
+    height: 178,
+    marginLeft: -4,
+    width: 138,
   },
   filtersRow: {
     gap: 10,

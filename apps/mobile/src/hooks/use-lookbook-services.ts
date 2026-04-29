@@ -7,6 +7,7 @@ export type LookbookService = {
   id: string;
   title: string;
   blurb: string;
+  category: string | null;
   tone: string;
   price: string;
   image: string;
@@ -64,7 +65,7 @@ export function useLookbookServices(
           return false;
         }
 
-        const normalized = normalizeLookbookRows(json.data);
+        const normalized = normalizeLookbookRows(json.data, { context: "explore" });
         if (!normalized.length) {
           if (isActive()) setLastError("API lookbook returned rows but no usable images/titles");
           return false;
@@ -91,9 +92,10 @@ export function useLookbookServices(
       try {
         const { data, error } = await mobileSupabase
           .from("services")
-          .select("id,name,short_description,image_url,duration_min,base_price,created_at")
+          .select("id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at")
           .eq("active", true)
-          .eq("featured_in_lookbook", true)
+          .eq("featured_in_explore", true)
+          .order("display_order_explore", { ascending: true })
           .order("name", { ascending: true })
           .limit(6);
 
@@ -102,7 +104,7 @@ export function useLookbookServices(
           return false;
         }
 
-        const normalized = normalizeLookbookRows(data);
+        const normalized = normalizeLookbookRows(data, { context: "explore" });
         if (!normalized.length) {
           if (isActive()) setLastError("Supabase rows exist but missing usable name/image_url");
           return false;

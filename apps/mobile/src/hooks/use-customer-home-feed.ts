@@ -22,6 +22,7 @@ function normalizeFallbackLookbook(items: LookbookService[]): LookbookItem[] {
     id: item.id,
     title: item.title,
     blurb: item.blurb,
+    category: item.category,
     tone: item.tone,
     badge: item.badge ?? "Featured",
     price: item.price,
@@ -156,9 +157,10 @@ export function useCustomerHomeFeed() {
     const [lookbookResult, contentResult, offersResult] = await Promise.all([
       mobileSupabase
         .from("services")
-        .select("id,name,short_description,image_url,duration_min,base_price,created_at")
+        .select("id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at")
         .eq("active", true)
-        .eq("featured_in_lookbook", true)
+        .eq("featured_in_home", true)
+        .order("display_order_home", { ascending: true })
         .order("name", { ascending: true })
         .limit(6),
       mobileSupabase
@@ -178,7 +180,7 @@ export function useCustomerHomeFeed() {
 
     const lookbook =
       !lookbookResult.error && lookbookResult.data?.length
-        ? normalizeLookbookRows(lookbookResult.data as LookbookRow[])
+        ? normalizeLookbookRows(lookbookResult.data as LookbookRow[], { context: "home" })
         : FALLBACK_HOME_FEED.lookbook;
 
     const contentPosts =

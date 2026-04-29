@@ -3,6 +3,20 @@ import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
 
 const SESSION_TOKEN_KEY = "nails_session_token";
 
+function isInvalidRefreshTokenMessage(message: string | undefined) {
+  const normalized = (message ?? "").toLowerCase();
+  return normalized.includes("invalid refresh token") || normalized.includes("refresh token not found");
+}
+
+async function clearSupabaseBrowserSession() {
+  if (!supabase) return;
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch {
+    // Best effort: we only need browser storage cleared.
+  }
+}
+
 export interface AppSessionResult {
   success: boolean;
   token?: string;
@@ -37,11 +51,38 @@ export function clearStoredSessionToken(): void {
   localStorage.removeItem(SESSION_TOKEN_KEY);
 }
 
+export async function recoverFromInvalidAuthState() {
+  clearStoredSessionToken();
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem("nails.auth.cache");
+  }
+  await clearSupabaseBrowserSession();
+}
+
+export async function getSafeSupabaseSession() {
+  if (!supabase) return { session: null, invalidRefreshToken: false };
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error && isInvalidRefreshTokenMessage(error.message)) {
+      await recoverFromInvalidAuthState();
+      return { session: null, invalidRefreshToken: true };
+    }
+    return { session: data.session, invalidRefreshToken: false };
+  } catch (error) {
+    if (error instanceof Error && isInvalidRefreshTokenMessage(error.message)) {
+      await recoverFromInvalidAuthState();
+      return { session: null, invalidRefreshToken: true };
+    }
+    throw error;
+  }
+}
+
 export async function createAppSession(): Promise<AppSessionResult> {
   if (!supabase) return { success: false, error: "Supabase not configured" };
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const user = sessionData?.session?.user;
+  const { session } = await getSafeSupabaseSession();
+  const user = session?.user;
   if (!user) return { success: false, error: "Not authenticated" };
 
   const fingerprint = await getDeviceFingerprint();
@@ -54,6 +95,10 @@ export async function createAppSession(): Promise<AppSessionResult> {
   });
 
   if (error) {
+    if (isInvalidRefreshTokenMessage(error.message)) {
+      await recoverFromInvalidAuthState();
+      return { success: false, error: error.message, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+    }
     return { success: false, error: error.message };
   }
 
@@ -73,8 +118,16 @@ export async function createAppSession(): Promise<AppSessionResult> {
 export async function validateAppSession(): Promise<AppSessionValidation> {
   if (!supabase) return { valid: false, reason: "INVALID_TOKEN" };
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const currentUser = sessionData?.session?.user;
+  const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+  if (invalidRefreshToken) {
+    return {
+      valid: false,
+      reason: "INVALID_TOKEN",
+      message: "Supabase refresh token is invalid.",
+    };
+  }
+
+  const currentUser = session?.user;
   if (!currentUser) {
     clearStoredSessionToken();
     return { valid: false, reason: "INVALID_TOKEN" };
@@ -129,8 +182,8 @@ export async function revokeAppSession(): Promise<boolean> {
 export async function logoutWithSessionCleanup(): Promise<void> {
   if (!supabase) return;
 
-  const { data: sessionData } = await supabase.auth.getSession();
-  const userId = sessionData?.session?.user?.id;
+  const { session } = await getSafeSupabaseSession();
+  const userId = session?.user?.id;
 
   const token = getStoredSessionToken();
   if (token) {
@@ -142,5 +195,5 @@ export async function logoutWithSessionCleanup(): Promise<void> {
   }
 
   clearStoredSessionToken();
-  await supabase.auth.signOut();
+  await clearSupabaseBrowserSession();
 }

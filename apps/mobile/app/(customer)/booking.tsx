@@ -1,12 +1,13 @@
+import Feather from "@expo/vector-icons/Feather";
 import { useEffect } from "react";
 import { useLocalSearchParams } from "expo-router";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CustomerScreen, CustomerTopActions, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
-import { QUICK_CONTACTS, UPCOMING_BOOKINGS } from "@/src/features/customer/data";
-import { useGuestBooking } from "@/src/hooks/use-guest-booking";
+import { QUICK_CONTACTS_CARD, UPCOMING_BOOKING_CARDS } from "@/src/features/customer/data";
 import { premiumTheme } from "@/src/design/premium-theme";
+import { useGuestBooking } from "@/src/hooks/use-guest-booking";
 
-const { colors, spacing } = premiumTheme;
+const { colors, radius, spacing } = premiumTheme;
 
 export default function BookingScreen() {
   const params = useLocalSearchParams<{ service?: string }>();
@@ -29,7 +30,9 @@ export default function BookingScreen() {
       <View style={styles.headerBlock}>
         <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
         <Text style={styles.pageTitle}>Đặt lịch</Text>
-        <Text style={styles.pageSubtitle}>Chọn mẫu nail, thời gian và thông tin liên hệ theo phong cách đồng nhất của customer flow.</Text>
+        <Text style={styles.pageSubtitle}>
+          Chọn mẫu nail, thời gian và thông tin liên hệ theo phong cách đồng nhất của customer flow.
+        </Text>
       </View>
 
       <SurfaceCard style={styles.formCard}>
@@ -130,39 +133,75 @@ export default function BookingScreen() {
       </SurfaceCard>
 
       <SurfaceCard style={styles.utilityCard}>
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Liên hệ nhanh</Text>
-          <Text style={styles.sectionSubtitle}>Khi bạn cần tư vấn mẫu hoặc giữ chỗ gấp.</Text>
+        <View style={styles.utilityHeader}>
+          <View style={styles.utilityHeaderIcon}>
+            <Feather color={colors.accentWarm} name="headphones" size={22} />
+          </View>
+          <View style={styles.utilityHeaderCopy}>
+            <Text style={styles.sectionTitle}>Liên hệ nhanh</Text>
+            <Text style={styles.sectionSubtitle}>Khi bạn cần tư vấn mẫu hoặc giữ chỗ gấp.</Text>
+          </View>
         </View>
 
         <View style={styles.contactList}>
-          {QUICK_CONTACTS.map((item) => (
-            <Pressable key={item.label} style={styles.contactRow} onPress={() => void Linking.openURL(item.href)}>
+          {QUICK_CONTACTS_CARD.map((item, index) => (
+            <Pressable
+              key={item.label}
+              style={[styles.contactRow, index < QUICK_CONTACTS_CARD.length - 1 ? styles.utilityRowDivider : null]}
+              onPress={() => void Linking.openURL(item.href)}
+            >
+              <View style={styles.leadingVisual}>
+                <Feather color={colors.accentWarm} name={item.icon} size={22} />
+              </View>
+
               <View style={styles.contactCopy}>
                 <Text style={styles.contactLabel}>{item.label}</Text>
                 <Text style={styles.contactValue}>{item.value}</Text>
               </View>
-              <Text style={styles.contactAction}>{item.actionLabel}</Text>
+
+              <View style={styles.trailingPill}>
+                <Feather color={colors.accentWarm} name={item.actionIcon} size={17} />
+                <Text style={styles.contactAction}>{item.actionLabel}</Text>
+              </View>
             </Pressable>
           ))}
         </View>
       </SurfaceCard>
 
       <SurfaceCard style={styles.utilityCard}>
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Lịch đã giữ cho bạn</Text>
-          <Text style={styles.sectionSubtitle}>Các lịch gần nhất đang được hiển thị cùng phong cách với toàn app.</Text>
+        <View style={styles.utilityHeader}>
+          <View style={styles.utilityHeaderIcon}>
+            <Feather color={colors.accentWarm} name="calendar" size={22} />
+          </View>
+          <View style={styles.utilityHeaderCopy}>
+            <Text style={styles.sectionTitle}>Lịch đã giữ cho bạn</Text>
+            <Text style={styles.sectionSubtitle}>Các lịch gần nhất đang được hiển thị cùng phong cách với toàn app.</Text>
+          </View>
         </View>
 
         <View style={styles.bookingList}>
-          {UPCOMING_BOOKINGS.map((item) => (
+          {UPCOMING_BOOKING_CARDS.map((item) => (
             <View key={item.id} style={styles.bookingRow}>
+              <Image alt={item.title} source={{ uri: item.image }} style={styles.bookingThumb} />
+
               <View style={styles.bookingCopy}>
                 <Text style={styles.bookingTitle}>{item.title}</Text>
-                <Text style={styles.bookingMeta}>{item.slot}</Text>
-                <Text style={styles.bookingMeta}>{item.staff}</Text>
+
+                <View style={styles.bookingMetaRow}>
+                  <Feather color={colors.textSoft} name="calendar" size={15} />
+                  <Text style={styles.bookingMeta}>{item.slot}</Text>
+                </View>
+
+                <View style={styles.bookingMetaRow}>
+                  <Feather color={colors.textSoft} name="user" size={15} />
+                  <Text style={styles.bookingMeta}>{item.staff}</Text>
+                </View>
               </View>
-              <PrimaryButton label="Sửa" subtle />
+
+              <Pressable style={styles.trailingPill}>
+                <Feather color={colors.accentWarm} name="edit-3" size={16} />
+                <Text style={styles.contactAction}>Sửa</Text>
+              </Pressable>
             </View>
           ))}
         </View>
@@ -226,20 +265,43 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   utilityCard: {
-    gap: 18,
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  utilityHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+  },
+  utilityHeaderIcon: {
+    alignItems: "center",
+    backgroundColor: "#fbf4ec",
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 52,
+    justifyContent: "center",
+    width: 52,
+  },
+  utilityHeaderCopy: {
+    flex: 1,
+    gap: 2,
+    paddingTop: 1,
   },
   sectionHead: {
     gap: 4,
   },
   sectionTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: "800",
+    letterSpacing: -0.2,
   },
   sectionSubtitle: {
     color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 18,
   },
   fieldBlock: {
     gap: 8,
@@ -287,34 +349,61 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   contactList: {
-    gap: 12,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    overflow: "hidden",
   },
   contactRow: {
     alignItems: "center",
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 18,
     flexDirection: "row",
-    gap: spacing.md,
+    gap: 12,
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  utilityRowDivider: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+  },
+  leadingVisual: {
+    alignItems: "center",
+    backgroundColor: "#fdf1e4",
+    borderRadius: 16,
+    height: 52,
+    justifyContent: "center",
+    width: 52,
   },
   contactCopy: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   contactLabel: {
-    color: colors.textSoft,
+    color: "#6f6051",
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "500",
   },
   contactValue: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  trailingPill: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    minHeight: 42,
+    minWidth: 92,
+    paddingHorizontal: 14,
   },
   contactAction: {
-    color: "#a7744d",
+    color: colors.accentWarm,
     fontSize: 13,
     fontWeight: "800",
   },
@@ -323,25 +412,38 @@ const styles = StyleSheet.create({
   },
   bookingRow: {
     alignItems: "center",
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 18,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
     flexDirection: "row",
-    gap: spacing.md,
+    gap: 12,
     justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  bookingThumb: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 14,
+    height: 68,
+    width: 68,
   },
   bookingCopy: {
     flex: 1,
-    gap: 4,
+    gap: 3,
   },
   bookingTitle: {
     color: colors.text,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "800",
+  },
+  bookingMetaRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
   },
   bookingMeta: {
     color: colors.textSoft,
-    fontSize: 13,
+    fontSize: 12,
   },
 });

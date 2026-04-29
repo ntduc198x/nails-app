@@ -147,11 +147,11 @@ export default function ReportsPage() {
         const nameMap = new Map(team.map((r) => [r.user_id, r.display_name || String(r.user_id).slice(0, 8)]));
 
         const map = new Map<string, { minutes: number; entries: number }>();
-        for (const r of timeRows as Array<{ staff_user_id: string; clock_in: string; clock_out: string | null }>) {
+        for (const r of timeRows as Array<{ staff_user_id: string; effective_clock_in: string; effective_clock_out: string | null }>) {
           if (!eligibleStaffIds.has(r.staff_user_id)) continue;
           const key = nameMap.get(r.staff_user_id) ?? r.staff_user_id;
-          const start = new Date(r.clock_in).getTime();
-          const end = r.clock_out ? new Date(r.clock_out).getTime() : Date.now();
+          const start = new Date(r.effective_clock_in).getTime();
+          const end = r.effective_clock_out ? new Date(r.effective_clock_out).getTime() : Date.now();
           const mins = Math.max(0, Math.round((end - start) / 60000));
           const prev = map.get(key) ?? { minutes: 0, entries: 0 };
           map.set(key, { minutes: prev.minutes + mins, entries: prev.entries + 1 });

@@ -5,6 +5,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { addMinutesToIso, AdminBottomNav } from "@/src/features/admin/ui";
+import { getAdminNavHref } from "@/src/features/admin/navigation";
 
 const palette = {
   bg: "#FCFAF8",
@@ -604,8 +605,9 @@ export default function BookingRequestDetailScreen() {
       <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 8 }]}>
         <AdminBottomNav
           current="booking"
+          role={role}
           onNavigate={(target) => {
-            void router.replace(`/(admin)/${target}`);
+            void router.replace(getAdminNavHref(target, role));
           }}
         />
       </View>

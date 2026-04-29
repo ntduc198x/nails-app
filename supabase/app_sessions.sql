@@ -413,7 +413,8 @@ begin
   delete from public.app_sessions where user_id = p_user_id;
   delete from public.online_users where user_id = p_user_id;
 
-  v_token := encode(gen_random_bytes(32), 'hex');
+  -- Avoid dependency on gen_random_bytes() availability across projects.
+  v_token := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
 
   insert into public.app_sessions (user_id, session_token, device_fingerprint, device_info)
   values (p_user_id, v_token, p_device_fingerprint, coalesce(p_device_info, '{}'::jsonb));

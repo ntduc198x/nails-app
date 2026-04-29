@@ -39,7 +39,7 @@ type UserRoleRow = {
   phone?: string | null;
 };
 
-const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const roleOptions: AppRole[] = ["PARTNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
 const availabilityOptions: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
 const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
@@ -90,7 +90,7 @@ function getShiftTypeLabel(shiftType: ShiftType) {
 }
 
 function toStaffRole(role: AppRole): StaffRole | null {
-  if (role === "OWNER" || role === "USER") return null;
+  if (role === "OWNER" || role === "PARTNER" || role === "USER") return null;
   return role;
 }
 
@@ -139,7 +139,7 @@ export default function TeamPage() {
   const inviteSectionRef = useRef<HTMLDivElement | null>(null);
   const listSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const canManage = myRole === "OWNER";
+  const canManage = myRole === "OWNER" || myRole === "PARTNER";
 
   const roleStats = useMemo(() => {
     const stats = new Map<AppRole, number>();
@@ -185,7 +185,7 @@ export default function TeamPage() {
       const role = await getOrCreateRole(user.id);
       setMyRole(role);
 
-      const canManageCurrent = role === "OWNER";
+      const canManageCurrent = role === "OWNER" || role === "PARTNER";
       const [roleRows, invites] = await Promise.all([
         listUserRoles(),
         canManageCurrent ? listInviteCodes() : Promise.resolve([]),
@@ -507,7 +507,7 @@ export default function TeamPage() {
                     ) : null}
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {canManage && row.role !== "OWNER" ? (
+                      {canManage && row.role !== "OWNER" && row.role !== "PARTNER" ? (
                         <div className="flex min-w-[180px] flex-wrap items-center gap-2">
                           <SelectInput value={roleDraft} onChange={(e) => setRoleDrafts((prev) => ({ ...prev, [row.id]: e.target.value as AppRole }))} className="min-w-[180px] py-2 text-xs">
                             {roleOptions.map((role) => (

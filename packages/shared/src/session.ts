@@ -80,6 +80,11 @@ function isMissingCustomerAccountLinkInfraError(error: { code?: string; message?
   );
 }
 
+function isMissingUserRolesBranchIdError(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message ?? "";
+  return error?.code === "42703" && message.includes("user_roles.branch_id");
+}
+
 function buildProfileDisplayName(user: User) {
   const metadataDisplayName =
     typeof user.user_metadata?.display_name === "string"
@@ -248,17 +253,52 @@ async function ensureCustomerAccountLink(client: SharedSupabaseClient, user: Use
 }
 
 export async function getOrCreateRole(client: SharedSupabaseClient, userId: string): Promise<AppRole> {
+  const { data: profileForRole, error: profileForRoleErr } = await client
+    .from("profiles")
+    .select("org_id,default_branch_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (profileForRoleErr) {
+    throw profileForRoleErr;
+  }
+
+  const orgIdForRole = typeof profileForRole?.org_id === "string" ? profileForRole.org_id : undefined;
+  const defaultBranchId = typeof profileForRole?.default_branch_id === "string" ? profileForRole.default_branch_id : null;
+
+  let currentRole: AppRole | undefined;
+
   const { data: existing, error: readErr } = await client
     .from("user_roles")
-    .select("role")
+    .select("role,branch_id,org_id")
     .eq("user_id", userId)
-    .limit(1);
+    .order("role", { ascending: true });
 
-  if (readErr) {
+  if (readErr && !isMissingUserRolesBranchIdError(readErr)) {
     throw readErr;
   }
 
-  const currentRole = existing?.[0]?.role as AppRole | undefined;
+  if (readErr && isMissingUserRolesBranchIdError(readErr)) {
+    const { data: legacyRoles, error: legacyReadErr } = await client
+      .from("user_roles")
+      .select("role,org_id")
+      .eq("user_id", userId)
+      .order("role", { ascending: true });
+
+    if (legacyReadErr) {
+      throw legacyReadErr;
+    }
+
+    const scopedLegacyRoles = (legacyRoles ?? []).filter((row) => !orgIdForRole || row.org_id === orgIdForRole);
+    currentRole = scopedLegacyRoles[0]?.role as AppRole | undefined;
+  } else {
+    const scopedRoles = (existing ?? []).filter((row) => !orgIdForRole || row.org_id === orgIdForRole);
+    currentRole = (
+      scopedRoles.find((row) => row.branch_id && row.branch_id === defaultBranchId)?.role ??
+      scopedRoles.find((row) => row.branch_id == null)?.role
+    ) as AppRole | undefined;
+  }
+
   if (currentRole) {
     return currentRole;
   }

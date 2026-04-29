@@ -1,9 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useState } from "react";
 import { Alert, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router, useRouter } from "expo-router";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { AdminHeaderActions } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const TOKENS = {
@@ -106,9 +107,12 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
     <SafeAreaView style={styles.safeArea}>
       <View style={[styles.screen, { paddingTop: Math.max(insets.top, 12) + 12 }]}>
         <View style={styles.header}>
-          <Pressable hitSlop={10} onPress={() => router.replace("/(admin)/settings")} style={styles.headerBackButton}>
-            <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
-          </Pressable>
+          <View style={styles.headerTopRow}>
+            <Pressable hitSlop={10} onPress={() => router.replace("/(admin)/settings")} style={styles.headerBackButton}>
+              <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
+            </Pressable>
+            <AdminHeaderActions onSettingsPress={() => void router.replace("/(admin)/settings")} />
+          </View>
 
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
@@ -198,6 +202,12 @@ const styles = StyleSheet.create({
   },
   header: {
     gap: 14,
+  },
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   headerBackButton: {
     width: 28,

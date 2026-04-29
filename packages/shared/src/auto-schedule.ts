@@ -1,6 +1,6 @@
 import type { AppRole } from "./auth";
 
-export type StaffRole = Exclude<AppRole, "OWNER" | "USER">;
+export type StaffRole = Exclude<AppRole, "OWNER" | "PARTNER" | "USER">;
 export type ShiftType = "MORNING" | "AFTERNOON" | "FULL_DAY" | "OFF";
 export type ServiceSkill =
   | "Làm móng cơ bản"
@@ -475,7 +475,7 @@ export function getRecommendedShiftTypesForDate(employee: AutoScheduleEmployee, 
 function isSchedulableEmployee(employee: AutoScheduleEmployee) {
   // FIX RANDOM ROLES: OWNER không tham gia chia ca / random.
   // Các role còn lại như MANAGER, TECH, RECEPTION... nếu có availability thì đều được đưa vào thuật toán.
-  return (employee.role as AppRole) !== "OWNER";
+  return (employee.role as AppRole) !== "OWNER" && (employee.role as AppRole) !== "PARTNER";
 }
 
 function getAvailableSchedulableRolesForDate(
@@ -1064,7 +1064,7 @@ export function generateDraftSchedule({
   const schedulableEmployees = employees.filter(isSchedulableEmployee);
   const normalizedDemands = normalizeScheduleDemands(demands).map((demand) => ({
     ...demand,
-    requiredRoles: demand.requiredRoles.filter((role) => role !== ("OWNER" as StaffRole)),
+    requiredRoles: demand.requiredRoles.filter((role) => role !== ("OWNER" as StaffRole) && role !== ("PARTNER" as StaffRole)),
   }));
   const definitions = shiftMapFromDefinitions(shiftDefinitions);
 

@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 
 const palette = {
   bg: "#FCFAF8",
@@ -50,9 +50,7 @@ export default function AdminManageHubScreen() {
               </View>
               <Text style={styles.headerTitle}>Manage</Text>
             </View>
-            <Pressable style={styles.heroAction} onPress={() => void router.push("/(admin)/settings")}>
-              <Feather name="settings" size={18} color={palette.text} />
-            </Pressable>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
           </View>
 
           <View style={styles.section}>
@@ -80,9 +78,9 @@ export default function AdminManageHubScreen() {
               <Feather name="clock" size={18} color={palette.accent} />
             </View>
             <View style={styles.secondaryCopy}>
-              <Text style={styles.secondaryTitle}>Ca làm của tôi</Text>
+              <Text style={styles.secondaryTitle}>Quản lý ca làm</Text>
               <Text style={styles.secondarySubtitle}>
-                OWNER vẫn có thể mở màn self-service shifts khi cần kiểm tra chấm công cá nhân.
+                OWNER có thể mở nhanh màn quản lý ca làm để kiểm tra lịch tuần và chấm công.
               </Text>
             </View>
             <Feather name="chevron-right" size={18} color="#A7988A" />

@@ -50,6 +50,7 @@ type SessionContextValue = {
     registrationMode: "USER" | "ADMIN";
   }) => Promise<InviteCodeConsumptionResult | null>;
   requestPasswordReset: (email: string) => Promise<void>;
+  refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
 };
@@ -74,6 +75,9 @@ const defaultSessionContextValue: SessionContextValue = {
     throw new Error("Mobile session provider chua san sang.");
   },
   async requestPasswordReset() {
+    throw new Error("Mobile session provider chua san sang.");
+  },
+  async refreshSession() {
     throw new Error("Mobile session provider chua san sang.");
   },
   async signOut() {
@@ -262,6 +266,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
 
     setAppSession(validation);
+    setError(null);
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    if (!mobileSupabase) {
+      throw new Error("Thieu cau hinh Supabase mobile.");
+    }
+
+    const summary = await getAuthenticatedUserSummary(mobileSupabase);
+    setUser(summary);
+    setRoleState(summary?.role ?? null);
     setError(null);
   }, []);
 
@@ -697,6 +712,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signInWithApple,
     signUp,
     requestPasswordReset,
+    refreshSession,
     signOut,
     clearError,
   };

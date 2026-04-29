@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 
@@ -227,9 +227,7 @@ export default function AdminSchedulingScreen() {
             <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
           </View>
 
-          <Pressable hitSlop={12} onPress={() => void reload()} style={styles.headerSquareButton}>
-            <Feather color="#6b5c50" name="calendar" size={18} />
-          </Pressable>
+          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
         </View>
 
         <View style={styles.card}>

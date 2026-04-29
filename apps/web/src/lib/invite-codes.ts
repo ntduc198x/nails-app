@@ -3,7 +3,7 @@ import { supabase } from "@/lib/supabase";
 export type InviteCodeRow = {
   id: string;
   code: string;
-  allowed_role: "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
+  allowed_role: "PARTNER" | "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
   expires_at: string;
   used_count: number;
   max_uses: number;

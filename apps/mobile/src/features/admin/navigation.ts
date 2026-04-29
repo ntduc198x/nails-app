@@ -4,6 +4,10 @@ import type { AppRole } from "@nails/shared";
 export type AdminNavTarget = "booking" | "scheduling" | "checkout" | "profile";
 
 export function isOwnerRole(role: AppRole | null | undefined) {
+  return role === "OWNER" || role === "PARTNER";
+}
+
+export function canSelectAdminBranch(role: AppRole | null | undefined) {
   return role === "OWNER";
 }
 

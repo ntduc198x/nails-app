@@ -1993,7 +1993,7 @@ export default function ManageShiftsPage() {
                       onClick={() => setSelectedCell(null)}
                       className="hidden rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 lg:inline-flex"
                     >
-                      Bá» chá»n
+                      Bỏ chọn
                     </button>
                   ) : null}
                 </div>

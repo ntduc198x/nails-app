@@ -155,7 +155,7 @@ async function getCurrentUserId() {
 
 export async function loadShiftPlanWeek(
   weekStart: string,
-  opts?: { publishedOnly?: boolean },
+  opts?: { publishedOnly?: boolean; status?: ShiftPlanStatus },
 ): Promise<ShiftPlanRecord | null> {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId, branchId } = await ensureOrgContext();
@@ -169,9 +169,8 @@ export async function loadShiftPlanWeek(
     .eq("branch_id", branchId)
     .eq("week_start", weekStart);
 
-  if (opts?.publishedOnly) {
-    query = query.eq("status", "published");
-  }
+  const targetStatus = opts?.status ?? (opts?.publishedOnly ? "published" : "draft");
+  query = query.eq("status", targetStatus);
 
   const { data, error } = await query.limit(1).maybeSingle();
   if (error) throw error;
@@ -212,7 +211,7 @@ export async function saveShiftPlanWeek(input: {
 
   const { data, error } = await supabase
     .from("shift_plans")
-    .upsert(payload, { onConflict: "org_id,branch_id,week_start" })
+    .upsert(payload, { onConflict: "org_id,branch_id,week_start,status" })
     .select(
       "id,week_start,status,assignments_json,demands_json,forecast_json,employee_summaries_json,day_summaries_json,conflicts_json,suggestions_json,published_at",
     )

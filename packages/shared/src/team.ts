@@ -12,7 +12,7 @@ export type TeamMemberRow = {
   phone: string | null;
 };
 
-export type InviteCodeRole = "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
+export type InviteCodeRole = "PARTNER" | "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
 
 export type TeamInviteCodeRow = {
   id: string;
@@ -66,7 +66,7 @@ async function requireOwner(client: SharedSupabaseClient) {
   }
 
   const currentRole = await getOrCreateRole(client, currentUser.id);
-  if (currentRole !== "OWNER") {
+  if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
     throw new Error("Chi BOSS moi co quyen quan ly nhan su.");
   }
 
@@ -76,6 +76,14 @@ async function requireOwner(client: SharedSupabaseClient) {
 export async function listTeamMembersForMobile(
   client: SharedSupabaseClient,
 ): Promise<TeamMemberRow[]> {
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+
+  if (!session?.user) {
+    return [];
+  }
+
   const rpc = await client.rpc("list_team_members_secure_v2");
   if (!rpc.error && rpc.data) {
     return (rpc.data as Array<Record<string, unknown>>).map(normalizeTeamMemberRow);

@@ -106,7 +106,7 @@ export async function updateUserRoleByRowId(id: string, role: AppRole) {
   if (!currentUserId) throw new Error("Chưa đăng nhập");
 
   const currentRole = await getOrCreateRole(currentUserId);
-  if (currentRole !== "OWNER") {
+  if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
     throw new Error("Chỉ BOSS mới có quyền đổi vai trò.");
   }
 
@@ -133,7 +133,7 @@ export async function updateUserDisplayName(userId: string, displayName: string)
   if (!currentUserId) throw new Error("Chưa đăng nhập");
 
   const currentRole = await getOrCreateRole(currentUserId);
-  if (currentRole !== "OWNER") {
+  if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
     throw new Error("Chỉ BOSS mới có quyền sửa tên nhân sự.");
   }
 

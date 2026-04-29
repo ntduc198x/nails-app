@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Feather from "@expo/vector-icons/Feather";
 import { formatViDate, formatVnd, type AppRole } from "@nails/shared";
-import { Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import { SessionActions } from "@/src/providers/session-provider";
+import { Modal, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { useRouter } from "expo-router";
+import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
+import { SessionActions, useSession } from "@/src/providers/session-provider";
 import { getAdminProfileDestination, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
@@ -253,6 +255,138 @@ export function AdminBottomNav({
         );
       })}
     </View>
+  );
+}
+
+export function AdminHeaderActions({
+  onSettingsPress,
+}: {
+  onSettingsPress?: (() => void) | null;
+}) {
+  const router = useRouter();
+  const { role, user } = useSession();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
+  const {
+    actionNotifications,
+    feedNotifications,
+    unreadCount,
+    markSeen,
+  } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id);
+
+  useEffect(() => {
+    if (!notificationsOpen) return;
+    void markSeen();
+    setNotificationTab(actionNotifications.length ? "action" : "feed");
+  }, [actionNotifications.length, markSeen, notificationsOpen]);
+
+  const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
+
+  function renderNotificationTone(item: ManageNotificationItem) {
+    if (item.actionRequired) return styles.notificationCardAction;
+    if (item.kind === "customer_checked_in") return styles.notificationCardInfo;
+    if (item.kind === "customer_checked_out") return styles.notificationCardSuccess;
+    return styles.notificationCardDefault;
+  }
+
+  return (
+    <>
+      <View style={styles.headerActions}>
+        <Pressable style={styles.headerIconButton} onPress={() => setNotificationsOpen(true)}>
+          <View>
+            <Feather name="bell" size={20} color="#2b241f" />
+            {unreadCount > 0 ? (
+              <View style={styles.headerBadge}>
+                <Text style={styles.headerBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+              </View>
+            ) : null}
+          </View>
+        </Pressable>
+        <Pressable style={styles.headerIconButton} onPress={onSettingsPress ?? undefined} disabled={!onSettingsPress}>
+          <Feather name="settings" size={20} color="#2b241f" />
+        </Pressable>
+      </View>
+
+      <Modal visible={notificationsOpen} transparent animationType="fade" onRequestClose={() => setNotificationsOpen(false)}>
+        <Pressable style={styles.notificationsOverlay} onPress={() => setNotificationsOpen(false)}>
+          <Pressable style={styles.notificationsSheet} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.notificationsHeader}>
+              <View style={styles.notificationsHeaderCopy}>
+                <Text style={styles.notificationsTitle}>Thông báo</Text>
+                <Text style={styles.notificationsSubtitle}>
+                  {unreadCount > 0 ? `${unreadCount} mục cần chú ý` : "Chưa có mục mới"}
+                </Text>
+              </View>
+              <Pressable style={styles.notificationsClose} onPress={() => setNotificationsOpen(false)}>
+                <Feather name="x" size={18} color="#6b7280" />
+              </Pressable>
+            </View>
+
+            <View style={styles.notificationsTabs}>
+              <Pressable
+                style={[styles.notificationsTab, notificationTab === "action" ? styles.notificationsTabActive : null]}
+                onPress={() => setNotificationTab("action")}
+              >
+                <Text style={[styles.notificationsTabText, notificationTab === "action" ? styles.notificationsTabTextActive : null]}>
+                  Cần xử lý{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.notificationsTab, notificationTab === "feed" ? styles.notificationsTabActive : null]}
+                onPress={() => setNotificationTab("feed")}
+              >
+                <Text style={[styles.notificationsTabText, notificationTab === "feed" ? styles.notificationsTabTextActive : null]}>
+                  Dòng sự kiện{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
+                </Text>
+              </Pressable>
+            </View>
+
+            <ScrollView style={styles.notificationsList} contentContainerStyle={styles.notificationsListContent} showsVerticalScrollIndicator={false}>
+              {visibleNotifications.length ? (
+                visibleNotifications.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={[styles.notificationCard, renderNotificationTone(item)]}
+                    onPress={() => {
+                      setNotificationsOpen(false);
+                      void router.push(item.href);
+                    }}
+                  >
+                    <View style={styles.notificationCardRow}>
+                      <View style={styles.notificationCardCopy}>
+                        <Text style={styles.notificationCardTitle}>{item.title}</Text>
+                        <Text style={styles.notificationCardMessage}>{item.message}</Text>
+                      </View>
+                      {item.actionRequired ? (
+                        <View style={styles.notificationActionBadge}>
+                          <Text style={styles.notificationActionBadgeText}>Cần xử lý</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.notificationCardDate}>
+                      {new Intl.DateTimeFormat("vi-VN", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }).format(new Date(item.createdAt))}
+                    </Text>
+                  </Pressable>
+                ))
+              ) : (
+                <View style={styles.notificationsEmpty}>
+                  <Text style={styles.notificationsEmptyText}>
+                    {notificationTab === "action"
+                      ? "Hiện không có mục nào cần xử lý."
+                      : "Chưa có sự kiện nào gần đây."}
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -658,6 +792,211 @@ export const styles = StyleSheet.create({
   bottomNavItem: {
     flex: 1,
     alignItems: "center",
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e6ddd2",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBadge: {
+    position: "absolute",
+    top: -5,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#ef4444",
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 2,
+  },
+  headerBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 10,
+  },
+  notificationsOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.22)",
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+    paddingTop: 72,
+    paddingHorizontal: 12,
+  },
+  notificationsSheet: {
+    width: 360,
+    maxWidth: "100%",
+    maxHeight: "78%",
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: "#e6ddd2",
+    backgroundColor: "#fff",
+    padding: 12,
+    shadowColor: "#2a1e14",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
+  notificationsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+  },
+  notificationsHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  notificationsTitle: {
+    fontSize: 15,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  notificationsSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: "#6b7280",
+  },
+  notificationsClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notificationsTabs: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 6,
+    marginTop: 6,
+  },
+  notificationsTab: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  notificationsTabActive: {
+    backgroundColor: "#2b241f",
+    borderColor: "#2b241f",
+  },
+  notificationsTabText: {
+    fontSize: 12,
+    lineHeight: 15,
+    color: "#374151",
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  notificationsTabTextActive: {
+    color: "#fff",
+  },
+  notificationsList: {
+    marginTop: 10,
+  },
+  notificationsListContent: {
+    gap: 8,
+    paddingHorizontal: 2,
+    paddingBottom: 6,
+  },
+  notificationCard: {
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  notificationCardDefault: {
+    borderColor: "#e5e7eb",
+    backgroundColor: "#fff",
+  },
+  notificationCardAction: {
+    borderColor: "#f59e0b",
+    backgroundColor: "#fff7ed",
+  },
+  notificationCardInfo: {
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+  },
+  notificationCardSuccess: {
+    borderColor: "#bbf7d0",
+    backgroundColor: "#ecfdf5",
+  },
+  notificationCardRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  notificationCardCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  notificationCardTitle: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  notificationCardMessage: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#4b5563",
+  },
+  notificationCardDate: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: "#9ca3af",
+  },
+  notificationActionBadge: {
+    borderRadius: 999,
+    backgroundColor: "#fff",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  notificationActionBadgeText: {
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: "800",
+    color: "#b45309",
+  },
+  notificationsEmpty: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#d1d5db",
+    paddingHorizontal: 16,
+    paddingVertical: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  notificationsEmptyText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#6b7280",
+    textAlign: "center",
   },
   bottomNavPill: {
     minWidth: 76,

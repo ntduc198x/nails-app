@@ -40,9 +40,18 @@ create table if not exists user_roles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null,
   org_id uuid not null references orgs(id) on delete cascade,
-  role text not null check (role in ('USER','OWNER','MANAGER','RECEPTION','ACCOUNTANT','TECH')),
-  unique (user_id, org_id, role)
+  branch_id uuid references public.branches(id) on delete cascade,
+  role text not null check (role in ('USER','OWNER','PARTNER','MANAGER','RECEPTION','ACCOUNTANT','TECH')),
+  check (role <> 'PARTNER' or branch_id is not null)
 );
+
+create unique index if not exists idx_user_roles_user_org_role_global
+  on public.user_roles (user_id, org_id, role)
+  where branch_id is null;
+
+create unique index if not exists idx_user_roles_user_org_branch_role
+  on public.user_roles (user_id, org_id, branch_id, role)
+  where branch_id is not null;
 
 create table if not exists customers (
   id uuid primary key default gen_random_uuid(),
@@ -147,9 +156,10 @@ create table if not exists receipts (
 create table if not exists public.invite_codes (
   id uuid primary key default gen_random_uuid(),
   org_id uuid not null references public.orgs(id) on delete cascade,
+  branch_id uuid not null references public.branches(id) on delete cascade,
   code text not null,
   created_by uuid,
-  allowed_role text not null check (allowed_role in ('MANAGER','RECEPTION','ACCOUNTANT','TECH')) default 'TECH',
+  allowed_role text not null check (allowed_role in ('PARTNER','MANAGER','RECEPTION','ACCOUNTANT','TECH')) default 'TECH',
   expires_at timestamptz not null default (now() + interval '15 minutes'),
   max_uses int not null default 1 check (max_uses = 1),
   used_count int not null default 0 check (used_count >= 0 and used_count <= max_uses),
@@ -222,6 +232,14 @@ as $$
   select org_id from public.profiles where user_id = auth.uid() limit 1
 $$;
 
+create or replace function public.my_branch_id()
+returns uuid
+language sql
+stable
+as $$
+  select default_branch_id from public.profiles where user_id = auth.uid() limit 1
+$$;
+
 create or replace function public.has_role(_role text)
 returns boolean
 language sql
@@ -232,7 +250,20 @@ as $$
     from public.user_roles ur
     where ur.user_id = auth.uid()
       and ur.org_id = public.my_org_id()
-      and ur.role = _role
+      and (
+        (
+          ur.role = _role
+          and (
+            ur.branch_id is null
+            or ur.branch_id = public.my_branch_id()
+          )
+        )
+        or (
+          _role = 'OWNER'
+          and ur.role = 'PARTNER'
+          and ur.branch_id = public.my_branch_id()
+        )
+      )
   )
 $$;
 
@@ -360,7 +391,7 @@ drop policy if exists "owner dev read invite codes" on public.invite_codes;
 drop policy if exists "owner read invite codes" on public.invite_codes;
 create policy "owner read invite codes" on public.invite_codes
 for select using (
-  org_id = public.my_org_id() and (
+  org_id = public.my_org_id() and branch_id = public.my_branch_id() and (
     public.has_role('OWNER')
     or auth.jwt() ->> 'role' = 'service_role'
   )
@@ -426,8 +457,9 @@ set search_path = public
 as $$
 declare
   v_org_id uuid;
+  v_branch_id uuid;
 begin
-  select org_id into v_org_id
+  select org_id, default_branch_id into v_org_id, v_branch_id
   from profiles
   where user_id = auth.uid()
   limit 1;
@@ -511,9 +543,11 @@ as $$
     nullif(trim(p.email), '') as email
   from public.user_roles ur
   left join public.profiles p on p.user_id = ur.user_id
-  where ur.org_id = (
-    select org_id from public.user_roles where user_id = auth.uid() limit 1
-  )
+  where ur.org_id = public.my_org_id()
+    and (
+      ur.branch_id is null
+      or ur.branch_id = public.my_branch_id()
+    )
   order by ur.role asc, ur.user_id asc
 $$;
 
@@ -963,6 +997,7 @@ set search_path = public
 as $$
 declare
   v_org_id uuid;
+  v_branch_id uuid;
   v_role text;
   v_code text;
   v_row public.invite_codes;
@@ -971,7 +1006,7 @@ begin
     raise exception 'UNAUTHENTICATED';
   end if;
 
-  select p.org_id into v_org_id
+  select p.org_id, p.default_branch_id into v_org_id, v_branch_id
   from public.profiles p
   where p.user_id = auth.uid()
   limit 1;
@@ -980,20 +1015,32 @@ begin
     raise exception 'ORG_CONTEXT_REQUIRED';
   end if;
 
+  if v_branch_id is null then
+    select id into v_branch_id
+    from public.branches
+    where org_id = v_org_id
+    order by created_at asc
+    limit 1;
+  end if;
+
+  if v_branch_id is null then
+    raise exception 'BRANCH_CONTEXT_REQUIRED';
+  end if;
+
   if not (public.has_role('OWNER')) then
     raise exception 'FORBIDDEN';
   end if;
 
   v_role := coalesce(nullif(trim(p_allowed_role), ''), 'TECH');
-  if v_role not in ('MANAGER','RECEPTION','ACCOUNTANT','TECH') then
+  if v_role not in ('PARTNER','MANAGER','RECEPTION','ACCOUNTANT','TECH') then
     raise exception 'INVALID_ROLE';
   end if;
 
   loop
     v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8));
     begin
-      insert into public.invite_codes (org_id, code, created_by, allowed_role, expires_at, note)
-      values (v_org_id, v_code, auth.uid(), v_role, now() + interval '15 minutes', nullif(trim(p_note), ''))
+      insert into public.invite_codes (org_id, branch_id, code, created_by, allowed_role, expires_at, note)
+      values (v_org_id, v_branch_id, v_code, auth.uid(), v_role, now() + interval '15 minutes', nullif(trim(p_note), ''))
       returning * into v_row;
       exit;
     exception when unique_violation then
@@ -1014,18 +1061,19 @@ set search_path = public
 as $$
 declare
   v_org_id uuid;
+  v_branch_id uuid;
   v_row public.invite_codes;
 begin
   if auth.uid() is null then
     raise exception 'UNAUTHENTICATED';
   end if;
 
-  select p.org_id into v_org_id
+  select p.org_id, p.default_branch_id into v_org_id, v_branch_id
   from public.profiles p
   where p.user_id = auth.uid()
   limit 1;
 
-  if v_org_id is null then
+  if v_org_id is null or v_branch_id is null then
     raise exception 'ORG_CONTEXT_REQUIRED';
   end if;
 
@@ -1037,6 +1085,7 @@ begin
   set revoked_at = now()
   where id = p_invite_id
     and org_id = v_org_id
+    and branch_id = v_branch_id
     and revoked_at is null
     and used_count < max_uses
   returning * into v_row;
@@ -1061,7 +1110,6 @@ set search_path = public
 as $$
 declare
   v_invite public.invite_codes;
-  v_branch_id uuid;
   v_display_name text;
 begin
   if p_user_id is null then
@@ -1093,24 +1141,18 @@ begin
     raise exception 'INVITE_ALREADY_USED';
   end if;
 
-  select id into v_branch_id
-  from public.branches
-  where org_id = v_invite.org_id
-  order by created_at asc
-  limit 1;
-
   v_display_name := nullif(trim(coalesce(p_display_name, '')), '');
 
   insert into public.profiles (user_id, org_id, default_branch_id, display_name)
-  values (p_user_id, v_invite.org_id, v_branch_id, coalesce(v_display_name, 'User'))
+  values (p_user_id, v_invite.org_id, v_invite.branch_id, coalesce(v_display_name, 'User'))
   on conflict (user_id) do update
     set org_id = excluded.org_id,
         default_branch_id = excluded.default_branch_id,
         display_name = coalesce(nullif(excluded.display_name, ''), public.profiles.display_name, 'User');
 
-  insert into public.user_roles (user_id, org_id, role)
-  values (p_user_id, v_invite.org_id, v_invite.allowed_role)
-  on conflict (user_id, org_id, role) do nothing;
+  insert into public.user_roles (user_id, org_id, branch_id, role)
+  values (p_user_id, v_invite.org_id, v_invite.branch_id, v_invite.allowed_role)
+  on conflict do nothing;
 
   return jsonb_build_object(
     'inviteId', v_invite.id,
@@ -1881,8 +1923,10 @@ create table if not exists public.shift_plans (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists idx_shift_plans_org_branch_week
-  on public.shift_plans (org_id, branch_id, week_start);
+drop index if exists public.idx_shift_plans_org_branch_week;
+
+create unique index if not exists idx_shift_plans_org_branch_week_status
+  on public.shift_plans (org_id, branch_id, week_start, status);
 
 create index if not exists idx_shift_plans_org_status_week
   on public.shift_plans (org_id, status, week_start desc);

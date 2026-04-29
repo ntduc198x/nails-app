@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, createCheckoutKey, formatVnd, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminHeaderActions, createCheckoutKey, formatVnd, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileEnv } from "@/src/lib/env";
@@ -179,6 +179,7 @@ export default function AdminCheckoutScreen() {
               <Text style={styles.headerTitle}>Thanh toán</Text>
               <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
             </View>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
           </View>
 
           <View style={styles.card}>
@@ -364,7 +365,7 @@ export default function AdminCheckoutScreen() {
                   <Text style={styles.secondaryButtonText}>Về lịch</Text>
                 </Pressable>
                 {lastReceiptToken && mobileEnv.apiBaseUrl ? <Pressable style={styles.linkButton} onPress={() => void openReceipt()}><Text style={styles.linkText}>Mở hóa đơn</Text></Pressable> : null}
-                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.replace("/(admin)/shifts")}><Text style={styles.linkText}>Mở ca</Text></Pressable> : null}
+                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/(admin)/shifts")}><Text style={styles.linkText}>Mở ca</Text></Pressable> : null}
               </View>
             </View>
           ) : null}

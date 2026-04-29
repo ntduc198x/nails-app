@@ -19,8 +19,10 @@ create table if not exists public.shift_plans (
   updated_at timestamptz not null default now()
 );
 
-create unique index if not exists idx_shift_plans_org_branch_week
-  on public.shift_plans (org_id, branch_id, week_start);
+drop index if exists public.idx_shift_plans_org_branch_week;
+
+create unique index if not exists idx_shift_plans_org_branch_week_status
+  on public.shift_plans (org_id, branch_id, week_start, status);
 
 create index if not exists idx_shift_plans_org_status_week
   on public.shift_plans (org_id, status, week_start desc);

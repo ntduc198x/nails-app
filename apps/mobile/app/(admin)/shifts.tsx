@@ -1,8 +1,9 @@
-﻿import Feather from "@expo/vector-icons/Feather";
-import { Alert } from "react-native";
+import Feather from "@expo/vector-icons/Feather";
+import { Alert, Modal } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "expo-router";
 import {
+  ActivityIndicator,
   Pressable,
   RefreshControl,
   SafeAreaView,
@@ -12,80 +13,117 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
-import { ensureOrgContext, type AppRole } from "@nails/shared";
-import { mobileSupabase } from "@/src/lib/supabase";
-import { useSession } from "@/src/providers/session-provider";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
-
-type Entry = {
-  id: string;
-  staff_user_id: string;
-  clock_in: string;
-  clock_out: string | null;
-};
-
-type TeamMember = {
-  user_id: string;
-  display_name: string | null;
-  role: string | null;
-};
-
-const LONG_OPEN_SHIFT_HOURS = 10;
+import { useSession } from "@/src/providers/session-provider";
+import { mobileSupabase } from "@/src/lib/supabase";
+import {
+  buildAutoScheduleResult,
+  buildDefaultWeekDemands,
+  DEFAULT_SHIFT_DEFINITIONS,
+  generateDraftSchedule,
+  generateWeekDates,
+  getRecommendedShiftTypesForDate,
+  getRoleLabel,
+  listTeamMembersForMobile,
+  type AutoScheduleAssignment,
+  type AutoScheduleDemand,
+  type AutoScheduleEmployee,
+  type AutoScheduleResult,
+  type ShiftDefinition,
+  type ShiftType,
+  type StaffRole,
+  type TeamMemberRow,
+} from "@nails/shared";
+import {
+  applyApprovedDayOffToAssignments,
+  canManageShiftPlans,
+  closeShiftEntryIfAllowed,
+  createEmptyStaffShiftProfile,
+  createShiftCheckIn,
+  getTodayAssignmentFromPlan,
+  isMissingShiftPlansSchema,
+  isMissingStaffShiftProfilesSchema,
+  listOwnerShiftEntries,
+  listPersonalShiftEntries,
+  listShiftLeaveRequests,
+  loadShiftPlanWeek,
+  loadStaffShiftProfiles,
+  loadWeeklyShiftForecast,
+  normalizeStaffShiftProfiles,
+  reviewShiftCheckIn,
+  reviewShiftLeaveRequest,
+  saveShiftPlanWeek,
+  saveStaffShiftProfile,
+  submitDayOffRequest,
+  type ShiftLeaveRequestRecord,
+  type ShiftPlanRecord,
+  type ShiftTimeEntryRecord,
+  type StaffShiftProfileRecord,
+} from "@/src/features/admin/shifts/data";
 
 const c = {
   bg: "#FCFAF8",
   white: "#FFFFFF",
   text: "#2F241D",
-  sub: "#8F8479",
-  subSoft: "#A89B90",
-  soft: "#F3EDE7",
-  soft2: "#FBF7F3",
-  border: "rgba(47, 36, 29, 0.06)",
+  sub: "#7F7267",
+  border: "rgba(47, 36, 29, 0.08)",
+  soft: "#F6F1EC",
+  softStrong: "#EFE6DD",
+  primary: "#B56A3A",
+  primarySoft: "#F5E7DD",
   success: "#2B9E5F",
-  successBg: "#E8F5EC",
+  successSoft: "#E8F6ED",
   warn: "#E38B28",
-  warnBg: "#FFF3E5",
-  error: "#DF493E",
-  errorBg: "#FDEBE8",
-  badge: "#F8E2C7",
+  danger: "#D8574B",
+  dangerSoft: "#FDEBE8",
 };
 
-function canManageTeamView(role: AppRole | null) {
-  return role === "OWNER" || role === "MANAGER";
+type SelectedCell = {
+  employeeId: string;
+  dateKey: string;
+};
+
+function toDateKey(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
-function roleBadgeLabel(role: AppRole | null) {
-  if (role === "OWNER") return "OWNER";
-  if (role === "MANAGER") return "MANAGER";
-  if (role === "RECEPTION") return "RECEPTION";
-  if (role === "ACCOUNTANT") return "ACCOUNTANT";
-  return "TECH";
+function startOfWeek(date: Date) {
+  const next = new Date(date);
+  const weekday = next.getDay();
+  const diff = weekday === 0 ? -6 : 1 - weekday;
+  next.setDate(next.getDate() + diff);
+  next.setHours(0, 0, 0, 0);
+  return next;
 }
 
-function fmtTime(value: string | null | undefined) {
-  if (!value) return "--:--";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "--:--";
-  return d.toLocaleTimeString("vi-VN", {
-    hour: "2-digit",
-    minute: "2-digit",
+function addDays(dateKey: string, amount: number) {
+  const next = new Date(`${dateKey}T00:00:00`);
+  next.setDate(next.getDate() + amount);
+  return toDateKey(next);
+}
+
+function getWeekLabel(weekStart: string) {
+  const dates = generateWeekDates(weekStart);
+  const start = new Date(`${dates[0]}T00:00:00`);
+  const end = new Date(`${dates[6]}T00:00:00`);
+  return `${start.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} - ${end.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
+}
+
+function formatDayChip(dateKey: string) {
+  return new Date(`${dateKey}T00:00:00`).toLocaleDateString("vi-VN", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
   });
 }
 
-function fmtDuration(clockIn: string, clockOut: string | null, nowTs: number) {
-  const start = new Date(clockIn).getTime();
-  const end = clockOut ? new Date(clockOut).getTime() : nowTs;
-  const mins = Math.max(0, Math.round((end - start) / 60000));
-  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
-}
-
-function isSameDate(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
+function formatTime(value: string | null | undefined) {
+  if (!value) return "--:--";
+  return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
 }
 
 function initials(name: string) {
@@ -97,456 +135,517 @@ function initials(name: string) {
     .join("");
 }
 
-function displayName(email: string | null | undefined) {
-  if (!email) return "Nhân viên";
-  return email
-    .split("@")[0]
-    .replace(/[._-]+/g, " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part[0].toUpperCase() + part.slice(1))
-    .join(" ");
+function getShiftDefinition(type: ShiftType) {
+  return DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === type) ?? DEFAULT_SHIFT_DEFINITIONS[3];
 }
 
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+function getShiftColors(definition: ShiftDefinition) {
+  if (definition.theme === "morning") return { bg: "#E8F6ED", text: "#237A4C", border: "#BDE3C8" };
+  if (definition.theme === "afternoon") return { bg: "#FFF3E4", text: "#B96C12", border: "#F3D09F" };
+  if (definition.theme === "full") return { bg: "#F0ECFF", text: "#6849B8", border: "#D2C5FF" };
+  return { bg: "#F5F1EC", text: "#73665C", border: "#E3D8CC" };
 }
 
-function endOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+function getAssignmentForUserOnDate(plan: ShiftPlanRecord | null, userId: string | null | undefined, dateKey: string) {
+  if (!plan || !userId) return null;
+  return (
+    plan.result.assignments.find(
+      (assignment) => assignment.employeeId === userId && assignment.dateKey === dateKey && assignment.shiftType !== "OFF",
+    ) ?? null
+  );
 }
 
-function formatLongDate(date: Date) {
-  const weekday = date.toLocaleDateString("vi-VN", { weekday: "long" });
-  const normalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1);
-  return `${normalizedWeekday}, ${date.toLocaleDateString("vi-VN")}`;
+function buildEmployeeList(rows: TeamMemberRow[], profiles: StaffShiftProfileRecord[]) {
+  const profileMap = new Map(profiles.map((item) => [item.userId, item]));
+  return rows
+    .filter((row) => row.role !== "OWNER" && row.role !== "PARTNER" && row.role !== "USER")
+    .map<AutoScheduleEmployee>((row, index) => {
+      const role = row.role as StaffRole;
+      const profile = profileMap.get(row.userId) ?? createEmptyStaffShiftProfile(row.userId, role);
+      return {
+        id: row.userId,
+        name: row.displayName?.trim() || row.email?.split("@")[0] || `Nhân sự ${index + 1}`,
+        role,
+        skills: profile.skills,
+        availability: profile.availability,
+        leaveDateKeys: profile.leaveDateKeys,
+        maxWeeklyHours: profile.maxWeeklyHours,
+        fairnessOffsetHours: profile.fairnessOffsetHours,
+        performanceScore: profile.performanceScore,
+      };
+    });
+}
+
+function createOffAssignment(dateKey: string, employee: AutoScheduleEmployee): AutoScheduleAssignment {
+  const off = getShiftDefinition("OFF");
+  return {
+    employeeId: employee.id,
+    employeeName: employee.name,
+    role: employee.role,
+    dateKey,
+    shiftType: "OFF",
+    shiftLabel: off.label,
+    shortCode: off.shortCode,
+    startTime: off.startTime,
+    endTime: off.endTime,
+    hours: 0,
+    source: "system",
+    score: 0,
+    matchedSkills: [],
+  };
+}
+
+function buildManualDraft(
+  currentDraft: AutoScheduleResult,
+  employees: AutoScheduleEmployee[],
+  demands: AutoScheduleDemand[],
+  employeeId: string,
+  dateKey: string,
+  shiftType: ShiftType,
+) {
+  const employee = employees.find((item) => item.id === employeeId);
+  if (!employee) return currentDraft;
+
+  const definition = getShiftDefinition(shiftType);
+  const assignments = currentDraft.assignments.map((assignment) => {
+    if (assignment.employeeId !== employeeId || assignment.dateKey !== dateKey) return assignment;
+    const matchedDemand = demands.find((item) => item.dateKey === dateKey && item.shiftType === shiftType);
+    return {
+      ...assignment,
+      role: employee.role,
+      shiftType,
+      shiftLabel: definition.label,
+      shortCode: definition.shortCode,
+      startTime: definition.startTime,
+      endTime: definition.endTime,
+      hours: definition.hours,
+      source: "manual" as const,
+      score: matchedDemand ? 90 : 0,
+      matchedSkills:
+        matchedDemand && employee.skills.length
+          ? matchedDemand.requiredSkills.filter((skill) => employee.skills.includes(skill))
+          : [],
+    };
+  });
+
+  return buildAutoScheduleResult({
+    weekStart: currentDraft.weekStart,
+    employees,
+    demands,
+    assignments,
+  });
+}
+
+function replaceProfile(profiles: StaffShiftProfileRecord[], nextProfile: StaffShiftProfileRecord) {
+  const map = new Map(profiles.map((item) => [item.userId, item]));
+  map.set(nextProfile.userId, nextProfile);
+  return Array.from(map.values());
 }
 
 export default function AdminShiftsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { isHydrated, role, user } = useSession();
+  const canManage = canManageShiftPlans(role);
+  const todayKey = useMemo(() => toDateKey(new Date()), []);
 
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [weekStart, setWeekStart] = useState(() => toDateKey(startOfWeek(new Date())));
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [rangeMode, setRangeMode] = useState<"week" | "month">("month");
-  const [nowTs, setNowTs] = useState(() => Date.now());
-  const isOwner = role === "OWNER";
+  const [planSchemaMissing, setPlanSchemaMissing] = useState(false);
+  const [profileSchemaMissing, setProfileSchemaMissing] = useState(false);
+  const [teamRows, setTeamRows] = useState<TeamMemberRow[]>([]);
+  const [profiles, setProfiles] = useState<StaffShiftProfileRecord[]>([]);
+  const [draftPlan, setDraftPlan] = useState<ShiftPlanRecord | null>(null);
+  const [publishedPlan, setPublishedPlan] = useState<ShiftPlanRecord | null>(null);
+  const [draftResult, setDraftResult] = useState<AutoScheduleResult | null>(null);
+  const [demands, setDemands] = useState<AutoScheduleDemand[]>([]);
+  const [forecast, setForecast] = useState<Record<string, number>>({});
+  const [ownerEntries, setOwnerEntries] = useState<ShiftTimeEntryRecord[]>([]);
+  const [ownerLeaveRequests, setOwnerLeaveRequests] = useState<ShiftLeaveRequestRecord[]>([]);
+  const [personalEntries, setPersonalEntries] = useState<ShiftTimeEntryRecord[]>([]);
+  const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
 
-  const loadEntries = useCallback(
-    async (targetOrgId: string) => {
-      if (!mobileSupabase) return;
-      const firstLoad = entries.length === 0;
-
-      try {
-        if (firstLoad) setLoading(true);
-        else setRefreshing(true);
-        setError(null);
-
-        const [entriesRes, teamRpc] = await Promise.all([
-          mobileSupabase
-            .from("time_entries")
-            .select("id,staff_user_id,clock_in,clock_out")
-            .eq("org_id", targetOrgId)
-            .order("clock_in", { ascending: false })
-            .limit(100),
-          mobileSupabase.rpc("list_team_members_secure_v2"),
-        ]);
-
-        if (entriesRes.error) throw entriesRes.error;
-        if (teamRpc.error) throw teamRpc.error;
-
-        setEntries((entriesRes.data ?? []) as Entry[]);
-        setTeamMembers(
-          (((teamRpc.data as Array<Record<string, unknown>>) ?? []).filter(
-            (row) => String(row.role ?? "") !== "OWNER",
-          )).map((row) => ({
-            user_id: String(row.user_id),
-            display_name:
-              typeof row.display_name === "string" && row.display_name.trim()
-                ? row.display_name.trim()
-                : String(row.user_id).slice(0, 8),
-            role: typeof row.role === "string" ? row.role : null,
-          })),
-        );
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Load shifts failed");
-      } finally {
-        if (firstLoad) setLoading(false);
-        else setRefreshing(false);
-      }
-    },
-    [entries.length],
+  const employees = useMemo(() => buildEmployeeList(teamRows, profiles), [teamRows, profiles]);
+  const assignmentMap = useMemo(
+    () => new Map((draftResult?.assignments ?? []).map((assignment) => [`${assignment.employeeId}:${assignment.dateKey}`, assignment])),
+    [draftResult],
   );
+  const teamNameMap = useMemo(() => new Map(teamRows.map((row) => [row.userId, row.displayName])), [teamRows]);
 
-  useEffect(() => {
-    async function init() {
+  const loadData = useCallback(
+    async (force = false) => {
       if (!mobileSupabase || !isHydrated || !user?.id) {
         setLoading(false);
         return;
       }
 
       try {
-        const ctx = await ensureOrgContext(mobileSupabase);
-        setOrgId(ctx.orgId);
-        await loadEntries(ctx.orgId);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Khởi tạo shifts failed");
-        setLoading(false);
-      }
-    }
+        if (force) setLoading(true);
+        else setRefreshing(true);
 
-    void init();
-  }, [isHydrated, loadEntries, user?.id]);
+        setError(null);
+        setPlanSchemaMissing(false);
+        setProfileSchemaMissing(false);
 
-  useEffect(() => {
-    const timer = setInterval(() => setNowTs(Date.now()), 60000);
-    return () => clearInterval(timer);
-  }, []);
+        const teamPromise = listTeamMembersForMobile(mobileSupabase);
+        const profilesPromise = loadStaffShiftProfiles().catch((nextError) => {
+          if (isMissingStaffShiftProfilesSchema(nextError)) {
+            setProfileSchemaMissing(true);
+            return [];
+          }
+          throw nextError;
+        });
+        const draftPromise = loadShiftPlanWeek(weekStart).catch((nextError) => {
+          if (isMissingShiftPlansSchema(nextError)) {
+            setPlanSchemaMissing(true);
+            return null;
+          }
+          throw nextError;
+        });
+        const publishedPromise = loadShiftPlanWeek(weekStart, { publishedOnly: true }).catch((nextError) => {
+          if (isMissingShiftPlansSchema(nextError)) {
+            setPlanSchemaMissing(true);
+            return null;
+          }
+          throw nextError;
+        });
+        const forecastPromise = loadWeeklyShiftForecast(weekStart).catch(() => {
+          return generateWeekDates(weekStart).reduce<Record<string, number>>((acc, dateKey) => {
+            acc[dateKey] = 0;
+            return acc;
+          }, {});
+        });
+        const ownerEntriesPromise = canManage ? listOwnerShiftEntries() : Promise.resolve([]);
+        const ownerLeavesPromise = canManage ? listShiftLeaveRequests() : Promise.resolve([]);
+        const personalEntriesPromise = listPersonalShiftEntries(user.id);
+        const personalLeavesPromise = listShiftLeaveRequests({ userId: user.id });
 
-  async function clockIn() {
-    if (!mobileSupabase || !orgId || !user?.id || submitting || role === "OWNER") {
-      return;
-    }
+        const [
+          rows,
+          profileRowsRaw,
+          nextDraftPlan,
+          nextPublishedPlan,
+          forecast,
+          nextOwnerEntries,
+          nextOwnerLeaves,
+          nextPersonalEntries,
+          nextPersonalLeaves,
+        ] = await Promise.all([
+          teamPromise,
+          profilesPromise,
+          draftPromise,
+          publishedPromise,
+          forecastPromise,
+          ownerEntriesPromise,
+          ownerLeavesPromise,
+          personalEntriesPromise,
+          personalLeavesPromise,
+        ]);
 
-    try {
-      setSubmitting(true);
-      setError(null);
-
-      const { data, error: existingErr } = await mobileSupabase
-        .from("time_entries")
-        .select("id")
-        .eq("org_id", orgId)
-        .eq("staff_user_id", user.id)
-        .is("clock_out", null)
-        .limit(1);
-
-      if (existingErr) throw existingErr;
-      if (data?.length) throw new Error("Bạn đang có một ca mở rồi.");
-
-      const { error: insertError } = await mobileSupabase
-        .from("time_entries")
-        .insert({
-          org_id: orgId,
-          staff_user_id: user.id,
-          clock_in: new Date().toISOString(),
+        const nextFallbackRoles = new Map(
+          rows
+            .filter((row) => row.role !== "OWNER" && row.role !== "PARTNER" && row.role !== "USER")
+            .map((row) => [row.userId, row.role as StaffRole]),
+        );
+        const normalizedProfiles = normalizeStaffShiftProfiles(profileRowsRaw as never[], nextFallbackRoles);
+        const nextEmployees = buildEmployeeList(rows, normalizedProfiles);
+        const basePlan = nextDraftPlan ?? nextPublishedPlan;
+        const nextDemands = basePlan?.demands ?? buildDefaultWeekDemands({ weekStart, employees: nextEmployees, forecast });
+        const baseResult = basePlan?.result ?? generateDraftSchedule({ weekStart, employees: nextEmployees, demands: nextDemands });
+        const assignmentSource = canManage ? (nextOwnerLeaves as ShiftLeaveRequestRecord[]) : nextPersonalLeaves;
+        const assignmentsWithApprovedLeave = applyApprovedDayOffToAssignments(baseResult.assignments, assignmentSource);
+        const nextDraftResult = buildAutoScheduleResult({
+          weekStart,
+          employees: nextEmployees,
+          demands: nextDemands,
+          assignments: assignmentsWithApprovedLeave,
         });
 
-      if (insertError) throw insertError;
-      await loadEntries(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Clock in failed");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+        setTeamRows(rows);
+        setProfiles(normalizedProfiles);
+        setDraftPlan(nextDraftPlan);
+        setPublishedPlan(nextPublishedPlan);
+        setDraftResult(nextDraftResult);
+        setDemands(nextDemands);
+        setForecast(forecast);
+        setOwnerEntries(nextOwnerEntries as ShiftTimeEntryRecord[]);
+        setOwnerLeaveRequests(nextOwnerLeaves as ShiftLeaveRequestRecord[]);
+        setPersonalEntries(nextPersonalEntries);
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu ca làm.");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [canManage, isHydrated, user?.id, weekStart],
+  );
 
-  async function clockOut() {
-    if (!mobileSupabase || !orgId || !user?.id || submitting || role === "OWNER") {
+  useEffect(() => {
+    void loadData(true);
+  }, [loadData]);
+
+  useEffect(() => {
+    const dates = generateWeekDates(weekStart);
+    if (!dates.includes(selectedDateKey)) {
+      setSelectedDateKey(dates[0] ?? weekStart);
+    }
+    setSelectedCell(null);
+  }, [selectedDateKey, weekStart]);
+
+  const weekDates = useMemo(() => generateWeekDates(weekStart), [weekStart]);
+  const pendingOwnerEntries = useMemo(
+    () => ownerEntries.filter((item) => item.approval_status === "PENDING"),
+    [ownerEntries],
+  );
+  const pendingOwnerLeaves = useMemo(
+    () => ownerLeaveRequests.filter((item) => item.status === "PENDING"),
+    [ownerLeaveRequests],
+  );
+  const todayPublishedAssignment = useMemo(
+    () => getTodayAssignmentFromPlan(publishedPlan, user?.id ?? "", todayKey),
+    [publishedPlan, todayKey, user?.id],
+  );
+  const todayDraftAssignment = useMemo(
+    () => getTodayAssignmentFromPlan(draftPlan, user?.id ?? "", todayKey),
+    [draftPlan, todayKey, user?.id],
+  );
+  const activePersonalEntry = useMemo(
+    () => personalEntries.find((item) => item.clock_out === null) ?? null,
+    [personalEntries],
+  );
+  const visibleTodayAssignment = todayPublishedAssignment ?? todayDraftAssignment;
+  const todayShiftColors = useMemo(
+    () => getShiftColors(getShiftDefinition(visibleTodayAssignment?.shiftType ?? "OFF")),
+    [visibleTodayAssignment],
+  );
+  const todayShiftStatus = todayPublishedAssignment
+    ? activePersonalEntry
+      ? "Dang mo ca"
+      : "Da xuat ban"
+    : todayDraftAssignment
+      ? "Cho xuat ban"
+      : "Chua co lich";
+  const todayShiftMessage = todayPublishedAssignment
+    ? activePersonalEntry
+      ? "Ca hom nay dang duoc mo. Theo doi gio ra de cham cong chinh xac."
+      : "Lich hom nay da duoc xuat ban. Kiem tra loai ca va khung gio ben duoi."
+    : todayDraftAssignment
+      ? "Ban da duoc xep lich, nhung ca nay chua duoc xuat ban chinh thuc."
+      : "Hom nay chua co ca nao duoc xuat ban cho ban.";
+  const selectedEmployee = useMemo(
+    () => employees.find((employee) => employee.id === selectedCell?.employeeId) ?? null,
+    [employees, selectedCell?.employeeId],
+  );
+  const selectedProfile = useMemo(
+    () => (selectedEmployee ? profiles.find((item) => item.userId === selectedEmployee.id) ?? null : null),
+    [profiles, selectedEmployee],
+  );
+  const selectedAssignment = useMemo(() => {
+    if (!selectedCell || !selectedEmployee) return null;
+    return assignmentMap.get(`${selectedCell.employeeId}:${selectedCell.dateKey}`) ?? createOffAssignment(selectedCell.dateKey, selectedEmployee);
+  }, [assignmentMap, selectedCell, selectedEmployee]);
+  const manualOptions = useMemo(
+    () =>
+      selectedEmployee && selectedAssignment
+        ? getRecommendedShiftTypesForDate(selectedEmployee, selectedAssignment.dateKey).map(getShiftDefinition)
+        : [],
+    [selectedAssignment, selectedEmployee],
+  );
+  const totalRequired = useMemo(() => demands.reduce((sum, item) => sum + item.requiredHeadcount, 0), [demands]);
+  const totalAssigned = draftResult?.assignments.filter((item) => item.shiftType !== "OFF").length ?? 0;
+  const totalConflicts = draftResult?.conflicts.length ?? 0;
+  const selectedDayAssignments = useMemo(
+    () =>
+      employees.map((employee) => ({
+        employee,
+        assignment: assignmentMap.get(`${employee.id}:${selectedDateKey}`) ?? createOffAssignment(selectedDateKey, employee),
+      })),
+    [assignmentMap, employees, selectedDateKey],
+  );
+  const selectedDaySummary = useMemo(
+    () => draftResult?.daySummaries.find((item) => item.dateKey === selectedDateKey) ?? null,
+    [draftResult, selectedDateKey],
+  );
+  const selectedPersonalAssignment = useMemo(
+    () =>
+      getAssignmentForUserOnDate(publishedPlan, user?.id, selectedDateKey) ??
+      getAssignmentForUserOnDate(draftPlan, user?.id, selectedDateKey),
+    [draftPlan, publishedPlan, selectedDateKey, user?.id],
+  );
+  const personalWeekAssignments = useMemo(
+    () =>
+      weekDates.map((dateKey) => {
+        const publishedAssignment = getAssignmentForUserOnDate(publishedPlan, user?.id, dateKey);
+        const draftAssignment = getAssignmentForUserOnDate(draftPlan, user?.id, dateKey);
+        return {
+          dateKey,
+          assignment: publishedAssignment ?? draftAssignment,
+          published: Boolean(publishedAssignment),
+        };
+      }),
+    [draftPlan, publishedPlan, user?.id, weekDates],
+  );
+
+  async function persistDraft(nextDraft: AutoScheduleResult, status: "draft" | "published") {
+    if (planSchemaMissing) {
+      setDraftResult(nextDraft);
       return;
     }
+    const saved = await saveShiftPlanWeek({
+      weekStart,
+      status,
+      result: nextDraft,
+      demands,
+      forecast: Object.keys(forecast).length ? forecast : (draftPlan ?? publishedPlan)?.forecast ?? {},
+    });
+    if (status === "published") setPublishedPlan(saved);
+    else setDraftPlan(saved);
+    setDraftResult(saved.result);
+  }
 
+  async function handleAutoSchedule() {
+    if (!canManage || saving) return;
     try {
-      setSubmitting(true);
-      setError(null);
-
-      const { data, error: findErr } = await mobileSupabase
-        .from("time_entries")
-        .select("id")
-        .eq("org_id", orgId)
-        .eq("staff_user_id", user.id)
-        .is("clock_out", null)
-        .order("clock_in", { ascending: false })
-        .limit(1);
-
-      if (findErr) throw findErr;
-
-      const id = data?.[0]?.id;
-      if (!id) throw new Error("Không có ca đang mở để đóng.");
-
-      const { error: updateError } = await mobileSupabase
-        .from("time_entries")
-        .update({ clock_out: new Date().toISOString() })
-        .eq("id", id)
-        .eq("org_id", orgId);
-
-      if (updateError) throw updateError;
-      await loadEntries(orgId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Clock out failed");
+      setSaving(true);
+      const nextDraft = generateDraftSchedule({ weekStart, employees, demands });
+      await persistDraft(nextDraft, "draft");
+    } catch (nextError) {
+      Alert.alert("Không thể tự động xếp ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   }
 
-  const memberMap = useMemo(
-    () =>
-      new Map(
-        teamMembers.map((member) => [
-          member.user_id,
-          {
-            name: member.display_name || member.user_id.slice(0, 8),
-            role: member.role || "-",
-          },
-        ]),
-      ),
-    [teamMembers],
-  );
+  async function handlePublish() {
+    if (!canManage || !draftResult || saving) return;
+    try {
+      setSaving(true);
+      await persistDraft(draftResult, "published");
+      Alert.alert("Đã xuất bản", "Lịch ca tuần này đã được cập nhật cho nhân sự.");
+    } catch (nextError) {
+      Alert.alert("Không thể xuất bản", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const visibleEntries = useMemo(() => {
-    const base = canManageTeamView(role)
-      ? entries
-      : entries.filter((entry) => entry.staff_user_id === user?.id);
+  async function handleManualChange(shiftType: ShiftType) {
+    if (!selectedCell || !draftResult || saving) return;
+    try {
+      setSaving(true);
+      const nextDraft = buildManualDraft(draftResult, employees, demands, selectedCell.employeeId, selectedCell.dateKey, shiftType);
+      await persistDraft(nextDraft, "draft");
+      setSelectedCell(null);
+    } catch (nextError) {
+      Alert.alert("Không thể cập nhật ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
-    return base.filter(
-      (entry) => memberMap.get(entry.staff_user_id)?.role !== "OWNER",
+  async function handleToggleLeave() {
+    if (!selectedEmployee || !selectedAssignment || profileSchemaMissing || saving) return;
+    try {
+      setSaving(true);
+      const baseProfile = selectedProfile ?? createEmptyStaffShiftProfile(selectedEmployee.id, selectedEmployee.role);
+      const hasLeave = baseProfile.leaveDateKeys.includes(selectedAssignment.dateKey);
+      const nextProfile = {
+        ...baseProfile,
+        leaveDateKeys: hasLeave
+          ? baseProfile.leaveDateKeys.filter((item) => item !== selectedAssignment.dateKey)
+          : [...baseProfile.leaveDateKeys, selectedAssignment.dateKey].sort(),
+      };
+      await saveStaffShiftProfile(nextProfile);
+      setProfiles((current) => replaceProfile(current, nextProfile));
+      if (!hasLeave && draftResult) {
+        const nextDraft = buildManualDraft(draftResult, employees, demands, selectedEmployee.id, selectedAssignment.dateKey, "OFF");
+        await persistDraft(nextDraft, "draft");
+      }
+      setSelectedCell(null);
+    } catch (nextError) {
+      Alert.alert("Không thể cập nhật ngày nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleApproveEntry(entryId: string, approve: boolean) {
+    try {
+      setSaving(true);
+      await reviewShiftCheckIn(entryId, approve);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể duyệt chấm công", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleApproveLeave(requestId: string, approve: boolean) {
+    try {
+      setSaving(true);
+      await reviewShiftLeaveRequest(requestId, approve);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể duyệt nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCheckIn() {
+    try {
+      setSaving(true);
+      await createShiftCheckIn();
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể mở ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCheckOut() {
+    if (!activePersonalEntry) return;
+    try {
+      setSaving(true);
+      await closeShiftEntryIfAllowed(activePersonalEntry);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể đóng ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRequestDayOff() {
+    if (!todayPublishedAssignment || saving) return;
+    try {
+      setSaving(true);
+      await submitDayOffRequest(todayPublishedAssignment.dateKey);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể gửi xin nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={c.primary} />
+          <Text style={styles.loadingText}>Đang tải lịch ca...</Text>
+        </View>
+      </SafeAreaView>
     );
-  }, [entries, memberMap, role, user?.id]);
-
-  const activeEntry = useMemo(
-    () =>
-      entries.find(
-        (entry) => entry.staff_user_id === user?.id && !entry.clock_out,
-      ) ?? null,
-    [entries, user?.id],
-  );
-
-  const today = useMemo(() => new Date(nowTs), [nowTs]);
-  const currentName =
-    memberMap.get(user?.id ?? "")?.name || displayName(user?.email);
-
-  const activeTeamEntries = useMemo(
-    () => visibleEntries.filter((entry) => !entry.clock_out),
-    [visibleEntries],
-  );
-
-  const todayTeamEntries = useMemo(
-    () =>
-      visibleEntries.filter((entry) =>
-        isSameDate(new Date(entry.clock_in), today),
-      ),
-    [today, visibleEntries],
-  );
-
-  const activeTeamCount = useMemo(
-    () => new Set(activeTeamEntries.map((entry) => entry.staff_user_id)).size,
-    [activeTeamEntries],
-  );
-
-  const checkedInTodayCount = useMemo(
-    () => new Set(todayTeamEntries.map((entry) => entry.staff_user_id)).size,
-    [todayTeamEntries],
-  );
-
-  const monthlyTeamEntries = useMemo(() => {
-    const from = startOfMonth(today).getTime();
-    const to = endOfMonth(today).getTime();
-
-    return visibleEntries.filter((entry) => {
-      const ts = new Date(entry.clock_in).getTime();
-      return ts >= from && ts <= to;
-    });
-  }, [today, visibleEntries]);
-
-  const monthlyTeamMinutes = useMemo(
-    () =>
-      monthlyTeamEntries.reduce((acc, entry) => {
-        const end = entry.clock_out
-          ? new Date(entry.clock_out).getTime()
-          : nowTs;
-        return (
-          acc +
-          Math.max(
-            0,
-            Math.round((end - new Date(entry.clock_in).getTime()) / 60000),
-          )
-        );
-      }, 0),
-    [monthlyTeamEntries, nowTs],
-  );
-
-  const userEntries = useMemo(
-    () => entries.filter((entry) => entry.staff_user_id === user?.id),
-    [entries, user?.id],
-  );
-
-  const todayEntries = useMemo(
-    () =>
-      userEntries.filter((entry) => isSameDate(new Date(entry.clock_in), today)),
-    [today, userEntries],
-  );
-
-  const todayEntry = activeEntry ?? todayEntries[0] ?? null;
-
-  const todayMinutes = useMemo(
-    () =>
-      todayEntries.reduce((acc, entry) => {
-        const end = entry.clock_out
-          ? new Date(entry.clock_out).getTime()
-          : nowTs;
-        return (
-          acc +
-          Math.max(
-            0,
-            Math.round((end - new Date(entry.clock_in).getTime()) / 60000),
-          )
-        );
-      }, 0),
-    [todayEntries, nowTs],
-  );
-
-  const monthlyEntries = useMemo(() => {
-    const from = startOfMonth(today).getTime();
-    const to = endOfMonth(today).getTime();
-
-    return userEntries.filter((entry) => {
-      const ts = new Date(entry.clock_in).getTime();
-      return ts >= from && ts <= to;
-    });
-  }, [today, userEntries]);
-
-  const monthlyMinutes = useMemo(
-    () =>
-      monthlyEntries.reduce((acc, entry) => {
-        const end = entry.clock_out
-          ? new Date(entry.clock_out).getTime()
-          : nowTs;
-        return (
-          acc +
-          Math.max(
-            0,
-            Math.round((end - new Date(entry.clock_in).getTime()) / 60000),
-          )
-        );
-      }, 0),
-    [monthlyEntries, nowTs],
-  );
-
-  const monthlyDays = useMemo(
-    () =>
-      new Set(
-        monthlyEntries.map((entry) =>
-          new Date(entry.clock_in).toLocaleDateString("vi-VN"),
-        ),
-      ).size,
-    [monthlyEntries],
-  );
-
-  const lateDays = useMemo(
-    () =>
-      monthlyEntries.filter((entry) => {
-        const date = new Date(entry.clock_in);
-        return date.getHours() > 8 || (date.getHours() === 8 && date.getMinutes() > 35);
-      }).length,
-    [monthlyEntries],
-  );
-
-  const overdueOpenEntries = useMemo(
-    () =>
-      visibleEntries.filter(
-        (entry) =>
-          !entry.clock_out &&
-          (nowTs - new Date(entry.clock_in).getTime()) / 3600000 >=
-            LONG_OPEN_SHIFT_HOURS,
-      ),
-    [nowTs, visibleEntries],
-  );
-
-  const nextEntry = useMemo(
-    () =>
-      userEntries
-        .filter((entry) => new Date(entry.clock_in).getTime() > nowTs)
-        .sort(
-          (a, b) =>
-            new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime(),
-        )[0] ?? null,
-    [nowTs, userEntries],
-  );
-
-  const notificationCount = Math.max(overdueOpenEntries.length, nextEntry ? 1 : 0);
-  const shiftName =
-    todayEntry && new Date(todayEntry.clock_in).getHours() < 12
-      ? "Ca sáng"
-      : "Ca chiều";
-  const shiftStatus = activeEntry ? "Đang làm" : todayEntry ? "Hoàn tất" : "Chưa mở";
-  const totalHoursText = `${Math.floor(monthlyMinutes / 60)}h ${String(
-    monthlyMinutes % 60,
-  ).padStart(2, "0")}m`;
-  const workingDaysTarget = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-
-  const actionItems: Array<{
-    icon: React.ComponentProps<typeof Feather>["name"];
-    label: string;
-    onPress: () => void;
-  }> = isOwner
-    ? [
-        {
-          icon: "calendar",
-          label: "Quản lý nhân sự",
-          onPress: () => void router.push("/(admin)/manage-team"),
-        },
-        {
-          icon: "users",
-          label: "Ca đang mở",
-          onPress: () => setRangeMode("week"),
-        },
-        {
-          icon: "bar-chart-2",
-          label: "Chấm công hôm nay",
-          onPress: () => setRangeMode("month"),
-        },
-        {
-          icon: "calendar",
-          label: "Phân ca nhân sự",
-          onPress: () => Alert.alert("Đang tách flow", "Phân ca nhân sự sẽ được tách sang màn riêng, không dùng chung với điều phối lịch khách hàng."),
-        },
-      ]
-    : [
-        {
-          icon: "calendar",
-          label: "Lịch làm việc",
-          onPress: () => setRangeMode("month"),
-        },
-        {
-          icon: "repeat",
-          label: "Đổi ca",
-          onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng đổi ca sẽ được ra mắt sớm."),
-        },
-        {
-          icon: "clock",
-          label: "Xin nghỉ",
-          onPress: () => Alert.alert("Tính năng đang phát triển", "Chức năng xin nghỉ sẽ được ra mắt sớm."),
-        },
-        {
-          icon: "file-text",
-          label: activeEntry ? "Đóng ca" : "Ca linh hoạt",
-          onPress: () => {
-            if (activeEntry) void clockOut();
-            else void clockIn();
-          },
-        },
-      ] as const;
-
-  const notificationTitle = isOwner
-    ? overdueOpenEntries.length
-      ? `${overdueOpenEntries.length} ca đang mở quá ${LONG_OPEN_SHIFT_HOURS}h`
-      : "Theo dõi ca làm của đội ngũ"
-    : nextEntry
-      ? `Ca ${new Date(nextEntry.clock_in).getHours() < 12 ? "sáng" : "chiều"} ngày ${new Date(nextEntry.clock_in).toLocaleDateString("vi-VN")}`
-      : "Chưa có thông báo mới";
-
-  const notificationSubtext = isOwner
-    ? overdueOpenEntries.length
-      ? "Kiểm tra các ca đang mở lâu và xử lý nhân sự cần hỗ trợ."
-      : "Màn này chỉ dùng để theo dõi ca làm và chấm công nhân sự."
-    : nextEntry
-      ? `${fmtTime(nextEntry.clock_in)} - ${fmtTime(nextEntry.clock_out)} • Chi nhánh Hà Nội`
-      : "Không có lịch ca nào sắp tới";
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -556,249 +655,439 @@ export default function AdminShiftsScreen() {
             styles.content,
             {
               paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom),
+              paddingBottom: 120 + getAdminBottomBarPadding(insets.bottom),
             },
           ]}
-          showsVerticalScrollIndicator={false}
           refreshControl={
             <RefreshControl
-              refreshing={loading || refreshing}
-              onRefresh={() => {
-                if (orgId) void loadEntries(orgId);
-              }}
-              tintColor={c.text}
-              colors={[c.text]}
+              refreshing={refreshing}
+              onRefresh={() => void loadData(true)}
+              tintColor={c.primary}
+              colors={[c.primary]}
             />
           }
+          showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
             <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials(currentName)}</Text>
+              <Text style={styles.avatarText}>{initials(user?.email?.split("@")[0] || "AD")}</Text>
             </View>
-
             <View style={styles.headerCopy}>
-              <View style={styles.titleRow}>
-                <Text style={styles.title}>{currentName}</Text>
-                <View style={styles.techBadge}>
-                  <Text style={styles.techBadgeText}>{roleBadgeLabel(role)}</Text>
-                </View>
-              </View>
+              <Text style={styles.title}>{canManage ? "Quản lý ca làm" : "Ca làm"}</Text>
               <Text style={styles.subtitle}>
-                {isOwner ? "Theo dõi chấm công, ca làm và nhân sự; tách biệt với điều phối lịch khách hàng" : "Quản lý công việc, ca làm và tài khoản"}
+                {canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm đã xuất bản và chấm công cá nhân."}
               </Text>
             </View>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          </View>
 
-            <View style={styles.headerActions}>
-              <Pressable style={styles.iconButton}>
-                <Feather name="bell" size={22} color={c.text} />
-                {notificationCount > 0 ? (
-                  <View style={styles.redDot}>
-                    <Text style={styles.redDotText}>{Math.min(notificationCount, 9)}</Text>
-                  </View>
-                ) : null}
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {planSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `shift_plans`, đang dùng draft tạm trên mobile.</Text> : null}
+          {profileSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `staff_shift_profiles`, chức năng nghỉ theo ngày sẽ bị giới hạn.</Text> : null}
+
+          <View style={styles.sectionCard}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.sectionTitle}>Tuần làm việc</Text>
+              <Text style={styles.badgeText}>{draftPlan?.status === "published" || publishedPlan ? "Đã có lịch" : "Chưa xuất bản"}</Text>
+            </View>
+            <View style={styles.weekNavRow}>
+              <Pressable style={styles.iconRound} onPress={() => setWeekStart((current) => addDays(current, -7))}>
+                <Feather name="chevron-left" size={18} color={c.text} />
               </Pressable>
-              <Pressable style={styles.iconButton} onPress={() => void router.push({ pathname: "/(admin)/settings", params: { from: "/(admin)/shifts" } })}>
-                <Feather name="settings" size={22} color={c.text} />
+              <View style={styles.weekLabelPill}>
+                <Text style={styles.weekLabel}>{getWeekLabel(weekStart)}</Text>
+              </View>
+              <Pressable style={styles.iconRound} onPress={() => setWeekStart((current) => addDays(current, 7))}>
+                <Feather name="chevron-right" size={18} color={c.text} />
               </Pressable>
+            </View>
+            <View style={styles.actionsRow}>
+              {canManage ? (
+                <>
+                  <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleAutoSchedule()} disabled={saving}>
+                    <Feather name="shuffle" size={16} color={c.white} />
+                    <Text style={styles.primaryButtonText}>Tự động xếp ca</Text>
+                  </Pressable>
+                  <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handlePublish()} disabled={saving || !draftResult}>
+                    <Feather name="upload" size={16} color={c.text} />
+                    <Text style={styles.secondaryButtonText}>Xuất bản</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
+                    <Feather name="play" size={16} color={c.white} />
+                    <Text style={styles.primaryButtonText}>Mở ca</Text>
+                  </Pressable>
+                  <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckOut()} disabled={saving || !activePersonalEntry}>
+                    <Feather name="stop-circle" size={16} color={c.text} />
+                    <Text style={styles.secondaryButtonText}>Đóng ca</Text>
+                  </Pressable>
+                </>
+              )}
             </View>
           </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          <View style={styles.mainCard}>
-            <View style={styles.sectionTitleRow}>
-              <Feather name="calendar" size={18} color={c.sub} />
-              <Text style={styles.sectionTitle}>{isOwner ? "Theo dõi ca nhân sự" : "Ca làm hôm nay"}</Text>
+          <View style={styles.metricsRow}>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricValue}>{totalAssigned}</Text>
+              <Text style={styles.metricLabel}>Ca đã xếp</Text>
             </View>
-
-            <View style={styles.dateRow}>
-              <Feather name="calendar" size={15} color={c.sub} />
-              <Text style={styles.dateText}>{formatLongDate(today)}</Text>
+            <View style={styles.metricCard}>
+              <Text style={styles.metricValue}>{totalRequired}</Text>
+              <Text style={styles.metricLabel}>Nhu cầu tuần</Text>
             </View>
+            <View style={styles.metricCard}>
+              <Text style={[styles.metricValue, { color: totalConflicts ? c.danger : c.success }]}>{totalConflicts}</Text>
+              <Text style={styles.metricLabel}>Xung đột</Text>
+            </View>
+          </View>
 
-            <View style={styles.shiftPanel}>
-              <View style={styles.shiftTopRow}>
-                <View style={styles.row}>
-                  <View style={styles.greenDot} />
-                  <Text style={styles.shiftLabel}>{isOwner ? "Nhân sự đang hoạt động" : shiftName}</Text>
-                </View>
-                <View style={styles.stateBadge}>
-                  <Text style={styles.stateBadgeText}>{isOwner ? `${activeTeamCount}/${teamMembers.length || 0} online` : shiftStatus}</Text>
-                </View>
-              </View>
+          <View style={styles.dayTabsWrap}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTabsRow}>
+              {weekDates.map((dateKey) => {
+                const summary = draftResult?.daySummaries.find((item) => item.dateKey === dateKey);
+                const active = selectedDateKey === dateKey;
+                const personalAssignment = !canManage
+                  ? getAssignmentForUserOnDate(publishedPlan, user?.id, dateKey) ?? getAssignmentForUserOnDate(draftPlan, user?.id, dateKey)
+                  : null;
+                return (
+                  <Pressable key={dateKey} style={[styles.dayChip, active ? styles.dayChipActive : null]} onPress={() => setSelectedDateKey(dateKey)}>
+                    <Text style={[styles.dayChipText, active ? styles.dayChipTextActive : null]}>{formatDayChip(dateKey)}</Text>
+                    <Text style={[styles.dayChipSub, active ? styles.dayChipTextActive : null]}>
+                      {canManage ? `${summary?.scheduledCount ?? 0}/${summary?.requiredCount ?? 0}` : personalAssignment?.shortCode ?? "--"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
 
-              <View style={styles.shiftMainRow}>
-                <Text style={styles.bigTime}>{isOwner ? `${activeTeamCount} người đang mở ca` : `${fmtTime(todayEntry?.clock_in)} - ${fmtTime(todayEntry?.clock_out)}`}</Text>
-                <View style={styles.divider} />
-                <View style={styles.durationWrap}>
-                  <Feather name="clock" size={17} color={c.sub} />
-                  <Text style={styles.durationText}>
-                    {isOwner ? `${checkedInTodayCount} người đã chấm công hôm nay` : `${todayEntry ? fmtDuration(todayEntry.clock_in, todayEntry.clock_out, nowTs) : "0h 00m"} đã làm`}
+          {canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Planner theo ngày</Text>
+              <Text style={styles.sectionSubtitle}>Chạm vào từng nhân sự để sửa nhanh khung giờ hoặc đánh dấu nghỉ.</Text>
+              <View style={styles.daySummaryCard}>
+                <View style={styles.daySummaryMetric}>
+                  <Text style={styles.daySummaryValue}>{selectedDaySummary?.scheduledCount ?? 0}</Text>
+                  <Text style={styles.daySummaryLabel}>Đã xếp</Text>
+                </View>
+                <View style={styles.daySummaryMetric}>
+                  <Text style={styles.daySummaryValue}>{selectedDaySummary?.requiredCount ?? 0}</Text>
+                  <Text style={styles.daySummaryLabel}>Cần</Text>
+                </View>
+                <View style={styles.daySummaryMetric}>
+                  <Text
+                    style={[
+                      styles.daySummaryValue,
+                      { color: (selectedDaySummary?.shortageCount ?? 0) > 0 ? c.danger : c.success },
+                    ]}
+                  >
+                    {selectedDaySummary?.shortageCount ?? 0}
                   </Text>
+                  <Text style={styles.daySummaryLabel}>Thiếu</Text>
                 </View>
               </View>
-
-              <View style={styles.shiftBottomRow}>
-                <View style={styles.metaItem}>
-                  <Feather name="map-pin" size={15} color={c.sub} />
-                  <Text style={styles.metaText}>{isOwner ? "Theo dõi đội ngũ toàn cửa hàng" : "Chi nhánh Hà Nội"}</Text>
-                </View>
-                <Text style={styles.metaText}>{isOwner ? `${overdueOpenEntries.length} ca cần kiểm tra` : "Nghỉ trưa: 12:00 - 13:00"}</Text>
+              <View style={styles.legendRow}>
+                {(["MORNING", "AFTERNOON", "FULL", "OFF"] as ShiftType[]).map((shiftType) => {
+                  const definition = getShiftDefinition(shiftType);
+                  const colors = getShiftColors(definition);
+                  return (
+                    <View key={shiftType} style={[styles.legendChip, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                      <Text style={[styles.legendChipCode, { color: colors.text }]}>{definition.shortCode}</Text>
+                      <Text style={[styles.legendChipText, { color: colors.text }]}>{definition.label}</Text>
+                    </View>
+                  );
+                })}
               </View>
-            </View>
-
-            <View style={styles.actionGrid}>
-              {actionItems.map((item) => (
-                <Pressable key={item.label} style={styles.actionCard} onPress={item.onPress}>
-                  <Feather name={item.icon} size={22} color={c.text} />
-                  <Text style={styles.actionText}>{item.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.statusCard}>
-            <Text style={styles.sectionTitle}>{isOwner ? "Tình hình nhân sự hôm nay" : "Trạng thái hôm nay"}</Text>
-
-            <View style={styles.statusRow}>
-              <View style={styles.statusBox}>
-                <View style={styles.statusHead}>
-                  <View style={[styles.statusIcon, { backgroundColor: c.successBg }]}>
-                    <Feather name="mic" size={15} color={c.success} />
-                  </View>
-                  <Text style={styles.statusLabel}>Mở ca</Text>
-                </View>
-                <Text style={styles.statusValue}>{isOwner ? String(activeTeamCount) : fmtTime(todayEntry?.clock_in)}</Text>
-                <Text style={[styles.statusMeta, { color: c.success }]}>{isOwner ? "nhân sự" : "Đã mở"}</Text>
-              </View>
-
-              <View style={styles.statusBox}>
-                <View style={styles.statusHead}>
-                  <View style={[styles.statusIcon, { backgroundColor: c.errorBg }]}>
-                    <Feather name="square" size={12} color={c.error} />
-                  </View>
-                  <Text style={styles.statusLabel}>Đóng ca</Text>
-                </View>
-                <Text style={styles.statusValue}>{isOwner ? String(checkedInTodayCount) : fmtTime(todayEntry?.clock_out)}</Text>
-                <Text style={[styles.statusMeta, { color: isOwner || todayEntry?.clock_out ? c.success : c.error }]}>
-                  {isOwner ? "đã chấm công" : todayEntry?.clock_out ? "Đã đóng" : "Chưa đóng"}
-                </Text>
-              </View>
-
-              <View style={styles.statusBox}>
-                <View style={styles.statusHead}>
-                  <View style={[styles.statusIcon, { backgroundColor: c.warnBg }]}>
-                    <Feather name="clock" size={14} color={c.warn} />
-                  </View>
-                  <Text style={styles.statusLabel}>Tổng giờ làm</Text>
-                </View>
-                <Text style={styles.statusValue}>{isOwner ? String(overdueOpenEntries.length) : `${Math.floor(todayMinutes / 60)}h ${String(todayMinutes % 60).padStart(2, "0")}m`}</Text>
-                <Text style={[styles.statusMeta, { color: c.warn }]}>
-                  {isOwner ? "ca quá giờ" : activeEntry ? "Đang làm" : "Hôm nay"}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.sectionBlock}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.bigSectionTitle}>
-                {isOwner ? `Tổng quan đội ngũ tháng ${String(today.getMonth() + 1).padStart(2, "0")}` : `Tổng quan tháng ${String(today.getMonth() + 1).padStart(2, "0")}`}
-              </Text>
-              <Pressable style={styles.ghostPill} onPress={() => setRangeMode(rangeMode === "month" ? "week" : "month")}>
-                <Text style={styles.ghostPillText}>{isOwner ? "Đổi chế độ xem" : "Xem chi tiết"}</Text>
-              </Pressable>
-            </View>
-
-            <View style={styles.overviewGrid}>
-              <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>{isOwner ? "Tổng giờ đội ngũ" : "Tổng giờ làm"}</Text>
-                <Text style={styles.overviewValue}>{isOwner ? `${Math.floor(monthlyTeamMinutes / 60)}h` : totalHoursText}</Text>
-                <Text style={styles.overviewSub}>{isOwner ? "tháng này" : "/ 176h"}</Text>
-              </View>
-              <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>{isOwner ? "Nhân sự hoạt động" : "Số ngày làm"}</Text>
-                <Text style={styles.overviewValue}>{isOwner ? checkedInTodayCount : monthlyDays}</Text>
-                <Text style={styles.overviewSub}>{isOwner ? "hôm nay" : `/ ${workingDaysTarget} ngày`}</Text>
-              </View>
-              <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>{isOwner ? "Tổng nhân sự" : "Ngày nghỉ phép"}</Text>
-                <Text style={styles.overviewValue}>{isOwner ? teamMembers.length : 2}</Text>
-                <Text style={styles.overviewSub}>{isOwner ? "đang quản lý" : "còn lại"}</Text>
-              </View>
-              <View style={styles.overviewBox}>
-                <Text style={styles.overviewLabel}>{isOwner ? "Ca cần xử lý" : "Đi muộn"}</Text>
-                <Text style={styles.overviewValue}>{isOwner ? overdueOpenEntries.length : lateDays}</Text>
-                <Text style={styles.overviewSub}>{isOwner ? "mở quá giờ" : "lần"}</Text>
-              </View>
-            </View>
-          </View>
-
-          {isOwner ? (
-            <View style={styles.sectionBlock}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.bigSectionTitle}>Nhân sự đang mở ca</Text>
-                <Pressable style={styles.ghostPill} onPress={() => void router.push("/(admin)/manage-team")}> 
-                  <Text style={styles.ghostPillText}>Quản lý</Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.teamStack}>
-                {activeTeamEntries.length ? (
-                  activeTeamEntries.map((entry) => {
-                    const member = memberMap.get(entry.staff_user_id);
-                    return (
-                      <View key={entry.id} style={styles.teamCard}>
-                        <View style={styles.teamAvatar}>
-                          <Text style={styles.teamAvatarText}>{initials(member?.name || "NV")}</Text>
-                        </View>
-                        <View style={styles.teamCopy}>
-                          <Text style={styles.teamName}>{member?.name || entry.staff_user_id.slice(0, 8)}</Text>
-                          <Text style={styles.teamMeta}>{member?.role || "STAFF"} • Mở ca {fmtTime(entry.clock_in)}</Text>
-                        </View>
-                        <Text style={styles.teamDuration}>{fmtDuration(entry.clock_in, entry.clock_out, nowTs)}</Text>
+              <View style={styles.cardStack}>
+                {selectedDayAssignments.map(({ employee, assignment }) => {
+                  const colors = getShiftColors(getShiftDefinition(assignment.shiftType));
+                  return (
+                    <Pressable
+                      key={employee.id}
+                      style={[styles.personCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
+                      onPress={() => setSelectedCell({ employeeId: employee.id, dateKey: selectedDateKey })}
+                    >
+                      <View style={styles.personAvatar}>
+                        <Text style={styles.personAvatarText}>{initials(employee.name)}</Text>
                       </View>
-                    );
-                  })
-                ) : (
-                  <View style={styles.noticeCard}>
-                    <View style={styles.noticeIcon}>
-                      <Feather name="users" size={18} color={c.text} />
-                    </View>
-                    <View style={styles.noticeBody}>
-                      <Text style={styles.noticeTitle}>Chưa có nhân sự nào mở ca</Text>
-                      <Text style={styles.noticeSub}>Theo dõi chấm công và cập nhật nhân sự từ khu quản lý riêng.</Text>
-                    </View>
-                  </View>
-                )}
+                      <View style={styles.personCopy}>
+                        <Text style={styles.personName}>{employee.name}</Text>
+                        <Text style={styles.personMeta}>{getRoleLabel(employee.role)}</Text>
+                        <View style={styles.personShiftMetaRow}>
+                          <Text style={[styles.personShiftLabel, { color: colors.text }]}>{assignment.shiftLabel}</Text>
+                          <Text style={styles.personShiftHours}>
+                            {assignment.startTime && assignment.endTime ? `${assignment.startTime} - ${assignment.endTime}` : "Nghỉ"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={[styles.shiftBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                        <Text style={[styles.shiftBadgeText, { color: colors.text }]}>{assignment.shortCode}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
               </View>
             </View>
           ) : null}
 
-
-          <View style={styles.sectionBlock}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.bigSectionTitle}>Thông báo</Text>
-              <Pressable style={styles.ghostPill}>
-                <Text style={styles.ghostPillText}>Xem tất cả</Text>
-              </Pressable>
+          {!canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Lich cua toi trong tuan</Text>
+              <Text style={styles.sectionSubtitle}>
+                {selectedPersonalAssignment
+                  ? `Ngay ${formatDayChip(selectedDateKey)} ban duoc phan ${selectedPersonalAssignment.shiftLabel.toLowerCase()}.`
+                  : "Chon tung ngay de xem ro ban duoc xep ca sang, chieu hay ca ngay."}
+              </Text>
+              <View style={styles.cardStack}>
+                {personalWeekAssignments.map(({ dateKey, assignment, published }) => {
+                  const definition = getShiftDefinition(assignment?.shiftType ?? "OFF");
+                  const colors = getShiftColors(definition);
+                  const active = selectedDateKey === dateKey;
+                  return (
+                    <Pressable
+                      key={dateKey}
+                      style={[
+                        styles.personalShiftDayCard,
+                        {
+                          borderColor: active ? c.primary : colors.border,
+                          backgroundColor: assignment ? colors.bg : c.soft,
+                        },
+                      ]}
+                      onPress={() => setSelectedDateKey(dateKey)}
+                    >
+                      <View style={styles.rowBetween}>
+                        <View style={styles.personalShiftDayCopy}>
+                          <Text style={styles.personalShiftDayTitle}>{formatDayChip(dateKey)}</Text>
+                          <Text style={styles.personalShiftDayMeta}>
+                            {assignment
+                              ? `${assignment.shiftLabel} • ${assignment.startTime} - ${assignment.endTime}`
+                              : "Chua co ca duoc xuat ban"}
+                          </Text>
+                        </View>
+                        <View style={[styles.todayShiftBadge, { borderColor: assignment ? colors.border : c.border }]}>
+                          <Text style={[styles.todayShiftBadgeText, { color: assignment ? colors.text : c.sub }]}>
+                            {assignment?.shortCode ?? "--"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.personalShiftMetaRow}>
+                        <Text style={styles.personalShiftStatus}>
+                          {published ? "Da xuat ban" : assignment ? "Cho xuat ban" : "OFF"}
+                        </Text>
+                        {assignment ? <Text style={styles.personalShiftHours}>{assignment.startTime} - {assignment.endTime}</Text> : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
+          ) : null}
 
-            <Pressable style={styles.noticeCard}>
-              <View style={styles.noticeIcon}>
-                <Feather name="calendar" size={18} color={c.text} />
+          {canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Duyệt chấm công</Text>
+              {pendingOwnerEntries.length ? (
+                <View style={styles.cardStack}>
+                  {pendingOwnerEntries.map((entry) => (
+                    <View key={entry.id} style={styles.reviewCard}>
+                      <Text style={styles.reviewTitle}>{teamNameMap.get(entry.staff_user_id ?? "") ?? "Nhân sự"}</Text>
+                      <Text style={styles.reviewMeta}>
+                        Mở ca {formatTime(entry.clock_in)} • Dự kiến {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                      </Text>
+                      <View style={styles.actionsRow}>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true)} disabled={saving}>
+                          <Text style={styles.approveText}>Duyệt</Text>
+                        </Pressable>
+                        <Pressable style={styles.rejectButton} onPress={() => void handleApproveEntry(entry.id, false)} disabled={saving}>
+                          <Text style={styles.rejectText}>Từ chối</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.emptyText}>Không có bản ghi chấm công nào đang chờ duyệt.</Text>
+              )}
+            </View>
+          ) : null}
+
+          {canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Yêu cầu nghỉ ca</Text>
+              {pendingOwnerLeaves.length ? (
+                <View style={styles.cardStack}>
+                  {pendingOwnerLeaves.map((request) => (
+                    <View key={request.id} style={styles.reviewCard}>
+                      <Text style={styles.reviewTitle}>{teamNameMap.get(request.staff_user_id) ?? request.staff_user_id}</Text>
+                      <Text style={styles.reviewMeta}>
+                        {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"} • {request.scheduled_date ?? "Chưa rõ ngày"}
+                      </Text>
+                      {request.note ? <Text style={styles.reviewMeta}>{request.note}</Text> : null}
+                      <View style={styles.actionsRow}>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true)} disabled={saving}>
+                          <Text style={styles.approveText}>Duyệt</Text>
+                        </Pressable>
+                        <Pressable style={styles.rejectButton} onPress={() => void handleApproveLeave(request.id, false)} disabled={saving}>
+                          <Text style={styles.rejectText}>Từ chối</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.emptyText}>Không có yêu cầu nghỉ nào đang chờ duyệt.</Text>
+              )}
+            </View>
+          ) : null}
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Ca của tôi</Text>
+            <Text style={styles.sectionSubtitle}>
+              {todayPublishedAssignment
+                ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
+                : "Hôm nay chưa có ca nào được xuất bản cho bạn."}
+            </Text>
+            {visibleTodayAssignment ? (
+              <View
+                style={[
+                  styles.todayShiftCard,
+                  {
+                    backgroundColor: todayShiftColors.bg,
+                    borderColor: todayShiftColors.border,
+                  },
+                ]}
+              >
+                <View style={styles.rowBetween}>
+                  <View style={styles.todayShiftHeaderCopy}>
+                    <Text style={[styles.todayShiftTitle, { color: todayShiftColors.text }]}>
+                      {visibleTodayAssignment.shiftLabel}
+                    </Text>
+                    <Text style={styles.todayShiftHours}>
+                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                        : "Dang nghi"}
+                    </Text>
+                  </View>
+                  <View style={[styles.todayShiftBadge, { borderColor: todayShiftColors.border }]}>
+                    <Text style={[styles.todayShiftBadgeText, { color: todayShiftColors.text }]}>
+                      {visibleTodayAssignment.shortCode}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.todayShiftMetaGrid}>
+                  <View style={styles.todayShiftMetaItem}>
+                    <Text style={styles.todayShiftMetaLabel}>Loai ca</Text>
+                    <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
+                  </View>
+                  <View style={styles.todayShiftMetaItem}>
+                    <Text style={styles.todayShiftMetaLabel}>Trang thai</Text>
+                    <Text
+                      style={[
+                        styles.todayShiftMetaValue,
+                        todayPublishedAssignment ? styles.todayShiftMetaValueSuccess : styles.todayShiftMetaValueWarn,
+                      ]}
+                    >
+                      {todayShiftStatus}
+                    </Text>
+                  </View>
+                  <View style={styles.todayShiftMetaItem}>
+                    <Text style={styles.todayShiftMetaLabel}>Gio lam</Text>
+                    <Text style={styles.todayShiftMetaValue}>
+                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                        : "--:--"}
+                    </Text>
+                  </View>
+                  <View style={styles.todayShiftMetaItem}>
+                    <Text style={styles.todayShiftMetaLabel}>Tinh cong</Text>
+                    <Text style={styles.todayShiftMetaValue}>
+                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                        : "--:--"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
               </View>
-              <View style={styles.noticeBody}>
-                <Text style={styles.noticeTitle}>{notificationTitle}</Text>
-                <Text style={styles.noticeSub}>{notificationSubtext}</Text>
+            ) : null}
+            {todayPublishedAssignment ? (
+              <View style={styles.actionsRow}>
+                <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
+                  <Text style={styles.primaryButtonText}>Mở ca</Text>
+                </Pressable>
+                <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleRequestDayOff()} disabled={saving}>
+                  <Text style={styles.secondaryButtonText}>Xin nghỉ</Text>
+                </Pressable>
               </View>
-              <Feather name="chevron-right" size={20} color={c.subSoft} />
-            </Pressable>
+            ) : null}
+            <View style={styles.cardStack}>
+              {personalEntries.length ? (
+                personalEntries.map((entry) => (
+                  <View key={entry.id} style={styles.reviewCard}>
+                    <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
+                    <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
+                    <Text style={styles.reviewMeta}>Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyText}>Chưa có lịch sử chấm công nào.</Text>
+              )}
+            </View>
           </View>
         </ScrollView>
 
+        <Modal visible={!!selectedCell && !!selectedEmployee && !!selectedAssignment} transparent animationType="slide" onRequestClose={() => setSelectedCell(null)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setSelectedCell(null)}>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+              <View style={styles.rowBetween}>
+                <View>
+                  <Text style={styles.sectionTitle}>{selectedEmployee?.name}</Text>
+                  <Text style={styles.sectionSubtitle}>{selectedAssignment ? formatDayChip(selectedAssignment.dateKey) : ""}</Text>
+                </View>
+                <Pressable style={styles.iconRound} onPress={() => setSelectedCell(null)}>
+                  <Feather name="x" size={18} color={c.text} />
+                </Pressable>
+              </View>
+              <View style={styles.optionsGrid}>
+                {manualOptions.map((option) => {
+                  const colors = getShiftColors(option);
+                  const active = selectedAssignment?.shiftType === option.type;
+                  return (
+                    <Pressable
+                      key={option.type}
+                      style={[
+                        styles.optionCard,
+                        { backgroundColor: colors.bg, borderColor: active ? c.primary : colors.border },
+                      ]}
+                      onPress={() => void handleManualChange(option.type)}
+                    >
+                      <Text style={[styles.optionTitle, { color: colors.text }]}>{option.label}</Text>
+                      <Text style={[styles.optionSub, { color: colors.text }]}>
+                        {option.startTime && option.endTime ? `${option.startTime} - ${option.endTime}` : "Không xếp ca"}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {selectedProfile && !profileSchemaMissing ? (
+                <Pressable style={styles.leaveToggle} onPress={() => void handleToggleLeave()}>
+                  <Feather name="calendar" size={16} color={c.text} />
+                  <Text style={styles.leaveToggleText}>
+                    {selectedProfile.leaveDateKeys.includes(selectedAssignment?.dateKey ?? "")
+                      ? "Bỏ đánh dấu nghỉ ngày này"
+                      : "Đánh dấu nghỉ ngày này"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <View style={[styles.navShell, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current={role === "OWNER" ? null : "profile"} role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+          <AdminBottomNav current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
       </View>
     </SafeAreaView>
@@ -806,465 +1095,117 @@ export default function AdminShiftsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: c.bg,
-  },
-  screen: {
-    flex: 1,
-    backgroundColor: c.bg,
-  },
-  content: {
-    paddingHorizontal: 20,
-    gap: 18,
-  },
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  avatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#D6B08A",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    color: c.white,
-    fontSize: 22,
-    lineHeight: 26,
-    fontWeight: "800",
-  },
-  headerCopy: {
-    flex: 1,
-    gap: 2,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  title: {
-    color: c.text,
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.7,
-    flexShrink: 1,
-  },
-  techBadge: {
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 8,
-    backgroundColor: c.badge,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  techBadgeText: {
-    color: "#D4862B",
-    fontSize: 11,
-    lineHeight: 12,
-    fontWeight: "800",
-  },
-  subtitle: {
-    color: c.sub,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  headerActions: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  iconButton: {
-    width: 34,
-    height: 34,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  redDot: {
-    position: "absolute",
-    top: -1,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#F2544B",
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  redDotText: {
-    color: c.white,
-    fontSize: 10,
-    lineHeight: 12,
-    fontWeight: "800",
-  },
-  error: {
-    color: c.error,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "600",
-  },
-  mainCard: {
-    backgroundColor: c.white,
-    borderRadius: 24,
-    padding: 14,
-    gap: 12,
+  safeArea: { flex: 1, backgroundColor: c.bg },
+  screen: { flex: 1, backgroundColor: c.bg },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { color: c.sub, fontSize: 14, lineHeight: 20 },
+  content: { paddingHorizontal: 18, gap: 16 },
+  header: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.primarySoft, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: c.primary, fontSize: 18, lineHeight: 22, fontWeight: "800" },
+  headerCopy: { flex: 1, gap: 2 },
+  title: { color: c.text, fontSize: 26, lineHeight: 30, fontWeight: "800" },
+  subtitle: { color: c.sub, fontSize: 13, lineHeight: 18 },
+  errorText: { color: c.danger, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  warnText: { color: c.warn, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  sectionCard: { backgroundColor: c.white, borderRadius: 22, padding: 14, gap: 12, borderWidth: 1, borderColor: c.border },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  sectionTitle: { color: c.text, fontSize: 18, lineHeight: 22, fontWeight: "800" },
+  sectionSubtitle: { color: c.sub, fontSize: 13, lineHeight: 18 },
+  badgeText: { color: c.primary, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  weekNavRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  iconRound: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center", backgroundColor: c.white },
+  weekLabelPill: { flex: 1, minHeight: 38, borderRadius: 19, backgroundColor: c.soft, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  weekLabel: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  actionsRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
+  primaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 42, borderRadius: 21, backgroundColor: c.primary, paddingHorizontal: 16, flex: 1 },
+  primaryButtonText: { color: c.white, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  secondaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 42, borderRadius: 21, backgroundColor: c.soft, paddingHorizontal: 16, flex: 1 },
+  secondaryButtonText: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  buttonDisabled: { opacity: 0.6 },
+  metricsRow: { flexDirection: "row", gap: 10 },
+  metricCard: { flex: 1, backgroundColor: c.white, borderRadius: 20, paddingVertical: 14, paddingHorizontal: 10, borderWidth: 1, borderColor: c.border, alignItems: "center", gap: 4 },
+  metricValue: { color: c.text, fontSize: 20, lineHeight: 24, fontWeight: "800" },
+  metricLabel: { color: c.sub, fontSize: 12, lineHeight: 16, textAlign: "center" },
+  dayTabsWrap: { marginHorizontal: -18 },
+  dayTabsRow: { paddingHorizontal: 18, gap: 10 },
+  dayChip: { minWidth: 104, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: c.white, paddingHorizontal: 12, paddingVertical: 10, gap: 4 },
+  dayChipActive: { backgroundColor: c.primary, borderColor: c.primary },
+  dayChipText: { color: c.text, fontSize: 13, lineHeight: 16, fontWeight: "700" },
+  dayChipTextActive: { color: c.white },
+  dayChipSub: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  daySummaryCard: { flexDirection: "row", gap: 10, borderRadius: 18, backgroundColor: c.soft, borderWidth: 1, borderColor: c.border, padding: 12 },
+  daySummaryMetric: { flex: 1, alignItems: "center", gap: 4 },
+  daySummaryValue: { color: c.text, fontSize: 18, lineHeight: 22, fontWeight: "800" },
+  daySummaryLabel: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  legendRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  legendChip: { flexDirection: "row", alignItems: "center", gap: 6, borderRadius: 999, borderWidth: 1, paddingHorizontal: 10, paddingVertical: 7 },
+  legendChipCode: { fontSize: 11, lineHeight: 14, fontWeight: "800" },
+  legendChipText: { fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  cardStack: { gap: 10 },
+  personCard: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 18, borderWidth: 1, padding: 12 },
+  personAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: c.softStrong, alignItems: "center", justifyContent: "center" },
+  personAvatarText: { color: c.text, fontSize: 13, lineHeight: 16, fontWeight: "800" },
+  personCopy: { flex: 1, gap: 3 },
+  personName: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  personMeta: { color: c.sub, fontSize: 12, lineHeight: 16 },
+  personShiftMetaRow: { gap: 2, marginTop: 2 },
+  personShiftLabel: { fontSize: 13, lineHeight: 16, fontWeight: "800" },
+  personShiftHours: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  shiftBadge: { minWidth: 50, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 8 },
+  shiftBadgeText: { fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  todayShiftCard: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 12 },
+  todayShiftHeaderCopy: { flex: 1, gap: 4 },
+  todayShiftTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800" },
+  todayShiftHours: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  todayShiftBadge: {
+    minWidth: 56,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: c.border,
-  },
-  statusCard: {
-    backgroundColor: c.white,
-    borderRadius: 24,
-    padding: 14,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  sectionTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  sectionTitle: {
-    color: c.text,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "800",
-  },
-  dateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginTop: -4,
-  },
-  dateText: {
-    color: c.sub,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  shiftPanel: {
-    backgroundColor: c.soft2,
-    borderRadius: 20,
-    padding: 12,
-    gap: 12,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  shiftTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  greenDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: "#169B51",
-  },
-  shiftLabel: {
-    color: c.text,
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-  stateBadge: {
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: c.successBg,
-    paddingHorizontal: 14,
     alignItems: "center",
     justifyContent: "center",
-  },
-  stateBadgeText: {
-    color: c.success,
-    fontSize: 12,
-    lineHeight: 14,
-    fontWeight: "700",
-  },
-  shiftMainRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  bigTime: {
-    flex: 1,
-    color: c.text,
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  divider: {
-    width: 1,
-    height: 34,
-    backgroundColor: c.border,
-  },
-  durationWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    minWidth: 124,
-  },
-  durationText: {
-    color: c.sub,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  shiftBottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: c.border,
-  },
-  metaItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flex: 1,
-  },
-  metaText: {
-    color: "#6E6258",
-    fontSize: 13,
-    lineHeight: 18,
-    flexShrink: 1,
-  },
-  actionGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginTop: 2,
-  },
-  actionCard: {
-    width: "48.1%",
-    minHeight: 80,
-    borderRadius: 18,
-    backgroundColor: c.soft2,
-    borderWidth: 1,
-    borderColor: c.border,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionText: {
-    color: "#5B4F45",
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "500",
-  },
-  statusRow: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  statusBox: {
-    flex: 1,
-    backgroundColor: c.soft2,
-    borderRadius: 18,
     paddingHorizontal: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: c.border,
+    paddingVertical: 8,
+    backgroundColor: "rgba(255,255,255,0.55)",
   },
-  statusIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusLabel: {
-    color: "#76695F",
-    fontSize: 12,
-    lineHeight: 16,
-    flexShrink: 1,
-  },
-  statusValue: {
-    color: c.text,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "800",
-    letterSpacing: -0.3,
-  },
-  statusHead: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    minHeight: 38,
-  },
-  statusMeta: {
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "700",
-  },
-  sectionBlock: {
-    gap: 12,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  bigSectionTitle: {
-    color: c.text,
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "800",
-    letterSpacing: -0.4,
-  },
-  ghostPill: {
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F7F1EC",
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  ghostPillText: {
-    color: "#8A7D72",
-    fontSize: 12,
-    lineHeight: 14,
-    fontWeight: "700",
-  },
-  overviewGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  overviewBox: {
-    width: "48.1%",
-    minHeight: 104,
-    borderRadius: 18,
-    backgroundColor: c.white,
-    paddingHorizontal: 12,
-    paddingVertical: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    borderWidth: 1,
-    borderColor: c.border,
-  },
-  overviewLabel: {
-    color: "#7D7065",
-    fontSize: 12,
-    lineHeight: 16,
-    textAlign: "center",
-  },
-  overviewValue: {
-    color: c.text,
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "800",
-    textAlign: "center",
-    letterSpacing: -0.3,
-  },
-  overviewSub: {
-    color: "#76695F",
-    fontSize: 12,
-    lineHeight: 16,
-    textAlign: "center",
-  },
-  noticeCard: {
-    backgroundColor: c.white,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: c.border,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  noticeIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: c.soft2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  noticeBody: {
-    flex: 1,
-    gap: 4,
-  },
-  noticeTitle: {
-    color: c.text,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-  noticeSub: {
-    color: c.sub,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  teamStack: {
-    gap: 10,
-  },
-  teamCard: {
-    backgroundColor: c.white,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: c.border,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  teamAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#ead9ca",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  teamAvatarText: {
-    color: "#5d4c3f",
-    fontSize: 13,
-    lineHeight: 16,
-    fontWeight: "800",
-  },
-  teamCopy: {
-    flex: 1,
+  todayShiftBadgeText: { fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  todayShiftMetaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  todayShiftMetaItem: {
+    width: "47.8%",
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.72)",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
     gap: 3,
   },
-  teamName: {
-    color: c.text,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: "700",
-  },
-  teamMeta: {
-    color: c.sub,
-    fontSize: 12,
-    lineHeight: 16,
-  },
-  teamDuration: {
-    color: c.text,
-    fontSize: 12,
-    lineHeight: 16,
-    fontWeight: "800",
-  },
+  todayShiftMetaLabel: { color: c.sub, fontSize: 11, lineHeight: 14, fontWeight: "700", textTransform: "uppercase" },
+  todayShiftMetaValue: { color: c.text, fontSize: 13, lineHeight: 17, fontWeight: "800" },
+  todayShiftMetaValueSuccess: { color: c.success },
+  todayShiftMetaValueWarn: { color: c.warn },
+  todayShiftHint: { color: c.sub, fontSize: 12, lineHeight: 17 },
+  personalShiftDayCard: { borderRadius: 18, borderWidth: 1, padding: 12, gap: 8 },
+  personalShiftDayCopy: { flex: 1, gap: 3 },
+  personalShiftDayTitle: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "800" },
+  personalShiftDayMeta: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "600" },
+  personalShiftMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  personalShiftStatus: { color: c.primary, fontSize: 12, lineHeight: 16, fontWeight: "800" },
+  personalShiftHours: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "700" },
+  reviewCard: { borderRadius: 18, backgroundColor: c.soft, borderWidth: 1, borderColor: c.border, padding: 12, gap: 8 },
+  reviewTitle: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  reviewMeta: { color: c.sub, fontSize: 12, lineHeight: 16 },
+  approveButton: { flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: c.successSoft, alignItems: "center", justifyContent: "center" },
+  rejectButton: { flex: 1, minHeight: 40, borderRadius: 20, backgroundColor: c.dangerSoft, alignItems: "center", justifyContent: "center" },
+  approveText: { color: c.success, fontSize: 13, lineHeight: 16, fontWeight: "800" },
+  rejectText: { color: c.danger, fontSize: 13, lineHeight: 16, fontWeight: "800" },
+  emptyText: { color: c.sub, fontSize: 13, lineHeight: 18 },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(17, 24, 39, 0.22)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: c.white, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 28, gap: 14 },
+  optionsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  optionCard: { width: "47.8%", borderRadius: 18, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 12, gap: 4 },
+  optionTitle: { fontSize: 14, lineHeight: 18, fontWeight: "700" },
+  optionSub: { fontSize: 12, lineHeight: 16 },
+  leaveToggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 44, borderRadius: 22, backgroundColor: c.soft, borderWidth: 1, borderColor: c.border },
+  leaveToggleText: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
   navShell: {
     position: "absolute",
     left: 0,
@@ -1272,7 +1213,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(255,255,255,0.96)",
     borderTopWidth: 1,
-    borderTopColor: "rgba(47, 36, 29, 0.04)",
+    borderTopColor: "rgba(47, 36, 29, 0.05)",
     paddingTop: 8,
     paddingHorizontal: 14,
   },

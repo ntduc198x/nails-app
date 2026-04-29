@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 
@@ -108,7 +108,6 @@ export default function AdminBookingScreen() {
   const firstRescheduleLabel = rescheduleRows[0]
     ? formatCardDateTime(rescheduleRows[0].requestedStartAt).replace(",", " ·")
     : "19:00 · 18-04";
-  const notificationCount = Math.min(newRows.length, 9);
   const activeSectionTitle = activeBucket === "NEW" ? "Lịch hẹn mới" : "Lịch hẹn cần dời";
   const activeEmptyText = activeBucket === "NEW" ? "Chưa có booking mới" : "Chưa có lịch hẹn cần dời";
 
@@ -133,19 +132,7 @@ export default function AdminBookingScreen() {
               <Text style={styles.subtitle}>Quản lý lịch hẹn và khách hàng</Text>
             </View>
 
-            <View style={styles.headerActions}>
-              <Pressable style={styles.headerIconButton}>
-                <Feather name="search" size={18} color={PALETTE.text} />
-              </Pressable>
-              <Pressable style={styles.headerIconButton}>
-                <Feather name="bell" size={18} color={PALETTE.text} />
-                {notificationCount > 0 ? (
-                  <View style={styles.badgeBubble}>
-                    <Text style={styles.badgeBubbleText}>{notificationCount}</Text>
-                  </View>
-                ) : null}
-              </Pressable>
-            </View>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
           </View>
 
           <View style={styles.metricRow}>

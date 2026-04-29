@@ -1,14 +1,13 @@
 import { Feather } from "@expo/vector-icons";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
-import { useAdminOperations } from "@/src/hooks/use-admin-operations";
+import { ensureOrgContext } from "@nails/shared";
+import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
-import { ensureOrgContext } from "@nails/shared";
-import { getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
 
 const palette = {
   bg: "#FCFAF8",
@@ -21,34 +20,42 @@ const palette = {
   textSecondary: "#7D716B",
   textMuted: "#A0928A",
   danger: "#EF4444",
-  dangerSoft: "#FEE2E2",
 };
 
 type EditField = "fullName" | "phone" | "address" | null;
+type BranchOption = {
+  id: string;
+  name: string;
+};
+
+type ProfileData = {
+  phone: string;
+  address: string;
+  fullName: string;
+  branchId: string | null;
+};
 
 export default function AdminSettingsScreen() {
   const insets = useSafeAreaInsets();
-  const { user, signOut, role } = useSession();
+  const { user, signOut, role, refreshSession } = useSession();
 
-  const [profileData, setProfileData] = useState<{ phone: string; address: string; fullName: string } | null>(null);
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
+  const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
   const [saving, setSaving] = useState(false);
-  
-  // Edit state
   const [editingField, setEditingField] = useState<EditField>(null);
   const [editValue, setEditValue] = useState("");
+  const [branchModalOpen, setBranchModalOpen] = useState(false);
 
   useEffect(() => {
     async function loadProfileData() {
-      if (!mobileSupabase || !user?.id) {
-        return;
-      }
+      if (!mobileSupabase || !user?.id) return;
 
       try {
-        const { orgId } = await ensureOrgContext(mobileSupabase);
-        
+        const { orgId, branchId } = await ensureOrgContext(mobileSupabase);
+
         const { data, error } = await mobileSupabase
           .from("profiles")
-          .select("phone, address, display_name")
+          .select("phone, address, display_name, default_branch_id")
           .eq("user_id", user.id)
           .eq("org_id", orgId)
           .single();
@@ -58,7 +65,25 @@ export default function AdminSettingsScreen() {
             phone: typeof data.phone === "string" ? data.phone : "",
             address: typeof data.address === "string" ? data.address : "",
             fullName: typeof data.display_name === "string" ? data.display_name : "",
+            branchId: typeof data.default_branch_id === "string" ? data.default_branch_id : branchId,
           });
+        }
+
+        if (canSelectAdminBranch(role)) {
+          const { data: branches, error: branchesError } = await mobileSupabase
+            .from("branches")
+            .select("id, name")
+            .eq("org_id", orgId)
+            .order("created_at", { ascending: true });
+
+          if (!branchesError) {
+            setBranchOptions(
+              (branches ?? []).map((branch) => ({
+                id: String(branch.id ?? ""),
+                name: typeof branch.name === "string" && branch.name.trim() ? branch.name.trim() : "Chi nhanh",
+              })),
+            );
+          }
         }
       } catch (error) {
         console.error("Failed to load profile data:", error);
@@ -66,22 +91,18 @@ export default function AdminSettingsScreen() {
     }
 
     void loadProfileData();
-  }, [user?.id]);
+  }, [role, user?.id]);
 
-  const displayName = profileData?.fullName || user?.displayName?.trim() || "Nguyen Thuy Linh";
-  const displayEmail = user?.email || "newupchance@gmail.com";
-  const displayPhone = profileData?.phone || "Chưa cập nhật";
-  const displayAddress = profileData?.address || "Chưa cập nhật";
-
-  const { bookingRequests } = useAdminOperations();
-  const newBookingCount = useMemo(
-    () => bookingRequests.filter((item) => item.status === "NEW").length,
-    [bookingRequests],
-  );
+  const displayName = profileData?.fullName || user?.displayName?.trim() || "User";
+  const displayEmail = user?.email || "Chua cap nhat";
+  const displayPhone = profileData?.phone || "Chua cap nhat";
+  const displayAddress = profileData?.address || "Chua cap nhat";
+  const selectedBranchName =
+    branchOptions.find((branch) => branch.id === profileData?.branchId)?.name || "Chua chon chi nhanh";
 
   function openEdit(field: EditField, currentValue: string) {
     setEditingField(field);
-    setEditValue(currentValue === "Chưa cập nhật" ? "" : currentValue);
+    setEditValue(currentValue === "Chua cap nhat" ? "" : currentValue);
   }
 
   async function saveEdit() {
@@ -90,17 +111,11 @@ export default function AdminSettingsScreen() {
     setSaving(true);
     try {
       const { orgId } = await ensureOrgContext(mobileSupabase);
-      
       const updateData: Record<string, string> = {};
-      
-      if (editingField === "fullName") {
-        updateData.display_name = editValue.trim();
-      } else if (editingField === "phone") {
-        updateData.phone = editValue.trim();
-      } else if (editingField === "address") {
-        updateData.address = editValue.trim();
-      }
 
+      if (editingField === "fullName") updateData.display_name = editValue.trim();
+      if (editingField === "phone") updateData.phone = editValue.trim();
+      if (editingField === "address") updateData.address = editValue.trim();
       updateData.updated_at = new Date().toISOString();
 
       const { error } = await mobileSupabase
@@ -111,11 +126,42 @@ export default function AdminSettingsScreen() {
 
       if (error) throw error;
 
-      setProfileData(prev => prev ? { ...prev, [editingField]: editValue.trim() } : null);
+      setProfileData((prev) => (prev ? { ...prev, [editingField]: editValue.trim() } : prev));
       setEditingField(null);
-      Alert.alert("Đã lưu", "Thông tin đã được cập nhật.");
+      Alert.alert("Da luu", "Thong tin da duoc cap nhat.");
     } catch {
-      Alert.alert("Lỗi", "Không thể lưu thông tin. Vui lòng thử lại.");
+      Alert.alert("Loi", "Khong the luu thong tin. Vui long thu lai.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleBranchChange(branchId: string) {
+    if (!mobileSupabase || !user?.id || !canSelectAdminBranch(role) || branchId === profileData?.branchId) {
+      setBranchModalOpen(false);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { orgId } = await ensureOrgContext(mobileSupabase);
+      const { error } = await mobileSupabase
+        .from("profiles")
+        .update({
+          default_branch_id: branchId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", user.id)
+        .eq("org_id", orgId);
+
+      if (error) throw error;
+
+      setProfileData((prev) => (prev ? { ...prev, branchId } : prev));
+      await refreshSession();
+      setBranchModalOpen(false);
+      Alert.alert("Da doi chi nhanh", "Ung dung se dung chi nhanh moi cho du lieu quan tri.");
+    } catch {
+      Alert.alert("Loi", "Khong the doi chi nhanh. Vui long thu lai.");
     } finally {
       setSaving(false);
     }
@@ -126,32 +172,32 @@ export default function AdminSettingsScreen() {
   }
 
   function handleTwoFactorPress() {
-    Alert.alert("Tính năng đang phát triển", "Chức năng xác thực 2 lớp sẽ được ra mắt sớm.");
+    Alert.alert("Dang phat trien", "Tinh nang xac thuc 2 lop se som duoc bo sung.");
   }
 
   function handleDevicesPress() {
-    Alert.alert("Tính năng đang phát triển", "Chức năng quản lý thiết bị đăng nhập sẽ được ra mắt sớm.");
+    Alert.alert("Dang phat trien", "Tinh nang quan ly thiet bi dang nhap se som duoc bo sung.");
   }
 
-  async function handleLogout() {
-    Alert.alert(
-      "Đăng xuất",
-      "Bạn có chắc chắn muốn đăng xuất không?",
-      [
-        { text: "Hủy", style: "cancel" },
-        { text: "Đăng xuất", style: "destructive", onPress: () => void signOut() },
-      ]
-    );
+  function handleLogout() {
+    Alert.alert("Dang xuat", "Ban co chac chan muon dang xuat khong?", [
+      { text: "Huy", style: "cancel" },
+      { text: "Dang xuat", style: "destructive", onPress: () => void signOut() },
+    ]);
   }
 
-  const getEditLabel = (field: EditField) => {
+  function getEditLabel(field: EditField) {
     switch (field) {
-      case "fullName": return "Họ và tên";
-      case "phone": return "Số điện thoại";
-      case "address": return "Địa chỉ";
-      default: return "";
+      case "fullName":
+        return "ho va ten";
+      case "phone":
+        return "so dien thoai";
+      case "address":
+        return "dia chi";
+      default:
+        return "";
     }
-  };
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -166,120 +212,119 @@ export default function AdminSettingsScreen() {
           ]}
           showsVerticalScrollIndicator={false}
         >
-          {/* Header */}
           <View style={styles.header}>
             <Pressable style={styles.headerButton} onPress={() => router.replace(getAdminProfileDestination(role))}>
               <Feather name="chevron-left" size={24} color={palette.textPrimary} />
             </Pressable>
-            <Text style={styles.headerTitle}>Cài đặt cá nhân</Text>
-            <View style={styles.headerActions}>
-              <Pressable style={styles.headerIconButton}>
-                <View>
-                  <Feather name="bell" size={22} color={palette.textPrimary} />
-                  {newBookingCount > 0 && (
-                    <View style={styles.bellBadge}>
-                      <Text style={styles.bellBadgeText}>{Math.min(newBookingCount, 9)}</Text>
-                    </View>
-                  )}
-                </View>
-              </Pressable>
-              <Pressable style={styles.headerIconButton}>
-                <Feather name="settings" size={22} color={palette.textPrimary} />
-              </Pressable>
-            </View>
+            <Text style={styles.headerTitle}>Cai dat ca nhan</Text>
+            <AdminHeaderActions onSettingsPress={() => undefined} />
           </View>
 
-          {/* Personal Info Card */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Thông tin cá nhân</Text>
-
-            <InfoRow
-              icon="user"
-              label="Họ và tên"
-              value={displayName}
-              onPress={() => openEdit("fullName", displayName)}
-            />
-            <InfoRow
-              icon="mail"
-              label="Email"
-              value={displayEmail}
-              onPress={null}
-            />
-            <InfoRow
-              icon="phone"
-              label="Số điện thoại"
-              value={displayPhone}
-              onPress={() => openEdit("phone", displayPhone)}
-            />
-            <InfoRow
-              icon="map-pin"
-              label="Địa chỉ"
-              value={displayAddress}
-              onPress={() => openEdit("address", displayAddress)}
-              isLast
-            />
+            <Text style={styles.cardTitle}>Thong tin ca nhan</Text>
+            <InfoRow icon="user" label="Ho va ten" value={displayName} onPress={() => openEdit("fullName", displayName)} />
+            <InfoRow icon="mail" label="Email" value={displayEmail} onPress={null} />
+            <InfoRow icon="phone" label="So dien thoai" value={displayPhone} onPress={() => openEdit("phone", displayPhone)} />
+            <InfoRow icon="map-pin" label="Dia chi" value={displayAddress} onPress={() => openEdit("address", displayAddress)} isLast />
           </View>
 
-          {/* Security Card */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Bảo mật tài khoản</Text>
-
+            <Text style={styles.cardTitle}>Bao mat tai khoan</Text>
             <SecurityRow
               icon="lock"
-              title="Đổi mật khẩu"
-              subtitle="Cập nhật mật khẩu để bảo vệ tài khoản"
+              title="Doi mat khau"
+              subtitle="Cap nhat mat khau de bao ve tai khoan"
               onPress={handlePasswordPress}
             />
             <SecurityRow
               icon="shield"
-              title="Xác thực 2 lớp"
-              subtitle="Tăng cường bảo mật cho tài khoản"
+              title="Xac thuc 2 lop"
+              subtitle="Tang cuong bao mat cho tai khoan"
               onPress={handleTwoFactorPress}
             />
             <SecurityRow
               icon="smartphone"
-              title="Thiết bị đăng nhập"
-              subtitle="Quản lý các thiết bị đã đăng nhập"
+              title="Thiet bi dang nhap"
+              subtitle="Quan ly cac thiet bi da dang nhap"
               onPress={handleDevicesPress}
               isLast
             />
           </View>
 
-          {/* Logout Button */}
+          {canSelectAdminBranch(role) ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Chi nhanh quan tri</Text>
+              <SecurityRow
+                icon="map"
+                title="Chi nhanh hien tai"
+                subtitle={selectedBranchName}
+                onPress={() => setBranchModalOpen(true)}
+                isLast
+              />
+            </View>
+          ) : null}
+
           <Pressable style={styles.logoutButton} onPress={handleLogout}>
             <Feather name="log-out" size={18} color={palette.danger} />
-            <Text style={styles.logoutButtonText}>Đăng xuất</Text>
+            <Text style={styles.logoutButtonText}>Dang xuat</Text>
           </Pressable>
         </ScrollView>
 
-        {/* Edit Modal */}
         <Modal visible={editingField !== null} transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setEditingField(null)}>
-            <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>Chỉnh sửa {getEditLabel(editingField)}</Text>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+              <Text style={styles.modalTitle}>Chinh sua {getEditLabel(editingField)}</Text>
               <View style={styles.modalInputWrapper}>
                 <TextInput
                   style={styles.modalInput}
                   value={editValue}
                   onChangeText={setEditValue}
-                  placeholder={`Nhập ${getEditLabel(editingField)}`}
+                  placeholder={`Nhap ${getEditLabel(editingField)}`}
                   placeholderTextColor={palette.textMuted}
                   autoFocus
                 />
               </View>
               <View style={styles.modalButtons}>
                 <Pressable style={styles.modalCancelButton} onPress={() => setEditingField(null)}>
-                  <Text style={styles.modalCancelText}>Hủy</Text>
+                  <Text style={styles.modalCancelText}>Huy</Text>
                 </Pressable>
                 <Pressable style={styles.modalSaveButton} onPress={saveEdit} disabled={saving}>
-                  <Text style={styles.modalSaveText}>{saving ? "Đang lưu..." : "Lưu"}</Text>
+                  <Text style={styles.modalSaveText}>{saving ? "Dang luu..." : "Luu"}</Text>
                 </Pressable>
               </View>
             </Pressable>
           </Pressable>
         </Modal>
 
-        {/* Bottom Navigation */}
+        <Modal visible={branchModalOpen} transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setBranchModalOpen(false)}>
+            <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+              <Text style={styles.modalTitle}>Chon chi nhanh</Text>
+              <View style={styles.branchOptionList}>
+                {branchOptions.map((branch) => {
+                  const active = branch.id === profileData?.branchId;
+                  return (
+                    <Pressable
+                      key={branch.id}
+                      style={[styles.branchOptionRow, active ? styles.branchOptionRowActive : null]}
+                      onPress={() => void handleBranchChange(branch.id)}
+                      disabled={saving}
+                    >
+                      <View style={styles.branchOptionCopy}>
+                        <Text style={styles.branchOptionTitle}>{branch.name}</Text>
+                        <Text style={styles.branchOptionSubtitle}>
+                          {active ? "Dang su dung" : "Chuyen du lieu quan tri sang chi nhanh nay"}
+                        </Text>
+                      </View>
+                      {active ? <Feather name="check-circle" size={20} color={palette.primary} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <View style={[styles.bottomBar, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
           <AdminBottomNav current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
         </View>
@@ -288,7 +333,19 @@ export default function AdminSettingsScreen() {
   );
 }
 
-function InfoRow({ icon, label, value, onPress, isLast = false }: { icon: React.ComponentProps<typeof Feather>["name"]; label: string; value: string; onPress: (() => void) | null; isLast?: boolean }) {
+function InfoRow({
+  icon,
+  label,
+  value,
+  onPress,
+  isLast = false,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  label: string;
+  value: string;
+  onPress: (() => void) | null;
+  isLast?: boolean;
+}) {
   return (
     <Pressable style={[styles.infoRow, !isLast && styles.infoRowBorder]} onPress={onPress} disabled={!onPress}>
       <View style={styles.infoIconCircle}>
@@ -296,14 +353,28 @@ function InfoRow({ icon, label, value, onPress, isLast = false }: { icon: React.
       </View>
       <View style={styles.infoContent}>
         <Text style={styles.infoLabel}>{label}</Text>
-        <Text style={styles.infoValue} numberOfLines={1}>{value}</Text>
+        <Text style={styles.infoValue} numberOfLines={1}>
+          {value}
+        </Text>
       </View>
-      {onPress && <Feather name="chevron-right" size={20} color={palette.textMuted} />}
+      {onPress ? <Feather name="chevron-right" size={20} color={palette.textMuted} /> : null}
     </Pressable>
   );
 }
 
-function SecurityRow({ icon, title, subtitle, onPress, isLast = false }: { icon: React.ComponentProps<typeof Feather>["name"]; title: string; subtitle: string; onPress: () => void; isLast?: boolean }) {
+function SecurityRow({
+  icon,
+  title,
+  subtitle,
+  onPress,
+  isLast = false,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  isLast?: boolean;
+}) {
   return (
     <Pressable style={[styles.securityRow, !isLast && styles.securityRowBorder]} onPress={onPress}>
       <View style={styles.securityIconCircle}>
@@ -325,10 +396,6 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingVertical: 8, marginBottom: 8 },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, fontSize: 22, fontWeight: "800", color: palette.textPrimary, textAlign: "center", letterSpacing: -0.4 },
-  headerActions: { flexDirection: "row", gap: 4 },
-  headerIconButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
-  bellBadge: { position: "absolute", top: 6, right: 6, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: palette.danger, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
-  bellBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800" },
   card: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 20, gap: 0 },
   cardTitle: { fontSize: 16, fontWeight: "700", color: palette.textPrimary, marginBottom: 16 },
   infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 14 },
@@ -347,7 +414,7 @@ const styles = StyleSheet.create({
   logoutButtonText: { fontSize: 15, fontWeight: "700", color: palette.danger },
   bottomBar: { position: "absolute", left: 0, right: 0, bottom: 0, backgroundColor: "rgba(255,255,255,0.98)", borderTopWidth: 1, borderTopColor: palette.border, paddingHorizontal: 14, paddingTop: 8 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalCard: { backgroundColor: palette.card, borderRadius: 24, padding: 24, width: "85%" },
+  modalCard: { backgroundColor: palette.card, borderRadius: 24, padding: 24, width: "85%", maxWidth: 420 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: palette.textPrimary, textAlign: "center", marginBottom: 20 },
   modalInputWrapper: { borderWidth: 1, borderColor: palette.border, borderRadius: 14, backgroundColor: palette.beigeLight, marginBottom: 20 },
   modalInput: { fontSize: 16, color: palette.textPrimary, padding: 16 },
@@ -356,4 +423,10 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 15, fontWeight: "600", color: palette.textSecondary },
   modalSaveButton: { flex: 1, height: 48, borderRadius: 14, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center" },
   modalSaveText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
+  branchOptionList: { gap: 10 },
+  branchOptionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 14, backgroundColor: palette.beigeLight },
+  branchOptionRowActive: { borderColor: palette.primary, backgroundColor: palette.beige },
+  branchOptionCopy: { flex: 1, gap: 3 },
+  branchOptionTitle: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
+  branchOptionSubtitle: { fontSize: 12, color: palette.textSecondary },
 });

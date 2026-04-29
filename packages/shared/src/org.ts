@@ -52,6 +52,7 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
     .from("branches")
     .select("id")
     .eq("org_id", orgId)
+    .order("created_at", { ascending: true })
     .limit(1);
 
   if (currentBranchErr) {

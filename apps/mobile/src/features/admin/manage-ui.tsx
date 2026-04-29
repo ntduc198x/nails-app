@@ -6,7 +6,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "rea
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MANAGE_SCREEN_ITEMS, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
 import { getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
-import { AdminBottomNav, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
@@ -44,7 +44,7 @@ export function useManageOwnerGuard() {
   useEffect(() => {
     if (!session.isHydrated) return;
     if (isOwnerRole(session.role)) return;
-    void router.replace("/(admin)/shifts");
+    void router.push("/(admin)/shifts");
   }, [router, session.isHydrated, session.role]);
 
   return {
@@ -157,9 +157,7 @@ export function ManageScreenShell({
               <Text style={styles.headerTitle}>{title}</Text>
               <Text style={styles.headerSubtitle}>{subtitle}</Text>
             </View>
-            <Pressable style={styles.headerButton} onPress={() => void router.push("/(admin)/settings")}>
-              <Feather name="settings" size={20} color={palette.text} />
-            </Pressable>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
           </View>
 
           <ManageModuleTabs currentKey={currentKey} group={group} />

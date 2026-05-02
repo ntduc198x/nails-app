@@ -82,10 +82,6 @@ function parseDecimal(value: string) {
   return Number(value.replace(/[^\d.]/g, "") || 0);
 }
 
-function isLookbookSample(row: Pick<ServiceRow, "featured_in_lookbook">) {
-  return Boolean(row.featured_in_lookbook);
-}
-
 function serviceToFormState(row: ServiceRow): ServiceFormState {
   return {
     name: row.name,
@@ -156,7 +152,6 @@ export default function ServicesPage() {
   }, [rows, search]);
 
   const activeCount = useMemo(() => rows.filter((row) => row.active).length, [rows]);
-  const featuredCount = useMemo(() => rows.filter((row) => row.featured_in_lookbook).length, [rows]);
   const sampleCount = useMemo(() => rows.filter((row) => row.active && Boolean(row.featured_in_lookbook)).length, [rows]);
   const activeServiceCount = useMemo(() => rows.filter((row) => row.active && !row.featured_in_lookbook).length, [rows]);
 
@@ -600,7 +595,7 @@ export default function ServicesPage() {
                     <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">Mẫu lookbook / trend</h4>
                     <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-medium text-amber-800">{lookbookSampleRows.length}</span>
                   </div>
-                  <p className="mb-2 text-xs text-amber-800/80">Những mục bắt đầu bằng "Mẫu ..." là item phục vụ landing/lookbook, không phải dịch vụ vận hành chính.</p>
+                  <p className="mb-2 text-xs text-amber-800/80">Những mục bắt đầu bằng &quot;Mẫu ...&quot; là item phục vụ landing/lookbook, không phải dịch vụ vận hành chính.</p>
                   <div className="space-y-1.5">
                     {lookbookSampleRows.map((s) => {
                       const isEditing = editingId === s.id;

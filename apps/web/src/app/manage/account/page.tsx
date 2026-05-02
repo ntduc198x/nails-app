@@ -346,7 +346,7 @@ export default function AccountPage() {
                 <div className="rounded-2xl bg-neutral-50 p-3 text-xs text-neutral-600">
                   <b>Cách liên kết:</b>
                   <ol className="mt-1 list-decimal pl-4 space-y-0.5">
-                    <li>Bấm "Tạo mã liên kết" bên dưới</li>
+                    <li>Bấm &quot;Tạo mã liên kết&quot; bên dưới</li>
                     <li>Mở bot hoặc chat Telegram đã cấu hình → gửi <code className="bg-neutral-200 px-1 rounded">/link MÃ</code></li>
                     <li>Ví dụ: <code className="bg-neutral-200 px-1 rounded">/link 482910</code></li>
                   </ol>

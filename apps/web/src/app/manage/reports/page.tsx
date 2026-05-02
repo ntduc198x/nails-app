@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
+import { MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, reportsQuickNav } from "@/components/manage-quick-nav";
 import { listUserRoles } from "@/lib/auth";
 import { getCrmDashboardMetrics } from "@/lib/crm";
@@ -77,7 +77,6 @@ export default function ReportsPage() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
   const [mobileTicketsLimit, setMobileTicketsLimit] = useState(12);
-  const [mobileTicketsOpen, setMobileTicketsOpen] = useState(false);
 
   const [rows, setRows] = useState<ReportTicketRow[]>([]);
   const [breakdown, setBreakdown] = useState<{
@@ -383,7 +382,6 @@ export default function ReportsPage() {
               <button
                 className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700"
                 onClick={() => {
-                  setMobileTicketsOpen(true);
                   requestAnimationFrame(() => ticketsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
               >

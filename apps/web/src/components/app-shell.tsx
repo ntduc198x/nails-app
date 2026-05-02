@@ -217,12 +217,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!supabase) return;
-    let disposed = false;
 
     async function ensureAppSession() {
       if (!supabase) return;
       const { session, invalidRefreshToken } = await getSafeSupabaseSession();
-      if (invalidRefreshToken || !session?.user || disposed) return;
+      if (invalidRefreshToken || !session?.user) return;
 
       const validation = await validateAppSession();
       if (!validation.valid && validation.reason === "INVALID_TOKEN") {

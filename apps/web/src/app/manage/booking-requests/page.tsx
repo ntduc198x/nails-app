@@ -13,7 +13,6 @@ import {
   BookingRequestStatus,
   checkAppointmentCapacity,
   convertBookingRequestToAppointment,
-  deleteBookingRequest,
   listBookingRequests,
   updateBookingRequestStatus,
 } from "@/lib/booking-requests";
@@ -294,34 +293,6 @@ export default function BookingRequestsPage() {
       await load({ silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Hủy yêu cầu đặt lịch thất bại");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function onDelete(id: string) {
-    if (!window.confirm("Xóa vĩnh viễn yêu cầu đặt lịch này?")) return;
-    try {
-      setSubmitting(true);
-      setError(null);
-      await deleteBookingRequest(id);
-      if (selectedId === id) setSelectedId(null);
-      await load({ silent: true });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Xóa yêu cầu đặt lịch thất bại");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  async function onMarkNeedsReschedule(id: string) {
-    try {
-      setSubmitting(true);
-      setError(null);
-      await updateBookingRequestStatus(id, "NEEDS_RESCHEDULE");
-      await load({ silent: true });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Cập nhật yêu cầu đặt lịch thất bại");
     } finally {
       setSubmitting(false);
     }

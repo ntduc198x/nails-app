@@ -165,15 +165,6 @@ function isOnlineBooked(row: AppointmentRow) {
   return booking?.source === "landing_page";
 }
 
-function rankStatus(status: string) {
-  if (status === "BOOKED") return 0;
-  if (status === "CHECKED_IN") return 1;
-  if (status === "DONE") return 2;
-  if (status === "NO_SHOW") return 3;
-  if (status === "CANCELLED") return 4;
-  return 5;
-}
-
 function isOverdueBooked(row: AppointmentRow) {
   if (row.status !== "BOOKED") return false;
   const threshold = Date.now() - OVERDUE_GRACE_MINUTES * 60 * 1000;
@@ -319,7 +310,7 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
               ) : (
                 <span className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-400">Không thể hủy</span>
               )}
-              
+
             </>
           )}
           {row.status === "CHECKED_IN" ? (
@@ -351,12 +342,10 @@ export default function OperationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
-  const [showRangeFilters, setShowRangeFilters] = useState(false);
   const [fromDate, setFromDate] = useState(toDateInputValue(now));
   const [toDate, setToDate] = useState(toDateInputValue(now));
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [showDetailList, setShowDetailList] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [prefilledCustomerId, setPrefilledCustomerId] = useState<string | null>(null);
   const formRef = useRef<HTMLElement | null>(null);
@@ -364,7 +353,6 @@ export default function OperationsPage() {
 
   function openFilteredDetails(nextStatus: string) {
     setStatusFilter(nextStatus);
-    setShowDetailList(true);
     requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
@@ -609,13 +597,7 @@ export default function OperationsPage() {
         ? "rounded-2xl border-2 border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-5 py-4 text-sm font-bold text-violet-900 shadow-lg shadow-violet-200/50 animate-pulse"
         : "rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-600 shadow-sm";
 
-  const topStatusBarClass = overdueBookedRows.length > 0
-    ? "rounded-2xl border border-amber-400 bg-gradient-to-r from-amber-100 via-amber-50 to-white px-4 py-3 text-sm font-semibold text-amber-950 ring-2 ring-amber-200 shadow-lg shadow-amber-100"
-    : criticalCheckedInRows.length > 0
-      ? "rounded-2xl border border-fuchsia-400 bg-gradient-to-r from-fuchsia-100 via-fuchsia-50 to-white px-4 py-3 text-sm font-semibold text-fuchsia-950 ring-2 ring-fuchsia-200 shadow-lg shadow-fuchsia-100"
-      : staleCheckedInRows.length > 0
-        ? "rounded-2xl border border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-4 py-3 text-sm font-semibold text-violet-950 ring-2 ring-violet-200 shadow-lg shadow-violet-100"
-        : "rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
+
   return (
     <AppShell>
       <div className="space-y-6 pb-24 md:pb-0">
@@ -637,8 +619,7 @@ export default function OperationsPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowDetailList(true);
-                  requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                                requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
                 className="cursor-pointer rounded-2xl border border-neutral-300 bg-neutral-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-700"
               >

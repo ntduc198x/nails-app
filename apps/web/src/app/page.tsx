@@ -117,7 +117,6 @@ export default function LandingPage() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState("");
-  const [preferredStaff, setPreferredStaff] = useState("");
   const [note, setNote] = useState("");
   const [viewMonth, setViewMonth] = useState(todayDate.getMonth());
   const [viewYear, setViewYear] = useState(todayDate.getFullYear());
@@ -405,11 +404,11 @@ export default function LandingPage() {
               Câu chuyện của <span>Chạm</span>
             </h2>
             <p style={{ marginBottom: 20 }}>
-              "Chạm" không chỉ là hành động vật lý, mà là sự giao thoa của cảm xúc. Tại <strong>Chạm Beauty</strong>,
+              &quot;Chạm&quot; không chỉ là hành động vật lý, mà là sự giao thoa của cảm xúc. Tại <strong>Chạm Beauty</strong>,
               chúng tôi tin rằng đôi bàn tay là nơi lưu giữ câu chuyện của người phụ nữ.
             </p>
             <p>
-              Với triết lý <em>"Less is More"</em>, mỗi thiết kế tại Chạm đều hướng đến sự tinh tế, loại bỏ những chi tiết
+              Với triết lý <em>&quot;Less is More&quot;</em>, mỗi thiết kế tại Chạm đều hướng đến sự tinh tế, loại bỏ những chi tiết
               thừa thãi để tôn lên vẻ đẹp tự nhiên và sang trọng vốn có của bạn.
             </p>
             <div className="landing-about__experience">
@@ -494,7 +493,7 @@ export default function LandingPage() {
               Đừng để vẻ đẹp phải chờ đợi. Hãy để lại thông tin, Chạm Beauty sẽ liên hệ xác nhận lịch hẹn của bạn trong
               thời gian sớm nhất.
             </p>
-            <p className="landing-booking-quote">"Vẻ đẹp bền vững bắt đầu từ sự chăm sóc"</p>
+            <p className="landing-booking-quote">&quot;Vẻ đẹp bền vững bắt đầu từ sự chăm sóc&quot;</p>
             <div className="landing-booking-contact-item"><span>📍</span><span>38A ngách: 358/40 Bùi Xương Trạch, Khương Định</span></div>
             <div className="landing-booking-contact-item"><span>📞</span><span>0916.080398 - 0966.742573</span></div>
             <div className="landing-booking-contact-item"><span>🕘</span><span>09:00 - 21:00 (T2 - CN)</span></div>
@@ -652,7 +651,7 @@ export default function LandingPage() {
               Hơn cả một dịch vụ, đó là trải nghiệm dành riêng cho bạn. Không gian của Chạm Beauty luôn mở cửa đón bạn trở
               lại.
             </p>
-            <p className="landing-footer-quote">"Tinh tế trong từng vân móng, kiêu hãnh trong từng cử chỉ."</p>
+            <p className="landing-footer-quote">&quot;Tinh tế trong từng vân móng, kiêu hãnh trong từng cử chỉ.&quot;</p>
           </div>
           <div className="landing-footer-col-info">
             <h4>Thông tin liên hệ</h4>

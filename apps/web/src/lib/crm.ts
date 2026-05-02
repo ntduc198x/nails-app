@@ -281,7 +281,7 @@ export async function getCustomerCrmDetail(customerId: string): Promise<Customer
     .eq("org_id", orgId)
     .eq("id", customerId)
     .maybeSingle();
-  let customerData = customerRes.data as Record<string, unknown> | null;
+  const customerData = customerRes.data as Record<string, unknown> | null;
 
   if (customerRes.error) {
     const fallback = await supabase

@@ -48,25 +48,6 @@ type CheckedInAppointment = {
 };
 type RangeMode = "day" | "week" | "month" | "custom";
 
-function MobileCollapsible({
-  summary,
-  children,
-}: {
-  summary: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-3 rounded-3xl border border-neutral-200 bg-white/95 p-4 shadow-[0_18px_60px_-28px_rgba(15,23,42,0.3)]">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-neutral-900">Chi tiet bill</h3>
-        <span className="text-xs text-neutral-500">{summary}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function mapCheckoutError(message: string) {
   if (message.includes("INVALID_SERVICES")) return "Dịch vụ không hợp lệ hoặc đã bị xóa.";
   if (message.includes("FORBIDDEN")) return "Bạn không có quyền tạo checkout.";

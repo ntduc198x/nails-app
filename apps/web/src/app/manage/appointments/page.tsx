@@ -2,6 +2,7 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
+import { ManageBookingRequestsPanel } from "@/components/manage-booking-requests-panel";
 import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-datetime-picker";
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
@@ -9,7 +10,8 @@ import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type AppointmentRow = {
   id: string;
@@ -333,7 +335,9 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
   );
 }
 
-export default function OperationsPage() {
+function OperationsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const now = roundToNextSlot(new Date());
   const [customerName, setCustomerName] = useState("");
   const [autoTime, setAutoTime] = useState(true);
@@ -361,6 +365,14 @@ export default function OperationsPage() {
   const [prefilledCustomerId, setPrefilledCustomerId] = useState<string | null>(null);
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const activeTab = searchParams.get("tab") === "web-booking" ? "web-booking" : "calendar";
+
+  function switchTab(nextTab: "calendar" | "web-booking") {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextTab === "calendar") params.set("tab", "calendar");
+    else params.set("tab", "web-booking");
+    router.replace(`/manage/appointments?${params.toString()}`);
+  }
 
   function openFilteredDetails(nextStatus: string) {
     setStatusFilter(nextStatus);
@@ -616,6 +628,33 @@ export default function OperationsPage() {
       : staleCheckedInRows.length > 0
         ? "rounded-2xl border border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-4 py-3 text-sm font-semibold text-violet-950 ring-2 ring-violet-200 shadow-lg shadow-violet-100"
         : "rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
+
+  if (activeTab === "web-booking") {
+    return (
+      <AppShell>
+        <div className="space-y-6 pb-24 md:pb-0">
+          <ManageQuickNav items={operationsQuickNav("/manage/appointments")} />
+
+          <MobileSectionHeader
+            title="Điều phối lịch"
+            meta={<div className="manage-info-box">Appointments hiện đang mở tab Web Booking</div>}
+          />
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => switchTab("calendar")} className="manage-quick-link">
+              Lịch hẹn
+            </button>
+            <button type="button" onClick={() => switchTab("web-booking")} className="manage-quick-link-accent">
+              Web Booking
+            </button>
+          </div>
+
+          <ManageBookingRequestsPanel showHeader={false} />
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="space-y-6 pb-24 md:pb-0">
@@ -625,6 +664,14 @@ export default function OperationsPage() {
           title="Điều phối lịch"
           meta={<div className={nextActionMetaClass}>{refreshing ? "Đang làm mới..." : nextActionLabel}</div>}
         />
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => switchTab("calendar")} className="manage-quick-link-accent">
+            Lịch hẹn
+          </button>
+          <button type="button" onClick={() => switchTab("web-booking")} className="manage-quick-link">
+            Web Booking
+          </button>
+        </div>
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <>
@@ -816,6 +863,20 @@ export default function OperationsPage() {
         </>
       </div>
     </AppShell>
+  );
+}
+
+export default function OperationsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell>
+          <div className="p-6 text-sm text-neutral-500">Đang tải lịch hẹn...</div>
+        </AppShell>
+      }
+    >
+      <OperationsPageContent />
+    </Suspense>
   );
 }
 

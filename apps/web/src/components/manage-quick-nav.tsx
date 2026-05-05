@@ -7,7 +7,6 @@ export type ManageQuickNavItem = {
 };
 
 export const operationsQuickNav = (activeHref: string): ManageQuickNavItem[] => [
-  { href: "/manage/booking-requests", label: "Web Booking", accent: activeHref === "/manage/booking-requests" },
   { href: "/manage/appointments", label: "Điều phối lịch", accent: activeHref === "/manage/appointments" },
   { href: "/manage/checkout", label: "Thanh toán", accent: activeHref === "/manage/checkout" },
   { href: "/manage/shifts", label: "Ca làm", accent: activeHref === "/manage/shifts" },

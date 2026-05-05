@@ -55,11 +55,13 @@ export function ManageDateTimePicker({
   value,
   onChange,
   compact = false,
+  theme = "default",
 }: {
   label: string;
   value?: string;
   onChange: (nextValue: string) => void;
   compact?: boolean;
+  theme?: "default" | "landing";
 }) {
   const todayDate = useMemo(() => {
     const now = new Date();

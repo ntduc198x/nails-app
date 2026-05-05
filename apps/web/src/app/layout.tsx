@@ -10,7 +10,7 @@ const inter = Inter({
 const montserrat = Montserrat({
   variable: "--font-montserrat",
   subsets: ["latin", "vietnamese"],
-  weight: ["300", "400", "500", "600"],
+  weight: ["300", "400", "500", "600", "700"],
 });
 
 const cormorant = Cormorant_Garamond({
@@ -40,7 +40,8 @@ export const metadata: Metadata = {
     default: "Chạm Beauty | Nail Art & Beauty Studio",
     template: "%s | Chạm Beauty",
   },
-  description: "Chạm Beauty - Luxury nail art studio, đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+  description:
+    "Chạm Beauty - Luxury nail art studio, đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
   applicationName: "Chạm Beauty",
   keywords: ["Chạm Beauty", "nail art", "nail studio", "đặt lịch nails", "beauty studio", "chăm sóc móng"],
   alternates: {
@@ -51,13 +52,15 @@ export const metadata: Metadata = {
     url: "https://chambeauty.io.vn",
     siteName: "Chạm Beauty",
     title: "Chạm Beauty | Nail Art & Beauty Studio",
-    description: "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+    description:
+      "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
     locale: "vi_VN",
   },
   twitter: {
     card: "summary_large_image",
     title: "Chạm Beauty | Nail Art & Beauty Studio",
-    description: "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
+    description:
+      "Luxury nail art studio - đặt lịch chăm sóc móng và làm đẹp với trải nghiệm tinh tế, chỉn chu và cao cấp.",
   },
   icons: {
     icon: "/favicon.ico",
@@ -71,7 +74,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="vi" data-scroll-behavior="smooth">
-      <body suppressHydrationWarning className={`${inter.variable} ${montserrat.variable} ${cormorant.variable} ${geistMono.variable} antialiased`}>
+      <body
+        suppressHydrationWarning
+        className={`${inter.variable} ${montserrat.variable} ${cormorant.variable} ${geistMono.variable} antialiased`}
+      >
         {children}
       </body>
     </html>

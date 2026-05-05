@@ -20,12 +20,49 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
-const navGroups = [
+type ManageNavHref =
+  | "/manage/landing"
+  | "/manage/appointments"
+  | "/manage/booking-requests"
+  | "/manage/checkout"
+  | "/manage/shifts"
+  | "/manage/services"
+  | "/manage/resources"
+  | "/manage/team"
+  | "/manage/customers"
+  | "/manage/reports"
+  | "/manage/tax-books";
+
+type NavItem = {
+  href: ManageNavHref;
+  label: string;
+  desc: string;
+};
+
+type NavGroup = {
+  label: string;
+  href: ManageNavHref;
+  items: NavItem[];
+};
+
+const customerNavItem: NavItem = {
+  href: "/manage/customers",
+  label: "CRM khách",
+  desc: "Hồ sơ khách, follow-up, chăm sóc lại",
+};
+
+const navGroups: NavGroup[] = [
+  {
+    label: "Landing Page",
+    href: "/manage/landing",
+    items: [
+      { href: "/manage/landing", label: "Landing Page", desc: "Feed bài viết, overview landing, điều hướng quản trị nhanh" },
+    ],
+  },
   {
     label: "Vận hành",
-    href: "/manage/booking-requests",
+    href: "/manage/appointments",
     items: [
-      { href: "/manage/booking-requests", label: "Web Booking", desc: "Booking từ landing page" },
       { href: "/manage/appointments", label: "Điều phối lịch", desc: "Lịch hẹn, check-in, mở phiếu, vận hành" },
       { href: "/manage/checkout", label: "Thanh toán", desc: "Ticket, thanh toán, hóa đơn" },
       { href: "/manage/shifts", label: "Ca làm", desc: "Chấm công và ca trong ngày" },
@@ -49,17 +86,17 @@ const navGroups = [
       { href: "/manage/tax-books", label: "Sổ thuế", desc: "Mẫu S1a xuất file" },
     ],
   },
-] as const;
+];
 
 function canAccess(role: AppRole, href: string) {
   if (href === "/manage/account") return true;
   if (role === "OWNER") return true;
   if (role === "MANAGER") return href !== "/manage/tax-books";
   if (role === "RECEPTION") {
-    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers"].includes(href);
+    return ["/manage", "/manage/landing", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers"].includes(href);
   }
   if (role === "TECH") {
-    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
+    return ["/manage", "/manage/landing", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
   }
   if (role === "ACCOUNTANT") {
     return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
@@ -278,12 +315,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const visibleGroups = useMemo(() => {
     if (role === "TECH") {
-      const operationalGroup = navGroups.find((group) => group.label === "Vận hành");
-      return (operationalGroup?.items ?? []).filter((item) => canAccess(role, item.href)).map((item) => ({
-        label: item.label,
-        href: item.href,
-        items: [item],
-      }));
+      return navGroups
+        .flatMap((group) => group.items)
+        .filter((item) => canAccess(role, item.href))
+        .map((item) => ({
+          label: item.label,
+          href: item.href,
+          items: [item],
+        }));
     }
 
     return navGroups
@@ -295,7 +334,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         const items = group.href === "/manage/reports" && canAccess(role, "/manage/customers")
           ? [
-              { href: "/manage/customers", label: "CRM khách", desc: "Hồ sơ khách, follow-up, chăm sóc lại" },
+              customerNavItem,
               ...baseItems.filter((item) => item.href !== "/manage/customers"),
             ]
           : baseItems;
@@ -376,7 +415,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   function renderItemLabel(label: string, href: string) {
-    const isBookingRequests = href === "/manage/booking-requests";
+    const isBookingRequests = href === "/manage/appointments";
     return (
       <span className="inline-flex items-center gap-2">
         <span>{label}</span>
@@ -448,7 +487,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {visibleGroups.map((group) => {
               const active = group.items.some((item) => item.href === pathname);
               const hovered = hoveredGroup === group.label;
-              const directHref = ("href" in group ? group.href : undefined) ?? group.items[0]?.href ?? "/";
+              const directHref = group.href;
 
               if (group.items.length === 1) {
                 return (

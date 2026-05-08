@@ -24,6 +24,9 @@
 - `app_sessions.sql`
   - self-contained single-device + app-session layer
   - now includes `device_sessions`, `app_sessions`, `online_users`, and related RPCs
+- `auth_runtime_patch_2026_05_user_roles_conflict.sql`
+  - runtime fix for auth/login `42P10`
+  - removes invalid `ON CONFLICT (user_id, org_id, role)` from auth role bootstrap path
 - `fresh_project_patch.sql`
   - default org/branch bootstrap
   - auto-create `profiles` + first role on `auth.users` insert
@@ -33,6 +36,12 @@
 - `customer_content_feed_2026_04.sql`
   - creates `customer_content_posts`
   - enables published content feed for customer Home and Telegram content ingestion
+- `customer_mobile_schema_2026_04.sql`
+  - creates `customer_accounts` and customer-facing mobile tables
+  - includes `link_customer_account_by_phone()`
+- `customer_mobile_runtime_patch_2026_05.sql`
+  - runtime-safe fix for `link_customer_account_by_phone()`
+  - removes dependency on `ON CONFLICT (user_id)` for drifted environments
 - `shift_plans_2026_04.sql`
   - persists weekly owner shift drafts/published schedules as JSON
   - lets staff read the published schedule from the same source of truth
@@ -54,12 +63,15 @@ For selective patching on an existing project:
 1. `crm_patch_2026_04.sql`
 2. `fix_convert_booking_request_secure.sql`
 3. `app_sessions.sql`
-4. `fresh_project_patch.sql`
-5. `auth_workspace_patch_2026_04.sql`
-6. `customer_explore_storefront_2026_04.sql`
-7. `customer_content_feed_2026_04.sql`
-8. `shift_plans_2026_04.sql`
-9. `staff_shift_profiles_2026_04.sql`
+4. `auth_runtime_patch_2026_05_user_roles_conflict.sql` if login/signup hits `42P10` on `user_roles`
+5. `fresh_project_patch.sql`
+6. `auth_workspace_patch_2026_04.sql`
+7. `customer_mobile_schema_2026_04.sql`
+8. `customer_mobile_runtime_patch_2026_05.sql` if login hits customer account linking errors on an existing DB
+9. `customer_explore_storefront_2026_04.sql`
+10. `customer_content_feed_2026_04.sql`
+11. `shift_plans_2026_04.sql`
+12. `staff_shift_profiles_2026_04.sql`
 
 `auth_workspace_patch_2026_04.sql`
 - fixes new auth users being bound to the placeholder default org when a real org already exists

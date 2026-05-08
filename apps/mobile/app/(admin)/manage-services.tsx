@@ -1,10 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   StyleSheet,
   Text,
@@ -169,7 +169,7 @@ function ServiceRowCard({
     <View style={styles.serviceCard}>
       <View style={styles.serviceHeaderRow}>
         <View style={styles.serviceIdentity}>
-          {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.serviceThumb} /> : (
+          {item.imageUrl ? <CachedAppImage source={{ uri: item.imageUrl }} style={styles.serviceThumb} /> : (
             <View style={[styles.serviceThumb, styles.serviceThumbFallback]}>
               <Feather name="image" size={16} color="#B8A999" />
             </View>
@@ -273,7 +273,7 @@ function ServiceRowCard({
           </View>
           {form.imageUrl ? (
             <View style={styles.previewRow}>
-              <Image source={{ uri: form.imageUrl }} style={styles.previewThumb} />
+              <CachedAppImage source={{ uri: form.imageUrl }} style={styles.previewThumb} />
               <Text style={styles.previewText}>Đã có ảnh preview</Text>
             </View>
           ) : null}
@@ -676,7 +676,7 @@ export default function AdminManageServicesScreen() {
           </View>
           {createForm.imageUrl ? (
             <View style={styles.previewRow}>
-              <Image source={{ uri: createForm.imageUrl }} style={styles.previewThumb} />
+              <CachedAppImage source={{ uri: createForm.imageUrl }} style={styles.previewThumb} />
               <Text style={styles.previewText}>Ảnh sẽ dùng cho lookbook/landing.</Text>
             </View>
           ) : null}

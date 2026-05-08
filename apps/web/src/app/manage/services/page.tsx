@@ -1,10 +1,12 @@
 "use client";
 
+import { AppLazyImage } from "@/components/app-lazy-image";
 import { AppShell } from "@/components/app-shell";
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createService, deleteService, listServices, updateService } from "@/lib/domain";
+import { canAccessManageSetup } from "@/lib/manage-setup-auth";
 import { formatVnd } from "@/lib/mock-data";
 import { uploadServiceImage } from "@/lib/service-images";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -122,6 +124,7 @@ export default function ServicesPage() {
   const trashSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
+  const canAccessPage = role ? canAccessManageSetup(role) : true;
 
   const load = useCallback(async (opts?: { force?: boolean }) => {
     const isInitial = rows.length === 0;
@@ -346,6 +349,17 @@ export default function ServicesPage() {
     }
   }
 
+  if (role && !canAccessPage) {
+    return (
+      <AppShell>
+        <div className="space-y-3 p-6 text-sm text-neutral-600">
+          <p className="font-semibold text-neutral-900">Bạn không có quyền vào khu thiết lập.</p>
+          <p>Vai trò hiện tại chỉ được dùng Điều phối lịch, Thanh toán và Ca làm.</p>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell>
       <div className="space-y-4 pb-24 md:pb-0">
@@ -435,7 +449,7 @@ export default function ServicesPage() {
                 </div>
                 {createForm.imageUrl ? (
                   <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-neutral-600">
-                    <img src={createForm.imageUrl} alt="Preview lookbook" className="h-10 w-10 rounded-lg object-cover" />
+                    <AppLazyImage alt="Preview lookbook" className="h-10 w-10 rounded-lg object-cover" height={40} src={createForm.imageUrl} width={40} />
                     <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                   </div>
                 ) : (
@@ -478,7 +492,7 @@ export default function ServicesPage() {
                   </div>
                   {createForm.imageUrl ? (
                     <div className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs text-neutral-600">
-                      <img src={createForm.imageUrl} alt="Preview lookbook" className="h-10 w-10 rounded-lg object-cover" />
+                      <AppLazyImage alt="Preview lookbook" className="h-10 w-10 rounded-lg object-cover" height={40} src={createForm.imageUrl} width={40} />
                       <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                     </div>
                   ) : (
@@ -526,7 +540,7 @@ export default function ServicesPage() {
                         <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2.5">
                           <div className="flex items-start justify-between gap-2.5">
                             <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                              {s.image_url ? <img src={s.image_url} alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" /> : null}
+                              {s.image_url ? <AppLazyImage alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" height={40} src={s.image_url} width={40} /> : null}
                               <div className="min-w-0 flex-1">
                                 {isEditing && editForm ? (
                                   <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1.5 text-[13px]" placeholder="Tên dịch vụ" />
@@ -576,7 +590,7 @@ export default function ServicesPage() {
                                 </div>
                                 {editForm.imageUrl ? (
                                   <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
-                                    <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                    <AppLazyImage alt="Preview" className="h-10 w-10 rounded-lg object-cover" height={40} src={editForm.imageUrl} width={40} />
                                     <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                                   </div>
                                 ) : null}
@@ -608,7 +622,7 @@ export default function ServicesPage() {
                         <div key={s.id} className="rounded-2xl border border-amber-200 bg-white p-2.5">
                           <div className="flex items-start justify-between gap-2.5">
                             <div className="flex min-w-0 flex-1 items-start gap-2.5">
-                              {s.image_url ? <img src={s.image_url} alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" /> : null}
+                              {s.image_url ? <AppLazyImage alt={s.name} className="h-10 w-10 shrink-0 rounded-xl object-cover" height={40} src={s.image_url} width={40} /> : null}
                               <div className="min-w-0 flex-1">
                                 {isEditing && editForm ? (
                                   <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1.5 text-[13px]" placeholder="Tên dịch vụ" />
@@ -658,7 +672,7 @@ export default function ServicesPage() {
                                 </div>
                                 {editForm.imageUrl ? (
                                   <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
-                                    <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                    <AppLazyImage alt="Preview" className="h-10 w-10 rounded-lg object-cover" height={40} src={editForm.imageUrl} width={40} />
                                     <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                                   </div>
                                 ) : null}
@@ -698,7 +712,7 @@ export default function ServicesPage() {
                         <div key={s.id} className="rounded-2xl border border-neutral-200 bg-white p-2">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex min-w-0 flex-1 items-start gap-2">
-                              {s.image_url ? <img src={s.image_url} alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" /> : null}
+                              {s.image_url ? <AppLazyImage alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" height={36} src={s.image_url} width={36} /> : null}
                               <div className="min-w-0 flex-1">
                                 {isEditing && editForm ? (
                                   <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1 text-[12px]" placeholder="Tên dịch vụ" />
@@ -760,7 +774,7 @@ export default function ServicesPage() {
                                 </div>
                                 {editForm.imageUrl ? (
                                   <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
-                                    <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                    <AppLazyImage alt="Preview" className="h-10 w-10 rounded-lg object-cover" height={40} src={editForm.imageUrl} width={40} />
                                     <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                                   </div>
                                 ) : null}
@@ -796,7 +810,7 @@ export default function ServicesPage() {
                       <div key={s.id} className="rounded-2xl border border-amber-200 bg-white p-2">
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex min-w-0 flex-1 items-start gap-2">
-                            {s.image_url ? <img src={s.image_url} alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" /> : null}
+                            {s.image_url ? <AppLazyImage alt={s.name} className="h-9 w-9 shrink-0 rounded-xl object-cover" height={36} src={s.image_url} width={36} /> : null}
                             <div className="min-w-0 flex-1">
                               {isEditing && editForm ? (
                                 <TextInput value={editForm.name} onChange={(e) => setEditForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))} className="max-w-xl py-1 text-[12px]" placeholder="Tên dịch vụ" />
@@ -856,7 +870,7 @@ export default function ServicesPage() {
                               </div>
                               {editForm.imageUrl ? (
                                 <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-600">
-                                  <img src={editForm.imageUrl} alt="Preview" className="h-10 w-10 rounded-lg object-cover" />
+                                  <AppLazyImage alt="Preview" className="h-10 w-10 rounded-lg object-cover" height={40} src={editForm.imageUrl} width={40} />
                                   <div className="min-w-0 flex-1 truncate">Đã có ảnh preview</div>
                                 </div>
                               ) : null}

@@ -82,6 +82,7 @@ export type CustomerMembershipSummary = {
   membershipId: string | null;
   currentTier: CustomerMembershipTier | null;
   nextTier: CustomerMembershipTier | null;
+  tiers: CustomerMembershipTier[];
   pointsBalance: number;
   lifetimePoints: number;
   totalSpent: number;
@@ -102,6 +103,16 @@ export type CustomerHistoryItem = {
   servicePriceLabel: string | null;
   serviceSummary: string | null;
   occurredAt: string;
+};
+
+export type CustomerUpcomingBookingItem = {
+  id: string;
+  requestedService: string;
+  preferredStaff: string | null;
+  requestedStartAt: string;
+  requestedEndAt: string | null;
+  status: string;
+  appointmentId: string | null;
 };
 
 async function getCustomerAccountContext(client: SharedSupabaseClient): Promise<CustomerAccountContext | null> {
@@ -134,6 +145,44 @@ async function getCustomerAccountContext(client: SharedSupabaseClient): Promise<
   };
 }
 
+async function ensureCustomerAccountContext(client: SharedSupabaseClient): Promise<CustomerAccountContext | null> {
+  const current = await getCustomerAccountContext(client);
+  if (current) {
+    return current;
+  }
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { error, data } = await client.rpc("link_customer_account_by_phone");
+  if (error) {
+    const errorMsg = error.message || "";
+    if (errorMsg.includes("PROFILE_NOT_FOUND") || errorMsg.includes("profile") || errorMsg.includes("not exist")) {
+      throw new Error("PROFILE_NOT_FOUND:Vui lòng cập nhật số điện thoại trong hồ sơ để lưu yêu thích.");
+    }
+    if (errorMsg.includes("phone") || errorMsg.includes("null")) {
+      throw new Error("PHONE_NOT_SET:Không tìm thấy số điện thoại. Vui lòng cập nhật hồ sơ.");
+    }
+    return null;
+  }
+
+  if (data === null || data === false) {
+    return null;
+  }
+
+  return getCustomerAccountContext(client);
+}
+
+function normalizePhone(value: string | null | undefined) {
+  if (!value) return "";
+  return value.replace(/[^\d]/g, "");
+}
+
 export async function getCustomerScopedContextForUser(
   client: SharedSupabaseClient,
   userId: string,
@@ -159,9 +208,10 @@ export async function getCustomerScopedContextForUser(
     throw accountResult.error;
   }
 
+  // Customer-facing data should follow the CRM/customer mapping first.
   const orgId =
-    (typeof profileResult.data?.org_id === "string" && profileResult.data.org_id) ||
     (typeof accountResult.data?.org_id === "string" && accountResult.data.org_id) ||
+    (typeof profileResult.data?.org_id === "string" && profileResult.data.org_id) ||
     null;
 
   if (!orgId) {
@@ -186,6 +236,15 @@ export async function getCustomerScopedContext(client: SharedSupabaseClient): Pr
   }
 
   return getCustomerScopedContextForUser(client, user.id);
+}
+
+export function getCustomerScopedContextForGuest(orgId: string, branchId: string | null = null): CustomerScopedContext {
+  return {
+    orgId,
+    branchId,
+    customerId: null,
+    userId: "guest",
+  };
 }
 
 function asRecord(value: unknown) {
@@ -347,10 +406,11 @@ export async function listCustomerHomeFeedForContext(
     client
       .from("services")
       .select(
-        "id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
       )
       .eq("org_id", context.orgId)
       .eq("active", true)
+      .eq("featured_in_lookbook", true)
       .eq("featured_in_home", true)
       .order("display_order_home", { ascending: true })
       .order("name", { ascending: true })
@@ -437,10 +497,11 @@ export async function listCustomerExploreForContext(
         client
           .from("services")
           .select(
-            "id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
           )
           .eq("org_id", context.orgId)
           .eq("active", true)
+          .eq("featured_in_lookbook", true)
           .eq("featured_in_explore", true)
           .order("display_order_explore", { ascending: true })
           .order("name", { ascending: true })
@@ -530,6 +591,7 @@ export async function listCustomerMembershipSummary(
       membershipId: null,
       currentTier: null,
       nextTier: null,
+      tiers: [],
       pointsBalance: 0,
       lifetimePoints: 0,
       totalSpent: 0,
@@ -593,6 +655,7 @@ export async function listCustomerMembershipSummary(
     membershipId: typeof membershipResult.data?.id === "string" ? membershipResult.data.id : null,
     currentTier,
     nextTier,
+    tiers,
     pointsBalance: Number(membershipResult.data?.points_balance ?? 0),
     lifetimePoints: Number(membershipResult.data?.lifetime_points ?? 0),
     totalSpent,
@@ -633,23 +696,34 @@ export async function setCustomerFavoriteService(
   client: SharedSupabaseClient,
   input: { serviceId: string; isFavorite: boolean },
 ): Promise<void> {
-  const context = await getCustomerAccountContext(client);
+  const context = await ensureCustomerAccountContext(client);
   if (!context) {
     throw new Error("CUSTOMER_ACCOUNT_NOT_LINKED");
   }
 
   if (input.isFavorite) {
-    const { error } = await client.from("customer_favorite_services").upsert(
-      {
+    const { data: existingFavorite, error: existingFavoriteError } = await client
+      .from("customer_favorite_services")
+      .select("user_id")
+      .eq("org_id", context.orgId)
+      .eq("user_id", context.userId)
+      .eq("service_id", input.serviceId)
+      .maybeSingle();
+
+    if (existingFavoriteError) {
+      throw existingFavoriteError;
+    }
+
+    if (!existingFavorite?.user_id) {
+      const { error: insertError } = await client.from("customer_favorite_services").insert({
         user_id: context.userId,
         org_id: context.orgId,
         service_id: input.serviceId,
-      },
-      { onConflict: "user_id,service_id" },
-    );
+      });
 
-    if (error) {
-      throw error;
+      if (insertError) {
+        throw insertError;
+      }
     }
 
     return;
@@ -732,4 +806,112 @@ export async function listCustomerHistory(
   }
 
   return history;
+}
+
+export async function listCustomerUpcomingBookings(
+  client: SharedSupabaseClient,
+  options: { limit?: number } = {},
+): Promise<CustomerUpcomingBookingItem[]> {
+  const context = await getCustomerAccountContext(client);
+  if (!context) {
+    return [];
+  }
+
+  const [profileResult, customerResult, bookingRequestsResult] = await Promise.all([
+    client
+      .from("profiles")
+      .select("phone")
+      .eq("user_id", context.userId)
+      .maybeSingle(),
+    client
+      .from("customers")
+      .select("phone")
+      .eq("id", context.customerId)
+      .maybeSingle(),
+    client
+      .from("booking_requests")
+      .select("id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id")
+      .eq("org_id", context.orgId)
+      .gte("requested_start_at", new Date().toISOString())
+      .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
+      .order("requested_start_at", { ascending: true })
+      .limit(Math.max(options.limit ?? 12, 48)),
+  ]);
+
+  if (profileResult.error) {
+    throw profileResult.error;
+  }
+  if (customerResult.error) {
+    throw customerResult.error;
+  }
+  if (bookingRequestsResult.error) {
+    throw bookingRequestsResult.error;
+  }
+
+  const phoneCandidates = new Set(
+    [profileResult.data?.phone, customerResult.data?.phone]
+      .map((value) => normalizePhone(typeof value === "string" ? value : null))
+      .filter(Boolean),
+  );
+
+  if (!phoneCandidates.size) {
+    return [];
+  }
+
+  const rows = ((bookingRequestsResult.data ?? []) as Array<Record<string, unknown>>).filter((row) =>
+    phoneCandidates.has(normalizePhone(typeof row.customer_phone === "string" ? row.customer_phone : null)),
+  );
+
+  const appointmentIds = rows
+    .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
+    .filter((value): value is string => Boolean(value));
+
+  const appointmentStatusMap = new Map<string, { status: string; startAt: string }>();
+  if (appointmentIds.length) {
+    const appointmentsResult = await client
+      .from("appointments")
+      .select("id,status,start_at")
+      .in("id", appointmentIds);
+
+    if (appointmentsResult.error) {
+      throw appointmentsResult.error;
+    }
+
+    for (const appointment of appointmentsResult.data ?? []) {
+      if (typeof appointment.id === "string" && typeof appointment.status === "string" && typeof appointment.start_at === "string") {
+        appointmentStatusMap.set(appointment.id, {
+          status: appointment.status,
+          startAt: appointment.start_at,
+        });
+      }
+    }
+  }
+
+  return rows
+    .filter((row) => {
+      const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
+      if (!appointmentId) {
+        return true;
+      }
+
+      const appointment = appointmentStatusMap.get(appointmentId);
+      if (!appointment) {
+        return true;
+      }
+
+      return appointment.status === "BOOKED" || appointment.status === "CHECKED_IN";
+    })
+    .map((row) => ({
+      id: String(row.id ?? ""),
+      requestedService:
+        typeof row.requested_service === "string" && row.requested_service.trim()
+          ? row.requested_service.trim()
+          : "Lịch dịch vụ đã đặt",
+      preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
+      requestedStartAt: String(row.requested_start_at ?? ""),
+      requestedEndAt: typeof row.requested_end_at === "string" ? row.requested_end_at : null,
+      status: String(row.status ?? "NEW"),
+      appointmentId: typeof row.appointment_id === "string" ? row.appointment_id : null,
+    }))
+    .slice(0, options.limit ?? 12);
 }

@@ -1,22 +1,23 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Feather from "@expo/vector-icons/Feather";
 import { formatViDate, formatVnd, type AppRole } from "@nails/shared";
-import { Modal, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { useRouter } from "expo-router";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
 import { getAdminProfileDestination, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
-export const ADMIN_HEADER_TOP_OFFSET = 8;
-export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 0;
+export const ADMIN_HEADER_TOP_OFFSET = 4;
+export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 2;
 
 export function getAdminBottomBarPadding(insetBottom: number) {
-  return ADMIN_BOTTOM_BAR_BOTTOM_OFFSET + Math.max(insetBottom, 8);
+  return ADMIN_BOTTOM_BAR_BOTTOM_OFFSET + Math.max(insetBottom, 6);
 }
 
 export function getAdminHeaderTopPadding(insetTop: number) {
-  return Math.max(insetTop, 8) + ADMIN_HEADER_TOP_OFFSET;
+  return Math.max(insetTop, 4) + ADMIN_HEADER_TOP_OFFSET;
 }
 
 const ADMIN_NAV_ITEMS: Array<{
@@ -89,10 +90,18 @@ export function AdminScreen({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingTop: getAdminHeaderTopPadding(insets.top),
+            paddingBottom: getAdminBottomBarPadding(insets.bottom),
+          },
+        ]}
         refreshControl={
           onRefresh ? (
             <RefreshControl
@@ -121,7 +130,16 @@ export function AdminScreen({
 
         <SessionActions />
       </ScrollView>
-      {footer ? <View style={styles.footerShell}>{footer}</View> : null}
+      {footer ? (
+        <View
+          style={[
+            styles.footerShell,
+            { paddingBottom: getAdminBottomBarPadding(insets.bottom) },
+          ]}
+        >
+          {footer}
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -466,10 +484,8 @@ export const styles = StyleSheet.create({
   content: {
     padding: 24,
     gap: 20,
-    paddingBottom: 28,
   },
   header: {
-    marginTop: 24,
     gap: 10,
   },
   eyebrow: {
@@ -791,16 +807,16 @@ export const styles = StyleSheet.create({
   },
   footerShell: {
     backgroundColor: "transparent",
-    paddingHorizontal: 16,
-    paddingTop: 6,
+    paddingHorizontal: 12,
+    paddingTop: 2,
     paddingBottom: 0,
   },
   bottomNavDock: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 0,
-    paddingHorizontal: 12,
+    bottom: -60,
+    paddingHorizontal: 14,
     paddingTop: 4,
   },
   bottomNav: {
@@ -812,13 +828,13 @@ export const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     borderColor: "#ead7c6",
-    backgroundColor: "rgba(255,250,244,0.98)",
-    paddingHorizontal: 8,
+    backgroundColor: "rgba(255,248,241,0.995)",
+    paddingHorizontal: 10,
     paddingVertical: 8,
     shadowColor: "#2a1e14",
     shadowOpacity: 0.1,
     shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 6 },
     elevation: 6,
   },
   bottomNavItem: {
@@ -1031,14 +1047,14 @@ export const styles = StyleSheet.create({
     textAlign: "center",
   },
   bottomNavPill: {
-    minWidth: 76,
-    height: 54,
+    minWidth: 80,
+    height: 56,
     borderRadius: 18,
     alignItems: "center",
     justifyContent: "center",
     gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   bottomNavPillActive: {
     backgroundColor: "#f6e7d6",

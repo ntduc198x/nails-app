@@ -2,7 +2,10 @@ import Feather from "@expo/vector-icons/Feather";
 import { router, usePathname } from "expo-router";
 import { type ReactNode } from "react";
 import {
+  Keyboard,
+  KeyboardAvoidingView,
   Pressable,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleProp,
@@ -13,9 +16,9 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { premiumTheme } from "@/src/design/premium-theme";
-
-const { colors, radius, shadow, spacing } = premiumTheme;
+import { useEffect, useState } from "react";
+import { useCustomerStrings } from "@/src/features/customer/strings";
+import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 
 const PROFILE_PATHS = new Set([
   "/profile",
@@ -26,7 +29,6 @@ const PROFILE_PATHS = new Set([
   "/payment-methods",
   "/addresses",
   "/settings",
-  "/favorites",
 ]);
 
 type CustomerScreenProps = {
@@ -38,6 +40,8 @@ type CustomerScreenProps = {
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
   scroll?: boolean;
+  keyboardAware?: boolean;
+  keyboardVerticalOffset?: number;
   subtitle?: string;
   title: string;
 };
@@ -45,26 +49,389 @@ type CustomerScreenProps = {
 type NavItem = {
   href: "/(customer)" | "/(customer)/explore" | "/(customer)/membership" | "/(customer)/profile";
   icon: React.ComponentProps<typeof Feather>["name"];
-  label: string;
+  labelKey: "navHome" | "navExplore" | "navMembership" | "navProfile";
   match: (pathname: string) => boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/(customer)", icon: "home", label: "Trang chủ", match: (pathname) => pathname === "/" || pathname === "" },
-  { href: "/(customer)/explore", icon: "search", label: "Khám phá", match: (pathname) => pathname === "/explore" },
-  { href: "/(customer)/membership", icon: "award", label: "Thẻ thành viên", match: (pathname) => pathname === "/membership" },
-  { href: "/(customer)/profile", icon: "user", label: "Cá nhân", match: (pathname) => PROFILE_PATHS.has(pathname) },
+  { href: "/(customer)", icon: "home", labelKey: "navHome", match: (pathname) => pathname === "/" || pathname === "" },
+  { href: "/(customer)/explore", icon: "compass", labelKey: "navExplore", match: (pathname) => pathname === "/explore" },
+  { href: "/(customer)/membership", icon: "award", labelKey: "navMembership", match: (pathname) => pathname === "/membership" },
+  { href: "/(customer)/profile", icon: "user", labelKey: "navProfile", match: (pathname) => PROFILE_PATHS.has(pathname) },
 ];
 
 type IconKind = "home" | "explore" | "booking" | "profile" | "plus" | "bell";
 
+function useStaticStyles() {
+  const theme = useCustomerTheme();
+  const { colors, radius, shadow, spacing } = theme;
+
+  return StyleSheet.create({
+    safeArea: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    shell: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      alignItems: "flex-start",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingBottom: spacing.md,
+      paddingHorizontal: 18,
+      paddingTop: spacing.sm,
+    },
+    headerCopy: {
+      flex: 1,
+      gap: 4,
+      paddingRight: spacing.md,
+    },
+    headerTitle: {
+      color: colors.text,
+      fontSize: 22,
+      fontWeight: "800",
+      letterSpacing: -0.5,
+    },
+    headerSubtitle: {
+      color: colors.textSoft,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    headerSlot: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: spacing.sm,
+    },
+    topActions: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 8,
+    },
+    topIconButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 19,
+      borderWidth: 1,
+      height: 38,
+      justifyContent: "center",
+      position: "relative",
+      width: 38,
+    },
+    topDot: {
+      backgroundColor: "#ef4444",
+      borderRadius: 4,
+      height: 8,
+      position: "absolute",
+      right: 6,
+      top: 6,
+      width: 8,
+    },
+    body: {
+      flex: 1,
+    },
+    bodyContent: {
+      gap: spacing.lg,
+      paddingBottom: 140,
+      paddingHorizontal: 18,
+    },
+    bodyContentWithoutHeader: {
+      paddingTop: spacing.xs,
+    },
+    bodyContentWithFab: {
+      paddingBottom: 176,
+    },
+    navWrap: {
+      bottom: 10,
+      left: 0,
+      position: "absolute",
+      right: 0,
+    },
+    navBar: {
+      ...shadow.floating,
+      alignItems: "flex-end",
+      alignSelf: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: 30,
+      borderWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      paddingBottom: 10,
+      paddingHorizontal: 12,
+      paddingTop: 10,
+      width: "94%",
+    },
+    navGroup: {
+      flex: 1,
+      flexDirection: "row",
+      justifyContent: "space-around",
+    },
+    navCenterButton: {
+      ...shadow.floating,
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      height: 58,
+      justifyContent: "center",
+      marginHorizontal: spacing.sm,
+      marginTop: -24,
+      width: 58,
+    },
+    navItem: {
+      alignItems: "center",
+      gap: 7,
+      justifyContent: "center",
+      minHeight: 52,
+      minWidth: 64,
+    },
+    navItemText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: "500",
+    },
+    navItemTextActive: {
+      color: colors.accent,
+      fontWeight: "800",
+    },
+    iconButton: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      height: 40,
+      justifyContent: "center",
+      width: 40,
+    },
+    avatarBadge: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      justifyContent: "center",
+      minHeight: 28,
+      paddingHorizontal: spacing.md,
+    },
+    avatarBadgeText: {
+      color: colors.surface,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+    fabShell: {
+      bottom: 112,
+      position: "absolute",
+      right: spacing.xl,
+    },
+    fab: {
+      ...shadow.floating,
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.pill,
+      justifyContent: "center",
+      minHeight: 56,
+      minWidth: 56,
+      paddingHorizontal: spacing.lg,
+    },
+    fabText: {
+      color: colors.surface,
+      fontSize: 15,
+      fontWeight: "800",
+    },
+    surfaceCard: {
+      ...shadow.card,
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      gap: spacing.md,
+      padding: spacing.lg,
+    },
+    sectionTitleRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    sectionCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    sectionTitle: {
+      color: colors.text,
+      fontSize: 17,
+      fontWeight: "800",
+    },
+    sectionSubtitle: {
+      color: colors.textSoft,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    sectionAction: {
+      backgroundColor: colors.accentSoft,
+      borderRadius: radius.pill,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+    },
+    sectionActionText: {
+      color: colors.accent,
+      fontSize: 12,
+      fontWeight: "800",
+    },
+    segmentWrap: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radius.pill,
+      flexDirection: "row",
+      gap: spacing.sm,
+      padding: 4,
+    },
+    pill: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      justifyContent: "center",
+      minHeight: 42,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 10,
+    },
+    pillCompact: {
+      flex: 1,
+      minHeight: 40,
+      paddingHorizontal: spacing.md,
+    },
+    pillActive: {
+      backgroundColor: colors.accent,
+      borderColor: colors.accent,
+    },
+    pillText: {
+      color: colors.textSoft,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    pillTextActive: {
+      color: colors.surface,
+    },
+    searchField: {
+      alignItems: "center",
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: spacing.sm,
+      minHeight: 54,
+      paddingHorizontal: spacing.lg,
+    },
+    searchGlyph: {
+      color: colors.textSoft,
+      fontSize: 12,
+      fontWeight: "800",
+      textTransform: "uppercase",
+    },
+    searchInput: {
+      color: colors.text,
+      flex: 1,
+      fontSize: 15,
+      minHeight: 44,
+    },
+    primaryButton: {
+      alignItems: "center",
+      backgroundColor: colors.accent,
+      borderRadius: radius.md,
+      justifyContent: "center",
+      minHeight: 48,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+    },
+    secondaryButton: {
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+    },
+    primaryButtonText: {
+      color: colors.surface,
+      fontSize: 15,
+      fontWeight: "800",
+    },
+    secondaryButtonText: {
+      color: colors.accent,
+    },
+    infoRow: {
+      alignItems: "center",
+      borderBottomColor: colors.border,
+      borderBottomWidth: 1,
+      flexDirection: "row",
+      gap: spacing.md,
+      justifyContent: "space-between",
+      paddingVertical: spacing.md,
+    },
+    infoRowCopy: {
+      flex: 1,
+      gap: 3,
+    },
+    infoRowTitle: {
+      color: colors.text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    infoRowDetail: {
+      color: colors.textSoft,
+      fontSize: 13,
+      lineHeight: 18,
+    },
+    infoRowChevron: {
+      color: colors.textMuted,
+      fontSize: 18,
+      fontWeight: "500",
+    },
+    statusTag: {
+      alignSelf: "flex-start",
+      backgroundColor: colors.accentSoft,
+      borderRadius: radius.pill,
+      color: colors.accent,
+      fontSize: 11,
+      fontWeight: "800",
+      overflow: "hidden",
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 6,
+    },
+    statusTagSuccess: {
+      backgroundColor: colors.successBg,
+      color: colors.successText,
+    },
+    statusTagWarning: {
+      backgroundColor: colors.warningBg,
+      color: colors.warningText,
+    },
+    statusTagDanger: {
+      backgroundColor: colors.dangerBg,
+      color: colors.dangerText,
+    },
+    progressTrack: {
+      backgroundColor: colors.borderStrong,
+      borderRadius: radius.pill,
+      height: 10,
+      overflow: "hidden",
+    },
+    progressFill: {
+      backgroundColor: colors.accentWarm,
+      borderRadius: radius.pill,
+      height: "100%",
+    },
+  });
+}
+
 function ShellIcon({ active = false, kind }: { active?: boolean; kind: IconKind }) {
+  const theme = useCustomerTheme();
+  const { colors } = theme;
   const tint = active ? colors.accent : colors.textMuted;
   const iconName: React.ComponentProps<typeof Feather>["name"] =
     kind === "home"
       ? "home"
       : kind === "explore"
-        ? "search"
+        ? "compass"
         : kind === "booking"
           ? "bell"
           : kind === "profile"
@@ -85,11 +452,28 @@ export function CustomerScreen({
   onRefresh,
   refreshing = false,
   scroll = true,
+  keyboardAware = false,
+  keyboardVerticalOffset = 0,
   subtitle,
   title,
 }: CustomerScreenProps) {
+  const styles = useStaticStyles();
+  const theme = useCustomerTheme();
   const Body = scroll ? ScrollView : View;
   const resolvedHeaderSlot = headerSlot ?? <CustomerTopActions />;
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+
+  useEffect(() => {
+    if (!keyboardAware) return;
+
+    const showSubscription = Keyboard.addListener("keyboardDidShow", () => setIsKeyboardVisible(true));
+    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [keyboardAware]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -104,57 +488,96 @@ export function CustomerScreen({
           </View>
         ) : null}
 
-        <Body
+        <KeyboardAvoidingView
+          enabled={keyboardAware}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.body}
-          refreshControl={
-            scroll && onRefresh ? (
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={onRefresh}
-                tintColor={colors.accent}
-                colors={[colors.accent]}
-              />
-            ) : undefined
-          }
-          contentContainerStyle={
-            scroll
-              ? [
-                  styles.bodyContent,
-                  hideHeader ? styles.bodyContentWithoutHeader : null,
-                  floatingActionButton ? styles.bodyContentWithFab : null,
-                  contentContainerStyle,
-                ]
-              : undefined
-          }
         >
-          {scroll ? children : <View style={contentContainerStyle}>{children}</View>}
-        </Body>
+          <Body
+            style={styles.body}
+            refreshControl={
+              scroll && onRefresh ? (
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  tintColor={theme.colors.accent}
+                  colors={[theme.colors.accent]}
+                />
+              ) : undefined
+            }
+            keyboardDismissMode={scroll ? "on-drag" : undefined}
+            keyboardShouldPersistTaps={scroll ? "handled" : undefined}
+            contentInsetAdjustmentBehavior={scroll ? "always" : undefined}
+            contentContainerStyle={
+              scroll
+                ? [
+                    styles.bodyContent,
+                    keyboardAware && isKeyboardVisible ? { paddingBottom: 48 } : null,
+                    hideHeader ? styles.bodyContentWithoutHeader : null,
+                    floatingActionButton ? styles.bodyContentWithFab : null,
+                    contentContainerStyle,
+                  ]
+                : undefined
+            }
+          >
+            {scroll ? children : <View style={contentContainerStyle}>{children}</View>}
+          </Body>
+        </KeyboardAvoidingView>
 
-        <CustomerBottomNav />
-        {floatingActionButton ? <View style={styles.fabShell}>{floatingActionButton}</View> : null}
+        {!(keyboardAware && isKeyboardVisible) ? <CustomerBottomNav /> : null}
+        {floatingActionButton && !(keyboardAware && isKeyboardVisible) ? <View style={styles.fabShell}>{floatingActionButton}</View> : null}
       </View>
     </SafeAreaView>
   );
 }
 
 export function CustomerTopActions() {
+  const styles = useStaticStyles();
+  const theme = useCustomerTheme();
+  const strings = useCustomerStrings();
+  const pathname = usePathname() || "/";
+
+  function navigateIfNeeded(targetHref: "/(customer)/notifications" | "/(customer)/settings") {
+    const targetPath = targetHref.replace("/(customer)", "");
+    if (targetPath === pathname) return;
+    router.replace(targetHref);
+  }
+
   return (
     <View style={styles.topActions}>
-      <Pressable style={styles.topIconButton} onPress={() => router.replace("/(customer)/notifications")}>
-        <Feather color={colors.text} name="bell" size={18} />
+      <Pressable
+        accessibilityLabel={strings.notifications}
+        style={styles.topIconButton}
+        onPress={() => navigateIfNeeded("/(customer)/notifications")}
+      >
+        <Feather color={theme.colors.text} name="bell" size={18} />
         <View style={styles.topDot} />
       </Pressable>
-      <Pressable style={styles.topIconButton} onPress={() => router.replace("/(customer)/settings")}>
-        <Feather color={colors.text} name="settings" size={18} />
+      <Pressable
+        accessibilityLabel={strings.settings}
+        style={styles.topIconButton}
+        onPress={() => navigateIfNeeded("/(customer)/settings")}
+      >
+        <Feather color={theme.colors.text} name="settings" size={18} />
       </Pressable>
     </View>
   );
 }
 
 export function CustomerBottomNav() {
-  const pathname = usePathname();
+  const styles = useStaticStyles();
+  const theme = useCustomerTheme();
+  const strings = useCustomerStrings();
+  const pathname = usePathname() || "/";
   const leftItems = NAV_ITEMS.slice(0, 2);
   const rightItems = NAV_ITEMS.slice(2);
+
+  function navigateIfNeeded(targetHref: NavItem["href"] | "/(customer)/booking") {
+    const targetPath = targetHref === "/(customer)" ? "/" : targetHref.replace("/(customer)", "");
+    if (targetPath === pathname) return;
+    router.push(targetHref);
+  }
 
   return (
     <View pointerEvents="box-none" style={styles.navWrap}>
@@ -163,15 +586,15 @@ export function CustomerBottomNav() {
           {leftItems.map((item) => {
             const active = item.match(pathname);
             return (
-              <Pressable key={item.href} style={styles.navItem} onPress={() => router.push(item.href)}>
-                <Feather color={active ? colors.accent : colors.textMuted} name={item.icon} size={18} />
-                <Text style={[styles.navItemText, active ? styles.navItemTextActive : null]}>{item.label}</Text>
+              <Pressable key={item.href} style={styles.navItem} onPress={() => navigateIfNeeded(item.href)}>
+                <Feather color={active ? theme.colors.accent : theme.colors.textMuted} name={item.icon} size={18} />
+                <Text style={[styles.navItemText, active ? styles.navItemTextActive : null]}>{strings[item.labelKey]}</Text>
               </Pressable>
             );
           })}
         </View>
 
-        <Pressable style={styles.navCenterButton} onPress={() => router.push("/(customer)/booking")}>
+        <Pressable style={styles.navCenterButton} onPress={() => navigateIfNeeded("/(customer)/booking")}>
           <ShellIcon kind="plus" active />
         </Pressable>
 
@@ -179,9 +602,9 @@ export function CustomerBottomNav() {
           {rightItems.map((item) => {
             const active = item.match(pathname);
             return (
-              <Pressable key={item.href} style={styles.navItem} onPress={() => router.push(item.href)}>
-                <Feather color={active ? colors.accent : colors.textMuted} name={item.icon} size={18} />
-                <Text style={[styles.navItemText, active ? styles.navItemTextActive : null]}>{item.label}</Text>
+              <Pressable key={item.href} style={styles.navItem} onPress={() => navigateIfNeeded(item.href)}>
+                <Feather color={active ? theme.colors.accent : theme.colors.textMuted} name={item.icon} size={18} />
+                <Text style={[styles.navItemText, active ? styles.navItemTextActive : null]}>{strings[item.labelKey]}</Text>
               </Pressable>
             );
           })}
@@ -200,6 +623,7 @@ export function CustomerIconButton({
   label?: string;
   onPress?: () => void;
 }) {
+  const styles = useStaticStyles();
   return (
     <Pressable accessibilityLabel={label} style={styles.iconButton} onPress={onPress}>
       <ShellIcon kind={icon} active />
@@ -208,6 +632,7 @@ export function CustomerIconButton({
 }
 
 export function CustomerAvatarBadge({ label }: { label: string }) {
+  const styles = useStaticStyles();
   return (
     <View style={styles.avatarBadge}>
       <Text style={styles.avatarBadgeText}>{label}</Text>
@@ -216,6 +641,7 @@ export function CustomerAvatarBadge({ label }: { label: string }) {
 }
 
 export function SurfaceCard({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStaticStyles();
   return <View style={[styles.surfaceCard, style]}>{children}</View>;
 }
 
@@ -230,6 +656,7 @@ export function SectionTitle({
   subtitle?: string;
   title: string;
 }) {
+  const styles = useStaticStyles();
   return (
     <View style={styles.sectionTitleRow}>
       <View style={styles.sectionCopy}>
@@ -256,6 +683,7 @@ export function Pill({
   label: string;
   onPress?: () => void;
 }) {
+  const styles = useStaticStyles();
   return (
     <Pressable style={[styles.pill, compact ? styles.pillCompact : null, active ? styles.pillActive : null]} onPress={onPress}>
       <Text style={[styles.pillText, active ? styles.pillTextActive : null]}>{label}</Text>
@@ -272,6 +700,7 @@ export function SegmentedTabs<T extends string>({
   items: ReadonlyArray<{ key: T; label: string }>;
   onChange: (key: T) => void;
 }) {
+  const styles = useStaticStyles();
   return (
     <View style={styles.segmentWrap}>
       {items.map((item) => (
@@ -290,12 +719,14 @@ export function SearchField({
   placeholder: string;
   value: string;
 }) {
+  const styles = useStaticStyles();
+  const theme = useCustomerTheme();
   return (
     <View style={styles.searchField}>
       <Text style={styles.searchGlyph}>Tim</Text>
       <TextInput
         placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
+        placeholderTextColor={theme.colors.textMuted}
         style={styles.searchInput}
         value={value}
         onChangeText={onChangeText}
@@ -313,6 +744,7 @@ export function PrimaryButton({
   onPress?: () => void;
   subtle?: boolean;
 }) {
+  const styles = useStaticStyles();
   return (
     <Pressable style={[styles.primaryButton, subtle ? styles.secondaryButton : null]} onPress={onPress}>
       <Text style={[styles.primaryButtonText, subtle ? styles.secondaryButtonText : null]}>{label}</Text>
@@ -329,6 +761,7 @@ export function InfoRow({
   onPress?: () => void;
   title: string;
 }) {
+  const styles = useStaticStyles();
   return (
     <Pressable style={styles.infoRow} onPress={onPress}>
       <View style={styles.infoRowCopy}>
@@ -347,6 +780,7 @@ export function StatusTag({
   label: string;
   tone?: "default" | "success" | "warning" | "danger";
 }) {
+  const styles = useStaticStyles();
   return (
     <Text
       style={[
@@ -362,6 +796,7 @@ export function StatusTag({
 }
 
 export function ProgressBar({ progress }: { progress: number }) {
+  const styles = useStaticStyles();
   return (
     <View style={styles.progressTrack}>
       <View style={[styles.progressFill, { width: `${Math.max(0, Math.min(progress, 1)) * 100}%` }]} />
@@ -376,6 +811,7 @@ export function CustomerFloatingButton({
   label?: string;
   onPress?: () => void;
 }) {
+  const styles = useStaticStyles();
   return (
     <Pressable style={styles.fab} onPress={onPress}>
       <Text style={styles.fabText}>{label ?? "Them"}</Text>
@@ -400,387 +836,30 @@ export function CustomerAuxMenuList({
   );
 }
 
+// Legacy export kept for compatibility. New screens should use useCustomerTheme instead.
 export const customerStyles = StyleSheet.create({
   field: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
-    color: colors.text,
     fontSize: 15,
     minHeight: 54,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
   },
   fieldLabel: {
-    color: colors.textSoft,
     fontSize: 12,
     fontWeight: "700",
     letterSpacing: 0.8,
-    marginBottom: spacing.xs,
+    marginBottom: 6,
     textTransform: "uppercase",
   },
   helperText: {
-    color: colors.textMuted,
     fontSize: 13,
     lineHeight: 20,
   },
   rowWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: spacing.sm,
-  },
-});
-
-const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: "#fffaf5",
-  },
-  shell: {
-    flex: 1,
-    backgroundColor: "#fffaf5",
-  },
-  header: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: spacing.md,
-    paddingHorizontal: 18,
-    paddingTop: spacing.sm,
-  },
-  headerCopy: {
-    flex: 1,
-    gap: 4,
-    paddingRight: spacing.md,
-  },
-  headerTitle: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
-  headerSubtitle: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  headerSlot: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  topActions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-  },
-  topIconButton: {
-    alignItems: "center",
-    height: 34,
-    justifyContent: "center",
-    position: "relative",
-    width: 34,
-  },
-  topDot: {
-    backgroundColor: "#ef4444",
-    borderRadius: 4,
-    height: 8,
-    position: "absolute",
-    right: 4,
-    top: 5,
-    width: 8,
-  },
-  body: {
-    flex: 1,
-  },
-  bodyContent: {
-    gap: spacing.lg,
-    paddingBottom: 140,
-    paddingHorizontal: 18,
-  },
-  bodyContentWithoutHeader: {
-    paddingTop: spacing.xs,
-  },
-  bodyContentWithFab: {
-    paddingBottom: 176,
-  },
-  iconButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: "center",
-    width: 40,
-  },
-  avatarBadge: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.pill,
-    height: 40,
-    justifyContent: "center",
-    minWidth: 40,
-    paddingHorizontal: spacing.sm,
-  },
-  avatarBadgeText: {
-    color: colors.surface,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  navWrap: {
-    bottom: 10,
-    left: 0,
-    position: "absolute",
-    right: 0,
-  },
-  fabShell: {
-    bottom: 112,
-    position: "absolute",
-    right: spacing.xl,
-  },
-  fab: {
-    ...shadow.floating,
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    minHeight: 56,
-    minWidth: 56,
-    paddingHorizontal: spacing.lg,
-  },
-  fabText: {
-    color: colors.surface,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  navBar: {
-    ...shadow.floating,
-    alignItems: "flex-end",
-    alignSelf: "center",
-    backgroundColor: "#fffdf9",
-    borderColor: "#efe1d4",
-    borderRadius: 30,
-    borderWidth: 1,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingBottom: 10,
-    paddingHorizontal: 12,
-    paddingTop: 10,
-    width: "94%",
-  },
-  navGroup: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
-  navCenterButton: {
-    ...shadow.floating,
-    alignItems: "center",
-    backgroundColor: "#9c6b3c",
-    borderRadius: radius.pill,
-    height: 58,
-    justifyContent: "center",
-    marginHorizontal: spacing.sm,
-    marginTop: -24,
-    width: 58,
-  },
-  navItem: {
-    alignItems: "center",
-    gap: 7,
-    justifyContent: "center",
-    minHeight: 52,
-    minWidth: 64,
-  },
-  navItemText: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  navItemTextActive: {
-    color: colors.accent,
-    fontWeight: "800",
-  },
-  surfaceCard: {
-    ...shadow.card,
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: spacing.md,
-    padding: spacing.lg,
-  },
-  sectionTitleRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  sectionCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "800",
-  },
-  sectionSubtitle: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  sectionAction: {
-    backgroundColor: colors.accentSoft,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-  },
-  sectionActionText: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: "800",
-  },
-  segmentWrap: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.pill,
-    flexDirection: "row",
-    gap: spacing.sm,
-    padding: 4,
-  },
-  pill: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 10,
-  },
-  pillCompact: {
-    flex: 1,
-    minHeight: 40,
-    paddingHorizontal: spacing.md,
-  },
-  pillActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  pillText: {
-    color: colors.textSoft,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  pillTextActive: {
-    color: colors.surface,
-  },
-  searchField: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: spacing.sm,
-    minHeight: 54,
-    paddingHorizontal: spacing.lg,
-  },
-  searchGlyph: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  searchInput: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 15,
-    minHeight: 44,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.md,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  secondaryButton: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-  },
-  primaryButtonText: {
-    color: colors.surface,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  secondaryButtonText: {
-    color: colors.accent,
-  },
-  infoRow: {
-    alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between",
-    paddingVertical: spacing.md,
-  },
-  infoRowCopy: {
-    flex: 1,
-    gap: 3,
-  },
-  infoRowTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  infoRowDetail: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  infoRowChevron: {
-    color: colors.textMuted,
-    fontSize: 18,
-    fontWeight: "500",
-  },
-  statusTag: {
-    alignSelf: "flex-start",
-    backgroundColor: colors.accentSoft,
-    borderRadius: radius.pill,
-    color: colors.accent,
-    fontSize: 11,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
-  },
-  statusTagSuccess: {
-    backgroundColor: colors.successBg,
-    color: colors.successText,
-  },
-  statusTagWarning: {
-    backgroundColor: colors.warningBg,
-    color: colors.warningText,
-  },
-  statusTagDanger: {
-    backgroundColor: colors.dangerBg,
-    color: colors.dangerText,
-  },
-  progressTrack: {
-    backgroundColor: "#7d6858",
-    borderRadius: radius.pill,
-    height: 10,
-    overflow: "hidden",
-  },
-  progressFill: {
-    backgroundColor: "#efc27d",
-    borderRadius: radius.pill,
-    height: "100%",
+    gap: 10,
   },
 });

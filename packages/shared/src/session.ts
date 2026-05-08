@@ -76,6 +76,7 @@ function isMissingCustomerAccountLinkInfraError(error: { code?: string; message?
     message.includes("link_customer_account_by_phone") ||
     message.includes("customer_accounts") ||
     message.includes("merged_into_customer_id") ||
+    message.includes("no unique or exclusion constraint matching the ON CONFLICT specification") ||
     (message.includes("does not exist") && message.includes("public."))
   );
 }
@@ -98,7 +99,41 @@ function buildProfileDisplayName(user: User) {
   return metadataDisplayName?.trim() || user.email?.split("@")[0] || "User";
 }
 
+function getRegistrationMode(user: User): "USER" | "ADMIN" {
+  const provider =
+    typeof user.app_metadata?.provider === "string" && user.app_metadata.provider.trim()
+      ? user.app_metadata.provider.trim().toLowerCase()
+      : "email";
+
+  const rawMode =
+    typeof user.user_metadata?.registration_mode === "string" && user.user_metadata.registration_mode.trim()
+      ? user.user_metadata.registration_mode.trim().toUpperCase()
+      : provider === "google" || provider === "apple"
+        ? "USER"
+        : "ADMIN";
+
+  return rawMode === "USER" ? "USER" : "ADMIN";
+}
+
+async function getCustomerAccountContext(client: SharedSupabaseClient, userId: string) {
+  const { data, error } = await client
+    .from("customer_accounts")
+    .select("org_id,branch_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error && !isMissingCustomerAccountLinkInfraError(error) && error.code !== "PGRST116") {
+    throw error;
+  }
+
+  return {
+    orgId: typeof data?.org_id === "string" ? data.org_id : undefined,
+    branchId: typeof data?.branch_id === "string" ? data.branch_id : undefined,
+  };
+}
+
 async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, user: User) {
+  const registrationMode = getRegistrationMode(user);
   const { data: currentProfile, error: currentProfileErr } = await client
     .from("profiles")
     .select("user_id,org_id,default_branch_id,display_name,email,phone")
@@ -118,7 +153,7 @@ async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, us
         : null;
 
   let orgId = typeof currentProfile?.org_id === "string" ? currentProfile.org_id : undefined;
-  if (!orgId) {
+  if (!orgId && registrationMode !== "USER") {
     const { data: fallbackRole, error: fallbackRoleErr } = await client
       .from("user_roles")
       .select("org_id")
@@ -134,6 +169,12 @@ async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, us
   }
 
   let branchId = typeof currentProfile?.default_branch_id === "string" ? currentProfile.default_branch_id : undefined;
+  if (!orgId || !branchId) {
+    const customerAccountContext = await getCustomerAccountContext(client, user.id);
+    orgId = orgId ?? customerAccountContext.orgId;
+    branchId = branchId ?? customerAccountContext.branchId;
+  }
+
   if (!branchId && orgId) {
     const { data: branch, error: branchErr } = await client
       .from("branches")
@@ -187,6 +228,7 @@ async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, us
       display_name: currentProfile.display_name || profileDisplayName,
       email: user.email ?? null,
       phone: profilePhone,
+      org_id: currentProfile.org_id ?? orgId ?? null,
       default_branch_id: currentProfile.default_branch_id ?? branchId ?? null,
     })
     .eq("user_id", user.id);
@@ -250,6 +292,24 @@ async function ensureCustomerAccountLink(client: SharedSupabaseClient, user: Use
   }
 
   return typeof data === "string" ? data : null;
+}
+
+async function shouldForceCustomerRole(client: SharedSupabaseClient, user: User) {
+  if (getRegistrationMode(user) === "USER") {
+    return true;
+  }
+
+  const existingLink = await client
+    .from("customer_accounts")
+    .select("customer_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (existingLink.error && !isMissingCustomerAccountLinkInfraError(existingLink.error) && existingLink.error.code !== "PGRST116") {
+    throw existingLink.error;
+  }
+
+  return Boolean(existingLink.data?.customer_id);
 }
 
 export async function getOrCreateRole(client: SharedSupabaseClient, userId: string): Promise<AppRole> {
@@ -356,6 +416,11 @@ export async function getAuthenticatedUserSummary(
   }
 
   await ensureCurrentUserProfile(client, user.id);
+  if (await shouldForceCustomerRole(client, user)) {
+    await ensureCustomerAccountLink(client, user);
+    return mapSessionUser(user, "USER");
+  }
+
   const role = await getOrCreateRole(client, user.id);
   if (role === "USER") {
     await ensureCustomerAccountLink(client, user);

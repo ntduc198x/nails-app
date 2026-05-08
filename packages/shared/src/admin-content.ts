@@ -28,6 +28,7 @@ export type MobileAdminMerchServiceUpdate = {
   shortDescription?: string | null;
   imageUrl?: string | null;
   durationLabel?: string | null;
+  featuredInLookbook?: boolean;
   featuredInHome?: boolean;
   featuredInExplore?: boolean;
   displayOrderHome?: number;
@@ -188,6 +189,7 @@ export type MobileAdminStorefrontGalleryItemInput = {
 export type MobileAdminContentSnapshot = {
   branchId: string;
   branchName: string;
+  isDefaultBranchView: boolean;
   storefront: MobileAdminStorefrontProfile | null;
   posts: MobileAdminContentPost[];
   offers: MobileAdminOffer[];
@@ -340,9 +342,23 @@ function toPublishedAt(status: MobileAdminContentPost["status"], existingPublish
   return existingPublishedAt ?? new Date().toISOString();
 }
 
+async function resolveAdminPreviewContext(
+  client: SharedSupabaseClient,
+  options: { branchId?: string },
+): Promise<{ orgId: string; branchId: string; defaultBranchId: string }> {
+  const { orgId, branchId: defaultBranchId } = await ensureOrgContext(client);
+  return {
+    orgId,
+    branchId: options.branchId?.trim() || defaultBranchId,
+    defaultBranchId,
+  };
+}
+
 export async function listAdminMerchServicesForMobile(
   client: SharedSupabaseClient,
+  options: { branchId?: string } = {},
 ): Promise<MobileAdminMerchService[]> {
+  void options;
   const { orgId } = await ensureOrgContext(client);
   const response = await client
     .from("services")
@@ -403,14 +419,18 @@ export async function updateAdminMerchServiceForMobile(
   input: MobileAdminMerchServiceUpdate,
 ): Promise<MobileAdminMerchService> {
   const { orgId } = await ensureOrgContext(client);
+  const featuredInHome = Boolean(input.featuredInHome);
+  const featuredInExplore = Boolean(input.featuredInExplore);
+  const featuredInLookbook = Boolean(input.featuredInLookbook ?? (featuredInHome || featuredInExplore));
   const { data, error } = await client
     .from("services")
     .update({
       short_description: normalizeOptionalText(input.shortDescription),
       image_url: normalizeOptionalText(input.imageUrl),
       duration_label: normalizeOptionalText(input.durationLabel),
-      featured_in_home: Boolean(input.featuredInHome),
-      featured_in_explore: Boolean(input.featuredInExplore),
+      featured_in_lookbook: featuredInLookbook,
+      featured_in_home: featuredInHome,
+      featured_in_explore: featuredInExplore,
       display_order_home: Number(input.displayOrderHome ?? 0),
       display_order_explore: Number(input.displayOrderExplore ?? 0),
       lookbook_category: normalizeOptionalText(input.lookbookCategory),
@@ -433,9 +453,9 @@ export async function updateAdminMerchServiceForMobile(
 
 export async function listAdminContentSnapshotForMobile(
   client: SharedSupabaseClient,
-  options: { includeServices?: boolean } = {},
+  options: { branchId?: string; includeServices?: boolean } = {},
 ): Promise<MobileAdminContentSnapshot> {
-  const { orgId, branchId } = await ensureOrgContext(client);
+  const { orgId, branchId, defaultBranchId } = await resolveAdminPreviewContext(client, { branchId: options.branchId });
 
   const [branchRes, postsRes, offersRes, storefrontRes, services] = await Promise.all([
     client.from("branches").select("id,name").eq("id", branchId).maybeSingle(),
@@ -462,7 +482,7 @@ export async function listAdminContentSnapshotForMobile(
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    options.includeServices ? listAdminMerchServicesForMobile(client) : Promise.resolve([]),
+    options.includeServices ? listAdminMerchServicesForMobile(client, { branchId }) : Promise.resolve([]),
   ]);
 
   if (postsRes.error) throw postsRes.error;
@@ -499,6 +519,7 @@ export async function listAdminContentSnapshotForMobile(
   return {
     branchId,
     branchName: normalizeBranchName(branchRes.data as UnknownRow | null | undefined),
+    isDefaultBranchView: branchId === defaultBranchId,
     storefront,
     posts: (postsRes.data ?? []).map((row) => normalizePost(row as UnknownRow)),
     offers: (offersRes.data ?? []).map((row) => normalizeOffer(row as UnknownRow)),

@@ -133,9 +133,10 @@ export async function getCustomerHomeFeedPayload(): Promise<HomeFeedPayload> {
     supabase
       .from("services")
       .select(
-        "id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
       )
       .eq("active", true)
+      .eq("featured_in_lookbook", true)
       .eq("featured_in_home", true)
       .order("display_order_home", { ascending: true })
       .order("name", { ascending: true })
@@ -197,9 +198,10 @@ export async function getCustomerExplorePayload(): Promise<CustomerExplorePayloa
         supabase
           .from("services")
           .select(
-            "id,name,short_description,image_url,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
           )
           .eq("active", true)
+          .eq("featured_in_lookbook", true)
           .eq("featured_in_explore", true)
           .order("display_order_explore", { ascending: true })
           .order("name", { ascending: true })

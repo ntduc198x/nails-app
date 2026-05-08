@@ -1,4 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
+import { router } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CustomerScreen, CustomerTopActions } from "@/src/features/customer/ui";
@@ -147,6 +148,15 @@ export default function NotificationsScreen() {
       refreshing={loading}
     >
       <View style={styles.headerRow}>
+        <Pressable style={styles.backButton} onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace("/(customer)");
+          }
+        }}>
+          <Feather color={colors.text} name="chevron-left" size={22} />
+        </Pressable>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
           <Text style={styles.pageTitle}>Thông báo</Text>
@@ -227,6 +237,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     marginBottom: 4,
+  },
+  backButton: {
+    alignItems: "center",
+    height: 40,
+    justifyContent: "center",
+    width: 40,
   },
   headerCopy: {
     gap: 4,

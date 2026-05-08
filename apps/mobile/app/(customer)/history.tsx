@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import { CustomerScreen, SegmentedTabs, StatusTag, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerHistory } from "@/src/hooks/use-customer-history";
@@ -56,7 +57,7 @@ export default function HistoryScreen() {
             }
           >
             <SurfaceCard style={styles.card}>
-              {item.serviceImageUrl ? <Image alt={item.serviceName} source={{ uri: item.serviceImageUrl }} style={styles.image} /> : null}
+              {item.serviceImageUrl ? <CachedAppImage alt={item.serviceName} source={{ uri: item.serviceImageUrl }} style={styles.image} /> : null}
 
               <View style={styles.row}>
                 <View style={styles.copy}>

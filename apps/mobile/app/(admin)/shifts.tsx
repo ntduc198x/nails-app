@@ -6,14 +6,13 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNav, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -638,7 +637,7 @@ export default function AdminShiftsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={c.primary} />
           <Text style={styles.loadingText}>Đang tải lịch ca...</Text>
@@ -648,7 +647,7 @@ export default function AdminShiftsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.screen}>
         <ScrollView
           contentContainerStyle={[
@@ -1086,9 +1085,7 @@ export default function AdminShiftsScreen() {
           </Pressable>
         </Modal>
 
-        <View style={[styles.navShell, { paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}>
-          <AdminBottomNav current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-        </View>
+        <AdminBottomNavDock current="profile" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
       </View>
     </SafeAreaView>
   );
@@ -1206,13 +1203,4 @@ const styles = StyleSheet.create({
   optionSub: { fontSize: 12, lineHeight: 16 },
   leaveToggle: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 44, borderRadius: 22, backgroundColor: c.soft, borderWidth: 1, borderColor: c.border },
   leaveToggleText: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
-  navShell: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "transparent",
-    paddingTop: 6,
-    paddingHorizontal: 16,
-  },
 });

@@ -153,7 +153,7 @@ export function normalizeLookbookRows(
   const context = options.context ?? "default";
 
   return rows
-    .filter((row) => row.name && row.image_url)
+    .filter((row) => row.featured_in_lookbook === true && row.name && row.image_url)
     .map((row) => {
       const title = String(row.name ?? "");
       const blurb =

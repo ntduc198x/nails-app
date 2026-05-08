@@ -1,18 +1,24 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useEffect } from "react";
 import { useLocalSearchParams } from "expo-router";
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CustomerScreen, CustomerTopActions, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
-import { QUICK_CONTACTS_CARD, UPCOMING_BOOKING_CARDS } from "@/src/features/customer/data";
+import { QUICK_CONTACTS_CARD } from "@/src/features/customer/data";
 import { premiumTheme } from "@/src/design/premium-theme";
+import { useCustomerStrings } from "@/src/features/customer/strings";
+import { useCustomerUpcomingBookings } from "@/src/hooks/use-customer-upcoming-bookings";
 import { useGuestBooking } from "@/src/hooks/use-guest-booking";
+import { useSession } from "@/src/providers/session-provider";
 
 const { colors, radius, spacing } = premiumTheme;
 
 export default function BookingScreen() {
   const params = useLocalSearchParams<{ service?: string }>();
+  const strings = useCustomerStrings();
+  const { user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
     useGuestBooking();
+  const { items: upcomingBookings } = useCustomerUpcomingBookings(6);
 
   useEffect(() => {
     if (params.service && typeof params.service === "string" && params.service !== values.requestedService) {
@@ -21,7 +27,7 @@ export default function BookingScreen() {
   }, [params.service, updateValue, values.requestedService]);
 
   return (
-    <CustomerScreen title="" hideHeader contentContainerStyle={styles.content} onRefresh={() => {}} refreshing={false}>
+    <CustomerScreen title="" hideHeader keyboardAware keyboardVerticalOffset={12} contentContainerStyle={styles.content}>
       <View style={styles.topBar}>
         <View style={styles.topBarSpacer} />
         <CustomerTopActions />
@@ -31,7 +37,7 @@ export default function BookingScreen() {
         <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
         <Text style={styles.pageTitle}>Đặt lịch</Text>
         <Text style={styles.pageSubtitle}>
-          Chọn mẫu nail, thời gian và thông tin liên hệ theo phong cách đồng nhất của customer flow.
+          Chọn mẫu nail, thời gian và thông tin liên hệ để salon giữ lịch chính xác hơn.
         </Text>
       </View>
 
@@ -174,36 +180,54 @@ export default function BookingScreen() {
             <Feather color={colors.accentWarm} name="calendar" size={22} />
           </View>
           <View style={styles.utilityHeaderCopy}>
-            <Text style={styles.sectionTitle}>Lịch đã giữ cho bạn</Text>
-            <Text style={styles.sectionSubtitle}>Các lịch gần nhất đang được hiển thị cùng phong cách với toàn app.</Text>
+            <Text style={styles.sectionTitle}>{strings.upcomingBookingsTitle}</Text>
+            <Text style={styles.sectionSubtitle}>Các lịch sắp tới đã giữ trước nhưng chưa hoàn thành sẽ hiển thị ở đây.</Text>
           </View>
         </View>
 
         <View style={styles.bookingList}>
-          {UPCOMING_BOOKING_CARDS.map((item) => (
-            <View key={item.id} style={styles.bookingRow}>
-              <Image alt={item.title} source={{ uri: item.image }} style={styles.bookingThumb} />
-
-              <View style={styles.bookingCopy}>
-                <Text style={styles.bookingTitle}>{item.title}</Text>
-
-                <View style={styles.bookingMetaRow}>
-                  <Feather color={colors.textSoft} name="calendar" size={15} />
-                  <Text style={styles.bookingMeta}>{item.slot}</Text>
+          {!user ? (
+            <Text style={styles.bookingEmptyText}>{strings.upcomingBookingsSignedOut}</Text>
+          ) : !upcomingBookings.length ? (
+            <Text style={styles.bookingEmptyText}>{strings.upcomingBookingsEmpty}</Text>
+          ) : (
+            upcomingBookings.map((item) => (
+              <View key={item.id} style={styles.bookingRow}>
+                <View style={styles.bookingThumbPlaceholder}>
+                  <Feather color={colors.accentWarm} name="calendar" size={20} />
                 </View>
 
-                <View style={styles.bookingMetaRow}>
-                  <Feather color={colors.textSoft} name="user" size={15} />
-                  <Text style={styles.bookingMeta}>{item.staff}</Text>
+                <View style={styles.bookingCopy}>
+                  <Text style={styles.bookingTitle}>{item.requestedService}</Text>
+
+                  <View style={styles.bookingMetaRow}>
+                    <Feather color={colors.textSoft} name="calendar" size={15} />
+                    <Text style={styles.bookingMeta}>
+                      {new Date(item.requestedStartAt).toLocaleString("vi-VN", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                  </View>
+
+                  {item.preferredStaff ? (
+                    <View style={styles.bookingMetaRow}>
+                      <Feather color={colors.textSoft} name="user" size={15} />
+                      <Text style={styles.bookingMeta}>{item.preferredStaff}</Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.trailingPill}>
+                  <Feather color={colors.accentWarm} name="clock" size={16} />
+                  <Text style={styles.contactAction}>{item.status}</Text>
                 </View>
               </View>
-
-              <Pressable style={styles.trailingPill}>
-                <Feather color={colors.accentWarm} name="edit-3" size={16} />
-                <Text style={styles.contactAction}>Sửa</Text>
-              </Pressable>
-            </View>
-          ))}
+            ))
+          )}
         </View>
       </SurfaceCard>
     </CustomerScreen>
@@ -419,18 +443,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     justifyContent: "space-between",
+    overflow: "hidden",
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
-  bookingThumb: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 14,
-    height: 68,
-    width: 68,
+  bookingThumbPlaceholder: {
+    alignItems: "center",
+    backgroundColor: "#fdf1e4",
+    borderRadius: 18,
+    height: 64,
+    justifyContent: "center",
+    width: 64,
   },
   bookingCopy: {
     flex: 1,
-    gap: 3,
+    gap: 5,
   },
   bookingTitle: {
     color: colors.text,
@@ -440,10 +467,16 @@ const styles = StyleSheet.create({
   bookingMetaRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 6,
+    gap: 7,
   },
   bookingMeta: {
     color: colors.textSoft,
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  bookingEmptyText: {
+    color: colors.textSoft,
+    fontSize: 14,
+    lineHeight: 20,
   },
 });

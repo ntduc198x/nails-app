@@ -14,6 +14,30 @@ type ProfileRow = {
   default_branch_id?: string | null;
 };
 
+function extractTelegramLinkCode(data: unknown) {
+  if (typeof data === "string" && data.trim()) {
+    return data.trim();
+  }
+
+  if (data && typeof data === "object" && "code" in data) {
+    const code = (data as { code?: unknown }).code;
+    if (typeof code === "string" && code.trim()) {
+      return code.trim();
+    }
+  }
+
+  return null;
+}
+
+function isMissingTelegramRpcSignature(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return (
+    message.includes("generate_telegram_link_code") ||
+    message.includes("unlink_telegram") ||
+    (message.includes("function public.") && message.includes("does not exist"))
+  );
+}
+
 function InlineField({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[88px_minmax(0,1fr)] items-center gap-2">
@@ -184,20 +208,16 @@ export default function AccountPage() {
       });
 
       if (!currentRpc.error) {
-        nextCode = typeof currentRpc.data === "string" ? currentRpc.data : null;
+        nextCode = extractTelegramLinkCode(currentRpc.data);
       } else {
+        if (!isMissingTelegramRpcSignature(currentRpc.error)) throw currentRpc.error;
         const legacyRpc = await supabase.rpc("generate_telegram_link_code", { p_user_id: userId });
         if (legacyRpc.error) throw legacyRpc.error;
-        if (typeof legacyRpc.data === "string") {
-          nextCode = legacyRpc.data;
-        } else if (legacyRpc.data && typeof legacyRpc.data === "object" && "code" in legacyRpc.data) {
-          nextCode = String((legacyRpc.data as { code?: unknown }).code ?? "");
-        }
+        nextCode = extractTelegramLinkCode(legacyRpc.data);
       }
 
-      if (nextCode) {
-        setTelegramCode(nextCode);
-      }
+      if (!nextCode) throw new Error("Khong nhan duoc ma lien ket tu he thong.");
+      setTelegramCode(nextCode);
     } catch (e) {
       setTelegramError(e instanceof Error ? e.message : "Không thể tạo mã");
     } finally {
@@ -212,6 +232,7 @@ export default function AccountPage() {
       setTelegramError(null);
       const currentRpc = await supabase.rpc("unlink_telegram", { p_app_user_id: userId });
       if (currentRpc.error) {
+        if (!isMissingTelegramRpcSignature(currentRpc.error)) throw currentRpc.error;
         const legacyRpc = await supabase.rpc("unlink_telegram", { p_user_id: userId });
         if (legacyRpc.error) throw legacyRpc.error;
       }

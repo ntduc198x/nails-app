@@ -81,6 +81,7 @@ Block nay lay tu bang `services`.
 Can quan tam cac cot:
 
 - `active = true`
+- `featured_in_lookbook = true`
 - `featured_in_home = true`
 - `name`
 - `short_description`
@@ -98,6 +99,7 @@ SQL mau:
 ```sql
 update public.services
 set
+  featured_in_lookbook = true,
   featured_in_home = true,
   lookbook_category = 'noi-bat',
   lookbook_badge = 'Hot',
@@ -119,6 +121,7 @@ insert into public.services (
   duration_min,
   base_price,
   active,
+  featured_in_lookbook,
   featured_in_home,
   featured_in_explore,
   lookbook_category,
@@ -135,6 +138,7 @@ insert into public.services (
   'https://your-cdn/service-cat-eye.jpg',
   75,
   299000,
+  true,
   true,
   true,
   true,
@@ -315,6 +319,7 @@ Block nay van lay tu `services`, nhung dung scope Explore.
 Can quan tam:
 
 - `active = true`
+- `featured_in_lookbook = true`
 - `featured_in_explore = true`
 - `display_order_explore`
 - `lookbook_category`
@@ -326,6 +331,7 @@ SQL mau:
 ```sql
 update public.services
 set
+  featured_in_lookbook = true,
   featured_in_explore = true,
   lookbook_category = 'sang-trong',
   lookbook_badge = 'Trend',
@@ -503,6 +509,7 @@ Khuyen nghi:
 ### De thay tren `(customer)/index`
 
 - dich vu co `active = true`
+- dich vu co `featured_in_lookbook = true`
 - dich vu co `featured_in_home = true`
 - dich vu co `image_url`
 - bai viet co `status = 'published'`
@@ -511,6 +518,7 @@ Khuyen nghi:
 ### De thay tren `(customer)/explore`
 
 - phai co 1 `storefront_profile` active
+- dich vu co `featured_in_lookbook = true`
 - dich vu co `featured_in_explore = true`
 - san pham co `is_active = true`
 - nhan vien co `is_visible = true`
@@ -525,10 +533,11 @@ Khuyen nghi:
 select
   id,
   name,
+  featured_in_lookbook,
   featured_in_home,
   display_order_home
 from public.services
-where active = true and featured_in_home = true
+where active = true and featured_in_lookbook = true and featured_in_home = true
 order by display_order_home asc, name asc;
 ```
 
@@ -538,11 +547,23 @@ order by display_order_home asc, name asc;
 select
   id,
   name,
+  featured_in_lookbook,
   featured_in_explore,
   display_order_explore
 from public.services
-where active = true and featured_in_explore = true
+where active = true and featured_in_lookbook = true and featured_in_explore = true
 order by display_order_explore asc, name asc;
+
+## 9. Luu y khi goi API customer tu mobile
+
+- `apps/mobile` uu tien goi:
+  - `GET /api/customer/home-feed`
+  - `GET /api/customer/explore`
+- Neu `EXPO_PUBLIC_API_BASE_URL` dang la `http://localhost:3000`, thiet bi that va phan lon Android emulator se khong goi duoc Next API tren may dev.
+- Khi do app se roi xuong fallback Supabase. Vi fallback dung cung rule lookbook, du lieu van phai co:
+  - `featured_in_lookbook = true`
+  - va `featured_in_home = true` hoac `featured_in_explore = true`
+- Neu can test API aggregate tren mobile, hay doi `EXPO_PUBLIC_API_BASE_URL` sang LAN IP hoac host ma mobile truy cap duoc.
 ```
 
 ### Kiem tra storefront active

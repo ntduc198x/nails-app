@@ -13,6 +13,18 @@ function sanitizeFileName(name: string) {
     .replace(/^-|-$/g, "");
 }
 
+async function ensureBucketExists() {
+  if (!mobileSupabase) return;
+  try {
+    await mobileSupabase.storage.createBucket(BUCKET, {
+      public: true,
+      fileSizeLimit: 2 * 1024 * 1024,
+    });
+  } catch {
+    // Ignore create bucket failures and let upload retry surface a real error if needed.
+  }
+}
+
 export async function uploadPickedServiceImage(asset: ImagePickerAsset, serviceName?: string) {
   if (!mobileSupabase) {
     throw new Error("Thieu cau hinh Supabase mobile.");
@@ -35,13 +47,23 @@ export async function uploadPickedServiceImage(asset: ImagePickerAsset, serviceN
   }
 
   const buffer = await response.arrayBuffer();
-  const { error: uploadError } = await mobileSupabase.storage
+  let { error: uploadError } = await mobileSupabase.storage
     .from(BUCKET)
     .upload(path, buffer, {
       cacheControl: "3600",
       upsert: false,
       contentType: asset.mimeType || "image/jpeg",
     });
+
+  if (uploadError && uploadError.message.toLowerCase().includes("bucket") && uploadError.message.toLowerCase().includes("not found")) {
+    await ensureBucketExists();
+    const retry = await mobileSupabase.storage.from(BUCKET).upload(path, buffer, {
+      cacheControl: "3600",
+      upsert: false,
+      contentType: asset.mimeType || "image/jpeg",
+    });
+    uploadError = retry.error;
+  }
 
   if (uploadError) {
     throw uploadError;

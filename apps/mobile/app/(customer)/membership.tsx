@@ -1,9 +1,11 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 
 const { colors, radius } = premiumTheme;
 
@@ -42,17 +44,70 @@ function buildHelperText(input: {
   return "Ban dang o hang cao nhat va co the tiep tuc su dung cac quyen loi hien co.";
 }
 
+function describeTierRequirements(tier: {
+  spendingThreshold: number;
+  visitThreshold: number;
+}) {
+  const parts: string[] = [];
+
+  if (tier.spendingThreshold > 0) {
+    parts.push(`${formatNumber(tier.spendingThreshold)} chi tiêu`);
+  }
+
+  if (tier.visitThreshold > 0) {
+    parts.push(`${formatNumber(tier.visitThreshold)} lượt hẹn`);
+  }
+
+  return parts.length ? parts.join(" hoặc ") : "điều kiện linh hoạt theo cửa hàng";
+}
+
+function buildNextTierGuidance(input: {
+  nextTier: {
+    name: string;
+    spendingThreshold: number;
+    visitThreshold: number;
+  } | null;
+  totalSpent: number;
+  totalVisits: number;
+  pointsBalance: number;
+}) {
+  if (!input.nextTier) {
+    return `Bạn đang có ${formatNumber(input.pointsBalance)} điểm và đã ở hạng cao nhất.`;
+  }
+
+  const remainingSpend = Math.max(0, input.nextTier.spendingThreshold - input.totalSpent);
+  const remainingVisits = Math.max(0, input.nextTier.visitThreshold - input.totalVisits);
+  const parts: string[] = [`Bạn đang có ${formatNumber(input.pointsBalance)} điểm.`];
+
+  if (input.nextTier.spendingThreshold > 0) {
+    parts.push(`Cần thêm ${formatNumber(remainingSpend)} chi tiêu để lên ${input.nextTier.name}.`);
+  }
+
+  if (input.nextTier.visitThreshold > 0) {
+    parts.push(`Cần thêm ${formatNumber(remainingVisits)} lượt hẹn để lên ${input.nextTier.name}.`);
+  }
+
+  if (input.nextTier.spendingThreshold <= 0 && input.nextTier.visitThreshold <= 0) {
+    parts.push(`Mục tiêu tiếp theo là ${input.nextTier.name}.`);
+  }
+
+  return parts.join(" ");
+}
+
 export default function MembershipScreen() {
+  const strings = useCustomerStrings();
+  const [showBenefitsModal, setShowBenefitsModal] = useState(false);
   const {
     currentTier,
     expiresAt,
     hasMembership,
-    isLoading,
+    isRefreshing,
     offers,
     perks,
     pointsBalance,
     progress,
     refresh,
+    tiers,
     totalSpent,
     totalVisits,
     nextTier,
@@ -69,14 +124,17 @@ export default function MembershipScreen() {
     expiresAt,
   });
   const progressWidth = `${Math.max(0, Math.min(progress, 1)) * 100}%` as `${number}%`;
+  const nextTierGuidance = buildNextTierGuidance({
+    nextTier,
+    totalSpent,
+    totalVisits,
+    pointsBalance,
+  });
 
   return (
-    <CustomerScreen hideHeader title="The thanh vien" contentContainerStyle={styles.content} onRefresh={() => void refresh()} refreshing={isLoading}>
+    <CustomerScreen hideHeader title={strings.membershipTitle} contentContainerStyle={styles.content} onRefresh={() => void refresh()} refreshing={isRefreshing}>
       <View style={styles.headerRow}>
-        <Pressable style={styles.backButton} onPress={() => router.back()}>
-          <Feather color={colors.text} name="chevron-left" size={22} />
-        </Pressable>
-        <Text style={styles.title}>The thanh vien</Text>
+        <Text style={styles.title}>{strings.membershipTitle}</Text>
         <CustomerTopActions />
       </View>
 
@@ -99,11 +157,15 @@ export default function MembershipScreen() {
 
           <View style={styles.heroBadge}>
             <Feather color="#f1c56d" name="award" size={14} />
-            <Text style={styles.heroBadgeText}>{nextTier?.name ? `Len ${nextTier.name}` : "Quyen loi"}</Text>
+            <Text style={styles.heroBadgeText}>{nextTier?.name ? `Lên ${nextTier.name}` : "Quyền lợi"}</Text>
           </View>
         </View>
 
         <Text style={styles.helper}>{helperText}</Text>
+
+        <Pressable style={styles.benefitButton} onPress={() => setShowBenefitsModal(true)}>
+          <Text style={styles.benefitButtonText}>{strings.membershipBenefitsTitle}</Text>
+        </Pressable>
 
         <View style={styles.medalShell}>
           <View style={styles.medalOuter}>
@@ -115,7 +177,7 @@ export default function MembershipScreen() {
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={styles.sectionTitle}>Quyen loi cua ban</Text>
+        <Text style={styles.sectionTitle}>Quyền lợi của bạn</Text>
 
         <View style={styles.perkList}>
           {(perks.length ? perks : ["Khong co quyen loi nao duoc cau hinh cho hang hien tai."]).map((perk) => (
@@ -134,7 +196,28 @@ export default function MembershipScreen() {
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={styles.sectionTitle}>Uu dai dang ap dung</Text>
+        <Text style={styles.sectionTitle}>Các hạng thành viên</Text>
+
+        <View style={styles.perkList}>
+          {tiers.map((tier) => (
+            <SurfaceCard key={tier.id} style={styles.tierCard}>
+              <View style={styles.tierCardHeader}>
+                <Text style={styles.tierCardTitle}>{tier.name}</Text>
+                <Text style={[styles.tierCardBadge, tier.id === currentTier?.id ? styles.tierCardBadgeActive : null]}>
+                  {tier.id === currentTier?.id ? "Hạng hiện tại" : "Mục tiêu"}
+                </Text>
+              </View>
+              <Text style={styles.tierCardRule}>Điều kiện: {describeTierRequirements(tier)}</Text>
+              <Text style={styles.tierCardRule}>
+                Ưu đãi: {tier.perks.length ? tier.perks.join(", ") : "Chưa có mô tả ưu đãi cho hạng này."}
+              </Text>
+            </SurfaceCard>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.sectionBlock}>
+        <Text style={styles.sectionTitle}>Ưu đãi đang áp dụng</Text>
 
         <View style={styles.perkList}>
           {offers.length ? (
@@ -158,6 +241,33 @@ export default function MembershipScreen() {
           )}
         </View>
       </View>
+
+      <Modal visible={showBenefitsModal} transparent animationType="fade" onRequestClose={() => setShowBenefitsModal(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowBenefitsModal(false)}>
+          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.modalTitle}>{strings.membershipBenefitsTitle}</Text>
+            <Text style={styles.modalBody}>{currentTier?.description?.trim() || strings.membershipBenefitsBody}</Text>
+            <Text style={styles.modalSectionTitle}>Cách nâng hạng</Text>
+            <Text style={styles.modalBody}>{nextTierGuidance}</Text>
+            <Text style={styles.modalBody}>{strings.membershipHowToUpgrade}</Text>
+            <Text style={styles.modalSectionTitle}>Cách tăng ưu đãi</Text>
+            <Text style={styles.modalBody}>{strings.membershipHowToBoost}</Text>
+            <Text style={styles.modalSectionTitle}>Ưu đãi theo từng hạng</Text>
+            {tiers.map((tier) => (
+              <View key={tier.id} style={styles.modalTierBlock}>
+                <Text style={styles.modalTierTitle}>{tier.name}</Text>
+                <Text style={styles.modalBody}>Điều kiện: {describeTierRequirements(tier)}</Text>
+                <Text style={styles.modalBody}>
+                  Ưu đãi: {tier.perks.length ? tier.perks.join(", ") : "Chưa có mô tả ưu đãi cho hạng này."}
+                </Text>
+              </View>
+            ))}
+            <Pressable style={styles.modalCloseButton} onPress={() => setShowBenefitsModal(false)}>
+              <Text style={styles.modalCloseText}>Đã hiểu</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </CustomerScreen>
   );
 }
@@ -284,6 +394,21 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     maxWidth: "82%",
   },
+  benefitButton: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  benefitButtonText: {
+    color: "#fff4e5",
+    fontSize: 13,
+    fontWeight: "800",
+  },
   medalShell: {
     position: "absolute",
     right: 18,
@@ -324,6 +449,35 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 14,
   },
+  tierCard: {
+    gap: 8,
+    padding: 14,
+  },
+  tierCardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  tierCardTitle: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  tierCardBadge: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  tierCardBadgeActive: {
+    color: colors.accent,
+  },
+  tierCardRule: {
+    color: colors.textSoft,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   perkIcon: {
     alignItems: "center",
     backgroundColor: "#f6efe7",
@@ -360,5 +514,57 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 13,
     lineHeight: 19,
+  },
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: 20,
+    width: "100%",
+  },
+  modalTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 12,
+  },
+  modalSectionTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  modalBody: {
+    color: colors.textSoft,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalTierBlock: {
+    gap: 4,
+    marginTop: 10,
+  },
+  modalTierTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  modalCloseButton: {
+    alignItems: "center",
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    marginTop: 18,
+    paddingVertical: 12,
+  },
+  modalCloseText: {
+    color: "#fffaf5",
+    fontSize: 14,
+    fontWeight: "800",
   },
 });

@@ -1,10 +1,10 @@
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -294,7 +294,7 @@ export default function AdminManageContentPostDetailScreen() {
             />
 
             <Text style={styles.label}>Anh bia</Text>
-            {form.coverImageUrl ? <Image source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
+            {form.coverImageUrl ? <CachedAppImage source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
             <TextInput
               placeholder="https://..."
               placeholderTextColor="#B4A89C"

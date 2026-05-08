@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Image, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import { REVIEWS } from "@/src/features/customer/data";
 import { CustomerScreen, SegmentedTabs, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
@@ -17,13 +18,13 @@ export default function ReviewsScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("service");
 
   return (
-    <CustomerScreen title="Đánh giá của tôi" onRefresh={() => {}} refreshing={false}>
+    <CustomerScreen title="Đánh giá của tôi">
       <SegmentedTabs activeKey={activeFilter} items={FILTERS} onChange={setActiveFilter} />
 
       <View style={styles.list}>
         {REVIEWS.map((review) => (
           <SurfaceCard key={review.id} style={styles.card}>
-            <Image alt={review.service} source={{ uri: review.image }} style={styles.image} />
+            <CachedAppImage alt={review.service} source={{ uri: review.image }} style={styles.image} />
 
             <View style={styles.copy}>
               <Text style={styles.title}>{activeFilter === "service" ? review.service : review.staff}</Text>

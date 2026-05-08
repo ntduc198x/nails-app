@@ -6,6 +6,7 @@ import { MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createResource, listResources, updateResource } from "@/lib/domain";
+import { canAccessManageSetup } from "@/lib/manage-setup-auth";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type ResourceRow = { id: string; name: string; type: "CHAIR" | "TABLE" | "ROOM"; active: boolean };
@@ -66,6 +67,7 @@ export default function ResourcesPage() {
   const listSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
+  const canAccessPage = role ? canAccessManageSetup(role) : true;
 
   async function load(opts?: { silent?: boolean }) {
     try {
@@ -135,6 +137,17 @@ export default function ResourcesPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (role && !canAccessPage) {
+    return (
+      <AppShell>
+        <div className="space-y-3 p-6 text-sm text-neutral-600">
+          <p className="font-semibold text-neutral-900">Bạn không có quyền vào khu thiết lập.</p>
+          <p>Vai trò hiện tại chỉ được dùng Điều phối lịch, Thanh toán và Ca làm.</p>
+        </div>
+      </AppShell>
+    );
   }
 
   return (

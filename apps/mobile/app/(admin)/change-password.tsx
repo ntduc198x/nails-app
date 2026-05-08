@@ -1,10 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useState } from "react";
-import { Alert, Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { AdminHeaderActions } from "@/src/features/admin/ui";
+import { AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const TOKENS = {
@@ -104,8 +104,19 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={[styles.screen, { paddingTop: Math.max(insets.top, 12) + 12 }]}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={8}
+        style={styles.screen}
+      >
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 36 + getAdminBottomBarPadding(insets.bottom) }]}
+          contentInsetAdjustmentBehavior="always"
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <Pressable hitSlop={10} onPress={() => router.replace("/(admin)/settings")} style={styles.headerBackButton}>
@@ -156,7 +167,8 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
             </Pressable>
           </View>
         </View>
-      </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -197,8 +209,10 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: TOKENS.screen,
-    paddingHorizontal: 24,
+  },
+  content: {
     gap: 22,
+    paddingHorizontal: 24,
   },
   header: {
     gap: 14,

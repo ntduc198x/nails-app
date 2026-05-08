@@ -51,6 +51,10 @@ if (missingKeys.length > 0) {
 
 console.log("");
 console.log(`Synced mobile env file: ${path.relative(rootDir, targetPath)}`);
+if (readValue("EXPO_PUBLIC_API_BASE_URL").includes("localhost")) {
+  console.warn("WARN EXPO_PUBLIC_API_BASE_URL points to localhost. Real devices and most Android emulators will not reach your Next API on that host.");
+  console.warn("WARN Use a LAN IP or reachable host if the mobile app must call /api/customer/* endpoints directly.");
+}
 console.log("Android shell variables expected in the shell that launches Expo/Gradle:");
 console.log("- ANDROID_HOME");
 console.log("- ANDROID_SDK_ROOT");

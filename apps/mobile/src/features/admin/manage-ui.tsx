@@ -122,7 +122,8 @@ export function ManageScreenShell({
   subtitle,
   currentKey,
   group,
-  backHref,
+backHref,
+  activeTab = "profile",
   onRefresh,
   refreshing,
   showTabs = true,
@@ -133,6 +134,7 @@ export function ManageScreenShell({
   currentKey: ManageScreenKey;
   group: ManageScreenItem["group"];
   backHref?: string;
+  activeTab?: "booking" | "scheduling" | "checkout" | "profile";
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
   showTabs?: boolean;
@@ -143,18 +145,18 @@ export function ManageScreenShell({
   const { allowed, isHydrated, role } = useManageOwnerGuard();
 
   if (!isHydrated || !allowed) {
-    return <SafeAreaView style={styles.safeArea} edges={["top"]} />;
+    return <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]} />;
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.screen}>
         <ScrollView
           contentContainerStyle={[
             styles.content,
             {
               paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom),
+              paddingBottom: 88 + getAdminBottomBarPadding(insets.bottom),
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -185,8 +187,8 @@ export function ManageScreenShell({
           {children}
         </ScrollView>
 
-        <AdminBottomNavDock
-          current="profile"
+<AdminBottomNavDock
+          current={activeTab}
           role={role}
           insetBottom={insets.bottom}
           onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
@@ -206,8 +208,8 @@ const styles = StyleSheet.create({
     backgroundColor: palette.bg,
   },
   content: {
-    paddingHorizontal: 16,
-    gap: 14,
+    paddingHorizontal: 14,
+    gap: 16,
   },
   header: {
     flexDirection: "row",
@@ -226,18 +228,18 @@ const styles = StyleSheet.create({
   },
   headerCopy: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   headerTitle: {
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: "800",
     color: palette.text,
-    letterSpacing: -0.5,
+    letterSpacing: -0.7,
   },
   headerSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
+    fontSize: 14,
+    lineHeight: 22,
     color: palette.sub,
   },
   tabsRow: {

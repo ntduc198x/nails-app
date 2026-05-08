@@ -13,6 +13,7 @@ alter table public.services
 
 update public.services
 set
+  featured_in_lookbook = coalesce(featured_in_lookbook, false) or coalesce(featured_in_home, false) or coalesce(featured_in_explore, false),
   featured_in_home = coalesce(featured_in_home, false) or coalesce(featured_in_lookbook, false),
   featured_in_explore = coalesce(featured_in_explore, false) or coalesce(featured_in_lookbook, false),
   duration_label = coalesce(nullif(trim(duration_label), ''), case when duration_min is not null then duration_min::text || ' phut' else null end),
@@ -427,3 +428,31 @@ cross join (
 where not exists (
   select 1 from public.storefront_gallery existing where existing.storefront_id = active_storefront.id
 );
+
+begin;
+
+drop policy if exists "anon read storefront profile" on public.storefront_profile;
+create policy "anon read storefront profile" on public.storefront_profile
+for select
+to anon
+using (org_id is not null);
+
+drop policy if exists "anon read storefront team members" on public.storefront_team_members;
+create policy "anon read storefront team members" on public.storefront_team_members
+for select
+to anon
+using (org_id is not null);
+
+drop policy if exists "anon read storefront products" on public.storefront_products;
+create policy "anon read storefront products" on public.storefront_products
+for select
+to anon
+using (org_id is not null);
+
+drop policy if exists "anon read storefront gallery" on public.storefront_gallery;
+create policy "anon read storefront gallery" on public.storefront_gallery
+for select
+to anon
+using (org_id is not null);
+
+commit;

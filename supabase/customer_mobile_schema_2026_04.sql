@@ -252,6 +252,7 @@ as $$
 declare
   v_profile public.profiles;
   v_customer_id uuid;
+  v_existing_account_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'UNAUTHENTICATED';
@@ -294,12 +295,36 @@ begin
     returning id into v_customer_id;
   end if;
 
-  insert into public.customer_accounts (user_id, customer_id, org_id, linked_by)
-  values (v_profile.user_id, v_customer_id, v_profile.org_id, 'PHONE_MATCH')
-  on conflict (user_id) do update
-    set customer_id = excluded.customer_id,
-        org_id = excluded.org_id,
-        linked_by = excluded.linked_by;
+  select id
+  into v_existing_account_id
+  from public.customer_accounts
+  where user_id = v_profile.user_id
+     or customer_id = v_customer_id
+  order by case when user_id = v_profile.user_id then 0 else 1 end, created_at asc
+  limit 1;
+
+  if v_existing_account_id is not null then
+    update public.customer_accounts
+    set
+      user_id = v_profile.user_id,
+      customer_id = v_customer_id,
+      org_id = v_profile.org_id,
+      linked_by = 'PHONE_MATCH'
+    where id = v_existing_account_id;
+  else
+    insert into public.customer_accounts (
+      user_id,
+      customer_id,
+      org_id,
+      linked_by
+    )
+    values (
+      v_profile.user_id,
+      v_customer_id,
+      v_profile.org_id,
+      'PHONE_MATCH'
+    );
+  end if;
 
   return v_customer_id;
 end;

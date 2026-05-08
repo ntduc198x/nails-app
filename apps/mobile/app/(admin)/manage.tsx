@@ -23,14 +23,14 @@ export default function AdminManageHubScreen() {
   const { isHydrated, allowed, role } = useManageOwnerGuard();
 
   if (!isHydrated || !allowed) {
-    return <SafeAreaView style={styles.safeArea} edges={["top"]} />;
+    return <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]} />;
   }
 
   const insightItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "insights");
   const setupItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "setup");
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <View style={styles.screen}>
         <ScrollView
           contentContainerStyle={[

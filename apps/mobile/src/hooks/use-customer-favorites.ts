@@ -8,6 +8,7 @@ export function useCustomerFavorites() {
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (!sessionHydrated) {
@@ -23,10 +24,12 @@ export function useCustomerFavorites() {
     setIsSyncing(true);
 
     try {
+      setLastError(null);
       const nextIds = await listCustomerFavoriteServiceIds(mobileSupabase);
       setFavoriteIds(nextIds);
-    } catch {
+    } catch (error) {
       setFavoriteIds([]);
+      setLastError(error instanceof Error ? error.message : "Khong tai duoc danh sach yeu thich");
     } finally {
       setIsHydrated(true);
       setIsSyncing(false);
@@ -55,12 +58,15 @@ export function useCustomerFavorites() {
       setFavoriteIds(optimisticIds);
 
       try {
+        setLastError(null);
         await setCustomerFavoriteService(mobileSupabase, {
           serviceId,
           isFavorite: nextFavoriteState,
         });
-      } catch {
+      } catch (error) {
         setFavoriteIds(favoriteIds);
+        setLastError(error instanceof Error ? error.message : "Khong the luu yeu thich");
+        throw error;
       }
     },
     [favoriteIds, user],
@@ -74,6 +80,7 @@ export function useCustomerFavorites() {
     isFavorite: (serviceId: string) => favoritesSet.has(serviceId),
     isHydrated,
     isSyncing,
+    lastError,
     refresh,
     toggleFavorite,
   };

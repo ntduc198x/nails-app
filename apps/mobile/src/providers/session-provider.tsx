@@ -88,6 +88,10 @@ const defaultSessionContextValue: SessionContextValue = {
 
 const SessionContext = createContext<SessionContextValue>(defaultSessionContextValue);
 
+function getPostAuthHref(role: AppRole | null | undefined) {
+  return isCustomerRole(role) ? "/(customer)" : "/(admin)";
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallbackValue: T) {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -192,6 +196,8 @@ function isRecoverableMobileSessionErrorMessage(message: string | null | undefin
     normalized.includes("create_app_session") ||
     normalized.includes("validate_app_session") ||
     normalized.includes("heartbeat_online_user") ||
+    normalized.includes("user_not_bound_to_org") ||
+    normalized.includes("customer_account") ||
     (normalized.includes("does not exist") && normalized.includes("function public."))
   );
 }
@@ -202,6 +208,87 @@ function buildBasicMobileAppSession(userId: string): AppSessionValidation {
     userId,
     message: "APP_SESSION_FALLBACK",
   };
+}
+
+async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSummary | null> {
+  if (!mobileSupabase) {
+    return null;
+  }
+
+  try {
+    const summary = await getAuthenticatedUserSummary(mobileSupabase);
+    if (summary) {
+      return summary;
+    }
+  } catch {
+    // Customer users are linked through profiles + customer_accounts.
+    // user_roles is reserved for internal/admin/staff roles in this project.
+  }
+
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await mobileSupabase.auth.getUser();
+
+  if (authError || !authUser) {
+    return null;
+  }
+
+  const { data: customerAccount, error: customerAccountError } = await mobileSupabase
+    .from("customer_accounts")
+    .select("id, customer_id, org_id, branch_id")
+    .eq("user_id", authUser.id)
+    .maybeSingle();
+
+  const { data: profile } = await mobileSupabase
+    .from("profiles")
+    .select("display_name,email,phone")
+    .eq("user_id", authUser.id)
+    .maybeSingle();
+
+  if (customerAccountError && customerAccountError.code !== "PGRST116") {
+    return {
+      id: authUser.id,
+      email: profile?.email || authUser.email || "",
+      displayName:
+        (typeof profile?.display_name === "string" && profile.display_name.trim()) ||
+        (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
+        (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
+        authUser.email?.split("@")[0] ||
+        "KhÃ¡ch hÃ ng",
+      role: "USER" as AppRole,
+    } satisfies AuthenticatedUserSummary;
+  }
+
+  if (!customerAccount) {
+    return {
+      id: authUser.id,
+      email: profile?.email || authUser.email || "",
+      displayName:
+        (typeof profile?.display_name === "string" && profile.display_name.trim()) ||
+        (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
+        (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
+        authUser.email?.split("@")[0] ||
+        "KhÃ¡ch hÃ ng",
+      role: "USER" as AppRole,
+    } satisfies AuthenticatedUserSummary;
+  }
+
+  const displayName =
+    typeof profile?.display_name === "string" && profile.display_name.trim()
+      ? profile.display_name.trim()
+      : typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()
+        ? authUser.user_metadata.display_name.trim()
+        : typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()
+          ? authUser.user_metadata.full_name.trim()
+          : authUser.email?.split("@")[0] ?? "Khách hàng";
+
+  return {
+    id: authUser.id,
+    email: profile?.email || authUser.email || "",
+    displayName,
+    role: "USER" as AppRole,
+  } satisfies AuthenticatedUserSummary;
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -217,7 +304,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       throw new Error("Thieu cau hinh Supabase mobile.");
     }
 
-    const summary = await getAuthenticatedUserSummary(mobileSupabase);
+    const summary = await getMobileAuthenticatedUserSummary();
     if (!summary) {
       throw new Error("Khong tim thay user sau khi dang nhap.");
     }
@@ -274,7 +361,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       throw new Error("Thieu cau hinh Supabase mobile.");
     }
 
-    const summary = await getAuthenticatedUserSummary(mobileSupabase);
+    const summary = await getMobileAuthenticatedUserSummary();
     setUser(summary);
     setRoleState(summary?.role ?? null);
     setError(null);
@@ -307,7 +394,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       await ensureCustomerUserMetadata();
       await hydrateAfterAuth();
-      router.replace("/");
+      const summary = await getMobileAuthenticatedUserSummary();
+      router.replace(getPostAuthHref(summary?.role ?? "USER"));
       return true;
     },
     [hydrateAfterAuth],
@@ -329,7 +417,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       try {
         const summary = await withTimeout(
-          getAuthenticatedUserSummary(mobileSupabase),
+          getMobileAuthenticatedUserSummary(),
           SESSION_BOOT_TIMEOUT_MS,
           null,
         );
@@ -464,7 +552,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       await hydrateAfterAuth();
-      router.replace("/");
+      const summary = await getMobileAuthenticatedUserSummary();
+      router.replace(getPostAuthHref(summary?.role ?? "USER"));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap that bai.");
       throw nextError;
@@ -578,7 +667,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       await hydrateAfterAuth();
-      router.replace("/");
+      const summary = await getMobileAuthenticatedUserSummary();
+      router.replace(getPostAuthHref(summary?.role ?? "USER"));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap Apple that bai.");
       throw nextError;

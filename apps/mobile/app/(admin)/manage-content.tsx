@@ -2,10 +2,10 @@ import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -14,7 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
   MobileAdminContentPost,
   MobileAdminContentPostInput,
@@ -41,6 +41,7 @@ import {
   deleteAdminStorefrontGalleryItemForMobile,
   deleteAdminStorefrontProductForMobile,
   deleteAdminStorefrontTeamMemberForMobile,
+  ensureOrgContext,
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
   setActiveAdminStorefrontProfileForMobile,
@@ -52,6 +53,7 @@ import {
   updateAdminStorefrontTeamMemberForMobile,
   upsertAdminStorefrontProfileForMobile,
 } from "@nails/shared";
+import { getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -69,6 +71,7 @@ const palette = {
 
 type ContentTab = "home" | "explore";
 type MerchContext = "home" | "explore";
+type BranchOption = { id: string; name: string };
 
 type MerchFormState = {
   id: string;
@@ -211,7 +214,7 @@ function stringifyMetadata(metadata: Record<string, unknown>) {
 }
 
 function isLandingService(service: MobileAdminMerchService) {
-  return service.active;
+  return service.active && service.featuredInLookbook;
 }
 
 function buildMerchForm(service: MobileAdminMerchService): MerchFormState {
@@ -228,6 +231,19 @@ function buildMerchForm(service: MobileAdminMerchService): MerchFormState {
     lookbookCategory: service.lookbookCategory ?? "",
     lookbookBadge: service.lookbookBadge ?? "",
     lookbookTone: service.lookbookTone ?? "",
+  };
+}
+
+function syncMerchLookbookState(next: MerchFormState): MerchFormState {
+  if (!next.featuredInHome && !next.featuredInExplore) {
+    return next;
+  }
+
+  return {
+    ...next,
+    lookbookBadge: next.lookbookBadge,
+    lookbookCategory: next.lookbookCategory,
+    lookbookTone: next.lookbookTone,
   };
 }
 
@@ -421,7 +437,7 @@ function ItemThumbnail({
     );
   }
 
-  return <Image source={{ uri }} style={styles.thumbImage} alt={label} />;
+  return <CachedAppImage source={{ uri }} style={styles.thumbImage} alt={label} />;
 }
 
 function ImagePreview({
@@ -436,7 +452,7 @@ function ImagePreview({
   return (
     <View style={styles.previewCard}>
       <Text style={styles.previewLabel}>{label}</Text>
-      <Image source={{ uri }} style={styles.previewImage} alt={label} />
+      <CachedAppImage source={{ uri }} style={styles.previewImage} alt={label} />
     </View>
   );
 }
@@ -483,12 +499,13 @@ function ModalShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.modalScreen} edges={["top", "bottom"]}>
-        <View style={styles.modalHeader}>
+        <View style={[styles.modalHeader, { paddingTop: getAdminHeaderTopPadding(insets.top) }]}>
           <Pressable style={styles.headerIconButton} onPress={onClose}>
-            <Feather name="x" size={20} color={palette.text} />
+            <Feather name="chevron-left" size={22} color={palette.text} />
           </Pressable>
           <Text style={styles.modalTitle}>{title}</Text>
           <View style={styles.headerIconButton} />
@@ -503,6 +520,9 @@ export default function AdminManageContentScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ContentTab>("home");
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
+  const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
+  const [defaultBranchId, setDefaultBranchId] = useState<string | null>(null);
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<MobileAdminMerchService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -527,8 +547,34 @@ export default function AdminManageContentScreen() {
   const hasFocusedOnceRef = useRef(false);
   const loadSnapshotRef = useRef<() => Promise<void>>(async () => {});
   const loadServicesRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
+  const loadBranchOptionsRef = useRef<() => Promise<void>>(async () => {});
 
-  const loadSnapshot = useCallback(async () => {
+  const loadBranchOptions = useCallback(async () => {
+    if (!mobileSupabase) return;
+
+    const { orgId, branchId } = await ensureOrgContext(mobileSupabase);
+    setDefaultBranchId(branchId);
+    setSelectedBranchId((current) => current ?? branchId);
+
+    const { data, error: branchesError } = await mobileSupabase
+      .from("branches")
+      .select("id, name")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true });
+
+    if (branchesError) {
+      throw branchesError;
+    }
+
+    setBranchOptions(
+      (data ?? []).map((branch) => ({
+        id: String(branch.id ?? ""),
+        name: typeof branch.name === "string" && branch.name.trim() ? branch.name.trim() : "Chi nhánh",
+      })),
+    );
+  }, []);
+
+  const loadSnapshot = useCallback(async (branchIdOverride?: string) => {
     if (!mobileSupabase) {
       setError("Thieu cau hinh Supabase mobile.");
       setLoading(false);
@@ -539,7 +585,16 @@ export default function AdminManageContentScreen() {
     setError(null);
 
     try {
-      const next = await listAdminContentSnapshotForMobile(mobileSupabase, { includeServices: false });
+      const { branchId } = await ensureOrgContext(mobileSupabase);
+      const effectiveBranchId = branchIdOverride ?? selectedBranchId ?? branchId;
+
+      setDefaultBranchId(branchId);
+      setSelectedBranchId((current) => current ?? branchId);
+
+      const next = await listAdminContentSnapshotForMobile(mobileSupabase, {
+        includeServices: false,
+        branchId: effectiveBranchId,
+      });
       setSnapshot(next);
       setStorefrontForm(buildStorefrontForm(next));
     } catch (nextError) {
@@ -547,10 +602,10 @@ export default function AdminManageContentScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedBranchId]);
 
   const loadServices = useCallback(
-    async (force = false) => {
+    async (force = false, branchIdOverride?: string) => {
       if (!mobileSupabase) {
         setError("Thieu cau hinh Supabase mobile.");
         return;
@@ -560,7 +615,9 @@ export default function AdminManageContentScreen() {
 
       setServicesLoading(true);
       try {
-        const next = await listAdminMerchServicesForMobile(mobileSupabase);
+        const { branchId } = await ensureOrgContext(mobileSupabase);
+        const effectiveBranchId = branchIdOverride ?? selectedBranchId ?? branchId;
+        const next = await listAdminMerchServicesForMobile(mobileSupabase, { branchId: effectiveBranchId });
         setServices(next);
         setServicesLoaded(true);
       } catch (nextError) {
@@ -569,7 +626,7 @@ export default function AdminManageContentScreen() {
         setServicesLoading(false);
       }
     },
-    [servicesLoaded, servicesLoading],
+    [selectedBranchId, servicesLoaded, servicesLoading],
   );
 
   useEffect(() => {
@@ -581,11 +638,18 @@ export default function AdminManageContentScreen() {
   }, [loadServices]);
 
   useEffect(() => {
+    loadBranchOptionsRef.current = loadBranchOptions;
+  }, [loadBranchOptions]);
+
+  useEffect(() => {
     const timeoutId = setTimeout(() => {
-      void loadSnapshot();
+      void (async () => {
+        await loadBranchOptions();
+        await loadSnapshot();
+      })();
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [loadSnapshot]);
+  }, [loadBranchOptions, loadSnapshot]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -602,6 +666,7 @@ export default function AdminManageContentScreen() {
         return;
       }
 
+      void loadBranchOptionsRef.current();
       void loadSnapshotRef.current();
       void loadServicesRef.current(true);
     }, []),
@@ -618,7 +683,7 @@ export default function AdminManageContentScreen() {
   const regularServices = useMemo(
     () =>
       services
-        .filter((item) => item.active && !item.featuredInExplore)
+        .filter((item) => item.active && !item.featuredInLookbook)
         .sort((left, right) => left.name.localeCompare(right.name, "vi")),
     [services],
   );
@@ -644,6 +709,10 @@ export default function AdminManageContentScreen() {
           return Number(right.featuredInHome) - Number(left.featuredInHome);
         }
 
+        if (left.displayOrderHome !== right.displayOrderHome) {
+          return left.displayOrderHome - right.displayOrderHome;
+        }
+
         return left.name.localeCompare(right.name, "vi");
       });
   }, [homeServiceQuery, lookbookServices]);
@@ -667,6 +736,10 @@ export default function AdminManageContentScreen() {
       .sort((left, right) => {
         if (Number(left.featuredInExplore) !== Number(right.featuredInExplore)) {
           return Number(right.featuredInExplore) - Number(left.featuredInExplore);
+        }
+
+        if (left.displayOrderExplore !== right.displayOrderExplore) {
+          return left.displayOrderExplore - right.displayOrderExplore;
         }
 
         return left.name.localeCompare(right.name, "vi");
@@ -714,11 +787,13 @@ export default function AdminManageContentScreen() {
     if (!mobileSupabase || !merchForm) return;
     setSaving(true);
     try {
+      const featuredInLookbook = merchForm.featuredInHome || merchForm.featuredInExplore;
       await updateAdminMerchServiceForMobile(mobileSupabase, {
         id: merchForm.id,
         shortDescription: merchForm.shortDescription,
         imageUrl: merchForm.imageUrl,
         durationLabel: merchForm.durationLabel,
+        featuredInLookbook,
         featuredInHome: merchForm.featuredInHome,
         featuredInExplore: merchForm.featuredInExplore,
         displayOrderHome: parseNumberInput(merchForm.displayOrderHome),
@@ -960,7 +1035,7 @@ export default function AdminManageContentScreen() {
 
   if (loading && !snapshot) {
     return (
-      <ManageScreenShell title="Landing Feed" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup">
+      <ManageScreenShell title="Landing Feed" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false}>
         <View style={styles.stateCard}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.stateTitle}>Đang đồng bộ nội dung hiển thị cho khách hàng...</Text>
@@ -975,12 +1050,60 @@ export default function AdminManageContentScreen() {
       subtitle={snapshot ? `Explore theo chi nhánh ${snapshot.branchName} · Home dùng chung toàn hệ thống` : "Quản lý Home và Explore cho ứng dụng khách hàng"}
       currentKey="content"
       group="setup"
-      onRefresh={() => void Promise.all([loadSnapshot(), loadServices(true)])}
+      activeTab="booking"
+      showTabs={false}
+      onRefresh={() => void Promise.all([loadBranchOptions(), loadSnapshot(), loadServices(true)])}
       refreshing={loading || servicesLoading}
     >
       <View style={styles.heroRow}>
         <Chip active={activeTab === "home"} label="Home" onPress={() => setActiveTab("home")} />
         <Chip active={activeTab === "explore"} label="Explore" onPress={() => setActiveTab("explore")} />
+      </View>
+
+      <View style={styles.branchCard}>
+        <View style={styles.branchHeader}>
+          <View style={styles.branchCopy}>
+            <Text style={styles.branchTitle}>
+              {snapshot ? `Đang xem branch ${snapshot.branchName}` : "Chọn branch để preview Explore"}
+            </Text>
+            <Text style={styles.branchSubtitle}>
+              Đổi branch ở đây chỉ để xem thử trong Landing Feed, không đổi branch mặc định của tài khoản.
+            </Text>
+          </View>
+          {snapshot && !snapshot.isDefaultBranchView && defaultBranchId ? (
+            <Pressable
+              style={styles.actionButton}
+              onPress={() => {
+                setSelectedBranchId(defaultBranchId);
+                void Promise.all([loadSnapshot(defaultBranchId), loadServices(true, defaultBranchId)]);
+              }}
+            >
+              <Text style={styles.actionButtonText}>Quay về mặc định</Text>
+            </Pressable>
+          ) : null}
+        </View>
+
+        <View style={styles.inlineButtons}>
+          {branchOptions.map((branch) => (
+            <Chip
+              key={branch.id}
+              active={branch.id === (selectedBranchId ?? defaultBranchId)}
+              label={branch.id === defaultBranchId ? `${branch.name} · mặc định` : branch.name}
+              onPress={() => {
+                if (branch.id === (selectedBranchId ?? defaultBranchId)) return;
+                setSelectedBranchId(branch.id);
+                void Promise.all([loadSnapshot(branch.id), loadServices(true, branch.id)]);
+              }}
+            />
+          ))}
+        </View>
+
+        {snapshot && !snapshot.isDefaultBranchView ? (
+          <View style={styles.inlineNotice}>
+            <Feather name="eye" size={14} color={palette.accent} />
+            <Text style={styles.inlineNoticeText}>Đang xem tạm dữ liệu theo branch này.</Text>
+          </View>
+        ) : null}
       </View>
 
       {servicesLoading ? (
@@ -1248,7 +1371,7 @@ export default function AdminManageContentScreen() {
       )}
 
       <ModalShell title={`Thiết lập hiển thị dịch vụ · ${merchContext}`} visible={Boolean(merchForm)} onClose={() => setMerchForm(null)}>
-        {merchForm ? <View style={styles.formColumn}><Text style={styles.helperTitle}>{merchForm.name}</Text><ImagePreview uri={merchForm.imageUrl} label="Ảnh hiện tại" /><TextArea placeholder="Mô tả ngắn" value={merchForm.shortDescription} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))} /><Input placeholder="URL ảnh" value={merchForm.imageUrl} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", merchForm.name, (publicUrl) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn thời lượng" value={merchForm.durationLabel} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))} /><View style={styles.inlineButtons}><Chip active={merchForm.featuredInHome} label="Nổi bật ở Home" onPress={() => setMerchForm((prev) => (prev ? { ...prev, featuredInHome: !prev.featuredInHome } : prev))} /><Chip active={merchForm.featuredInExplore} label="Nổi bật ở Explore" onPress={() => setMerchForm((prev) => (prev ? { ...prev, featuredInExplore: !prev.featuredInExplore } : prev))} /></View><Input placeholder="Thứ tự ở Home" keyboardType="number-pad" value={merchForm.displayOrderHome} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderHome: value } : prev))} /><Input placeholder="Thứ tự ở Explore" keyboardType="number-pad" value={merchForm.displayOrderExplore} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderExplore: value } : prev))} /><Input placeholder="Nhóm lookbook" value={merchForm.lookbookCategory} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookCategory: value } : prev))} /><Input placeholder="Nhãn lookbook" value={merchForm.lookbookBadge} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadge: value } : prev))} /><Input placeholder="Tone lookbook" value={merchForm.lookbookTone} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveMerchService()}><Text style={styles.primaryButtonText}>Lưu hiển thị dịch vụ</Text></Pressable></View> : null}
+        {merchForm ? <View style={styles.formColumn}><Text style={styles.helperTitle}>{merchForm.name}</Text><ImagePreview uri={merchForm.imageUrl} label="Ảnh hiện tại" /><TextArea placeholder="Mô tả ngắn" value={merchForm.shortDescription} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))} /><Input placeholder="URL ảnh" value={merchForm.imageUrl} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", merchForm.name, (publicUrl) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn thời lượng" value={merchForm.durationLabel} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))} /><View style={styles.inlineButtons}><Chip active={merchForm.featuredInHome} label="Nổi bật ở Home" onPress={() => setMerchForm((prev) => (prev ? syncMerchLookbookState({ ...prev, featuredInHome: !prev.featuredInHome }) : prev))} /><Chip active={merchForm.featuredInExplore} label="Nổi bật ở Explore" onPress={() => setMerchForm((prev) => (prev ? syncMerchLookbookState({ ...prev, featuredInExplore: !prev.featuredInExplore }) : prev))} /></View><Text style={styles.helperText}>Bật Home hoặc Explore sẽ tự đồng bộ dịch vụ này vào lookbook để customer feed không bị rỗng sai logic.</Text><Input placeholder="Thứ tự ở Home" keyboardType="number-pad" value={merchForm.displayOrderHome} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderHome: value } : prev))} /><Input placeholder="Thứ tự ở Explore" keyboardType="number-pad" value={merchForm.displayOrderExplore} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderExplore: value } : prev))} /><Input placeholder="Nhóm lookbook" value={merchForm.lookbookCategory} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookCategory: value } : prev))} /><Input placeholder="Nhãn lookbook" value={merchForm.lookbookBadge} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadge: value } : prev))} /><Input placeholder="Tone lookbook" value={merchForm.lookbookTone} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveMerchService()}><Text style={styles.primaryButtonText}>Lưu hiển thị dịch vụ</Text></Pressable></View> : null}
       </ModalShell>
 
       <ModalShell title={offerForm?.id ? "Sửa ưu đãi" : "Thêm ưu đãi"} visible={Boolean(offerForm)} onClose={() => setOfferForm(null)}>
@@ -1275,28 +1398,75 @@ export default function AdminManageContentScreen() {
 }
 
 const styles = StyleSheet.create({
-  heroRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  chip: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, justifyContent: "center", alignItems: "center" },
+  heroRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flexWrap: "wrap",
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  branchCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    gap: 16,
+    shadowColor: "#2A1E14",
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  branchHeader: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
+  branchCopy: { flex: 1, gap: 4 },
+  branchTitle: { fontSize: 17, lineHeight: 24, fontWeight: "800", color: palette.text },
+  branchSubtitle: { fontSize: 14, lineHeight: 22, color: palette.sub },
+  chip: {
+    minHeight: 46,
+    paddingHorizontal: 20,
+    borderRadius: 23,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   chipActive: { borderColor: palette.accent, backgroundColor: palette.accentSoft },
-  chipText: { fontSize: 12, fontWeight: "700", color: palette.sub },
-  chipTextActive: { color: palette.accent },
+  chipText: { fontSize: 13, fontWeight: "700", color: palette.sub },
+  chipTextActive: { color: palette.accent, fontWeight: "800" },
   inlineNotice: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: palette.mutedSoft, borderWidth: 1, borderColor: palette.border },
   inlineNoticeText: { flex: 1, color: palette.sub, fontSize: 12, lineHeight: 17 },
-  sectionCard: { borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, padding: 16, gap: 14 },
+  sectionCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    gap: 16,
+    shadowColor: "#2A1E14",
+    shadowOpacity: 0.05,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
   sectionHeader: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   sectionCopy: { flex: 1, gap: 4 },
-  sectionTitle: { fontSize: 18, lineHeight: 22, fontWeight: "800", color: palette.text },
-  sectionSubtitle: { fontSize: 12, lineHeight: 18, color: palette.sub },
-  actionButton: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
+  sectionTitle: { fontSize: 20, lineHeight: 28, fontWeight: "800", color: palette.text },
+  sectionSubtitle: { fontSize: 14, lineHeight: 22, color: palette.sub },
+  actionButton: { minHeight: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
   actionButtonText: { fontSize: 12, fontWeight: "800", color: palette.accent },
   listColumn: { gap: 10 },
-  rowCard: { borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 14, paddingVertical: 13, flexDirection: "row", alignItems: "center", gap: 10 },
-  thumbPlaceholder: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: palette.accentSoft, borderWidth: 1, borderColor: "#E7D6C1", overflow: "hidden" },
+  rowCard: { borderRadius: 22, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 18, paddingVertical: 16, flexDirection: "row", alignItems: "center", gap: 14 },
+  thumbPlaceholder: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: palette.accentSoft, borderWidth: 1, borderColor: "#E7D6C1", overflow: "hidden" },
   thumbPlaceholderText: { fontSize: 18, fontWeight: "800", color: palette.accent },
-  thumbImage: { width: 52, height: 52, borderRadius: 16, backgroundColor: "#F4ECE2" },
+  thumbImage: { width: 58, height: 58, borderRadius: 18, backgroundColor: "#F4ECE2" },
   rowCopy: { flex: 1, gap: 4 },
-  rowTitle: { fontSize: 15, lineHeight: 18, fontWeight: "800", color: palette.text },
-  rowSubtitle: { fontSize: 12, lineHeight: 17, color: palette.sub },
+  rowTitle: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: palette.text },
+  rowSubtitle: { fontSize: 13, lineHeight: 19, color: palette.sub },
   iconButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF6F2", borderWidth: 1, borderColor: "#F3DFD7" },
   stateCard: { borderRadius: 18, paddingVertical: 20, paddingHorizontal: 16, alignItems: "center", gap: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card },
   stateTitle: { color: palette.sub, fontSize: 13, lineHeight: 18, textAlign: "center" },
@@ -1306,7 +1476,7 @@ const styles = StyleSheet.create({
   modalTitle: { flex: 1, textAlign: "center", fontSize: 18, lineHeight: 22, fontWeight: "800", color: palette.text },
   modalContent: { padding: 16, gap: 12 },
   formColumn: { gap: 12 },
-  input: { minHeight: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFFFF", paddingHorizontal: 14, paddingVertical: 12, color: palette.text, fontSize: 14 },
+  input: { minHeight: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFFFF", paddingHorizontal: 16, paddingVertical: 13, color: palette.text, fontSize: 14 },
   textarea: { minHeight: 104 },
   inlineButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   previewCard: { gap: 8, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", padding: 12 },
@@ -1317,4 +1487,5 @@ const styles = StyleSheet.create({
   secondaryButton: { minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: "#E4D7C8", backgroundColor: "#FFF9F3", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   secondaryButtonText: { color: palette.accent, fontSize: 13, fontWeight: "700" },
   helperTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", color: palette.text },
+  helperText: { fontSize: 12, lineHeight: 18, color: palette.sub },
 });

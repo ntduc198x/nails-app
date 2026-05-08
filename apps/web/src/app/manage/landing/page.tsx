@@ -3,7 +3,8 @@
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
 import { MobileSectionHeader } from "@/components/manage-mobile";
-import { getCurrentSessionRole } from "@/lib/auth";
+import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
+import { canAccessManageLanding, getDefaultManageHref } from "@/lib/manage-landing-auth";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -135,7 +136,7 @@ async function fetchManageLanding<T>(input: RequestInfo, init?: RequestInit): Pr
 }
 
 export default function ManageLandingPage() {
-  const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<AppRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -143,7 +144,7 @@ export default function ManageLandingPage() {
   const [data, setData] = useState<LandingResponse | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
 
-  const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
+  const canEdit = canAccessManageLanding(role);
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     try {
@@ -151,12 +152,15 @@ export default function ManageLandingPage() {
       else setLoading(true);
       setError(null);
 
-      const [currentRole, landingData] = await Promise.all([
-        getCurrentSessionRole(),
-        fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts"),
-      ]);
-
+      const currentRole = await getCurrentSessionRole();
       setRole(currentRole);
+
+      if (!canAccessManageLanding(currentRole)) {
+        setData(null);
+        return;
+      }
+
+      const landingData = await fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts");
       setData(landingData);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tải được landing page hub");
@@ -230,6 +234,8 @@ export default function ManageLandingPage() {
     }
   }
 
+  const fallbackHref = getDefaultManageHref(role);
+
   return (
     <AppShell>
       <div className="space-y-6 pb-24 md:pb-0">
@@ -240,189 +246,207 @@ export default function ManageLandingPage() {
 
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <div className="manage-stat-card">
-            <div className="manage-stat-label">Feed đã publish</div>
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.publishedPosts ?? 0}</div>
-            <div className="mt-1 text-xs text-neutral-500">Trên tổng {summary?.totalPosts ?? 0} bài</div>
-          </div>
-          <div className="manage-stat-card">
-            <div className="manage-stat-label">Dịch vụ home</div>
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.featuredInHome ?? 0}</div>
-            <div className="mt-1 text-xs text-neutral-500">Đang bật trên landing</div>
-          </div>
-          <div className="manage-stat-card">
-            <div className="manage-stat-label">Dịch vụ explore</div>
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.featuredInExplore ?? 0}</div>
-            <div className="mt-1 text-xs text-neutral-500">Đang bật trên customer explore</div>
-          </div>
-          <div className="manage-stat-card">
-            <div className="manage-stat-label">Ưu đãi active</div>
-            <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.activeOffers ?? 0}</div>
-            <div className="mt-1 text-xs text-neutral-500">Đang hiển thị theo điều kiện thời gian</div>
-          </div>
-          <div className="manage-stat-card">
-            <div className="manage-stat-label">Storefront</div>
-            <div className="mt-2 text-sm font-semibold text-neutral-900">
-              {summary?.storefront?.name ?? "Chưa có storefront active"}
+        {!loading && role && !canAccessManageLanding(role) ? (
+          <section className="manage-surface space-y-4">
+            <ManageAlert tone="warn">
+              Chỉ OWNER, PARTNER hoặc MANAGER mới được xem landing quản trị.
+            </ManageAlert>
+            <div className="flex flex-wrap gap-3">
+              <Link href={fallbackHref} className="manage-quick-link-accent">
+                Mở khu vực được phép
+              </Link>
+              <Link href="/manage/services" className="manage-quick-link">
+                Đi tới quản trị dịch vụ
+              </Link>
             </div>
-            <div className="mt-1 text-xs text-neutral-500">
-              {summary?.storefront?.slug ? `/${summary.storefront.slug}` : "Readonly summary"}
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="manage-surface space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Feed content-post</h3>
-                <p className="text-sm text-neutral-500">Tạo, chỉnh sửa và publish các bài đang xuất hiện ở phần blog/tips trên landing.</p>
+          </section>
+        ) : (
+          <>
+            <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="manage-stat-card">
+                <div className="manage-stat-label">Feed đã publish</div>
+                <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.publishedPosts ?? 0}</div>
+                <div className="mt-1 text-xs text-neutral-500">Trên tổng {summary?.totalPosts ?? 0} bài</div>
               </div>
-              <button type="button" onClick={startCreate} className="manage-quick-link-accent">
-                Bài mới
-              </button>
-            </div>
+              <div className="manage-stat-card">
+                <div className="manage-stat-label">Dịch vụ home</div>
+                <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.featuredInHome ?? 0}</div>
+                <div className="mt-1 text-xs text-neutral-500">Đang bật trên landing</div>
+              </div>
+              <div className="manage-stat-card">
+                <div className="manage-stat-label">Dịch vụ explore</div>
+                <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.featuredInExplore ?? 0}</div>
+                <div className="mt-1 text-xs text-neutral-500">Đang bật trên customer explore</div>
+              </div>
+              <div className="manage-stat-card">
+                <div className="manage-stat-label">Ưu đãi active</div>
+                <div className="mt-2 text-2xl font-semibold text-neutral-900">{summary?.activeOffers ?? 0}</div>
+                <div className="mt-1 text-xs text-neutral-500">Đang hiển thị theo thời gian</div>
+              </div>
+              <div className="manage-stat-card">
+                <div className="manage-stat-label">Storefront</div>
+                <div className="mt-2 text-sm font-semibold text-neutral-900">
+                  {summary?.storefront?.name ?? "Chưa có storefront active"}
+                </div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  {summary?.storefront?.slug ? `/${summary.storefront.slug}` : "Readonly summary"}
+                </div>
+              </div>
+            </section>
 
-            {loading ? (
-              <div className="manage-info-box">Đang tải dữ liệu feed...</div>
-            ) : orderedPosts.length === 0 ? (
-              <div className="manage-info-box">Chưa có content-post nào. Hãy tạo bài đầu tiên cho landing.</div>
-            ) : (
-              <div className="grid gap-3">
-                {orderedPosts.map((post) => (
-                  <button
-                    key={post.id}
-                    type="button"
-                    onClick={() => startEdit(post)}
-                    className="rounded-2xl border border-neutral-200 bg-white p-4 text-left transition hover:bg-neutral-50"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="truncate text-sm font-semibold text-neutral-900 md:text-base">{post.title}</h4>
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone(post.status)}`}>
-                            {post.status}
-                          </span>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-sm text-neutral-600">{post.summary || post.body}</p>
-                      </div>
-                      <div className="shrink-0 text-right text-xs text-neutral-500">
-                        <div>Priority {post.priority}</div>
-                        <div>{post.published_at ? new Date(post.published_at).toLocaleString("vi-VN") : "Chưa publish"}</div>
-                      </div>
-                    </div>
+            <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="manage-surface space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-neutral-900 md:text-lg">Feed content-post</h3>
+                    <p className="text-sm text-neutral-500">Tạo, chỉnh sửa và publish các bài đang xuất hiện ở blog/tips landing.</p>
+                  </div>
+                  <button type="button" onClick={startCreate} className="manage-quick-link-accent">
+                    Bài mới
                   </button>
-                ))}
-              </div>
-            )}
-          </div>
+                </div>
 
-          <form onSubmit={onSubmit} className="manage-surface space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-semibold text-neutral-900 md:text-lg">
-                  {form.id ? "Chỉnh sửa bài viết" : "Tạo content-post mới"}
-                </h3>
-                <p className="text-sm text-neutral-500">Mental model giữ giống feed landing hiện tại: title, summary, body, type, status, priority.</p>
+                {loading ? (
+                  <div className="manage-info-box">Đang tải dữ liệu feed...</div>
+                ) : orderedPosts.length === 0 ? (
+                  <div className="manage-info-box">Chưa có content-post nào. Hãy tạo bài đầu tiên cho landing.</div>
+                ) : (
+                  <div className="grid gap-3">
+                    {orderedPosts.map((post) => (
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={() => startEdit(post)}
+                        className="rounded-2xl border border-neutral-200 bg-white p-4 text-left transition hover:bg-neutral-50"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h4 className="truncate text-sm font-semibold text-neutral-900 md:text-base">{post.title}</h4>
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone(post.status)}`}>
+                                {post.status}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm text-neutral-600">{post.summary || post.body}</p>
+                          </div>
+                          <div className="shrink-0 text-right text-xs text-neutral-500">
+                            <div>Priority {post.priority}</div>
+                            <div>{post.published_at ? new Date(post.published_at).toLocaleString("vi-VN") : "Chưa publish"}</div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              {form.id ? (
-                <button type="button" onClick={startCreate} className="manage-quick-link">
-                  Bỏ chọn
+
+              <form onSubmit={onSubmit} className="manage-surface space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold text-neutral-900 md:text-lg">
+                      {form.id ? "Chỉnh sửa bài viết" : "Tạo content-post mới"}
+                    </h3>
+                    <p className="text-sm text-neutral-500">Giữ đúng mental model landing hiện tại: title, summary, body, type, status, priority.</p>
+                  </div>
+                  {form.id ? (
+                    <button type="button" onClick={startCreate} className="manage-quick-link">
+                      Bỏ chọn
+                    </button>
+                  ) : null}
+                </div>
+
+                <div>
+                  <FieldLabel>Tiêu đề</FieldLabel>
+                  <TextInput value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Ví dụ: Bộ sưu tập nail nude tháng này" required />
+                </div>
+
+                <div>
+                  <FieldLabel>Tóm tắt</FieldLabel>
+                  <TextArea value={form.summary} onChange={(e) => setForm((prev) => ({ ...prev, summary: e.target.value }))} className="min-h-[84px]" placeholder="Đoạn mô tả ngắn hiển thị trên landing" />
+                </div>
+
+                <div>
+                  <FieldLabel>Nội dung</FieldLabel>
+                  <TextArea value={form.body} onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))} className="min-h-[180px]" placeholder="Nội dung chi tiết của bài viết" />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Ảnh cover URL</FieldLabel>
+                    <TextInput value={form.coverImageUrl} onChange={(e) => setForm((prev) => ({ ...prev, coverImageUrl: e.target.value }))} placeholder="https://..." />
+                  </div>
+                  <div>
+                    <FieldLabel>Loại nội dung</FieldLabel>
+                    <SelectInput value={form.contentType} onChange={(e) => setForm((prev) => ({ ...prev, contentType: e.target.value as ContentType }))}>
+                      <option value="trend">Trend</option>
+                      <option value="care">Care</option>
+                      <option value="news">News</option>
+                      <option value="offer_hint">Offer hint</option>
+                    </SelectInput>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Trạng thái</FieldLabel>
+                    <SelectInput value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as ContentPostStatus }))}>
+                      <option value="draft">Draft</option>
+                      <option value="approved">Approved</option>
+                      <option value="published">Published</option>
+                      <option value="archived">Archived</option>
+                    </SelectInput>
+                  </div>
+                  <div>
+                    <FieldLabel>Priority</FieldLabel>
+                    <TextInput value={form.priority} onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))} inputMode="numeric" placeholder="100" />
+                  </div>
+                </div>
+
+                <button type="submit" disabled={submitting || !canEdit} className="manage-quick-link-accent disabled:cursor-not-allowed disabled:opacity-60">
+                  {submitting ? "Đang lưu..." : form.id ? "Lưu thay đổi" : "Tạo bài viết"}
                 </button>
-              ) : null}
-            </div>
+              </form>
+            </section>
 
-            <div>
-              <FieldLabel>Tiêu đề</FieldLabel>
-              <TextInput value={form.title} onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Ví dụ: Bộ sưu tập nail nude tháng này" required />
-            </div>
-
-            <div>
-              <FieldLabel>Tóm tắt</FieldLabel>
-              <TextArea value={form.summary} onChange={(e) => setForm((prev) => ({ ...prev, summary: e.target.value }))} className="min-h-[84px]" placeholder="Đoạn mô tả ngắn hiển thị trên landing" />
-            </div>
-
-            <div>
-              <FieldLabel>Nội dung</FieldLabel>
-              <TextArea value={form.body} onChange={(e) => setForm((prev) => ({ ...prev, body: e.target.value }))} className="min-h-[180px]" placeholder="Nội dung chi tiết của bài viết" />
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <FieldLabel>Ảnh cover URL</FieldLabel>
-                <TextInput value={form.coverImageUrl} onChange={(e) => setForm((prev) => ({ ...prev, coverImageUrl: e.target.value }))} placeholder="https://..." />
+            <section className="grid gap-4 md:grid-cols-3">
+              <div className="manage-surface space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Dịch vụ nổi bật</h3>
+                  <p className="text-sm text-neutral-500">Chỉnh dịch vụ đang xuất hiện trên landing và explore từ khu Services.</p>
+                </div>
+                <div className="manage-info-box">
+                  Home: {summary?.featuredInHome ?? 0} • Explore: {summary?.featuredInExplore ?? 0}
+                </div>
+                <Link href="/manage/services" className="manage-quick-link-accent">
+                  Mở quản trị dịch vụ
+                </Link>
               </div>
-              <div>
-                <FieldLabel>Loại nội dung</FieldLabel>
-                <SelectInput value={form.contentType} onChange={(e) => setForm((prev) => ({ ...prev, contentType: e.target.value as ContentType }))}>
-                  <option value="trend">Trend</option>
-                  <option value="care">Care</option>
-                  <option value="news">News</option>
-                  <option value="offer_hint">Offer hint</option>
-                </SelectInput>
+
+              <div className="manage-surface space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Ưu đãi</h3>
+                  <p className="text-sm text-neutral-500">Hiện chỉ có summary. Chưa có giao diện quản trị ưu đãi riêng trong đợt này.</p>
+                </div>
+                <div className="manage-info-box">Đang active: {summary?.activeOffers ?? 0} ưu đãi</div>
+                <div className="manage-warn-box">Chưa có giao diện quản trị ưu đãi riêng.</div>
               </div>
-            </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div>
-                <FieldLabel>Trạng thái</FieldLabel>
-                <SelectInput value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as ContentPostStatus }))}>
-                  <option value="draft">Draft</option>
-                  <option value="approved">Approved</option>
-                  <option value="published">Published</option>
-                  <option value="archived">Archived</option>
-                </SelectInput>
+              <div className="manage-surface space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Thông tin cửa tiệm</h3>
+                  <p className="text-sm text-neutral-500">Hub này đang hiển thị storefront summary để kiểm tra nhanh landing hiện tại.</p>
+                </div>
+                <div className="manage-info-box">
+                  <div className="font-medium text-neutral-900">{summary?.storefront?.name ?? "Chưa có storefront active"}</div>
+                  <div className="mt-1">{summary?.storefront?.phone ?? "Chưa có số điện thoại"}</div>
+                  <div className="mt-1">{summary?.storefront?.address_line ?? "Chưa có địa chỉ"}</div>
+                  <div className="mt-1">{summary?.storefront?.opening_hours ?? "Chưa có giờ mở cửa"}</div>
+                </div>
+                <div className="manage-warn-box">Chưa có giao diện quản trị storefront riêng.</div>
               </div>
-              <div>
-                <FieldLabel>Priority</FieldLabel>
-                <TextInput value={form.priority} onChange={(e) => setForm((prev) => ({ ...prev, priority: e.target.value }))} inputMode="numeric" placeholder="100" />
-              </div>
-            </div>
-
-            <button type="submit" disabled={submitting || !canEdit} className="manage-quick-link-accent disabled:cursor-not-allowed disabled:opacity-60">
-              {submitting ? "Đang lưu..." : form.id ? "Lưu thay đổi" : "Tạo bài viết"}
-            </button>
-          </form>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="manage-surface space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Dịch vụ nổi bật</h3>
-              <p className="text-sm text-neutral-500">Chỉnh dịch vụ đang xuất hiện trên landing và explore từ khu Services.</p>
-            </div>
-            <div className="manage-info-box">
-              Home: {summary?.featuredInHome ?? 0} • Explore: {summary?.featuredInExplore ?? 0}
-            </div>
-            <Link href="/manage/services" className="manage-quick-link-accent">
-              Mở quản trị dịch vụ
-            </Link>
-          </div>
-
-          <div className="manage-surface space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Ưu đãi</h3>
-              <p className="text-sm text-neutral-500">Hiện đang chỉ có summary. Chưa có giao diện quản trị riêng trong đợt này.</p>
-            </div>
-            <div className="manage-info-box">Đang active: {summary?.activeOffers ?? 0} ưu đãi</div>
-            <div className="manage-warn-box">Chưa có giao diện quản trị ưu đãi riêng.</div>
-          </div>
-
-          <div className="manage-surface space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Thông tin cửa tiệm</h3>
-              <p className="text-sm text-neutral-500">Hub này đang hiển thị readonly storefront summary để quản trị dễ kiểm tra landing.</p>
-            </div>
-            <div className="manage-info-box">
-              <div className="font-medium text-neutral-900">{summary?.storefront?.name ?? "Chưa có storefront active"}</div>
-              <div className="mt-1">{summary?.storefront?.phone ?? "Chưa có số điện thoại"}</div>
-              <div className="mt-1">{summary?.storefront?.address_line ?? "Chưa có địa chỉ"}</div>
-              <div className="mt-1">{summary?.storefront?.opening_hours ?? "Chưa có giờ mở cửa"}</div>
-            </div>
-            <div className="manage-warn-box">Chưa có giao diện quản trị storefront riêng.</div>
-          </div>
-        </section>
+            </section>
+          </>
+        )}
       </div>
     </AppShell>
   );

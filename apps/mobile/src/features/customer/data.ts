@@ -418,24 +418,37 @@ export const PROFILE_LINKS = [
 
 export function matchesCategory(service: LookbookService, category: (typeof CATEGORY_ITEMS)[number]["key"]) {
   if (category === "all") return true;
-  if (service.category) return service.category === category;
+  const haystack = `${service.title} ${service.tone} ${service.blurb} ${service.badge ?? ""}`.toLowerCase();
+  const normalizedCategory = service.category?.toLowerCase() ?? "";
+  const normalizedTone = service.tone.toLowerCase();
+  const normalizedBadge = service.badge?.toLowerCase() ?? "";
 
-  const haystack = `${service.title} ${service.tone} ${service.blurb}`.toLowerCase();
+  if (category === "noi-bat") {
+    return (
+      normalizedCategory === "noi-bat" ||
+      normalizedBadge.includes("nổi bật") ||
+      normalizedBadge.includes("noi bat") ||
+      normalizedTone.includes("nổi bật") ||
+      normalizedTone.includes("noi bat") ||
+      haystack.includes("art") ||
+      haystack.includes("design")
+    );
+  }
+
+  if (normalizedCategory === category) {
+    return true;
+  }
 
   if (category === "don-gian") {
-    return haystack.includes("nhẹ nhàng") || haystack.includes("đơn giản") || haystack.includes("milky");
+    return normalizedTone.includes("nhẹ nhàng") || normalizedTone.includes("đơn giản") || haystack.includes("milky");
   }
 
   if (category === "sang-trong") {
-    return haystack.includes("sang trọng") || haystack.includes("french") || haystack.includes("luxury");
+    return normalizedTone.includes("sang trọng") || haystack.includes("french") || haystack.includes("luxury");
   }
 
   if (category === "ca-tinh") {
-    return haystack.includes("cá tính") || haystack.includes("olive") || haystack.includes("matcha");
-  }
-
-  if (category === "noi-bat") {
-    return haystack.includes("nổi bật") || haystack.includes("art") || haystack.includes("design");
+    return normalizedTone.includes("cá tính") || haystack.includes("olive") || haystack.includes("matcha");
   }
 
   return true;

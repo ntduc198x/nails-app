@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
+import type { AppRole } from "@/lib/auth";
+import { canAccessManageLanding, type LandingManagerRole } from "@/lib/manage-landing-auth";
 import { createServiceRoleClient } from "@/lib/supabase";
-
-type LandingManagerRole = "OWNER" | "MANAGER" | "RECEPTION" | "TECH";
 
 type ContentPostInput = {
   id?: string;
@@ -44,8 +44,8 @@ async function requireLandingManager(req: Request) {
     return { ok: false as const, response: NextResponse.json({ ok: false, error: roleRes.error?.message ?? "Missing role context" }, { status: 403 }) };
   }
 
-  const role = String(roleRes.data.role) as LandingManagerRole | string;
-  if (!["OWNER", "MANAGER", "RECEPTION", "TECH"].includes(role)) {
+  const role = String(roleRes.data.role) as AppRole;
+  if (!canAccessManageLanding(role)) {
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
   }
 

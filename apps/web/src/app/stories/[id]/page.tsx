@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatViDate } from "@nails/shared";
+import { AppLazyImage } from "@/components/app-lazy-image";
 import { createServiceRoleClient } from "@/lib/supabase";
 
 type StoryRow = {
@@ -40,7 +41,14 @@ export default async function StoryDetailPage({ params }: { params: Promise<{ id
 
         <article className="story-detail-card">
           {story.cover_image_url ? (
-            <img src={story.cover_image_url} alt={story.title} className="story-detail-card__image" />
+            <AppLazyImage
+              alt={story.title}
+              className="story-detail-card__image"
+              height={900}
+              priority
+              src={story.cover_image_url}
+              width={1200}
+            />
           ) : null}
 
           <div className="story-detail-card__meta">

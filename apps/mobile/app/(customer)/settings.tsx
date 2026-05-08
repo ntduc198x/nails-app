@@ -1,237 +1,338 @@
-import Feather from "@expo/vector-icons/Feather";
-import { useEffect, useState } from "react";
-import { Alert, Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Feather from "@expo/vector-icons/Feather";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
-import { premiumTheme } from "@/src/design/premium-theme";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useCustomerPreferences, useCustomerTheme } from "@/src/providers/customer-preferences-provider";
+import {
+  clearCustomerFeedCache,
+  getCustomerFeedCacheSizeBytes,
+} from "@/src/lib/customer-feed-cache";
+import {
+  clearCustomerImageCacheManifest,
+  getCustomerImageCacheManifestSizeBytes,
+} from "@/src/lib/customer-image-cache";
 import { useSession } from "@/src/providers/session-provider";
 
-const { colors, radius } = premiumTheme;
-type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
+const SETTINGS_BOOL_KEYS = {
+  notifications: "customer-settings:notifications",
+  sound: "customer-settings:sound",
+  vibration: "customer-settings:vibration",
+} as const;
+
+function formatCacheSize(bytes: number) {
+  if (bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export default function SettingsScreen() {
-  const { requestPasswordReset, user } = useSession();
-  const [toggles, setToggles] = useState({
-    notifications: true,
-    sound: true,
-    vibration: false,
-    darkMode: false,
-  });
+  const strings = useCustomerStrings();
+  const theme = useCustomerTheme();
+  const { user } = useSession();
+  const { colorScheme, locale } = useCustomerPreferences();
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [cacheSize, setCacheSize] = useState("0 KB");
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
+    oldPassword: "",
+    password: "",
     confirmPassword: "",
   });
-  const [secureState, setSecureState] = useState({
-    current: true,
-    next: true,
-    confirm: true,
-  });
-const [isSavingPassword, setIsSavingPassword] = useState(false);
-  const [language, setLanguage] = useState("vi");
-  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const styles = useMemo(() => createStyles(theme), [theme]);
+
+  const loadCacheSize = useCallback(async () => {
+    const [feedBytes, imageBytes] = await Promise.all([
+      getCustomerFeedCacheSizeBytes(),
+      getCustomerImageCacheManifestSizeBytes(),
+    ]);
+    setCacheSize(formatCacheSize(feedBytes + imageBytes));
+  }, []);
 
   useEffect(() => {
-    async function loadSettings() {
-      if (!mobileSupabase || !user?.id) return;
-      try {
-        const { data } = await mobileSupabase
-          .from("profiles")
-          .select("language")
-          .eq("user_id", user.id)
-          .single();
-        if (data?.language) setLanguage(data.language);
-      } catch {}
-    }
-    void loadSettings();
-  }, [user?.id]);
+    void loadCacheSize();
+  }, [loadCacheSize]);
 
-  const languageLabel = language === "vi" ? "Tiếng Việt" : "English";
+  useEffect(() => {
+    let cancelled = false;
 
-  async function handleSaveLanguage(lang: string) {
-    if (!mobileSupabase || !user?.id) return;
+    const boot = async () => {
+      const [soundValue, vibrationValue, notificationsValue] = await Promise.all([
+        AsyncStorage.getItem(SETTINGS_BOOL_KEYS.sound),
+        AsyncStorage.getItem(SETTINGS_BOOL_KEYS.vibration),
+        AsyncStorage.getItem(SETTINGS_BOOL_KEYS.notifications),
+      ]);
+
+      if (cancelled) return;
+      setSoundEnabled(soundValue !== "false");
+      setVibrationEnabled(vibrationValue !== "false");
+      setNotificationsEnabled(notificationsValue !== "false");
+    };
+
+    void boot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function persistBooleanSetting(
+    key: string,
+    nextValue: boolean,
+    updater: (value: boolean) => void,
+  ) {
+    updater(nextValue);
     try {
-      await mobileSupabase
-        .from("profiles")
-        .update({ language: lang })
-        .eq("user_id", user.id);
-      setLanguage(lang);
-      setShowLanguageModal(false);
+      await AsyncStorage.setItem(key, String(nextValue));
     } catch {
-      Alert.alert("Lỗi", "Không thể lưu ngôn ngữ.");
+      updater(!nextValue);
+      Alert.alert(strings.cacheClearFailedTitle, strings.saveFailed);
     }
   }
 
-  async function handleClearCache() {
-    try {
-      await AsyncStorage.clear();
-      Alert.alert("Đã xóa", "Bộ nhớ đệm đã được xóa.");
-    } catch {
-      Alert.alert("Lỗi", "Không thể xóa bộ nhớ đệm.");
-    }
+  function showUpgradeLaterAlert(featureName: string) {
+    Alert.alert("Tính năng đang nâng cấp", `${featureName} sẽ được nâng cấp ở bản cập nhật sau. Hiện tại ứng dụng đang dùng chế độ sáng và tiếng Việt.`);
+  }
+
+  function handleChangeLanguage() {
+    setShowLanguageModal(false);
+    showUpgradeLaterAlert("Chuyển ngôn ngữ");
+  }
+
+  function handleToggleTheme() {
+    showUpgradeLaterAlert("Chế độ tối");
+  }
+
+  function handleClearCache() {
+    Alert.alert("Xác nhận xóa cache", "Bạn có chắc muốn xóa toàn bộ cache cục bộ của ứng dụng không?", [
+      { text: "Hủy", style: "cancel" },
+      {
+        text: "Xóa cache",
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            try {
+              await Promise.all([clearCustomerFeedCache(), clearCustomerImageCacheManifest()]);
+              await loadCacheSize();
+              Alert.alert(strings.cacheClearedTitle, strings.cacheClearedBody);
+            } catch {
+              Alert.alert(strings.cacheClearFailedTitle, strings.cacheClearFailedBody);
+            }
+          })();
+        },
+      },
+    ]);
   }
 
   async function handleChangePassword() {
-    if (!mobileSupabase) {
-      Alert.alert("Chưa cấu hình", "Ứng dụng chưa kết nối được Supabase để đổi mật khẩu.");
+    if (!passwordForm.oldPassword.trim()) {
+      Alert.alert(strings.cacheClearFailedTitle, "Vui lòng nhập mật khẩu hiện tại.");
       return;
     }
 
-    if (!passwordForm.newPassword.trim() || passwordForm.newPassword.trim().length < 6) {
-      Alert.alert("Mật khẩu chưa hợp lệ", "Mật khẩu mới cần có ít nhất 6 ký tự.");
+    if (!passwordForm.password.trim() || !passwordForm.confirmPassword.trim()) {
+      Alert.alert(strings.cacheClearFailedTitle, "Vui lòng nhập đầy đủ mật khẩu mới và xác nhận mật khẩu.");
       return;
     }
 
-    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      Alert.alert("Chưa khớp", "Mật khẩu mới và xác nhận mật khẩu chưa trùng nhau.");
+    if (passwordForm.password.trim().length < 6) {
+      Alert.alert(strings.cacheClearFailedTitle, "Mật khẩu mới cần có ít nhất 6 ký tự.");
       return;
     }
 
-    setIsSavingPassword(true);
+    if (passwordForm.password !== passwordForm.confirmPassword) {
+      Alert.alert(strings.cacheClearFailedTitle, "Xác nhận mật khẩu chưa khớp.");
+      return;
+    }
+
+    if (!user?.email) {
+      Alert.alert(strings.cacheClearFailedTitle, strings.commonError);
+      return;
+    }
+
+    if (!user) {
+      Alert.alert(strings.cacheClearFailedTitle, strings.commonError);
+      return;
+    }
 
     try {
+      setIsUpdatingPassword(true);
+
+      if (!mobileSupabase) {
+        throw new Error(strings.commonError);
+      }
+
+      const { error: signInError } = await mobileSupabase.auth.signInWithPassword({
+        email: user.email,
+        password: passwordForm.oldPassword,
+      });
+
+      if (signInError) {
+        throw new Error("Mật khẩu hiện tại không đúng.");
+      }
+
       const { error } = await mobileSupabase.auth.updateUser({
-        password: passwordForm.newPassword,
+        password: passwordForm.password.trim(),
       });
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      setPasswordForm({
-        currentPassword: "",
-        newPassword: "",
-        confirmPassword: "",
-      });
-      Alert.alert("Đã cập nhật", "Mật khẩu tài khoản đã được thay đổi.");
+      setPasswordForm({ oldPassword: "", password: "", confirmPassword: "" });
+      Alert.alert(strings.saveSuccess, "Mật khẩu đã được cập nhật.");
     } catch (error) {
-      Alert.alert(
-        "Không thể đổi mật khẩu",
-        error instanceof Error ? error.message : "Đã có lỗi xảy ra khi đổi mật khẩu.",
-      );
+      Alert.alert(strings.cacheClearFailedTitle, error instanceof Error ? error.message : strings.commonError);
     } finally {
-      setIsSavingPassword(false);
-    }
-  }
-
-  async function handleForgotPassword() {
-    try {
-      await requestPasswordReset(user?.email ?? "");
-      Alert.alert("Đã gửi", "Liên kết đặt lại mật khẩu đã được gửi về email tài khoản.");
-    } catch (error) {
-      Alert.alert(
-        "Không thể gửi email",
-        error instanceof Error ? error.message : "Không thể gửi email đặt lại mật khẩu.",
-      );
+      setIsUpdatingPassword(false);
     }
   }
 
   return (
-    <CustomerScreen title="Cài đặt" hideHeader contentContainerStyle={styles.content} onRefresh={() => {}} refreshing={false}>
+    <CustomerScreen
+      title={strings.settingsTitle}
+      hideHeader
+      contentContainerStyle={styles.content}
+      keyboardAware
+      keyboardVerticalOffset={12}
+    >
       <View style={styles.headerRow}>
-        <Pressable hitSlop={10} onPress={() => router.back()} style={styles.backButton}>
-          <Feather color={colors.text} name="chevron-left" size={24} />
+        <Pressable
+          hitSlop={10}
+          onPress={() => {
+            if (router.canGoBack()) {
+              router.back();
+            } else {
+              router.replace("/(customer)");
+            }
+          }}
+          style={styles.backButton}
+        >
+          <Feather color={theme.colors.text} name="chevron-left" size={24} />
         </Pressable>
-        <Text style={styles.headerTitle}>Cài đặt</Text>
+        <Text style={styles.headerTitle}>{strings.settingsTitle}</Text>
         <CustomerTopActions />
       </View>
 
       <SurfaceCard style={styles.groupCard}>
         <ToggleRow
-          icon="bell"
-          label="Nhận thông báo"
-          onValueChange={(value) => setToggles((current) => ({ ...current, notifications: value }))}
-          value={toggles.notifications}
+          icon="moon"
+          label={strings.darkMode}
+          value={colorScheme === "dark"}
+          onValueChange={() => handleToggleTheme()}
+          styles={styles}
+          theme={theme}
         />
         <ToggleRow
           icon="volume-2"
-          label="Âm thanh"
-          onValueChange={(value) => setToggles((current) => ({ ...current, sound: value }))}
-          value={toggles.sound}
+          label={strings.sound}
+          value={soundEnabled}
+          onValueChange={(value) => void persistBooleanSetting(SETTINGS_BOOL_KEYS.sound, value, setSoundEnabled)}
+          styles={styles}
+          theme={theme}
         />
         <ToggleRow
           icon="smartphone"
-          label="Rung"
-          onValueChange={(value) => setToggles((current) => ({ ...current, vibration: value }))}
-          value={toggles.vibration}
+          label={strings.vibration}
+          value={vibrationEnabled}
+          onValueChange={(value) =>
+            void persistBooleanSetting(SETTINGS_BOOL_KEYS.vibration, value, setVibrationEnabled)
+          }
+          styles={styles}
+          theme={theme}
         />
         <ToggleRow
-          icon="moon"
-          label="Chế độ tối"
+          icon="bell"
+          label={strings.pushNotifications}
+          value={notificationsEnabled}
+          onValueChange={(value) =>
+            void persistBooleanSetting(SETTINGS_BOOL_KEYS.notifications, value, setNotificationsEnabled)
+          }
           last
-          onValueChange={(value) => setToggles((current) => ({ ...current, darkMode: value }))}
-          value={toggles.darkMode}
+          styles={styles}
+          theme={theme}
         />
       </SurfaceCard>
 
-<SurfaceCard style={styles.groupCard}>
-        <ActionRow icon="globe" label="Ngôn ngữ" value={languageLabel} onPress={() => setShowLanguageModal(true)} />
-        <ActionRow icon="trash-2" label="Xóa bộ nhớ đệm" last value="0 KB" onPress={handleClearCache} />
+      <SurfaceCard style={styles.groupCard}>
+        <ActionRow
+          icon="globe"
+          label={strings.language}
+          value="Tiếng Việt"
+          onPress={() => setShowLanguageModal(true)}
+          styles={styles}
+          theme={theme}
+        />
+        <ActionRow
+          icon="trash-2"
+          label={strings.cache}
+          value={cacheSize}
+          onPress={handleClearCache}
+          styles={styles}
+          theme={theme}
+          last
+        />
       </SurfaceCard>
 
-      <SurfaceCard style={styles.passwordCard}>
-        <Text style={styles.passwordTitle}>ĐỔI MẬT KHẨU</Text>
-
-        <PasswordField
-          icon="lock"
-          onChangeText={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))}
-          onToggleSecure={() =>
-            setSecureState((current) => ({ ...current, current: !current.current }))
-          }
-          placeholder="Mật khẩu hiện tại"
-          secureTextEntry={secureState.current}
-          value={passwordForm.currentPassword}
-        />
-        <PasswordField
-          icon="lock"
-          onChangeText={(value) => setPasswordForm((current) => ({ ...current, newPassword: value }))}
-          onToggleSecure={() => setSecureState((current) => ({ ...current, next: !current.next }))}
-          placeholder="Mật khẩu mới"
-          secureTextEntry={secureState.next}
-          value={passwordForm.newPassword}
-        />
-        <PasswordField
-          icon="lock"
-          onChangeText={(value) =>
-            setPasswordForm((current) => ({ ...current, confirmPassword: value }))
-          }
-          onToggleSecure={() =>
-            setSecureState((current) => ({ ...current, confirm: !current.confirm }))
-          }
-          placeholder="Nhập lại mật khẩu mới"
-          secureTextEntry={secureState.confirm}
-          value={passwordForm.confirmPassword}
-        />
-
-        <Pressable
-          onPress={handleChangePassword}
-          style={({ pressed }) => [styles.primaryButton, pressed ? styles.primaryButtonPressed : null]}
-        >
-          <Text style={styles.primaryButtonText}>
-            {isSavingPassword ? "Đang cập nhật..." : "Cập nhật mật khẩu"}
-          </Text>
-        </Pressable>
-
-        <Pressable onPress={handleForgotPassword} style={styles.forgotPasswordLink}>
-          <Text style={styles.forgotPasswordText}>Quên mật khẩu</Text>
-        </Pressable>
+      <SurfaceCard style={styles.groupCard}>
+        <View style={styles.passwordBlock}>
+          <View style={styles.passwordHeader}>
+            <Feather color={theme.colors.textSoft} name="lock" size={18} />
+            <Text style={styles.rowLabel}>Đổi mật khẩu</Text>
+          </View>
+          <TextInput
+            secureTextEntry
+            placeholder="Mật khẩu hiện tại"
+            placeholderTextColor={theme.colors.textMuted}
+            style={styles.passwordInput}
+            value={passwordForm.oldPassword}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, oldPassword: value }))}
+          />
+          <TextInput
+            secureTextEntry
+            placeholder="Mật khẩu mới"
+            placeholderTextColor={theme.colors.textMuted}
+            style={styles.passwordInput}
+            value={passwordForm.password}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, password: value }))}
+          />
+          <TextInput
+            secureTextEntry
+            placeholder="Nhập lại mật khẩu mới"
+            placeholderTextColor={theme.colors.textMuted}
+            style={styles.passwordInput}
+            value={passwordForm.confirmPassword}
+            onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
+          />
+          <Pressable style={styles.passwordButton} onPress={() => void handleChangePassword()} disabled={isUpdatingPassword}>
+            <Text style={styles.passwordButtonText}>{isUpdatingPassword ? "Đang cập nhật..." : "Cập nhật mật khẩu"}</Text>
+          </Pressable>
+        </View>
       </SurfaceCard>
 
-      <Modal visible={showLanguageModal} transparent animationType="fade">
+      <Modal visible={showLanguageModal} transparent animationType="fade" onRequestClose={() => setShowLanguageModal(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowLanguageModal(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.modalTitle}>Chọn ngôn ngữ</Text>
-            <Pressable style={styles.modalOption} onPress={() => handleSaveLanguage("vi")}>
-              <Text style={[styles.modalOptionText, language === "vi" && styles.modalOptionTextActive]}>Tiếng Việt</Text>
+          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.modalTitle}>{strings.language}</Text>
+            <Pressable style={styles.modalOption} onPress={handleChangeLanguage}>
+              <Text style={[styles.modalOptionText, locale === "vi" ? styles.modalOptionTextActive : null]}>
+                {strings.languageVi}
+              </Text>
             </Pressable>
-            <Pressable style={styles.modalOption} onPress={() => handleSaveLanguage("en")}>
-              <Text style={[styles.modalOptionText, language === "en" && styles.modalOptionTextActive]}>English</Text>
+            <Pressable style={styles.modalOption} onPress={handleChangeLanguage}>
+              <Text style={[styles.modalOptionText, locale === "en" ? styles.modalOptionTextActive : null]}>
+                {strings.languageEn}
+              </Text>
             </Pressable>
           </Pressable>
         </Pressable>
       </Modal>
-
-      <Text style={styles.versionText}>Phiên bản 1.0.0</Text>
     </CustomerScreen>
   );
 }
@@ -239,27 +340,31 @@ const [isSavingPassword, setIsSavingPassword] = useState(false);
 function ToggleRow({
   icon,
   label,
-  last = false,
-  onValueChange,
   value,
+  onValueChange,
+  last = false,
+  styles,
+  theme,
 }: {
-  icon: FeatherIconName;
+  icon: React.ComponentProps<typeof Feather>["name"];
   label: string;
-  last?: boolean;
-  onValueChange: (value: boolean) => void;
   value: boolean;
+  onValueChange: (value: boolean) => void;
+  last?: boolean;
+  styles: ReturnType<typeof createStyles>;
+  theme: ReturnType<typeof useCustomerTheme>;
 }) {
   return (
     <View style={[styles.row, !last ? styles.rowDivider : null]}>
       <View style={styles.rowCopy}>
-        <Feather color={colors.textSoft} name={icon} size={18} />
+        <Feather color={theme.colors.textSoft} name={icon} size={18} />
         <Text style={styles.rowLabel}>{label}</Text>
       </View>
       <Switch
-        ios_backgroundColor="#e8dfd4"
+        ios_backgroundColor={theme.colors.border}
         onValueChange={onValueChange}
         thumbColor="#fffdfa"
-        trackColor={{ false: "#e8dfd4", true: "#44a548" }}
+        trackColor={{ false: theme.colors.border, true: theme.colors.accent }}
         value={value}
       />
     </View>
@@ -269,219 +374,164 @@ function ToggleRow({
 function ActionRow({
   icon,
   label,
-  last = false,
   value,
   onPress,
+  last = false,
+  styles,
+  theme,
 }: {
-  icon: FeatherIconName;
+  icon: React.ComponentProps<typeof Feather>["name"];
   label: string;
+  value: string;
+  onPress: () => void;
   last?: boolean;
-  value: string;
-  onPress?: () => void;
-}) {
-  const content = (
-    <View style={[styles.row, !last ? styles.rowDivider : null]}>
-      <View style={styles.rowCopy}>
-        <Feather color={colors.textSoft} name={icon} size={18} />
-        <Text style={styles.rowLabel}>{label}</Text>
-      </View>
-
-      <View style={styles.rowTrailing}>
-        <Text style={styles.rowValue}>{value}</Text>
-        {onPress && <Feather color={colors.textSoft} name="chevron-right" size={18} />}
-      </View>
-    </View>
-  );
-
-  if (onPress) {
-    return <Pressable onPress={onPress}>{content}</Pressable>;
-  }
-  return content;
-}
-
-function PasswordField({
-  icon,
-  onChangeText,
-  onToggleSecure,
-  placeholder,
-  secureTextEntry,
-  value,
-}: {
-  icon: FeatherIconName;
-  onChangeText: (value: string) => void;
-  onToggleSecure: () => void;
-  placeholder: string;
-  secureTextEntry: boolean;
-  value: string;
+  styles: ReturnType<typeof createStyles>;
+  theme: ReturnType<typeof useCustomerTheme>;
 }) {
   return (
-    <View style={styles.passwordField}>
-      <Feather color={colors.textSoft} name={icon} size={15} />
-      <TextInput
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textMuted}
-        secureTextEntry={secureTextEntry}
-        style={styles.passwordInput}
-        value={value}
-      />
-      <Pressable hitSlop={10} onPress={onToggleSecure}>
-        <Feather color={colors.textSoft} name={secureTextEntry ? "eye-off" : "eye"} size={16} />
-      </Pressable>
-    </View>
+    <Pressable onPress={onPress}>
+      <View style={[styles.row, !last ? styles.rowDivider : null]}>
+        <View style={styles.rowCopy}>
+          <Feather color={theme.colors.textSoft} name={icon} size={18} />
+          <Text style={styles.rowLabel}>{label}</Text>
+        </View>
+        <View style={styles.rowTrailing}>
+          <Text style={styles.rowValue}>{value}</Text>
+          <Feather color={theme.colors.textSoft} name="chevron-right" size={18} />
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  content: {
-    gap: 10,
-    paddingBottom: 136,
-    paddingTop: 0,
-  },
-  groupCard: {
-    gap: 0,
-    paddingHorizontal: 12,
-    paddingVertical: 0,
-  },
-  headerRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    marginBottom: 16,
-    paddingHorizontal: 4,
-  },
-  backButton: {
-    height: 44,
-    width: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: -8,
-  },
-  headerTitle: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 64,
-  },
-  rowDivider: {
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-  },
-  rowCopy: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  rowLabel: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  rowTrailing: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-  },
-  rowValue: {
-    color: colors.textSoft,
-    fontSize: 15,
-  },
-  passwordCard: {
-    gap: 10,
-    padding: 12,
-  },
-  passwordTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  passwordField: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 8,
-    minHeight: 50,
-    paddingHorizontal: 12,
-  },
-  passwordInput: {
-    color: colors.text,
-    flex: 1,
-    fontSize: 14,
-    minHeight: 42,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: colors.accent,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    minHeight: 46,
-    marginTop: 0,
-  },
-  primaryButtonPressed: {
-    opacity: 0.9,
-  },
-  primaryButtonText: {
-    color: colors.surface,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  forgotPasswordLink: {
-    alignItems: "center",
-    paddingBottom: 0,
-    paddingTop: 2,
-  },
-  forgotPasswordText: {
-    color: colors.accentWarm,
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  versionText: {
-    color: colors.textSoft,
-    fontSize: 14,
-    paddingTop: 0,
-    textAlign: "center",
-  },
-  modalOverlay: {
-    backgroundColor: "rgba(0,0,0,0.5)",
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: 24,
-    width: "80%",
-    maxWidth: 300,
-  },
-  modalTitle: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: "800",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  modalOption: {
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  modalOptionText: {
-    color: colors.textSoft,
-    fontSize: 16,
-    textAlign: "center",
-  },
-  modalOptionTextActive: {
-    color: colors.accent,
-    fontWeight: "700",
-  },
-});
+function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
+  return StyleSheet.create({
+    content: {
+      gap: 12,
+      paddingBottom: 136,
+      paddingTop: 0,
+    },
+    headerRow: {
+      alignItems: "center",
+      flexDirection: "row",
+      marginBottom: 12,
+      paddingHorizontal: 4,
+    },
+    backButton: {
+      alignItems: "center",
+      height: 44,
+      justifyContent: "center",
+      marginLeft: -8,
+      width: 44,
+    },
+    headerTitle: {
+      color: theme.colors.text,
+      flex: 1,
+      fontSize: 22,
+      fontWeight: "800",
+    },
+    groupCard: {
+      gap: 0,
+      paddingHorizontal: 12,
+      paddingVertical: 0,
+    },
+    row: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 64,
+    },
+    rowDivider: {
+      borderBottomColor: theme.colors.border,
+      borderBottomWidth: 1,
+    },
+    rowCopy: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12,
+    },
+    rowLabel: {
+      color: theme.colors.text,
+      fontSize: 15,
+      fontWeight: "700",
+    },
+    rowTrailing: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 10,
+      maxWidth: "52%",
+    },
+    rowValue: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: "600",
+      textAlign: "right",
+    },
+    passwordBlock: {
+      gap: 12,
+      paddingVertical: 14,
+    },
+    passwordHeader: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 12,
+    },
+    passwordInput: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: 16,
+      borderWidth: 1,
+      color: theme.colors.text,
+      fontSize: 14,
+      minHeight: 52,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+    },
+    passwordButton: {
+      alignItems: "center",
+      backgroundColor: theme.colors.accent,
+      borderRadius: 16,
+      justifyContent: "center",
+      minHeight: 52,
+    },
+    passwordButtonText: {
+      color: theme.colors.surface,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    modalOverlay: {
+      alignItems: "center",
+      backgroundColor: "rgba(0,0,0,0.5)",
+      flex: 1,
+      justifyContent: "center",
+    },
+    modalCard: {
+      backgroundColor: theme.colors.surface,
+      borderRadius: theme.radius.xl,
+      maxWidth: 300,
+      padding: 24,
+      width: "80%",
+    },
+    modalTitle: {
+      color: theme.colors.text,
+      fontSize: 18,
+      fontWeight: "800",
+      marginBottom: 16,
+      textAlign: "center",
+    },
+    modalOption: {
+      borderBottomColor: theme.colors.border,
+      borderBottomWidth: 1,
+      paddingVertical: 14,
+    },
+    modalOptionText: {
+      color: theme.colors.textSoft,
+      fontSize: 16,
+      textAlign: "center",
+    },
+    modalOptionTextActive: {
+      color: theme.colors.accent,
+      fontWeight: "700",
+    },
+  });
+}

@@ -28,6 +28,8 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
   }
 
   let orgId = typeof currentProfile?.org_id === "string" ? currentProfile.org_id : undefined;
+  let branchId =
+    typeof currentProfile?.default_branch_id === "string" ? currentProfile.default_branch_id : undefined;
 
   if (!orgId) {
     const { data: fallbackRole, error: fallbackRoleErr } = await client
@@ -42,6 +44,21 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
     }
 
     orgId = typeof fallbackRole?.org_id === "string" ? fallbackRole.org_id : undefined;
+  }
+
+  if (!orgId || !branchId) {
+    const { data: customerAccount, error: customerAccountErr } = await client
+      .from("customer_accounts")
+      .select("org_id,branch_id")
+      .eq("user_id", currentUser.id)
+      .maybeSingle();
+
+    if (customerAccountErr && customerAccountErr.code !== "PGRST116") {
+      throw customerAccountErr;
+    }
+
+    orgId = orgId ?? (typeof customerAccount?.org_id === "string" ? customerAccount.org_id : undefined);
+    branchId = branchId ?? (typeof customerAccount?.branch_id === "string" ? customerAccount.branch_id : undefined);
   }
 
   if (!orgId) {
@@ -59,9 +76,7 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
     throw currentBranchErr;
   }
 
-  const branchId =
-    (typeof currentProfile?.default_branch_id === "string" ? currentProfile.default_branch_id : undefined) ??
-    (typeof currentBranches?.[0]?.id === "string" ? currentBranches[0].id : undefined);
+  branchId = branchId ?? (typeof currentBranches?.[0]?.id === "string" ? currentBranches[0].id : undefined);
 
   if (!branchId) {
     throw new Error("ORG_HAS_NO_BRANCH");
@@ -85,11 +100,11 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
     const { error: updateProfileErr } = await client
       .from("profiles")
       .update({
+        org_id: currentProfile.org_id ?? orgId,
         default_branch_id: branchId,
         email: currentUser.email ?? null,
       })
-      .eq("user_id", currentUser.id)
-      .eq("org_id", orgId);
+      .eq("user_id", currentUser.id);
 
     if (updateProfileErr) {
       throw updateProfileErr;

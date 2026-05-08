@@ -1,20 +1,25 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
-import { useMemo, useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { CustomerContentPost, LookbookItem, MarketingOfferCard } from "@nails/shared";
+import { CustomerCachedImage } from "@/src/features/customer/cached-image";
+import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, PrimaryButton, SectionTitle, SurfaceCard } from "@/src/features/customer/ui";
 import { useCustomerHomeFeed } from "@/src/hooks/use-customer-home-feed";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
+import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
+import { getCustomerImageUri } from "@/src/lib/customer-image-url";
 import { premiumTheme } from "@/src/design/premium-theme";
 
 const { colors, radius, shadow } = premiumTheme;
 
 const HOME_FILTERS = [
-  { key: "all", label: "Tat ca", icon: "clock" },
-  { key: "hot", label: "Mau hot", icon: "star" },
-  { key: "trend", label: "Xu huong", icon: "trending-up" },
-  { key: "offers", label: "Uu dai", icon: "tag" },
+  { key: "all", label: "Tất cả", icon: "clock" },
+  { key: "hot", label: "Mẫu hot", icon: "star" },
+  { key: "trend", label: "Xu hướng", icon: "trending-up" },
+  { key: "offers", label: "Ưu đãi", icon: "tag" },
 ] as const;
 
 type HomeFilterKey = (typeof HOME_FILTERS)[number]["key"];
@@ -37,9 +42,11 @@ function getPostTags(post: CustomerContentPost): HomeFilterKey[] {
 }
 
 export default function CustomerHomeScreen() {
+  const strings = useCustomerStrings();
   const [activeFilter, setActiveFilter] = useState<HomeFilterKey>("all");
-  const { contentPosts, isLoading, lookbook, offers, refresh } = useCustomerHomeFeed();
-  const { isFavorite, toggleFavorite } = useCustomerFavorites();
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const { contentPosts, isLoading, isRefreshing, lastError, lookbook, offers, refresh } = useCustomerHomeFeed();
+  const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
   const heroImage = lookbook[1]?.image ?? lookbook[0]?.image ?? null;
 
@@ -58,13 +65,26 @@ export default function CustomerHomeScreen() {
     return [];
   }, [activeFilter, offers]);
 
+  const hasAnyHomeContent = visibleLookbook.length > 0 || visiblePosts.length > 0 || visibleOffers.length > 0;
+
+  useEffect(() => {
+    if (!favoriteError) return;
+
+    if (favoriteError.includes("CUSTOMER_ACCOUNT_NOT_LINKED")) {
+      Alert.alert(strings.favoriteSaveBlockedTitle, strings.favoriteSaveBlockedBody);
+      return;
+    }
+
+    Alert.alert(strings.favoriteSaveFailedTitle, favoriteError);
+  }, [favoriteError, strings.favoriteSaveBlockedBody, strings.favoriteSaveBlockedTitle, strings.favoriteSaveFailedTitle]);
+
   return (
     <CustomerScreen
       hideHeader
-      title="Trang chu"
+      title={strings.homeTitle}
       contentContainerStyle={styles.content}
       onRefresh={() => void refresh()}
-      refreshing={isLoading}
+      refreshing={isRefreshing}
     >
       <View style={styles.topBar}>
         <View>
@@ -79,20 +99,22 @@ export default function CustomerHomeScreen() {
           <View style={styles.heroMiniBadge}>
             <Feather color="#b98258" name="briefcase" size={12} />
           </View>
-          <Text style={styles.heroTitle}>Dep moi ngay, dat lich nhanh, xem mau hot va uu dai ngay tai trang chu.</Text>
+          <Text style={styles.heroTitle}>Đẹp mỗi ngày, đặt lịch nhanh và xem ngay các mẫu đang nổi bật.</Text>
           <Text style={styles.heroSubtitle}>
             {isLoading
-              ? "Dang cap nhat noi dung moi nhat..."
-              : "Tong hop mau dang hot, xu huong lam dep va uu dai cua cua hang cho tai khoan customer."}
+              ? "Đang cập nhật nội dung mới nhất..."
+              : "Tổng hợp các mẫu đang hot, xu hướng làm đẹp và ưu đãi mới của cửa hàng dành cho khách hàng."}
           </Text>
 
           <View style={styles.heroActions}>
-            <PrimaryButton label="Dat lich ngay" onPress={() => router.push("/(customer)/booking")} />
-            <PrimaryButton label="Kham pha" subtle onPress={() => router.push("/(customer)/explore")} />
+            <PrimaryButton label="Đặt lịch ngay" onPress={() => router.push("/(customer)/booking")} />
+            <PrimaryButton label="Khám phá" subtle onPress={() => router.push("/(customer)/explore")} />
           </View>
         </View>
 
-        {heroImage ? <Image alt="Hero nail design" source={{ uri: heroImage }} style={styles.heroImage} /> : null}
+        {heroImage ? (
+          <CustomerCachedImage alt="Hero nail design" source={{ uri: heroImage }} intent="hero" style={styles.heroImage} />
+        ) : null}
       </SurfaceCard>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
@@ -111,11 +133,30 @@ export default function CustomerHomeScreen() {
         })}
       </ScrollView>
 
+      {isLoading && !hasAnyHomeContent ? (
+        <SurfaceCard style={styles.stateCard}>
+          <Text style={styles.stateTitle}>Dang tai home feed...</Text>
+          <Text style={styles.stateDescription}>Noi dung customer dang duoc dong bo tu he thong.</Text>
+        </SurfaceCard>
+      ) : null}
+
+      {!isLoading && !hasAnyHomeContent ? (
+        <SurfaceCard style={styles.stateCard}>
+          <Text style={styles.stateTitle}>Chua co du lieu hien thi</Text>
+          <Text style={styles.stateDescription}>
+            {lastError ? `Khong tai duoc home feed. ${lastError}` : "Khong tim thay lookbook, bai viet hoac uu dai cho tai khoan nay."}
+          </Text>
+          <Pressable style={styles.retryButton} onPress={() => void refresh()}>
+            <Text style={styles.retryButtonText}>{strings.retry}</Text>
+          </Pressable>
+        </SurfaceCard>
+      ) : null}
+
       <View style={styles.sectionBlock}>
         <SectionTitle
-          title="Mau dang hot"
-          subtitle="Lookbook dong bo voi landing page, uu tien mau noi bat va de dat lich."
-          actionLabel="Xem tat ca"
+          title={strings.homeHotLooks}
+          subtitle="Lookbook đồng bộ với landing page, ưu tiên mẫu nổi bật và dễ đặt lịch."
+          actionLabel="Xem tất cả"
           onPress={() => router.push("/(customer)/explore")}
         />
 
@@ -126,6 +167,8 @@ export default function CustomerHomeScreen() {
               item={item}
               favorite={isFavorite(item.id)}
               onToggleFavorite={() => void toggleFavorite(item.id)}
+              onPreviewImage={setPreviewImage}
+              bookingLabel={strings.bookingCta}
             />
           ))}
         </ScrollView>
@@ -133,14 +176,14 @@ export default function CustomerHomeScreen() {
 
       <View style={styles.sectionBlock}>
         <SectionTitle
-          title="Xu huong lam dep hom nay"
-          subtitle="Noi dung ngan gon tu beauty feed, uu tien bai da publish."
-          actionLabel="Xem them"
-          onPress={() => router.push("/(customer)/favorites")}
+          title={strings.homeTrends}
+          subtitle="Nội dung ngắn gọn từ beauty feed, ưu tiên bài đã publish."
+          actionLabel="Xem thêm"
+          onPress={() => router.push("/(customer)/explore")}
         />
 
-        <View style={styles.postList}>
-          {visiblePosts.map((post) => (
+      <View style={styles.postList}>
+        {visiblePosts.map((post) => (
             <PostCard key={post.id} post={post} />
           ))}
         </View>
@@ -149,9 +192,9 @@ export default function CustomerHomeScreen() {
       {visibleOffers.length ? (
         <View style={styles.sectionBlock}>
           <SectionTitle
-            title="Quyen loi thanh vien"
-            subtitle="Uu dai hien co duoc xem va su dung trong The thanh vien."
-            actionLabel="Mo the"
+            title={strings.homeMembershipOffers}
+            subtitle="Ưu đãi hiện có được xem và sử dụng trong Thẻ thành viên."
+            actionLabel={strings.homeOpenMembership}
             onPress={() => router.replace("/(customer)/membership")}
           />
 
@@ -162,6 +205,8 @@ export default function CustomerHomeScreen() {
           </View>
         </View>
       ) : null}
+
+      <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
     </CustomerScreen>
   );
 }
@@ -170,33 +215,29 @@ function LookbookCard({
   item,
   favorite,
   onToggleFavorite,
+  onPreviewImage,
+  bookingLabel,
 }: {
   item: LookbookItem;
   favorite: boolean;
   onToggleFavorite: () => void;
+  onPreviewImage: (imageUrl: string) => void;
+  bookingLabel: string;
 }) {
   return (
-    <Pressable
-      style={styles.lookbookCard}
-      onPress={() =>
-        router.push({
-          pathname: "/(customer)/booking",
-          params: { service: item.title },
-        })
-      }
-    >
-      <View>
-        <Image alt={item.title} source={{ uri: item.image }} style={styles.lookbookImage} />
+    <View style={styles.lookbookCard}>
+      <Pressable onPress={() => onPreviewImage(item.image)}>
+        <CustomerCachedImage alt={item.title} source={{ uri: item.image }} intent="card" style={styles.lookbookImage} />
         <Pressable
-          style={styles.favoriteButton}
+          style={[styles.favoriteButton, favorite ? styles.favoriteButtonActive : null]}
           onPress={(event) => {
             event.stopPropagation();
             onToggleFavorite();
           }}
         >
-          <Feather color={favorite ? "#f97316" : "#f5f0ea"} name="heart" size={14} />
+          <Feather color={favorite ? "#fff7ef" : colors.textSoft} name="heart" size={14} />
         </Pressable>
-      </View>
+      </Pressable>
 
       <View style={styles.lookbookBody}>
         <Text style={styles.lookbookTone}>{item.tone}</Text>
@@ -205,31 +246,63 @@ function LookbookCard({
 
         <View style={styles.lookbookFooter}>
           <Text style={styles.lookbookPrice}>{item.price}</Text>
-          <View style={styles.bookButton}>
-            <Text style={styles.bookButtonText}>Dat lich</Text>
-          </View>
+          <Pressable
+            style={styles.bookButton}
+            onPress={() =>
+              router.push({
+                pathname: "/(customer)/booking",
+                params: { service: item.title },
+              })
+            }
+          >
+            <Text style={styles.bookButtonText}>{bookingLabel}</Text>
+          </Pressable>
         </View>
       </View>
-    </Pressable>
+    </View>
   );
 }
 
 function PostCard({ post }: { post: CustomerContentPost }) {
-  return (
-    <SurfaceCard style={styles.postCard}>
-      {post.coverImageUrl ? <Image alt={post.title} source={{ uri: post.coverImageUrl }} style={styles.postImage} /> : null}
+  async function openPostDetail() {
+    const previewImageUrl = post.coverImageUrl ? getCustomerImageUri(post.coverImageUrl, "preview") : "";
+    if (post.coverImageUrl) {
+      await prefetchCustomerImagesForIntent([post.coverImageUrl], "preview");
+    }
 
-      <View style={styles.postCopy}>
-        <View style={styles.postMetaRow}>
-          <Text style={styles.postTag}>{post.sourcePlatform}</Text>
-          <Pressable>
-            <Feather color="#ae9d8d" name="bookmark" size={15} />
-          </Pressable>
+    router.push({
+      pathname: "/(customer)/feed/[postId]",
+      params: {
+        postId: post.id,
+        title: post.title,
+        summary: post.summary,
+        body: post.body,
+        coverImageUrl: post.coverImageUrl ?? "",
+        coverImagePreviewUrl: previewImageUrl,
+        sourcePlatform: post.sourcePlatform,
+      },
+    });
+  }
+
+  return (
+    <Pressable onPress={() => void openPostDetail()}>
+      <SurfaceCard style={styles.postCard}>
+        {post.coverImageUrl ? (
+          <CustomerCachedImage alt={post.title} source={{ uri: post.coverImageUrl }} intent="card" style={styles.postImage} />
+        ) : null}
+
+        <View style={styles.postCopy}>
+          <View style={styles.postMetaRow}>
+            <Text style={styles.postTag}>{post.sourcePlatform}</Text>
+            <Pressable>
+              <Feather color="#ae9d8d" name="bookmark" size={15} />
+            </Pressable>
+          </View>
+          <Text style={styles.postTitle}>{post.title}</Text>
+          <Text numberOfLines={3} style={styles.postSummary}>{post.summary}</Text>
         </View>
-        <Text style={styles.postTitle}>{post.title}</Text>
-        <Text numberOfLines={3} style={styles.postSummary}>{post.summary}</Text>
-      </View>
-    </SurfaceCard>
+      </SurfaceCard>
+    </Pressable>
   );
 }
 
@@ -267,16 +340,16 @@ const styles = StyleSheet.create({
   heroCard: {
     backgroundColor: "#fdf2e8",
     flexDirection: "row",
+    gap: 10,
     overflow: "hidden",
     padding: 14,
-    gap: 10,
   },
   heroTextColumn: {
     flex: 1,
     gap: 10,
     justifyContent: "space-between",
-    paddingVertical: 4,
     paddingRight: 4,
+    paddingVertical: 4,
     zIndex: 2,
   },
   heroMiniBadge: {
@@ -302,8 +375,8 @@ const styles = StyleSheet.create({
     maxWidth: 178,
   },
   heroActions: {
-    flexDirection: "column",
     alignItems: "flex-start",
+    flexDirection: "column",
     gap: 8,
     marginTop: 2,
   },
@@ -344,6 +417,35 @@ const styles = StyleSheet.create({
   sectionBlock: {
     gap: 12,
   },
+  stateCard: {
+    borderRadius: 22,
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+  },
+  stateTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  stateDescription: {
+    color: colors.textSoft,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  retryButton: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.accent,
+    borderRadius: radius.pill,
+    marginTop: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  retryButtonText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: "800",
+  },
   cardsRow: {
     gap: 12,
     paddingRight: 8,
@@ -363,7 +465,9 @@ const styles = StyleSheet.create({
   },
   favoriteButton: {
     alignItems: "center",
-    backgroundColor: "rgba(92, 70, 54, 0.42)",
+    backgroundColor: "rgba(255,250,245,0.96)",
+    borderColor: "#ebdfd3",
+    borderWidth: 1,
     borderRadius: radius.pill,
     height: 28,
     justifyContent: "center",
@@ -371,6 +475,15 @@ const styles = StyleSheet.create({
     right: 10,
     top: 10,
     width: 28,
+  },
+  favoriteButtonActive: {
+    backgroundColor: "#f97316",
+    borderColor: "#f97316",
+    shadowColor: "#f97316",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    transform: [{ scale: 1.08 }],
   },
   lookbookBody: {
     gap: 8,

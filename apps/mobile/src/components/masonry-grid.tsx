@@ -1,5 +1,6 @@
 import { useCallback, useMemo, type ReactElement } from "react";
-import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 
 const COLUMN_GAP = 12;
 const CARD_PADDING = 16;
@@ -81,7 +82,7 @@ export function MasonryGrid({
           onPress={() => onItemPress?.(item)}
           onLongPress={() => onItemLongPress?.(item)}
         >
-          <Image
+          <CachedAppImage
             source={{ uri: item.image }}
             alt={item.title}
             style={[styles.cardImage, { height: imageHeight }]}

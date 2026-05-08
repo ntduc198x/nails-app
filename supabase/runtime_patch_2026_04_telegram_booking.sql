@@ -108,7 +108,7 @@ create policy "users view own codes" on public.telegram_link_codes
 
 create or replace function public.generate_telegram_link_code(
   p_app_user_id uuid,
-  p_ttl_minutes int default 10
+  p_ttl_minutes int default 5
 )
 returns text
 language plpgsql
@@ -123,7 +123,7 @@ begin
     and (used_at is not null or expires_at <= now());
 
   loop
-    v_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
+    v_code := lpad(floor(random() * 1000000)::text, 6, '0');
 
     exit when not exists (
       select 1
@@ -155,6 +155,8 @@ set search_path = public
 as $$
 declare
   v_row public.telegram_link_codes%rowtype;
+  v_role text;
+  v_display_name text;
 begin
   select *
   into v_row
@@ -171,14 +173,14 @@ begin
       where code = upper(trim(p_code))
         and used_at is not null
     ) then
-      return jsonb_build_object('ok', false, 'reason', 'CODE_USED');
+      return jsonb_build_object('ok', false, 'success', false, 'reason', 'CODE_USED', 'error', 'CODE_USED');
     end if;
 
-    return jsonb_build_object('ok', false, 'reason', 'INVALID_CODE');
+    return jsonb_build_object('ok', false, 'success', false, 'reason', 'INVALID_CODE', 'error', 'INVALID_CODE');
   end if;
 
   if v_row.expires_at <= now() then
-    return jsonb_build_object('ok', false, 'reason', 'CODE_EXPIRED');
+    return jsonb_build_object('ok', false, 'success', false, 'reason', 'CODE_EXPIRED', 'error', 'CODE_EXPIRED');
   end if;
 
   delete from public.telegram_links
@@ -208,7 +210,31 @@ begin
   set used_at = now()
   where id = v_row.id;
 
-  return jsonb_build_object('ok', true, 'app_user_id', v_row.app_user_id);
+  select ur.role, p.display_name
+  into v_role, v_display_name
+  from public.user_roles ur
+  left join public.profiles p on p.user_id = ur.user_id
+  where ur.user_id = v_row.app_user_id
+  order by
+    case ur.role
+      when 'OWNER' then 1
+      when 'PARTNER' then 2
+      when 'MANAGER' then 3
+      when 'RECEPTION' then 4
+      when 'ACCOUNTANT' then 5
+      when 'TECH' then 6
+      else 99
+    end
+  limit 1;
+
+  return jsonb_build_object(
+    'ok', true,
+    'success', true,
+    'app_user_id', v_row.app_user_id,
+    'user_id', v_row.app_user_id,
+    'role', coalesce(v_role, 'STAFF'),
+    'display_name', coalesce(v_display_name, p_telegram_first_name, p_telegram_username, 'Tai khoan')
+  );
 end;
 $$;
 

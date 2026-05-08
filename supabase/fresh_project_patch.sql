@@ -155,9 +155,12 @@ begin
   end
   into v_role;
 
-  insert into public.user_roles (user_id, org_id, role)
-  values (new.id, v_org_id, v_role)
-  on conflict (user_id, org_id, role) do nothing;
+  begin
+    insert into public.user_roles (user_id, org_id, role)
+    values (new.id, v_org_id, v_role);
+  exception when unique_violation then
+    null;
+  end;
 
   return new;
 end;

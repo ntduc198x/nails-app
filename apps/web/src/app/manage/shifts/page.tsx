@@ -71,6 +71,11 @@ type TeamRoleRow = {
 
 const WEEKDAY_LABELS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
 const FILTER_ALL = "ALL";
+const SHIFT_ROLE_FILTER_ORDER: StaffRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+
+function isSchedulableRole(role: AppRole | null | undefined): role is StaffRole {
+  return role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT" || role === "TECH";
+}
 
 function getWeekdayLabel(dateKey: string) {
   const weekday = new Date(`${dateKey}T00:00:00`).getDay();
@@ -160,7 +165,7 @@ function createOwnerEmployees(rows: TeamRoleRow[], profiles: StaffShiftProfileRe
   const profileMap = new Map(profiles.map((profile) => [profile.userId, profile]));
 
   return rows
-    .filter((row) => row.role && row.role !== "OWNER" && row.role !== "USER")
+    .filter((row) => isSchedulableRole(row.role))
     .map<AutoScheduleEmployee>((row, index) => {
       const role = row.role as StaffRole;
       const name = row.display_name?.trim() || row.email?.split("@")[0] || `Staff ${index + 1}`;
@@ -668,7 +673,12 @@ export default function ManageShiftsPage() {
     () => employeeProfileIssues.filter((item) => item.missingAvailability || item.missingSkills),
     [employeeProfileIssues],
   );
-  const canRunAutoSchedule = ownerEmployees.length > 0 && incompleteProfiles.length === 0;
+  const hasIncompleteProfiles = incompleteProfiles.length > 0;
+
+  // Do not hard-block auto scheduling when staff shift profiles are incomplete.
+  // The scheduler can still generate a draft with the available data and surface
+  // conflicts/suggestions for the owner to resolve manually before publishing.
+  const canRunAutoSchedule = ownerEmployees.length > 0;
   const defaultDraft = useMemo(
     () =>
       canRunAutoSchedule
@@ -1166,7 +1176,7 @@ export default function ManageShiftsPage() {
           try {
             const fallbackRoles = new Map(
               rows
-                .filter((row) => row.role && row.role !== "OWNER" && row.role !== "USER")
+                .filter((row) => isSchedulableRole(row.role))
                 .map((row) => [row.user_id, row.role as StaffRole]),
             );
             const profiles = normalizeStaffShiftProfiles(await loadStaffShiftProfiles(), fallbackRoles);
@@ -1574,14 +1584,14 @@ export default function ManageShiftsPage() {
             Bảng `staff_shift_profiles` chưa có trên Supabase. Cần chạy file `supabase/staff_shift_profiles_2026_04.sql` để lưu skill, availability, nghỉ phép và max hours thật cho nhân sự.
           </ManageAlert>
         ) : null}
-        {!profilesSchemaMissing && incompleteProfiles.length ? (
+        {!profilesSchemaMissing && hasIncompleteProfiles ? (
           <ManageAlert tone="warn">
-            Còn {incompleteProfiles.length} nhân sự thiếu hồ sơ phân ca thật. Hoàn thiện `khung giờ làm` và `kỹ năng` trước khi chạy `Tự động xếp ca`.
+            Còn {incompleteProfiles.length} nhân sự thiếu hồ sơ phân ca thật. Hệ thống vẫn cho chạy `Tự động xếp ca`, nhưng nên hoàn thiện `khung giờ làm` và `kỹ năng` ở màn `Team` để lịch chính xác hơn.
           </ManageAlert>
         ) : null}
         {status === "published" && lastPublishedAt ? (
           <ManageAlert tone="info">
-            Lịch đã xuất bản lúc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastPublishedAt))}. Nhân sự sẽ nhìn thấy đúng lịch này ở màn Shifts.
+            Lịch đã xuất lúc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastPublishedAt))}. Nhân sự sẽ nhìn thấy đúng lịch này ở màn Shifts.
           </ManageAlert>
         ) : null}
 
@@ -1627,7 +1637,7 @@ export default function ManageShiftsPage() {
                     {ownerSaving && status === "draft" ? "Đang lưu..." : "Tự động xếp ca"}
                   </button>
                   <div className="rounded-full border border-neutral-200 bg-white px-3 py-3 text-sm font-semibold text-neutral-700">
-                    {status === "published" ? "Đã xuất bản" : "Nháp"}
+                    {status === "published" ? "Đã xuất lịch" : "Nháp"}
                   </div>
                   <button
                     type="button"
@@ -1635,7 +1645,7 @@ export default function ManageShiftsPage() {
                     disabled={ownerSaving || !draft}
                     className="rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {ownerSaving && status === "published" ? "Đang xuất bản..." : "Xuất bản"}
+                    {ownerSaving && status === "published" ? "Đang xuất lịch..." : "Xuất lịch"}
                   </button>
                 </div>
               </div>
@@ -1663,7 +1673,7 @@ export default function ManageShiftsPage() {
                         className="min-w-0 bg-transparent text-sm outline-none"
                       >
                         <option value={FILTER_ALL}>Tất cả</option>
-                        {[...new Set(ownerEmployees.map((employee) => employee.role))].map((entry) => (
+                        {SHIFT_ROLE_FILTER_ORDER.filter((entry) => ownerEmployees.some((employee) => employee.role === entry)).map((entry) => (
                           <option key={entry} value={entry}>
                             {getRoleLabel(entry)}
                           </option>
@@ -1694,6 +1704,15 @@ export default function ManageShiftsPage() {
                   ? `Đang sửa nhanh: ${selectedEmployee.name} · ${formatDateLabel(selectedAssignment.dateKey)}. Panel "Chọn lịch sửa thủ công" đang mở ngay cạnh bảng lịch.`
                   : 'Chạm vào một ô trong bảng để mở panel "Chọn lịch sửa thủ công" ngay cạnh khu phân lịch.'}
               </div>
+
+              {hasIncompleteProfiles ? (
+                <div className="mt-3 rounded-[28px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
+                  <p className="font-semibold">Một số hồ sơ phân ca chưa hoàn thiện</p>
+                  <p className="mt-1">
+                    Auto schedule vẫn chạy được, nhưng các nhân sự thiếu availability/kỹ năng có thể bị xếp ít hơn hoặc tạo cảnh báo trong phần `Tổng quan điều phối`.
+                  </p>
+                </div>
+              ) : null}
 
               <div ref={shiftsSectionRef} className="mt-5">
                 <MobilePlannerCards
@@ -2167,7 +2186,7 @@ export default function ManageShiftsPage() {
           disabled={ownerSaving || !draft}
           className="flex-1 rounded-full bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white"
         >
-          Xuất bản
+          Xuất lịch
         </button>
       </MobileStickyActions>
       <style jsx global>{`

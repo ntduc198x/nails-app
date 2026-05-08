@@ -1,8 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Redirect } from "expo-router";
 import { useMemo, useState } from "react";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -166,7 +166,7 @@ export default function SignInScreen() {
           </View>
 
           <View style={styles.heroImageShell}>
-            <Image accessibilityLabel="Cham Beauty hero" alt="Cham Beauty hero" source={{ uri: HERO_IMAGE_URI }} style={styles.heroImage} />
+            <CachedAppImage accessibilityLabel="Cham Beauty hero" alt="Cham Beauty hero" source={{ uri: HERO_IMAGE_URI }} style={styles.heroImage} />
           </View>
         </View>
 

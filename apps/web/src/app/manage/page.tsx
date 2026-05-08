@@ -2,6 +2,7 @@
 
 import { AppShell } from "@/components/app-shell";
 import { getCurrentSessionRole } from "@/lib/auth";
+import { getDefaultManageHref } from "@/lib/manage-landing-auth";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -16,16 +17,10 @@ export default function ManageEntryPage() {
       try {
         const role = await getCurrentSessionRole();
         if (!mounted) return;
-
-        if (role === "ACCOUNTANT") {
-          router.replace("/manage/checkout");
-          return;
-        }
-
-        router.replace("/manage/landing");
+        router.replace(getDefaultManageHref(role));
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : "Không thể mở trang manage");
+        setError(e instanceof Error ? e.message : "Khong the mo trang manage");
       }
     }
 
@@ -38,7 +33,7 @@ export default function ManageEntryPage() {
   return (
     <AppShell>
       <div className="p-6 text-sm text-neutral-500">
-        {error ? <span className="text-red-600">{error}</span> : "Đang chuyển trang..."}
+        {error ? <span className="text-red-600">{error}</span> : "Dang chuyen trang..."}
       </div>
     </AppShell>
   );

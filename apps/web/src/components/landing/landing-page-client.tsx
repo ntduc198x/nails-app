@@ -1,6 +1,8 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
+import { AppLazyImage } from "@/components/app-lazy-image";
+import { DeferredRender } from "@/components/deferred-render";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
@@ -125,7 +127,16 @@ function buildEmbedMapUrl(mapUrl?: string | null, addressLine?: string | null) {
 function ProductGridCard({ product }: { product: ExploreProduct }) {
   return (
     <article className="landing-showcase-product landing-showcase-motion-card">
-      {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" decoding="async" /> : null}
+      {product.imageUrl ? (
+        <AppLazyImage
+          alt={product.name}
+          className="h-full w-full object-cover"
+          height={560}
+          sizes="(max-width: 768px) 50vw, 25vw"
+          src={product.imageUrl}
+          width={560}
+        />
+      ) : null}
       <div className="landing-showcase-product__body">
         <h4>{product.name}</h4>
         <strong>{product.priceLabel ?? "Liên hệ"}</strong>
@@ -616,7 +627,15 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
             <span className="landing-showcase__hero-visual-halo" aria-hidden="true" />
             <span className="landing-showcase__hero-visual-sheen" aria-hidden="true" />
             <span className="landing-showcase__hero-visual-glow" aria-hidden="true" />
-            <img src={heroImage} alt={storefront?.name ?? "Chạm Beauty"} />
+            <AppLazyImage
+              alt={storefront?.name ?? "Chạm Beauty"}
+              className="h-full w-full object-cover"
+              height={1440}
+              priority
+              sizes="(max-width: 1024px) 92vw, 44vw"
+              src={heroImage}
+              width={1200}
+            />
           </div>
         </section>
 
@@ -650,8 +669,23 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
           </div>
 
           <div className="landing-showcase__story-visual landing-showcase-reveal landing-showcase-reveal--right">
-            <img src={storyImage} alt="Mặt tiền cửa tiệm Chạm Beauty" className="landing-showcase__story-visual-main" />
-            <img src={storyAccentImage} alt="Không gian cửa tiệm Chạm Beauty" className="landing-showcase__story-visual-float" />
+            <AppLazyImage
+              alt="Mặt tiền cửa tiệm Chạm Beauty"
+              className="landing-showcase__story-visual-main"
+              height={1200}
+              priority
+              sizes="(max-width: 1024px) 92vw, 42vw"
+              src={storyImage}
+              width={1200}
+            />
+            <AppLazyImage
+              alt="Không gian cửa tiệm Chạm Beauty"
+              className="landing-showcase__story-visual-float"
+              height={720}
+              sizes="(max-width: 1024px) 40vw, 20vw"
+              src={storyAccentImage}
+              width={720}
+            />
           </div>
         </section>
 
@@ -675,7 +709,14 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
               renderItem={(service) => (
                 <article className="landing-showcase__service-card landing-showcase-motion-card">
                   <div className="landing-showcase__service-image">
-                    <img src={service.image} alt={service.title} loading="lazy" decoding="async" />
+                    <AppLazyImage
+                      alt={service.title}
+                      className="h-full w-full object-cover"
+                      height={720}
+                      sizes="(max-width: 1024px) 25vw, 18vw"
+                      src={service.image}
+                      width={720}
+                    />
                     <span>{service.badge}</span>
                   </div>
                   <div className="landing-showcase__service-body">
@@ -702,7 +743,14 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
             renderItem={(service) => (
               <article className="landing-showcase__service-card landing-showcase-motion-card">
                 <div className="landing-showcase__service-image">
-                  <img src={service.image} alt={service.title} loading="lazy" decoding="async" />
+                  <AppLazyImage
+                    alt={service.title}
+                    className="h-full w-full object-cover"
+                    height={720}
+                    sizes="(max-width: 1024px) 25vw, 18vw"
+                    src={service.image}
+                    width={720}
+                  />
                   <span>{service.badge}</span>
                 </div>
                 <div className="landing-showcase__service-body">
@@ -752,7 +800,16 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
             itemsPerSlide={3}
             renderItem={(post) => (
               <Link href={`/stories/${post.id}`} className="landing-showcase__story-card landing-showcase-motion-card">
-                {post.coverImageUrl ? <img src={post.coverImageUrl} alt={post.title} loading="lazy" decoding="async" /> : null}
+                {post.coverImageUrl ? (
+                  <AppLazyImage
+                    alt={post.title}
+                    className="h-full w-full object-cover"
+                    height={720}
+                    sizes="(max-width: 1024px) 33vw, 25vw"
+                    src={post.coverImageUrl}
+                    width={960}
+                  />
+                ) : null}
                 <div className="landing-showcase__story-card-body">
                   <span>{post.publishedAt ? formatViDate(post.publishedAt) : "Mới cập nhật"}</span>
                   <h3>{post.title}</h3>
@@ -771,7 +828,16 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
             getItemKey={(post) => post.id}
             renderItem={(post) => (
               <Link href={`/stories/${post.id}`} className="landing-showcase__story-card landing-showcase-motion-card">
-                {post.coverImageUrl ? <img src={post.coverImageUrl} alt={post.title} loading="lazy" decoding="async" /> : null}
+                {post.coverImageUrl ? (
+                  <AppLazyImage
+                    alt={post.title}
+                    className="h-full w-full object-cover"
+                    height={720}
+                    sizes="(max-width: 1024px) 33vw, 25vw"
+                    src={post.coverImageUrl}
+                    width={960}
+                  />
+                ) : null}
                 <div className="landing-showcase__story-card-body">
                   <span>{post.publishedAt ? formatViDate(post.publishedAt) : "Mới cập nhật"}</span>
                   <h3>{post.title}</h3>
@@ -857,7 +923,10 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
               <li>{storefront?.openingHours ?? "09:00 - 21:00 (tất cả các ngày)"}</li>
             </ul>
 
-            <div className="landing-showcase__map-card">
+            <DeferredRender
+              className="landing-showcase__map-card"
+              fallback={<div className="h-full min-h-[260px] w-full bg-neutral-100" aria-hidden="true" />}
+            >
               {mapEmbedUrl ? (
                 <iframe
                   src={mapEmbedUrl}
@@ -866,9 +935,16 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
                   referrerPolicy="no-referrer-when-downgrade"
                 />
               ) : (
-                <img src={heroImage} alt="Chạm Beauty map preview" loading="lazy" decoding="async" />
+                <AppLazyImage
+                  alt="Chạm Beauty map preview"
+                  className="h-full w-full object-cover"
+                  height={720}
+                  sizes="(max-width: 1024px) 92vw, 40vw"
+                  src={heroImage}
+                  width={960}
+                />
               )}
-            </div>
+            </DeferredRender>
 
             <a href={externalMapUrl} target="_blank" rel="noreferrer" className="landing-showcase__map-link">
               Mở chỉ đường Google Maps

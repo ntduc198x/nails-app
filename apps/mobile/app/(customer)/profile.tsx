@@ -1,78 +1,73 @@
 import Feather from "@expo/vector-icons/Feather";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
-import { useMemo, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import {
-  FALLBACK_SERVICES,
-  OFFERS,
-  PROFILE_SUMMARY,
-} from "@/src/features/customer/data";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import { router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import { resizeAvatarImage } from "@/src/features/admin/content-images";
+import { FALLBACK_SERVICES, OFFERS, PROFILE_SUMMARY } from "@/src/features/customer/data";
+import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
-import { premiumTheme } from "@/src/design/premium-theme";
+import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { useCustomerHistory } from "@/src/hooks/use-customer-history";
 import { useLookbookServices } from "@/src/hooks/use-lookbook-services";
+import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
+import { upsertAndVerifyProfile } from "@/src/lib/profile-upsert";
+import { readProfileCache, writeProfileCache } from "@/src/lib/profile-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
+import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 
-const { colors, radius, shadow, spacing } = premiumTheme;
-
-const TABS = [
-  { key: "history", label: "Lịch sử hẹn", icon: "calendar" },
-  { key: "favorites", label: "Yêu thích", icon: "heart" },
-  { key: "info", label: "Thông tin", icon: "file-text" },
-] as const;
-
-type TabKey = (typeof TABS)[number]["key"];
-type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
-type ProfileFieldIcon = "user" | "calendar" | "phone" | "mail" | "map-pin";
-
-function normalizeVietnamese(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase();
-}
-
-function getHistoryTone(status: string): "success" | "warning" | "danger" {
-  const normalized = normalizeVietnamese(status);
-  if (normalized.includes("huy")) return "danger";
-  if (normalized.includes("xac nhan")) return "warning";
-  return "success";
-}
-
-function formatHistoryDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "--/--/----";
-  }
-
-  return date.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+type TabKey = "history" | "favorites" | "info";
 
 export default function ProfileScreen() {
+  const params = useLocalSearchParams<{ tab?: string | string[] }>();
+  const theme = useCustomerTheme();
+  const strings = useCustomerStrings();
+  const styles = useMemo(() => createStyles(theme), [theme]);
+  const TABS = useMemo(
+    () =>
+      [
+        { key: "history", label: strings.profileHistory, icon: "calendar" },
+        { key: "favorites", label: strings.profileFavorites, icon: "heart" },
+        { key: "info", label: strings.profileInfo, icon: "file-text" },
+      ] as const,
+    [strings.profileFavorites, strings.profileHistory, strings.profileInfo],
+  );
   const { isBusy, signOut, user } = useSession();
-  const { favoriteIds } = useCustomerFavorites();
-  const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading } = useCustomerHistory(8);
-  const { services } = useLookbookServices(FALLBACK_SERVICES);
+  const { favoriteIds, refresh: refreshFavorites } = useCustomerFavorites();
+  const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshHistory } =
+    useCustomerHistory(8);
+  const { refresh: refreshLookbook, services } = useLookbookServices(FALLBACK_SERVICES);
   const [activeTab, setActiveTab] = useState<TabKey>("history");
-  const [form, setForm] = useState(() => ({
-    name: user?.email?.split("@")[0] ?? PROFILE_SUMMARY.name,
+  const [avatarUri, setAvatarUri] = useState(PROFILE_SUMMARY.avatar);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [form, setForm] = useState({
+    name: user?.displayName?.trim() || user?.email?.split("@")[0] || PROFILE_SUMMARY.name,
     birthDate: PROFILE_SUMMARY.birthDate,
     phone: PROFILE_SUMMARY.phone,
     email: user?.email ?? PROFILE_SUMMARY.email,
     address: PROFILE_SUMMARY.address,
-  }));
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  });
+
+  const favoriteServices = useMemo(
+    () => services.filter((service) => favoriteIds.includes(service.id)),
+    [favoriteIds, services],
+  );
+
+  useEffect(() => {
+    const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+    if (rawTab === "history" || rawTab === "favorites" || rawTab === "info") {
+      setActiveTab(rawTab);
+    }
+  }, [params.tab]);
 
   const summary = useMemo(() => {
     const totalSpent = historyItems.reduce((sum, item) => {
@@ -80,52 +75,141 @@ export default function ProfileScreen() {
       return sum + numericPrice;
     }, 0);
 
-    const latestBooking = historyItems[0];
-    const latestDate = latestBooking
-      ? new Date(latestBooking.occurredAt).toLocaleDateString("vi-VN")
-      : "--/--/----";
-
     return {
-      totalSpent: `${totalSpent.toLocaleString("vi-VN")}đ`,
+      totalSpent: `${totalSpent.toLocaleString("vi-VN")}d`,
       totalVisits: String(historyItems.length),
-      lastVisit: latestDate,
       offerWallet: String(Math.max(1, OFFERS.length - 1)),
     };
   }, [historyItems]);
 
-  const favoriteServices = useMemo(
-    () => services.filter((service) => favoriteIds.includes(service.id)),
-    [favoriteIds, services],
-  );
+  const loadProfile = useCallback(async () => {
+    const cached = user?.id ? await readProfileCache(user.id) : null;
+    if (cached?.avatarUrl) {
+      setAvatarUri(cached.avatarUrl);
+      void prefetchCustomerImagesForIntent([cached.avatarUrl], "avatar");
+    }
+
+    const {
+      data: { user: authUser },
+    } = mobileSupabase ? await mobileSupabase.auth.getUser() : { data: { user: null } };
+    const avatarFromMetadata =
+      typeof authUser?.user_metadata?.avatar_url === "string" && authUser.user_metadata.avatar_url.trim()
+        ? authUser.user_metadata.avatar_url.trim()
+        : PROFILE_SUMMARY.avatar;
+
+    setAvatarUri(avatarFromMetadata);
+    void prefetchCustomerImagesForIntent([avatarFromMetadata], "avatar");
+
+    if (!user?.id) {
+      setForm((current) => ({ ...current, email: user?.email ?? PROFILE_SUMMARY.email }));
+      return;
+    }
+
+    if (cached) {
+      setForm({
+        name: cached.displayName || user.displayName?.trim() || user.email?.split("@")[0] || PROFILE_SUMMARY.name,
+        birthDate: cached.birthDate || "",
+        phone: cached.phone || "",
+        email: user.email ?? PROFILE_SUMMARY.email,
+        address: cached.address || "",
+      });
+    }
+
+    if (!mobileSupabase) {
+      return;
+    }
+
+    try {
+      const { data, error } = await mobileSupabase
+        .from("profiles")
+        .select("display_name,phone,birth_date,address")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      const newForm = {
+        name: data?.display_name?.trim() || user.displayName?.trim() || user.email?.split("@")[0] || PROFILE_SUMMARY.name,
+        birthDate: data?.birth_date?.trim() || "",
+        phone: data?.phone?.trim() || "",
+        email: user.email ?? PROFILE_SUMMARY.email,
+        address: data?.address?.trim() || "",
+      };
+
+      setForm(newForm);
+
+      await writeProfileCache(user.id, {
+        displayName: newForm.name,
+        birthDate: newForm.birthDate,
+        phone: newForm.phone,
+        address: newForm.address,
+        avatarUrl: avatarFromMetadata,
+      });
+    } catch {
+      if (!cached) {
+        setForm((current) => ({ ...current, email: user?.email ?? PROFILE_SUMMARY.email }));
+      }
+    }
+  }, [user?.displayName, user?.email, user?.id]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([loadProfile(), refreshFavorites(), refreshHistory(), refreshLookbook()]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadProfile, refreshFavorites, refreshHistory, refreshLookbook]);
 
   async function handleSaveProfile() {
-    if (!mobileSupabase) {
-      Alert.alert(
-        "Chưa cấu hình",
-        "Ứng dụng chưa kết nối được Supabase để cập nhật thông tin.",
-      );
+    if (!mobileSupabase || !user?.id) {
+      Alert.alert(strings.cacheClearFailedTitle, strings.commonError);
       return;
     }
 
     setIsSavingProfile(true);
-
     try {
-      const { error } = await mobileSupabase.auth.updateUser({
-        email: form.email.trim(),
-        data: {
-          display_name: form.name.trim(),
-          birth_date: form.birthDate.trim(),
-          phone: form.phone.trim(),
-          address: form.address.trim(),
-        },
+      const verifiedProfile = await upsertAndVerifyProfile({
+        userId: user.id,
+        displayName: form.name,
+        phone: form.phone,
+        birthDate: form.birthDate,
+        address: form.address,
       });
 
-      if (error) throw error;
-      Alert.alert("Đã lưu", "Thông tin cá nhân đã được cập nhật.");
+      const { error: authError } = await mobileSupabase.auth.updateUser({
+        data: { display_name: form.name.trim() },
+      });
+
+      if (authError) throw authError;
+
+      const newForm = {
+        name: verifiedProfile.display_name?.trim() || form.name.trim(),
+        birthDate: verifiedProfile.birth_date?.trim() || "",
+        phone: verifiedProfile.phone?.trim() || "",
+        email: user.email ?? PROFILE_SUMMARY.email,
+        address: verifiedProfile.address?.trim() || "",
+      };
+
+      setForm(newForm);
+
+      await writeProfileCache(user.id, {
+        displayName: newForm.name,
+        birthDate: newForm.birthDate,
+        phone: newForm.phone,
+        address: newForm.address,
+        avatarUrl: avatarUri,
+      });
+
+      Alert.alert(strings.saveSuccess, strings.saveSuccess);
     } catch (error) {
       Alert.alert(
-        "Không thể cập nhật",
-        error instanceof Error ? error.message : "Đã có lỗi xảy ra khi lưu thông tin cá nhân.",
+        strings.cacheClearFailedTitle,
+        error instanceof Error ? error.message : strings.commonError,
       );
     } finally {
       setIsSavingProfile(false);
@@ -136,78 +220,155 @@ export default function ProfileScreen() {
     try {
       await signOut();
     } catch (error) {
-      Alert.alert(
-        "Không thể đăng xuất",
-        error instanceof Error ? error.message : "Đã có lỗi xảy ra khi đăng xuất.",
-      );
+      Alert.alert(strings.cacheClearFailedTitle, error instanceof Error ? error.message : strings.commonError);
+    }
+  }
+
+  async function handlePickAvatar() {
+    if (!mobileSupabase || !user?.id) {
+      Alert.alert(strings.cacheClearFailedTitle, strings.commonError);
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Chưa có quyền truy cập ảnh", "Vui lòng cho phép truy cập thư viện ảnh để đổi avatar.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.35,
+      base64: false,
+    });
+
+    if (result.canceled || !result.assets.length) {
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+
+    try {
+      let nextAvatarUrl: string | null = null;
+
+      const resizedAsset = await resizeAvatarImage(result.assets[0], {
+        maxSize: 96,
+        quality: 0.42,
+      });
+
+      try {
+        const uploaded = await uploadPickedAdminContentImage(resizedAsset, {
+          folder: "avatars",
+          baseName: form.name || user.email || "customer-avatar",
+        });
+        nextAvatarUrl = uploaded.publicUrl;
+      } catch (uploadError) {
+        const message = uploadError instanceof Error ? uploadError.message : "";
+        if (message.toLowerCase().includes("bucket") && message.toLowerCase().includes("not found")) {
+          const inlineAvatar = await ImageManipulator.manipulateAsync(
+            resizedAsset.uri,
+            [{ resize: { width: 72 } }],
+            { compress: 0.28, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          );
+          if (!inlineAvatar.base64) {
+            throw uploadError;
+          }
+          nextAvatarUrl = `data:image/jpeg;base64,${inlineAvatar.base64}`;
+        } else {
+          const errMsg = uploadError instanceof Error ? uploadError.message : strings.commonError;
+          Alert.alert("Lỗi upload ảnh", `Không thể upload ảnh: ${errMsg}`);
+          throw uploadError;
+        }
+      }
+
+      if (!nextAvatarUrl) {
+        throw new Error("Không thể xử lý ảnh đại diện đã chọn.");
+      }
+
+      const { error: authError } = await mobileSupabase.auth.updateUser({
+        data: {
+          avatar_url: nextAvatarUrl,
+        },
+      });
+
+      if (authError) {
+        const errMsg = authError.message || strings.commonError;
+        Alert.alert("Lỗi cập nhật avatar", `Không thể cập nhật avatar: ${errMsg}`);
+        throw authError;
+      }
+
+      setAvatarUri(nextAvatarUrl);
+      void prefetchCustomerImagesForIntent([nextAvatarUrl], "avatar");
+
+      if (user?.id) {
+        await writeProfileCache(user.id, {
+          displayName: form.name,
+          birthDate: form.birthDate,
+          phone: form.phone,
+          address: form.address,
+          avatarUrl: nextAvatarUrl,
+        });
+      }
+
+      Alert.alert(strings.saveSuccess, "Ảnh đại diện đã được cập nhật.");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("Lỗi")) {
+        // Already showed alert
+      } else {
+        Alert.alert(
+          strings.cacheClearFailedTitle,
+          error instanceof Error ? error.message : strings.commonError,
+        );
+      }
+    } finally {
+      setIsUploadingAvatar(false);
     }
   }
 
   return (
-    <CustomerScreen hideHeader scroll contentContainerStyle={styles.content} title="Cá nhân" onRefresh={() => {}} refreshing={false}>
+    <CustomerScreen
+      hideHeader
+      scroll
+      keyboardAware
+      keyboardVerticalOffset={12}
+      contentContainerStyle={styles.content}
+      title={strings.profileTitle}
+      onRefresh={() => void handleRefresh()}
+      refreshing={isRefreshing}
+    >
       <View style={styles.topBar}>
         <View style={styles.topBarSpacer} />
         <CustomerTopActions />
       </View>
 
-      <Pressable onPress={() => router.push("/(customer)/membership")}>
-        <LinearGradient colors={["#f4e1cb", "#fff5ea"]} end={{ x: 1, y: 1 }} start={{ x: 0, y: 0 }} style={styles.membershipCard}>
-          <View style={styles.membershipCopy}>
-            <Text style={styles.membershipEyebrow}>Thẻ thành viên</Text>
-            <Text style={styles.membershipTitle}>Mở ví ưu đãi, điểm tích lũy và quyền lợi của bạn</Text>
-          </View>
-          <Feather color={colors.text} name="chevron-right" size={18} />
-        </LinearGradient>
-      </Pressable>
-
       <View style={styles.profileHero}>
-        <View style={styles.avatarWrap}>
-          <Image
-            alt="Ảnh đại diện khách hàng"
-            source={{ uri: PROFILE_SUMMARY.avatar }}
-            style={styles.avatar}
-          />
-          <Pressable style={styles.cameraBadge}>
-            <Feather color={colors.textSoft} name="camera" size={15} />
-          </Pressable>
-        </View>
+        <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()}>
+          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: avatarUri }} intent="avatar" style={styles.avatar} />
+          <View style={styles.cameraBadge}>
+            <Feather color={theme.colors.textSoft} name="camera" size={15} />
+          </View>
+        </Pressable>
 
         <Text style={styles.name}>{form.name}</Text>
-
-        <View style={styles.contactList}>
-          <View style={styles.contactRow}>
-            <Feather color={colors.textSoft} name="phone" size={13} />
-            <Text style={styles.contact}>{form.phone}</Text>
-          </View>
-
-          <View style={styles.contactRow}>
-            <Feather color={colors.textSoft} name="mail" size={13} />
-            <Text style={styles.contact}>{form.email}</Text>
-          </View>
-        </View>
+        <Text style={styles.contact}>{form.phone || form.email}</Text>
       </View>
 
-<SurfaceCard style={styles.metricsCard}>
-        <View style={styles.metricsRow}>
-          <ProfileMetric icon="credit-card" label="Tổng chi tiêu" value={summary.totalSpent} />
-          <View style={styles.metricDivider} />
-          <ProfileMetric icon="calendar" label="Tổng lượt hẹn" value={summary.totalVisits} />
-          <View style={styles.metricDivider} />
-          <ProfileMetric icon="clock" label="Lần cuối" value={summary.lastVisit} />
-        </View>
+      <SurfaceCard style={styles.metricsCard}>
+        <ProfileMetric styles={styles} icon="credit-card" label="Tổng chi tiêu" value={summary.totalSpent} />
+        <View style={styles.metricDivider} />
+        <ProfileMetric styles={styles} icon="calendar" label="Tổng lượt hẹn" value={summary.totalVisits} />
+        <View style={styles.metricDivider} />
+        <ProfileMetric styles={styles} icon="gift" label="Ưu đãi" value={summary.offerWallet} />
       </SurfaceCard>
 
       <SurfaceCard style={styles.tabsCard}>
         {TABS.map((tab) => {
           const active = tab.key === activeTab;
-
           return (
-            <Pressable
-              key={tab.key}
-              onPress={() => setActiveTab(tab.key)}
-              style={[styles.tabButton, active ? styles.tabButtonActive : null]}
-            >
-              <Feather color={active ? colors.text : colors.textSoft} name={tab.icon} size={14} />
+            <Pressable key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
+              <Feather color={active ? theme.colors.text : theme.colors.textSoft} name={tab.icon} size={14} />
               <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
             </Pressable>
           );
@@ -217,45 +378,28 @@ export default function ProfileScreen() {
       {activeTab === "history" ? (
         <View style={styles.cardList}>
           {historyItems.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() =>
-                router.push({
-                  pathname: "/(customer)/booking",
-                  params: { service: item.serviceName },
-                })
-              }
-            >
-              <SurfaceCard style={styles.historyCard}>
-                <Image
-                  alt={item.serviceName}
-                  source={{ uri: item.serviceImageUrl ?? PROFILE_SUMMARY.avatar }}
-                  style={styles.historyImage}
-                />
-
-                <View style={styles.historyCopy}>
-                  <Text style={styles.historyTime}>{formatHistoryDate(item.occurredAt)}</Text>
-                  <Text numberOfLines={1} style={styles.historyTitle}>
-                    {item.serviceName}
-                  </Text>
-                  <Text style={styles.historyPrice}>{item.servicePriceLabel ?? "0đ"}</Text>
-                </View>
-
-                <View style={styles.historyAside}>
-                  <HistoryStatus label="Đã hoàn tất" tone={getHistoryTone("Đã đến")} />
-                  <Feather color={colors.textSoft} name="chevron-right" size={18} />
-                </View>
-              </SurfaceCard>
-            </Pressable>
+            <SurfaceCard key={item.id} style={styles.rowCard}>
+              <CustomerCachedImage alt={item.serviceName} source={{ uri: item.serviceImageUrl ?? PROFILE_SUMMARY.avatar }} intent="thumbnail" style={styles.rowImage} />
+              <View style={styles.rowCopy}>
+                <Text style={styles.rowTitle}>{item.serviceName}</Text>
+                <Text style={styles.rowSubtitle}>
+                  {new Date(item.occurredAt).toLocaleString("vi-VN", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+                <Text style={styles.rowMeta}>{item.servicePriceLabel ?? "0d"}</Text>
+              </View>
+            </SurfaceCard>
           ))}
 
           {historyHydrated && !historyLoading && !historyItems.length ? (
             <SurfaceCard style={styles.emptyCard}>
-              <Feather color={colors.textSoft} name="calendar" size={18} />
-              <Text style={styles.emptyTitle}>Chưa có lịch sử dịch vụ</Text>
-              <Text style={styles.emptyText}>
-                Lịch sử sẽ tự cập nhật từ các dịch vụ khách đã hoàn tất tại tiệm.
-              </Text>
+              <Text style={styles.emptyTitle}>Chua co lich su dich vu</Text>
+              <Text style={styles.emptyText}>Lich su se tu cap nhat tu cac dich vu khach da hoan tat tai tiem.</Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -273,666 +417,360 @@ export default function ProfileScreen() {
                 })
               }
             >
-              <SurfaceCard style={styles.favoriteCard}>
-              <Image alt={service.title} source={{ uri: service.image }} style={styles.favoriteImage} />
-              <View style={styles.favoriteCopy}>
-                <Text numberOfLines={1} style={styles.favoriteTitle}>
-                  {service.title}
-                </Text>
-                <Text numberOfLines={2} style={styles.favoriteSubtitle}>
-                  {service.blurb}
-                </Text>
-                <Text style={styles.favoriteMeta}>{service.price}</Text>
-              </View>
-              <Feather color={colors.textSoft} name="chevron-right" size={18} />
-            </SurfaceCard>
+              <SurfaceCard style={styles.rowCard}>
+                <Pressable
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    setPreviewImage(service.image);
+                  }}
+                >
+                  <CustomerCachedImage alt={service.title} source={{ uri: service.image }} intent="thumbnail" style={styles.rowImage} />
+                </Pressable>
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>{service.title}</Text>
+                  <Text style={styles.rowSubtitle}>{service.blurb}</Text>
+                  <Text style={styles.rowMeta}>{service.price}</Text>
+                </View>
+              </SurfaceCard>
             </Pressable>
           ))}
 
-          {favoriteServices.length === 0 ? (
+          {!favoriteServices.length ? (
             <SurfaceCard style={styles.emptyCard}>
-              <Feather color={colors.textSoft} name="heart" size={18} />
-              <Text style={styles.emptyTitle}>Chưa có mẫu yêu thích</Text>
-              <Text style={styles.emptyText}>
-                Lưu các mẫu bạn thích ở màn Khám phá để xem lại nhanh tại đây.
-              </Text>
+              <Text style={styles.emptyTitle}>Chua co mau yeu thich</Text>
+              <Text style={styles.emptyText}>Luu cac mau ban thich o man Kham pha de xem lai nhanh tai day.</Text>
             </SurfaceCard>
           ) : null}
         </View>
       ) : null}
 
       {activeTab === "info" ? (
-        <View style={styles.infoStack}>
-          <SurfaceCard style={styles.formCard}>
-            <View style={styles.formHeader}>
-              <Feather color={colors.accentWarm} name="user" size={18} />
-              <Text style={styles.formTitle}>Thông tin cá nhân</Text>
-            </View>
+        <SurfaceCard style={styles.formCard}>
+          <EditableField styles={styles} label={strings.profileName} value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} />
+          <EditableField styles={styles} label={strings.profileBirthDate} value={form.birthDate} onChangeText={(value) => setForm((current) => ({ ...current, birthDate: value }))} />
+          <EditableField styles={styles} label={strings.profilePhone} value={form.phone} onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))} />
+          <EditableField styles={styles} label={strings.profileEmail} value={form.email} editable={false} />
+          <EditableField styles={styles} label={strings.profileAddress} value={form.address} onChangeText={(value) => setForm((current) => ({ ...current, address: value }))} />
 
-            <EditableField
-              icon="user"
-              label="Họ và tên"
-              onChangeText={(value) => setForm((current) => ({ ...current, name: value }))}
-              placeholder="Nhập họ và tên"
-              value={form.name}
-            />
-            <EditableField
-              icon="calendar"
-              keyboardType="numeric"
-              label="Ngày sinh"
-              onChangeText={(value) => setForm((current) => ({ ...current, birthDate: value }))}
-              placeholder="DD/MM/YYYY"
-              value={form.birthDate}
-            />
-            <EditableField
-              icon="phone"
-              label="Số điện thoại"
-              onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))}
-              placeholder="Nhập số điện thoại"
-              value={form.phone}
-            />
-            <EditableField
-              autoCapitalize="none"
-              icon="mail"
-              keyboardType="email-address"
-              label="Email"
-              placeholder="Nhập email"
-              editable={false}
-              value={form.email}
-            />
-            <EditableField
-              icon="map-pin"
-              label="Địa chỉ"
-              onChangeText={(value) => setForm((current) => ({ ...current, address: value }))}
-              placeholder="Nhập địa chỉ"
-              value={form.address}
-            />
-
-            <PrimaryAction
-              label={isSavingProfile ? "Đang lưu..." : "Lưu thông tin"}
-              onPress={handleSaveProfile}
-            />
-          </SurfaceCard>
-        </View>
+          <Pressable onPress={() => void handleSaveProfile()} style={[styles.primaryButton, isSavingProfile ? styles.primaryButtonDisabled : null]} disabled={isSavingProfile}>
+            <Text style={styles.primaryButtonText}>{isSavingProfile ? strings.profileSaving : strings.profileSave}</Text>
+          </Pressable>
+        </SurfaceCard>
       ) : null}
 
-      <Pressable
-        disabled={isBusy}
-        onPress={handleSignOut}
-        style={({ pressed }) => [styles.logoutButton, pressed ? styles.logoutButtonPressed : null]}
-      >
-        <Feather color="#f05a3b" name="log-out" size={18} />
-        <Text style={styles.logoutLabel}>{isBusy ? "Đang đăng xuất..." : "Đăng xuất"}</Text>
+      <Pressable disabled={isBusy} onPress={() => void handleSignOut()} style={styles.logoutButton}>
+        <Feather color={theme.colors.dangerText} name="log-out" size={18} />
+        <Text style={styles.logoutLabel}>{isBusy ? "Dang dang xuat..." : "Dang xuat"}</Text>
       </Pressable>
+
+      <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
     </CustomerScreen>
   );
 }
 
 function ProfileMetric({
-  compact = false,
   icon,
   label,
-  onPress,
   value,
+  styles,
 }: {
-  compact?: boolean;
-  icon: FeatherIconName;
+  icon: React.ComponentProps<typeof Feather>["name"];
   label: string;
-  onPress?: () => void;
   value: string;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
-    <Pressable
-      disabled={!onPress}
-      onPress={onPress}
-      style={[
-        styles.metricItem,
-        compact ? styles.metricItemCompact : null,
-        onPress ? styles.metricItemInteractive : null,
-      ]}
-    >
-      <View style={styles.metricTopRow}>
-        <Feather color={onPress ? colors.text : colors.textSoft} name={icon} size={15} />
-        {onPress ? <Feather color={colors.textSoft} name="chevron-right" size={13} /> : null}
-      </View>
-      <Text numberOfLines={1} style={[styles.metricLabel, onPress ? styles.metricLabelInteractive : null]}>
-        {label}
-      </Text>
-      <Text numberOfLines={1} style={[styles.metricValue, onPress ? styles.metricValueInteractive : null]}>
-        {value}
-      </Text>
-    </Pressable>
-  );
-}
-
-function HistoryStatus({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "success" | "warning" | "danger";
-}) {
-  return (
-    <View
-      style={[
-        styles.statusPill,
-        tone === "success" ? styles.statusPillSuccess : null,
-        tone === "warning" ? styles.statusPillWarning : null,
-        tone === "danger" ? styles.statusPillDanger : null,
-      ]}
-    >
-      <Text
-        numberOfLines={1}
-        style={[
-          styles.statusPillText,
-          tone === "success" ? styles.statusPillTextSuccess : null,
-          tone === "warning" ? styles.statusPillTextWarning : null,
-          tone === "danger" ? styles.statusPillTextDanger : null,
-        ]}
-      >
-        {label}
-      </Text>
+    <View style={styles.metricItem}>
+      <Feather color="#8f7c6e" name={icon} size={15} />
+      <Text style={styles.metricLabel}>{label}</Text>
+      <Text style={styles.metricValue}>{value}</Text>
     </View>
   );
 }
 
 function EditableField({
-  autoCapitalize,
-  editable = true,
-  icon,
-  keyboardType,
   label,
-  multiline = false,
-  onChangeText,
-  placeholder,
-  secureTextEntry = false,
-  trailingIcon,
   value,
+  onChangeText,
+  editable = true,
+  styles,
 }: {
-  autoCapitalize?: "none" | "sentences" | "words" | "characters";
-  editable?: boolean;
-  icon: ProfileFieldIcon;
-  keyboardType?: "default" | "email-address" | "numeric" | "phone-pad";
   label: string;
-  multiline?: boolean;
-  onChangeText?: (value: string) => void;
-  placeholder: string;
-  secureTextEntry?: boolean;
-  trailingIcon?: FeatherIconName;
   value: string;
+  onChangeText?: (value: string) => void;
+  editable?: boolean;
+  styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <View style={styles.fieldGroup}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <View style={styles.fieldRow}>
-        <View style={styles.fieldIconBox}>
-          <Feather color={colors.accent} name={icon} size={20} />
-        </View>
-
-        <View style={styles.inputShell}>
-          <TextInput
-            autoCapitalize={autoCapitalize}
-            editable={editable}
-            keyboardType={keyboardType}
-            multiline={multiline}
-            onChangeText={onChangeText}
-            placeholder={placeholder}
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry={secureTextEntry}
-            style={[
-              styles.input,
-              multiline ? styles.inputMultiline : null,
-              trailingIcon ? styles.inputWithTrailingIcon : null,
-            ]}
-            textAlignVertical={multiline ? "top" : "center"}
-            value={value}
-          />
-
-          {trailingIcon ? (
-            <View pointerEvents="none" style={styles.trailingIconWrap}>
-              <Feather color={colors.textSoft} name={trailingIcon} size={20} />
-            </View>
-          ) : null}
-        </View>
-      </View>
+      <TextInput
+        style={[styles.input, !editable ? styles.inputDisabled : null]}
+        value={value}
+        editable={editable}
+        onChangeText={onChangeText}
+        placeholder={label}
+        placeholderTextColor="#9c8f84"
+      />
     </View>
   );
 }
 
-function PrimaryAction({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.primaryButton, pressed ? styles.primaryButtonPressed : null]}>
-      <LinearGradient
-        colors={["#a45c31", "#bf7442"]}
-        start={{ x: 0, y: 0.5 }}
-        end={{ x: 1, y: 0.5 }}
-        style={styles.primaryButtonGradient}
-      >
-        <Feather color={colors.surface} name="save" size={18} />
-        <Text style={styles.primaryButtonLabel}>{label}</Text>
-      </LinearGradient>
-    </Pressable>
-  );
+function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
+  return StyleSheet.create({
+    content: {
+      paddingBottom: 148,
+      paddingTop: 2,
+    },
+    topBar: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 12,
+    },
+    topBarSpacer: {
+      flex: 1,
+    },
+    membershipCard: {
+      alignItems: "center",
+      borderRadius: theme.radius.xl,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      marginBottom: 12,
+      paddingHorizontal: theme.spacing.lg,
+      paddingVertical: theme.spacing.lg,
+    },
+    membershipCopy: {
+      flex: 1,
+      gap: 4,
+      paddingRight: theme.spacing.md,
+    },
+    membershipEyebrow: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 0.8,
+      textTransform: "uppercase",
+    },
+    membershipTitle: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: "800",
+      lineHeight: 22,
+    },
+    profileHero: {
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 12,
+      paddingTop: 6,
+    },
+    avatarWrap: {
+      position: "relative",
+    },
+    avatar: {
+      borderRadius: 43,
+      height: 86,
+      width: 86,
+    },
+    cameraBadge: {
+      alignItems: "center",
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: theme.radius.pill,
+      borderWidth: 1,
+      bottom: -4,
+      height: 32,
+      justifyContent: "center",
+      position: "absolute",
+      right: -10,
+      width: 32,
+    },
+    name: {
+      color: theme.colors.text,
+      fontSize: 16,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    contact: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      fontWeight: "500",
+    },
+    avatarHint: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      textAlign: "center",
+    },
+    metricsCard: {
+      alignItems: "stretch",
+      flexDirection: "row",
+      minHeight: 88,
+      paddingHorizontal: 8,
+      paddingVertical: 8,
+    },
+    metricItem: {
+      flex: 1,
+      gap: 4,
+      justifyContent: "center",
+      minWidth: 0,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    metricDivider: {
+      backgroundColor: theme.colors.border,
+      marginVertical: 10,
+      width: 1,
+    },
+    metricLabel: {
+      color: theme.colors.textSoft,
+      fontSize: 10,
+      fontWeight: "500",
+    },
+    metricValue: {
+      color: theme.colors.text,
+      fontSize: 13,
+      fontWeight: "700",
+    },
+    tabsCard: {
+      flexDirection: "row",
+      gap: 6,
+      padding: 6,
+    },
+    tabButton: {
+      alignItems: "center",
+      borderRadius: 13,
+      flex: 1,
+      flexDirection: "row",
+      gap: 6,
+      justifyContent: "center",
+      minHeight: 37,
+      paddingHorizontal: 5,
+    },
+    tabButtonActive: {
+      backgroundColor: theme.colors.accentSoft,
+    },
+    tabLabel: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    tabLabelActive: {
+      color: theme.colors.text,
+      fontWeight: "700",
+    },
+    cardList: {
+      gap: 11,
+    },
+    rowCard: {
+      alignItems: "center",
+      flexDirection: "row",
+      gap: 11,
+      minHeight: 90,
+      padding: 10,
+    },
+    rowImage: {
+      borderRadius: 14,
+      height: 62,
+      width: 62,
+    },
+    rowCopy: {
+      flex: 1,
+      gap: 3,
+      minWidth: 0,
+    },
+    rowTitle: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    rowSubtitle: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      lineHeight: 16,
+    },
+    rowMeta: {
+      color: theme.colors.accentWarm,
+      fontSize: 12,
+      fontWeight: "600",
+    },
+    emptyCard: {
+      alignItems: "center",
+      gap: 8,
+      padding: 18,
+    },
+    emptyTitle: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    emptyText: {
+      color: theme.colors.textSoft,
+      fontSize: 13,
+      lineHeight: 18,
+      textAlign: "center",
+    },
+    formCard: {
+      gap: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 16,
+    },
+    fieldGroup: {
+      gap: 8,
+    },
+    fieldLabel: {
+      color: theme.colors.textSoft,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    input: {
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      color: theme.colors.text,
+      fontSize: 14,
+      minHeight: 52,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    inputDisabled: {
+      color: theme.colors.textSoft,
+      opacity: 0.78,
+    },
+    primaryButton: {
+      alignItems: "center",
+      backgroundColor: theme.colors.accent,
+      borderRadius: 18,
+      justifyContent: "center",
+      marginTop: 6,
+      minHeight: 56,
+      paddingHorizontal: 14,
+    },
+    primaryButtonDisabled: {
+      opacity: 0.7,
+    },
+    primaryButtonText: {
+      color: theme.colors.surface,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    logoutButton: {
+      alignItems: "center",
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 10,
+      justifyContent: "center",
+      marginTop: 2,
+      minHeight: 52,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    logoutLabel: {
+      color: theme.colors.dangerText,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+  });
 }
-
-const styles = StyleSheet.create({
-  content: {
-    paddingBottom: 148,
-    paddingTop: 2,
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  topBarSpacer: {
-    flex: 1,
-  },
-  membershipCard: {
-    alignItems: "center",
-    borderRadius: radius.xl,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.lg,
-  },
-  membershipCopy: {
-    flex: 1,
-    gap: 4,
-    paddingRight: spacing.md,
-  },
-  membershipEyebrow: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-  },
-  membershipTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800",
-    lineHeight: 22,
-  },
-  profileHero: {
-    alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-    paddingTop: 6,
-  },
-  avatarWrap: {
-    marginTop: 2,
-    position: "relative",
-  },
-  avatar: {
-    borderRadius: 43,
-    height: 86,
-    width: 86,
-  },
-  cameraBadge: {
-    ...shadow.card,
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    bottom: -4,
-    height: 32,
-    justifyContent: "center",
-    position: "absolute",
-    right: -10,
-    width: 32,
-  },
-  name: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: -0.18,
-    lineHeight: 21,
-    textAlign: "center",
-  },
-  contactList: {
-    gap: 7,
-  },
-  contactRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 7,
-    justifyContent: "center",
-  },
-  contact: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "500",
-    letterSpacing: -0.06,
-    lineHeight: 16,
-  },
-  metricsCard: {
-    minHeight: 88,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  metricsRow: {
-    alignItems: "stretch",
-    flexDirection: "row",
-    width: "100%",
-  },
-  metricItem: {
-    flex: 1,
-    gap: 4,
-    justifyContent: "center",
-    minWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  metricItemCompact: {
-    flex: 0.78,
-  },
-  metricItemInteractive: {
-    backgroundColor: "#f7efe6",
-    borderColor: "#ead8c7",
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-  },
-  metricTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  metricDivider: {
-    backgroundColor: "#efe4d8",
-    marginVertical: 10,
-    width: 1,
-  },
-  metricLabel: {
-    color: colors.textSoft,
-    fontSize: 10,
-    fontWeight: "500",
-    letterSpacing: -0.04,
-    lineHeight: 12,
-  },
-  metricLabelInteractive: {
-    color: colors.text,
-    fontWeight: "700",
-  },
-  metricValue: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: -0.15,
-    lineHeight: 17,
-  },
-  metricValueInteractive: {
-    color: "#7b583e",
-  },
-  tabsCard: {
-    flexDirection: "row",
-    gap: 6,
-    padding: 6,
-  },
-  tabButton: {
-    alignItems: "center",
-    borderRadius: 13,
-    flex: 1,
-    flexDirection: "row",
-    gap: 6,
-    justifyContent: "center",
-    minHeight: 37,
-    paddingHorizontal: 5,
-  },
-  tabButtonActive: {
-    backgroundColor: colors.accentSoft,
-  },
-  tabLabel: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "600",
-    letterSpacing: -0.1,
-  },
-  tabLabelActive: {
-    color: colors.text,
-    fontWeight: "700",
-  },
-  cardList: {
-    gap: 11,
-  },
-  historyCard: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 11,
-    minHeight: 90,
-    padding: 10,
-  },
-  historyImage: {
-    borderRadius: 14,
-    height: 62,
-    width: 62,
-  },
-  historyCopy: {
-    flex: 1,
-    gap: 3,
-    minWidth: 0,
-  },
-  historyTime: {
-    color: colors.textSoft,
-    fontSize: 11,
-    fontWeight: "500",
-    letterSpacing: -0.06,
-    lineHeight: 14,
-  },
-  historyTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "700",
-    letterSpacing: -0.16,
-    lineHeight: 17,
-  },
-  historyPrice: {
-    color: "#8f7c6e",
-    fontSize: 12,
-    fontWeight: "500",
-    letterSpacing: -0.06,
-    lineHeight: 16,
-  },
-  historyAside: {
-    alignItems: "flex-end",
-    gap: 10,
-    justifyContent: "space-between",
-    minHeight: 62,
-  },
-  statusPill: {
-    alignItems: "center",
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    minWidth: 88,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  statusPillSuccess: {
-    backgroundColor: colors.successBg,
-  },
-  statusPillWarning: {
-    backgroundColor: colors.warningBg,
-  },
-  statusPillDanger: {
-    backgroundColor: colors.dangerBg,
-  },
-  statusPillText: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: -0.08,
-  },
-  statusPillTextSuccess: {
-    color: colors.successText,
-  },
-  statusPillTextWarning: {
-    color: colors.warningText,
-  },
-  statusPillTextDanger: {
-    color: colors.dangerText,
-  },
-  favoriteCard: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 92,
-    padding: 12,
-  },
-  favoriteImage: {
-    borderRadius: 14,
-    height: 68,
-    width: 68,
-  },
-  favoriteCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  favoriteTitle: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "700",
-    letterSpacing: -0.16,
-  },
-  favoriteSubtitle: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  favoriteMeta: {
-    color: "#8f7c6e",
-    fontSize: 13,
-  },
-  emptyCard: {
-    alignItems: "center",
-    gap: 8,
-    padding: 18,
-  },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  emptyText: {
-    color: colors.textSoft,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-  },
-  infoStack: {
-    gap: 12,
-  },
-  formCard: {
-    ...shadow.card,
-    gap: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 16,
-  },
-  formHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 2,
-  },
-  formTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "800",
-    letterSpacing: -0.2,
-  },
-  fieldGroup: {
-    gap: 8,
-  },
-  fieldLabel: {
-    color: colors.textSoft,
-    fontSize: 12,
-    fontWeight: "700",
-    paddingLeft: 64,
-  },
-  fieldRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-  },
-  fieldIconBox: {
-    alignItems: "center",
-    backgroundColor: "#fbf2e8",
-    borderRadius: 18,
-    height: 52,
-    justifyContent: "center",
-    width: 52,
-  },
-  inputShell: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 14,
-    minHeight: 52,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  inputWithTrailingIcon: {
-    paddingRight: 46,
-  },
-  inputMultiline: {
-    minHeight: 92,
-  },
-  trailingIconWrap: {
-    height: 52,
-    justifyContent: "center",
-    position: "absolute",
-    right: 16,
-    top: 0,
-  },
-  primaryButton: {
-    borderRadius: 18,
-    marginTop: 6,
-    overflow: "hidden",
-  },
-  primaryButtonPressed: {
-    opacity: 0.88,
-  },
-  primaryButtonGradient: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "center",
-    minHeight: 56,
-    paddingHorizontal: 14,
-  },
-  primaryButtonLabel: {
-    color: colors.surface,
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  logoutButton: {
-    ...shadow.card,
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "center",
-    marginTop: 2,
-    minHeight: 52,
-    paddingHorizontal: spacing.lg,
-  },
-  logoutButtonPressed: {
-    opacity: 0.88,
-  },
-  logoutLabel: {
-    color: "#f05a3b",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-});

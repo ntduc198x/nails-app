@@ -111,7 +111,7 @@ export async function getTelegramUserRole(telegramUserId: number): Promise<Teleg
 }
 
 export function isManagerOrOwner(role?: string): boolean {
-  return role === "OWNER" || role === "MANAGER";
+  return role === "OWNER" || role === "PARTNER" || role === "MANAGER";
 }
 
 function getConversationKey(telegramUserId: number): string {
@@ -1841,8 +1841,10 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
     return;
   }
 
-  if (!data?.success) {
-    const err = data?.error;
+  const linkSucceeded = Boolean(data?.success ?? data?.ok);
+  const err = (data?.error ?? data?.reason ?? null) as string | null;
+
+  if (!linkSucceeded) {
     if (err === "INVALID_CODE") {
       await sendTelegramMessage(chatId, "❌ Mã không hợp lệ. Vui lòng kiểm tra lại trong app.");
     } else if (err === "CODE_EXPIRED") {
@@ -1855,15 +1857,23 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
     return;
   }
 
-  const role = data.role as string;
-  const displayName = data.display_name as string;
+  const linkedUser =
+    typeof data?.role === "string" && typeof data?.display_name === "string"
+      ? {
+          role: data.role as string,
+          displayName: data.display_name as string,
+        }
+      : await getTelegramUserRole(telegramUserId).then((userInfo) => ({
+          role: userInfo.role ?? "STAFF",
+          displayName: userInfo.display_name ?? telegramFirstName ?? telegramUsername ?? "Tai khoan",
+        }));
   await sendManagedReplyPanel(
     chatId,
     [
       "✅ <b>LIEN KET THANH CONG!</b>",
       "",
-      `Tai khoan: <b>${displayName}</b>`,
-      `Vai tro: <b>${role}</b>`,
+      `Tai khoan: <b>${linkedUser.displayName}</b>`,
+      `Vai tro: <b>${linkedUser.role}</b>`,
       "",
       "Tu gio chi can bam nut menu canh emoji la dung duoc.",
     ].join("\n"),

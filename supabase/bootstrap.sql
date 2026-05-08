@@ -2050,7 +2050,8 @@ create table if not exists public.telegram_links (
   telegram_user_id bigint not null,
   telegram_username text,
   telegram_first_name text,
-  verified_at timestamptz not null default now(),
+  telegram_last_name text,
+  linked_at timestamptz not null default now(),
   created_at timestamptz not null default now()
 );
 
@@ -2089,23 +2090,21 @@ drop policy if exists "users view own codes" on public.telegram_link_codes;
 create policy "users view own codes" on public.telegram_link_codes
   for select using (app_user_id = auth.uid());
 
-create or replace function public.generate_telegram_link_code(p_user_id uuid)
-returns jsonb
+create or replace function public.generate_telegram_link_code(
+  p_app_user_id uuid,
+  p_ttl_minutes int default 5
+)
+returns text
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
   v_code text;
-  v_current_user_id uuid;
 begin
-  v_current_user_id := auth.uid();
-  if v_current_user_id is null or v_current_user_id <> p_user_id then
-    raise exception 'Unauthorized';
-  end if;
-
   delete from public.telegram_link_codes
-  where app_user_id = p_user_id and used_at is null;
+  where app_user_id = p_app_user_id
+    and (used_at is not null or expires_at <= now());
 
   loop
     v_code := lpad(floor(random() * 1000000)::text, 6, '0');
@@ -2119,8 +2118,28 @@ begin
   end loop;
 
   insert into public.telegram_link_codes (app_user_id, code, expires_at)
-  values (p_user_id, v_code, now() + interval '5 minutes');
+  values (p_app_user_id, v_code, now() + make_interval(mins => greatest(p_ttl_minutes, 1)));
 
+  return v_code;
+end;
+$$;
+
+create or replace function public.generate_telegram_link_code(p_user_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_current_user_id uuid;
+  v_code text;
+begin
+  v_current_user_id := auth.uid();
+  if v_current_user_id is null or v_current_user_id <> p_user_id then
+    raise exception 'Unauthorized';
+  end if;
+
+  v_code := public.generate_telegram_link_code(p_user_id, 5);
   return jsonb_build_object('success', true, 'code', v_code);
 end;
 $$;
@@ -2129,7 +2148,8 @@ create or replace function public.confirm_telegram_link(
   p_code text,
   p_telegram_user_id bigint,
   p_telegram_username text default null,
-  p_telegram_first_name text default null
+  p_telegram_first_name text default null,
+  p_telegram_last_name text default null
 )
 returns jsonb
 language plpgsql
@@ -2182,8 +2202,22 @@ begin
   delete from public.telegram_links
   where telegram_user_id = p_telegram_user_id;
 
-  insert into public.telegram_links (app_user_id, telegram_user_id, telegram_username, telegram_first_name)
-  values (v_link_code.app_user_id, p_telegram_user_id, p_telegram_username, p_telegram_first_name);
+  insert into public.telegram_links (
+    app_user_id,
+    telegram_user_id,
+    telegram_username,
+    telegram_first_name,
+    telegram_last_name,
+    linked_at
+  )
+  values (
+    v_link_code.app_user_id,
+    p_telegram_user_id,
+    p_telegram_username,
+    p_telegram_first_name,
+    p_telegram_last_name,
+    now()
+  );
 
   update public.telegram_link_codes
   set used_at = now()
@@ -2197,10 +2231,12 @@ begin
   limit 1;
 
   return jsonb_build_object(
+    'ok', true,
     'success', true,
+    'app_user_id', v_link_code.app_user_id,
     'user_id', v_link_code.app_user_id,
-    'role', v_role,
-    'display_name', v_display_name
+    'role', coalesce(v_role, 'STAFF'),
+    'display_name', coalesce(v_display_name, p_telegram_first_name, p_telegram_username, 'Tai khoan')
   );
 end;
 $$;
@@ -2248,7 +2284,7 @@ begin
 end;
 $$;
 
-create or replace function public.unlink_telegram(p_user_id uuid)
+create or replace function public.unlink_telegram(p_app_user_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -2258,22 +2294,24 @@ declare
   v_current_user_id uuid;
 begin
   v_current_user_id := auth.uid();
-  if v_current_user_id is null or v_current_user_id <> p_user_id then
+  if v_current_user_id is null or v_current_user_id <> p_app_user_id then
     raise exception 'Unauthorized';
   end if;
 
-  delete from public.telegram_links where app_user_id = p_user_id;
+  delete from public.telegram_links where app_user_id = p_app_user_id;
   return jsonb_build_object('success', true);
 end;
 $$;
 
 revoke all on function public.generate_telegram_link_code(uuid) from public, anon;
-revoke all on function public.confirm_telegram_link(text, bigint, text, text) from public, anon;
+revoke all on function public.generate_telegram_link_code(uuid, int) from public, anon;
+revoke all on function public.confirm_telegram_link(text, bigint, text, text, text) from public, anon;
 revoke all on function public.get_telegram_user_role(bigint) from public, anon;
 revoke all on function public.unlink_telegram(uuid) from public, anon;
 
 grant execute on function public.generate_telegram_link_code(uuid) to authenticated, service_role;
-grant execute on function public.confirm_telegram_link(text, bigint, text, text) to authenticated, service_role;
+grant execute on function public.generate_telegram_link_code(uuid, int) to authenticated, service_role;
+grant execute on function public.confirm_telegram_link(text, bigint, text, text, text) to authenticated, service_role;
 grant execute on function public.get_telegram_user_role(bigint) to authenticated, service_role;
 grant execute on function public.unlink_telegram(uuid) to authenticated, service_role;
 
@@ -3877,9 +3915,12 @@ begin
     end
     into v_role;
 
-    insert into public.user_roles (user_id, org_id, role)
-    values (v_current_user_id, v_org_id, v_role)
-    on conflict (user_id, org_id, role) do nothing;
+    begin
+      insert into public.user_roles (user_id, org_id, role)
+      values (v_current_user_id, v_org_id, v_role);
+    exception when unique_violation then
+      null;
+    end;
   end if;
 
   return jsonb_build_object(
@@ -4274,9 +4315,12 @@ begin
   end
   into v_role;
 
-  insert into public.user_roles (user_id, org_id, role)
-  values (new.id, v_org_id, v_role)
-  on conflict (user_id, org_id, role) do nothing;
+  begin
+    insert into public.user_roles (user_id, org_id, role)
+    values (new.id, v_org_id, v_role);
+  exception when unique_violation then
+    null;
+  end;
 
   return new;
 end;

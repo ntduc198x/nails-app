@@ -1,8 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
+  Alert,
   Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
@@ -14,7 +14,10 @@ import {
   View,
 } from "react-native";
 import type { ExploreGalleryItem, ExploreProduct, ExploreTeamMember, LookbookItem, MarketingOfferCard } from "@nails/shared";
+import { CustomerCachedImage } from "@/src/features/customer/cached-image";
+import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
 import { CATEGORY_ITEMS, matchesCategory } from "@/src/features/customer/data";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerExplore } from "@/src/hooks/use-customer-explore";
@@ -29,10 +32,14 @@ const SERVICE_CARD_GAP = 14;
 const SERVICE_AUTO_SCROLL_INTERVAL = 4000;
 
 export default function ExploreScreen() {
+  const strings = useCustomerStrings();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [activeServiceIndex, setActiveServiceIndex] = useState(0);
   const servicesScrollerRef = useRef<ScrollView>(null);
+  const filteredServicesLengthRef = useRef(0);
+  const activeServiceIndexRef = useRef(0);
   const {
     storefront,
     stats,
@@ -47,7 +54,7 @@ export default function ExploreScreen() {
     lastError,
     refresh,
   } = useCustomerExplore();
-  const { isFavorite, toggleFavorite } = useCustomerFavorites();
+  const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
   const filteredServices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -59,36 +66,86 @@ export default function ExploreScreen() {
   }, [activeCategory, featuredServices, searchQuery]);
 
   useEffect(() => {
-    if (!filteredServices.length) return;
+    filteredServicesLengthRef.current = filteredServices.length;
 
+    setActiveServiceIndex((currentIndex) => {
+      const nextIndex = Math.min(currentIndex, Math.max(0, filteredServices.length - 1));
+      activeServiceIndexRef.current = nextIndex;
+      return nextIndex;
+    });
+  }, [filteredServices.length]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
-      setActiveServiceIndex((currentIndex) => {
-        const nextIndex = (currentIndex + 1) % filteredServices.length;
+      const currentLength = filteredServicesLengthRef.current;
+      if (currentLength <= 1) return;
 
-        servicesScrollerRef.current?.scrollTo({
-          x: nextIndex * (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP),
-          animated: true,
-        });
+      const nextIndex = (activeServiceIndexRef.current + 1) % currentLength;
+      activeServiceIndexRef.current = nextIndex;
+      setActiveServiceIndex(nextIndex);
 
-        return nextIndex;
+      servicesScrollerRef.current?.scrollTo({
+        x: nextIndex * (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP),
+        animated: true,
       });
     }, SERVICE_AUTO_SCROLL_INTERVAL);
 
     return () => clearInterval(interval);
-  }, [filteredServices.length]);
+  }, []);
+
+  const handleToggleFavorite = useCallback(
+    async (serviceId: string) => {
+      try {
+        await toggleFavorite(serviceId);
+      } catch {
+        // Error alert is handled by the favorites hook effect above.
+      }
+    },
+    [toggleFavorite],
+  );
 
   const onServicesScroll = useCallback(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const scrollX = event.nativeEvent.contentOffset.x;
+      const currentLength = filteredServicesLengthRef.current;
+      if (currentLength <= 0) return;
+
       const nextIndex = Math.max(
         0,
-        Math.min(filteredServices.length - 1, Math.round(scrollX / (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP))),
+        Math.min(currentLength - 1, Math.round(scrollX / (SERVICE_CARD_WIDTH + SERVICE_CARD_GAP))),
       );
 
-      setActiveServiceIndex(nextIndex);
+      if (nextIndex !== activeServiceIndexRef.current) {
+        activeServiceIndexRef.current = nextIndex;
+        setActiveServiceIndex(nextIndex);
+      }
     },
-    [filteredServices.length],
+    [],
   );
+
+  useEffect(() => {
+    if (!favoriteError) return;
+
+    if (favoriteError.includes("PROFILE_NOT_FOUND") || favoriteError.includes("PHONE_NOT_SET")) {
+      const actionLabel = favoriteError.includes("PROFILE_NOT_FOUND") ? "Cập nhật hồ sơ" : "Cập nhật số điện thoại";
+      Alert.alert(
+        "Cần bổ sung thông tin",
+        favoriteError.split(":")[1] || "Vui lòng cập nhật hồ sơ để lưu yêu thích.",
+        [
+          { text: "Hủy", style: "cancel" },
+          { text: actionLabel, onPress: () => router.push("/(customer)/profile") },
+        ],
+      );
+      return;
+    }
+
+    if (favoriteError.includes("CUSTOMER_ACCOUNT_NOT_LINKED")) {
+      Alert.alert(strings.favoriteSaveBlockedTitle, strings.favoriteSaveBlockedBody);
+      return;
+    }
+
+    Alert.alert(strings.favoriteSaveFailedTitle, favoriteError);
+  }, [favoriteError, strings.favoriteSaveBlockedBody, strings.favoriteSaveBlockedTitle, strings.favoriteSaveFailedTitle]);
 
   async function openMap() {
     if (map?.mapUrl) {
@@ -112,7 +169,7 @@ export default function ExploreScreen() {
       {storefront ? (
         <View style={styles.storeHero}>
           {storefront.coverImageUrl ? (
-            <Image alt={storefront.name} source={{ uri: storefront.coverImageUrl }} style={styles.storeImage} />
+            <CustomerCachedImage alt={storefront.name} source={{ uri: storefront.coverImageUrl }} intent="hero" style={styles.storeImage} />
           ) : null}
 
           <View style={styles.storeCopy}>
@@ -141,16 +198,6 @@ export default function ExploreScreen() {
           </View>
         </View>
       ) : null}
-
-      <View style={styles.statsGrid}>
-        {stats.map((item) => (
-          <SurfaceCard key={item.id} style={styles.statCard}>
-            <Feather color={colors.textSoft} name={(item.icon as React.ComponentProps<typeof Feather>["name"]) || "circle"} size={16} />
-            <Text style={styles.statLabel}>{item.label}</Text>
-            <Text style={styles.statValue}>{item.value}</Text>
-          </SurfaceCard>
-        ))}
-      </View>
 
       <View style={styles.searchBar}>
         <Feather color="#8f8174" name="search" size={16} />
@@ -207,11 +254,13 @@ export default function ExploreScreen() {
             scrollEventThrottle={16}
           >
             {filteredServices.map((service) => (
-              <ExploreServiceCard
+              <MemoExploreServiceCard
                 key={service.id}
                 service={service}
                 favorite={isFavorite(service.id)}
-                onToggleFavorite={() => void toggleFavorite(service.id)}
+                onToggleFavorite={handleToggleFavorite}
+                onPreviewImage={setPreviewImage}
+                bookingLabel={strings.bookingCta}
               />
             ))}
           </ScrollView>
@@ -261,7 +310,7 @@ export default function ExploreScreen() {
 
       <SectionHeader title="Địa chỉ cửa hàng" />
       <SurfaceCard style={styles.mapCard}>
-        {map?.imageUrl ? <Image alt="Bản đồ cửa hàng" source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
+        {map?.imageUrl ? <CustomerCachedImage alt="Bản đồ cửa hàng" source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
         <View style={styles.mapCopy}>
           {map?.addressLine ? <Text style={styles.mapAddress}>{map.addressLine}</Text> : null}
           {map?.openingHours ? (
@@ -278,6 +327,8 @@ export default function ExploreScreen() {
           </Pressable>
         ) : null}
       </SurfaceCard>
+
+      <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
     </CustomerScreen>
   );
 }
@@ -300,49 +351,73 @@ function ExploreServiceCard({
   service,
   favorite,
   onToggleFavorite,
+  onPreviewImage,
+  bookingLabel,
 }: {
   service: LookbookItem;
   favorite: boolean;
-  onToggleFavorite: () => void;
+  onToggleFavorite: (serviceId: string) => void;
+  onPreviewImage: (imageUrl: string) => void;
+  bookingLabel: string;
 }) {
   return (
-    <Pressable
-      style={styles.serviceCard}
-      onPress={() =>
-        router.push({
-          pathname: "/(customer)/booking",
-          params: { service: service.title },
-        })
-      }
-    >
-      <View>
-        <Image alt={service.title} source={{ uri: service.image }} style={styles.serviceImage} />
+    <View style={styles.serviceCard}>
+      <Pressable onPress={() => onPreviewImage(service.image)}>
+        <CustomerCachedImage alt={service.title} source={{ uri: service.image }} intent="card" style={styles.serviceImage} />
         <View style={styles.serviceToneBadge}>
           <Text style={styles.serviceToneText}>{service.tone.toUpperCase()}</Text>
         </View>
-        <Pressable style={styles.favoriteButton} onPress={onToggleFavorite}>
-          <Feather color={favorite ? colors.accent : colors.textSoft} name="heart" size={14} />
+        <Pressable
+          style={[styles.favoriteButton, favorite ? styles.favoriteButtonActive : null]}
+          onPress={(event) => {
+            event.stopPropagation();
+            onToggleFavorite(service.id);
+          }}
+        >
+          <Feather color={favorite ? "#fff7ef" : colors.textSoft} name="heart" size={14} />
         </Pressable>
-      </View>
+      </Pressable>
 
       <View style={styles.serviceBody}>
         <Text numberOfLines={1} style={styles.serviceTitle}>{service.title}</Text>
         <Text numberOfLines={2} style={styles.serviceBlurb}>{service.blurb}</Text>
         <View style={styles.serviceMetaRow}>
           <Text style={styles.servicePrice}>{service.price}</Text>
-          <Pressable style={styles.bookButton}>
-            <Text style={styles.bookButtonText}>Đặt lịch</Text>
+          <Pressable
+            style={styles.bookButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              router.push({
+                pathname: "/(customer)/booking",
+                params: { service: service.title },
+              });
+            }}
+          >
+            <Text style={styles.bookButtonText}>{bookingLabel}</Text>
           </Pressable>
         </View>
       </View>
-    </Pressable>
+    </View>
   );
 }
+
+const MemoExploreServiceCard = memo(
+  ExploreServiceCard,
+  (previous, next) =>
+    previous.favorite === next.favorite &&
+    previous.bookingLabel === next.bookingLabel &&
+    previous.service.id === next.service.id &&
+    previous.service.image === next.service.image &&
+    previous.service.title === next.service.title &&
+    previous.service.blurb === next.service.blurb &&
+    previous.service.tone === next.service.tone &&
+    previous.service.price === next.service.price,
+);
 
 function ProductCard({ item }: { item: ExploreProduct }) {
   return (
     <SurfaceCard style={styles.productCard}>
-      {item.imageUrl ? <Image alt={item.name} source={{ uri: item.imageUrl }} style={styles.productImage} /> : null}
+      {item.imageUrl ? <CustomerCachedImage alt={item.name} source={{ uri: item.imageUrl }} style={styles.productImage} /> : null}
       <Text numberOfLines={2} style={styles.productTitle}>{item.name}</Text>
       {item.subtitle ? <Text style={styles.productSubLabel}>{item.subtitle}</Text> : null}
       <View style={styles.productFooter}>
@@ -358,7 +433,7 @@ function ProductCard({ item }: { item: ExploreProduct }) {
 function TeamCard({ member }: { member: ExploreTeamMember }) {
   return (
     <View style={styles.teamCard}>
-      {member.avatarUrl ? <Image alt={member.displayName} source={{ uri: member.avatarUrl }} style={styles.teamAvatar} /> : null}
+      {member.avatarUrl ? <CustomerCachedImage alt={member.displayName} source={{ uri: member.avatarUrl }} intent="thumbnail" style={styles.teamAvatar} /> : null}
       <Text style={styles.teamName}>{member.displayName}</Text>
       {member.roleLabel ? <Text style={styles.teamRole}>{member.roleLabel}</Text> : null}
     </View>
@@ -368,7 +443,7 @@ function TeamCard({ member }: { member: ExploreTeamMember }) {
 function GalleryCard({ item }: { item: ExploreGalleryItem }) {
   return (
     <View style={styles.galleryCard}>
-      <Image alt={item.title ?? "Gallery"} source={{ uri: item.imageUrl }} style={styles.galleryImage} />
+      <CustomerCachedImage alt={item.title ?? "Gallery"} source={{ uri: item.imageUrl }} style={styles.galleryImage} />
       {item.title ? <Text style={styles.galleryTitle}>{item.title}</Text> : null}
     </View>
   );
@@ -636,6 +711,8 @@ const styles = StyleSheet.create({
   favoriteButton: {
     alignItems: "center",
     backgroundColor: "rgba(255,250,245,0.96)",
+    borderColor: "#ebdfd3",
+    borderWidth: 1,
     borderRadius: radius.pill,
     height: 28,
     justifyContent: "center",
@@ -643,6 +720,15 @@ const styles = StyleSheet.create({
     right: 10,
     top: 10,
     width: 28,
+  },
+  favoriteButtonActive: {
+    backgroundColor: "#f97316",
+    borderColor: "#f97316",
+    shadowColor: "#f97316",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.28,
+    shadowRadius: 14,
+    transform: [{ scale: 1.08 }],
   },
   serviceBody: {
     gap: 8,

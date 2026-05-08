@@ -14,6 +14,7 @@ import {
 } from "@/lib/app-session";
 import { getOrCreateRole, type AppRole } from "@/lib/auth";
 import { clearDomainCaches } from "@/lib/domain";
+import { getDefaultManageHref } from "@/lib/manage-landing-auth";
 import { getRoleLabel } from "@/lib/role-labels";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -90,13 +91,13 @@ const navGroups: NavGroup[] = [
 
 function canAccess(role: AppRole, href: string) {
   if (href === "/manage/account") return true;
-  if (role === "OWNER") return true;
+  if (role === "OWNER" || role === "PARTNER") return true;
   if (role === "MANAGER") return href !== "/manage/tax-books";
   if (role === "RECEPTION") {
-    return ["/manage", "/manage/landing", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers"].includes(href);
+    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers", "/manage/services", "/manage/team"].includes(href);
   }
   if (role === "TECH") {
-    return ["/manage", "/manage/landing", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
+    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
   }
   if (role === "ACCOUNTANT") {
     return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
@@ -283,7 +284,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [email]);
 
   useEffect(() => {
-    if (!["OWNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;
+    if (!["OWNER", "PARTNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;
     let disposed = false;
 
     async function loadNotifications() {
@@ -401,7 +402,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !canAccess(role, pathname)) {
-      router.replace(visibleGroups[0]?.items[0]?.href ?? "/manage");
+      router.replace(visibleGroups[0]?.items[0]?.href ?? getDefaultManageHref(role));
     }
   }, [loading, pathname, role, router, visibleGroups]);
 

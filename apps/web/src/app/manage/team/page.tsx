@@ -11,6 +11,7 @@ import {
   updateUserRoleByRowId,
 } from "@/lib/auth";
 import { generateInviteCode, listInviteCodes, revokeInviteCode, type InviteCodeRow } from "@/lib/invite-codes";
+import { canAccessManageSetup } from "@/lib/manage-setup-auth";
 import { getRoleLabel } from "@/lib/role-labels";
 import {
   createEmptyStaffShiftProfile,
@@ -42,6 +43,25 @@ type UserRoleRow = {
 const roleOptions: AppRole[] = ["PARTNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
 const availabilityOptions: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
 const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+
+function getTeamRolePriority(role: AppRole) {
+  switch (role) {
+    case "OWNER":
+      return 0;
+    case "PARTNER":
+      return 1;
+    case "MANAGER":
+      return 2;
+    case "RECEPTION":
+      return 3;
+    case "ACCOUNTANT":
+      return 4;
+    case "TECH":
+      return 5;
+    default:
+      return 6;
+  }
+}
 
 function FieldLabel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return <label className={`text-[10px] font-semibold uppercase tracking-[0.12em] text-neutral-500 ${className}`}>{children}</label>;
@@ -140,6 +160,7 @@ export default function TeamPage() {
   const listSectionRef = useRef<HTMLDivElement | null>(null);
 
   const canManage = myRole === "OWNER" || myRole === "PARTNER";
+  const canAccessPage = canAccessManageSetup(myRole);
 
   const roleStats = useMemo(() => {
     const stats = new Map<AppRole, number>();
@@ -149,8 +170,8 @@ export default function TeamPage() {
 
   const filteredRows = useMemo(() => {
     const sortedRows = [...rows].sort((a, b) => {
-      if (a.role === "OWNER" && b.role !== "OWNER") return -1;
-      if (a.role !== "OWNER" && b.role === "OWNER") return 1;
+      const roleDelta = getTeamRolePriority(a.role) - getTeamRolePriority(b.role);
+      if (roleDelta !== 0) return roleDelta;
       const aLabel = (a.display_name ?? a.email ?? a.user_id).toLowerCase();
       const bLabel = (b.display_name ?? b.email ?? b.user_id).toLowerCase();
       return aLabel.localeCompare(bLabel, "vi");
@@ -354,6 +375,17 @@ export default function TeamPage() {
     if (!total) return "Chưa cấu hình";
     if (fullDays === total) return `${total} ngày linh hoạt cả ngày`;
     return `${total} ngày làm việc`;
+  }
+
+  if (!loading && !canAccessPage) {
+    return (
+      <AppShell>
+        <div className="space-y-3 p-6 text-sm text-neutral-600">
+          <p className="font-semibold text-neutral-900">Bạn không có quyền vào khu thiết lập.</p>
+          <p>Vai trò hiện tại chỉ được dùng Điều phối lịch, Thanh toán và Ca làm.</p>
+        </div>
+      </AppShell>
+    );
   }
 
   return (

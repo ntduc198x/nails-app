@@ -141,6 +141,9 @@ begin
 end;
 $$;
 
+drop function if exists public.confirm_telegram_link(text, bigint, text, text);
+drop function if exists public.confirm_telegram_link(text, bigint, text, text, text);
+
 create or replace function public.confirm_telegram_link(
   p_code text,
   p_telegram_user_id bigint,
@@ -240,40 +243,47 @@ $$;
 
 drop function if exists public.get_telegram_user_role(bigint);
 
-create function public.get_telegram_user_role(
-  p_telegram_user_id bigint
-)
-returns table (
-  linked boolean,
-  app_user_id uuid,
-  role text,
-  org_id uuid,
-  display_name text
-)
-language sql
+create or replace function public.get_telegram_user_role(p_telegram_user_id bigint)
+returns jsonb
+language plpgsql
 security definer
 set search_path = public
 as $$
-  select
-    true as linked,
-    tl.app_user_id,
-    ur.role,
-    ur.org_id,
-    p.display_name
+declare
+  v_app_user_id uuid;
+  v_role text;
+  v_display_name text;
+  v_org_id uuid;
+begin
+  select tl.app_user_id
+  into v_app_user_id
   from public.telegram_links tl
-  join public.user_roles ur on ur.user_id = tl.app_user_id
-  left join public.profiles p on p.user_id = tl.app_user_id
   where tl.telegram_user_id = p_telegram_user_id
-  order by
-    case ur.role
-      when 'OWNER' then 1
-      when 'MANAGER' then 2
-      when 'RECEPTION' then 3
-      when 'ACCOUNTANT' then 4
-      when 'TECH' then 5
-      else 99
-    end
   limit 1;
+
+  if v_app_user_id is null then
+    return jsonb_build_object('linked', false);
+  end if;
+
+  select r.role, r.org_id
+  into v_role, v_org_id
+  from public.user_roles r
+  where r.user_id = v_app_user_id
+  limit 1;
+
+  select p.display_name
+  into v_display_name
+  from public.profiles p
+  where p.user_id = v_app_user_id;
+
+  return jsonb_build_object(
+    'linked', true,
+    'user_id', v_app_user_id,
+    'role', v_role,
+    'display_name', v_display_name,
+    'org_id', v_org_id
+  );
+end;
 $$;
 
 drop function if exists public.unlink_telegram(uuid);

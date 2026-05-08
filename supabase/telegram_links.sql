@@ -101,6 +101,9 @@ begin
 end;
 $$;
 
+drop function if exists public.confirm_telegram_link(text, bigint, text, text);
+drop function if exists public.confirm_telegram_link(text, bigint, text, text, text);
+
 create or replace function public.confirm_telegram_link(
   p_code text,
   p_telegram_user_id bigint,

@@ -1834,6 +1834,7 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
     p_telegram_user_id: telegramUserId,
     p_telegram_username: telegramUsername ?? null,
     p_telegram_first_name: telegramFirstName ?? null,
+    p_telegram_last_name: null,
   });
 
   if (error) {

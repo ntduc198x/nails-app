@@ -370,7 +370,7 @@ export async function closeShiftEntryIfAllowed(entry: ShiftTimeEntryRecord) {
   const now = new Date();
   const scheduledEnd = entry.scheduled_end ? new Date(entry.scheduled_end) : null;
   if (scheduledEnd && now.getTime() < scheduledEnd.getTime()) {
-    throw new Error("Muốn về sớm bạn cần gửi xin nghỉ sớm để OWNER duyệt.");
+    throw new Error("Muốn về sớm bạn cần gửi xin nghỉ sớm để BOSS hoặc Chủ tiệm duyệt.");
   }
 
   const closedAt = entry.scheduled_end ?? now.toISOString();

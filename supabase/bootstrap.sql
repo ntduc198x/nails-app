@@ -403,8 +403,10 @@ for select using (
   org_id = public.my_org_id()
   and (
     public.has_role('OWNER')
+    or public.has_role('PARTNER')
     or public.has_role('MANAGER')
     or public.has_role('RECEPTION')
+    or public.has_role('TECH')
   )
 );
 
@@ -414,16 +416,33 @@ for update using (
   org_id = public.my_org_id()
   and (
     public.has_role('OWNER')
+    or public.has_role('PARTNER')
     or public.has_role('MANAGER')
     or public.has_role('RECEPTION')
+    or public.has_role('TECH')
   )
 )
 with check (
   org_id = public.my_org_id()
   and (
     public.has_role('OWNER')
+    or public.has_role('PARTNER')
     or public.has_role('MANAGER')
     or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+  )
+);
+
+drop policy if exists "org delete booking_requests" on public.booking_requests;
+create policy "org delete booking_requests" on public.booking_requests
+for delete using (
+  org_id = public.my_org_id()
+  and (
+    public.has_role('OWNER')
+    or public.has_role('PARTNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
   )
 );
 
@@ -631,8 +650,16 @@ set search_path = public
 as $$
 declare
   v_owner_count int;
+  v_current_user_id uuid;
 begin
-  if NEW.user_id = auth.uid() then
+  v_current_user_id := auth.uid();
+
+  -- Allow system/trigger context (auth.uid() is null)
+  if v_current_user_id is null then
+    return NEW;
+  end if;
+
+  if NEW.user_id = v_current_user_id then
     select count(*)::int into v_owner_count
     from user_roles
     where org_id = NEW.org_id
@@ -649,7 +676,7 @@ begin
   if exists (
     select 1 from user_roles ur
     where ur.org_id = NEW.org_id
-      and ur.user_id = auth.uid()
+      and ur.user_id = v_current_user_id
       and ur.role = 'OWNER'
   ) then
     return NEW;
@@ -1001,6 +1028,7 @@ declare
   v_role text;
   v_code text;
   v_row public.invite_codes;
+  v_can_manage_all_roles boolean := false;
 begin
   if auth.uid() is null then
     raise exception 'UNAUTHENTICATED';
@@ -1027,13 +1055,33 @@ begin
     raise exception 'BRANCH_CONTEXT_REQUIRED';
   end if;
 
-  if not (public.has_role('OWNER')) then
+  if not (public.has_role('OWNER') or exists (
+    select 1
+    from public.user_roles ur
+    where ur.user_id = auth.uid()
+      and ur.org_id = v_org_id
+      and ur.role = 'PARTNER'
+      and ur.branch_id = v_branch_id
+  )) then
     raise exception 'FORBIDDEN';
   end if;
+
+  v_can_manage_all_roles := exists (
+    select 1
+    from public.user_roles ur
+    where ur.user_id = auth.uid()
+      and ur.org_id = v_org_id
+      and ur.role = 'OWNER'
+      and ur.branch_id is null
+  );
 
   v_role := coalesce(nullif(trim(p_allowed_role), ''), 'TECH');
   if v_role not in ('PARTNER','MANAGER','RECEPTION','ACCOUNTANT','TECH') then
     raise exception 'INVALID_ROLE';
+  end if;
+
+  if not v_can_manage_all_roles and v_role = 'PARTNER' then
+    raise exception 'FORBIDDEN_ROLE';
   end if;
 
   loop
@@ -1292,7 +1340,7 @@ begin
     from public.user_roles ur
     where ur.user_id = v_uid
       and ur.org_id = v_org_id
-      and ur.role in ('OWNER','MANAGER','RECEPTION','TECH')
+      and ur.role in ('OWNER','PARTNER','MANAGER','RECEPTION','TECH')
   ) into v_allowed;
 
   if not coalesce(v_allowed, false) then
@@ -1496,7 +1544,7 @@ begin
     from user_roles ur
     where ur.user_id = v_uid
       and ur.org_id = v_org_id
-      and ur.role in ('OWNER', 'MANAGER', 'RECEPTION')
+      and ur.role in ('OWNER', 'PARTNER', 'MANAGER', 'RECEPTION')
   ) into v_allowed;
 
   if not v_allowed then
@@ -1699,18 +1747,18 @@ drop policy if exists "time_entries role read" on time_entries;
 create policy "time_entries role read" on time_entries
 for select using (
   org_id = public.my_org_id() and
-  (public.has_role('OWNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
+  (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
 );
 
 drop policy if exists "time_entries role write" on time_entries;
 create policy "time_entries role write" on time_entries
 for all using (
   org_id = public.my_org_id() and
-  (public.has_role('OWNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
+  (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
 )
 with check (
   org_id = public.my_org_id() and
-  (public.has_role('OWNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
+  (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER') or public.has_role('RECEPTION') or public.has_role('TECH'))
 );
 
 -- ===== END shifts.sql =====
@@ -1744,11 +1792,11 @@ create policy "time_entries owner manager write" on public.time_entries
 for all
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 )
 with check (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "time_entries staff self write" on public.time_entries;
@@ -1806,7 +1854,7 @@ create policy "shift_leave_requests owner manager read" on public.shift_leave_re
 for select
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "shift_leave_requests owner manager write" on public.shift_leave_requests;
@@ -1814,11 +1862,11 @@ create policy "shift_leave_requests owner manager write" on public.shift_leave_r
 for all
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 )
 with check (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "shift_leave_requests staff read self" on public.shift_leave_requests;
@@ -1871,7 +1919,7 @@ create policy "staff_shift_profiles owner manager read" on public.staff_shift_pr
 for select
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "staff_shift_profiles owner manager write" on public.staff_shift_profiles;
@@ -1879,11 +1927,11 @@ create policy "staff_shift_profiles owner manager write" on public.staff_shift_p
 for all
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 )
 with check (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "staff_shift_profiles staff read self" on public.staff_shift_profiles;
@@ -1938,7 +1986,7 @@ create policy "shift_plans owner manager read all" on public.shift_plans
 for select
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "shift_plans owner manager write" on public.shift_plans;
@@ -1946,11 +1994,11 @@ create policy "shift_plans owner manager write" on public.shift_plans
 for all
 using (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 )
 with check (
   org_id = public.my_org_id()
-  and (public.has_role('OWNER') or public.has_role('MANAGER'))
+  and (public.has_role('OWNER') or public.has_role('PARTNER') or public.has_role('MANAGER'))
 );
 
 drop policy if exists "shift_plans staff read published" on public.shift_plans;
@@ -1961,6 +2009,7 @@ using (
   and status = 'published'
   and (
     public.has_role('OWNER')
+    or public.has_role('PARTNER')
     or public.has_role('MANAGER')
     or public.has_role('RECEPTION')
     or public.has_role('TECH')
@@ -2257,6 +2306,7 @@ declare
   v_role text;
   v_display_name text;
   v_org_id uuid;
+  v_branch_id uuid;
 begin
   select tl.app_user_id
   into v_app_user_id
@@ -2268,10 +2318,20 @@ begin
     return jsonb_build_object('linked', false);
   end if;
 
-  select r.role, r.org_id
-  into v_role, v_org_id
+  select r.role, r.org_id, r.branch_id
+  into v_role, v_org_id, v_branch_id
   from public.user_roles r
   where r.user_id = v_app_user_id
+  order by
+    case r.role
+      when 'OWNER' then 0
+      when 'PARTNER' then 1
+      when 'MANAGER' then 2
+      when 'RECEPTION' then 3
+      when 'ACCOUNTANT' then 4
+      when 'TECH' then 5
+      else 99
+    end asc
   limit 1;
 
   select p.display_name
@@ -2284,7 +2344,8 @@ begin
     'user_id', v_app_user_id,
     'role', v_role,
     'display_name', v_display_name,
-    'org_id', v_org_id
+    'org_id', v_org_id,
+    'branch_id', v_branch_id
   );
 end;
 $$;
@@ -3339,7 +3400,7 @@ begin
     from public.user_roles ur
     where ur.user_id = v_uid
       and ur.org_id = v_org_id
-      and ur.role in ('OWNER', 'MANAGER', 'RECEPTION')
+      and ur.role in ('OWNER', 'PARTNER', 'MANAGER', 'RECEPTION')
   ) into v_allowed;
 
   if not v_allowed then
@@ -3467,7 +3528,7 @@ begin
     from public.user_roles ur
     where ur.user_id = v_uid
       and ur.org_id = v_org_id
-      and ur.role in ('OWNER', 'MANAGER', 'RECEPTION', 'TECH')
+      and ur.role in ('OWNER', 'PARTNER', 'MANAGER', 'RECEPTION', 'TECH')
   ) into v_allowed;
 
   if not coalesce(v_allowed, false) then
@@ -3831,8 +3892,8 @@ begin
 
   if v_org_id is null then
     v_workspace := public.ensure_default_workspace();
-    v_org_id := (v_workspace ->> 'org_id')::uuid;
-    v_branch_id := coalesce(v_branch_id, (v_workspace ->> 'branch_id')::uuid);
+    v_org_id := coalesce((v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce(v_branch_id, (v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
   end if;
 
   if v_branch_id is null then
@@ -3846,8 +3907,8 @@ begin
 
   if v_branch_id is null then
     v_workspace := coalesce(v_workspace, public.ensure_default_workspace());
-    v_org_id := coalesce(v_org_id, (v_workspace ->> 'org_id')::uuid);
-    v_branch_id := (v_workspace ->> 'branch_id')::uuid;
+    v_org_id := coalesce(v_org_id, (v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce((v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
   end if;
 
   v_auth_provider := lower(coalesce(v_auth_user.raw_app_meta_data ->> 'provider', 'email'));
@@ -4253,9 +4314,6 @@ declare
   v_registration_mode text;
   v_auth_provider text;
 begin
-  v_workspace := public.ensure_default_workspace();
-  v_org_id := (v_workspace ->> 'org_id')::uuid;
-  v_branch_id := (v_workspace ->> 'branch_id')::uuid;
   v_auth_provider := lower(coalesce(new.raw_app_meta_data ->> 'provider', 'email'));
   v_registration_mode := upper(
     coalesce(
@@ -4266,6 +4324,15 @@ begin
       end
     )
   );
+
+  if v_registration_mode <> 'USER' then
+    v_workspace := public.ensure_default_workspace();
+    v_org_id := coalesce((v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce((v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
+  else
+    v_org_id := null;
+    v_branch_id := null;
+  end if;
 
   v_display_name := nullif(
     trim(
@@ -4308,24 +4375,25 @@ begin
       email = coalesce(excluded.email, public.profiles.email),
       phone = coalesce(excluded.phone, public.profiles.phone);
 
-  select case
-    when v_registration_mode = 'USER' then 'USER'
-    when exists (
-      select 1
-      from public.user_roles
-      where org_id = v_org_id
-        and role = 'OWNER'
-    ) then 'RECEPTION'
-    else 'OWNER'
-  end
-  into v_role;
+  if v_registration_mode <> 'USER' then
+    select case
+      when exists (
+        select 1
+        from public.user_roles
+        where org_id = v_org_id
+          and role = 'OWNER'
+      ) then 'RECEPTION'
+      else 'OWNER'
+    end
+    into v_role;
 
-  begin
-    insert into public.user_roles (user_id, org_id, role)
-    values (new.id, v_org_id, v_role);
-  exception when unique_violation then
-    null;
-  end;
+    begin
+      insert into public.user_roles (user_id, org_id, role)
+      values (new.id, v_org_id, v_role);
+    exception when unique_violation then
+      null;
+    end;
+  end if;
 
   return new;
 end;

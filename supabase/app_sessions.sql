@@ -262,8 +262,8 @@ begin
 
   if v_org_id is null then
     v_workspace := public.ensure_default_workspace();
-    v_org_id := (v_workspace ->> 'org_id')::uuid;
-    v_branch_id := coalesce(v_branch_id, (v_workspace ->> 'branch_id')::uuid);
+    v_org_id := coalesce((v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce(v_branch_id, (v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
   end if;
 
   if v_branch_id is null then
@@ -277,8 +277,8 @@ begin
 
   if v_branch_id is null then
     v_workspace := coalesce(v_workspace, public.ensure_default_workspace());
-    v_org_id := coalesce(v_org_id, (v_workspace ->> 'org_id')::uuid);
-    v_branch_id := (v_workspace ->> 'branch_id')::uuid;
+    v_org_id := coalesce(v_org_id, (v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce((v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
   end if;
 
   v_auth_provider := lower(coalesce(v_auth_user.raw_app_meta_data ->> 'provider', 'email'));
@@ -346,7 +346,7 @@ begin
         from public.user_roles
         where org_id = v_org_id
           and role = 'OWNER'
-      ) then 'RECEPTION'
+      ) then 'TECH'
       else 'OWNER'
     end
     into v_role;

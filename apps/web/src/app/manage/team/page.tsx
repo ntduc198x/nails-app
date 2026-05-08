@@ -40,7 +40,9 @@ type UserRoleRow = {
   phone?: string | null;
 };
 
-const roleOptions: AppRole[] = ["PARTNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const editableRoleOptions: AppRole[] = ["PARTNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const inviteRoleOptionsByPartner: InviteCodeRow["allowed_role"][] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const inviteRoleOptionsByOwner: InviteCodeRow["allowed_role"][] = ["PARTNER", ...inviteRoleOptionsByPartner];
 const availabilityOptions: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
 const weekdayLabels = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
 
@@ -161,6 +163,7 @@ export default function TeamPage() {
 
   const canManage = myRole === "OWNER" || myRole === "PARTNER";
   const canAccessPage = canAccessManageSetup(myRole);
+  const inviteRoleOptions = myRole === "OWNER" ? inviteRoleOptionsByOwner : inviteRoleOptionsByPartner;
 
   const roleStats = useMemo(() => {
     const stats = new Map<AppRole, number>();
@@ -418,7 +421,7 @@ export default function TeamPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-            {(["OWNER", ...roleOptions] as AppRole[]).map((role) => (
+            {(["OWNER", ...editableRoleOptions] as AppRole[]).map((role) => (
               <div key={role} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
                 <div className="text-[10px] font-medium tracking-[0.08em] text-neutral-500">{getRoleLabel(role)}</div>
                 <div className="mt-1 text-sm font-semibold text-neutral-900">{roleStats.get(role) ?? 0}</div>
@@ -431,13 +434,17 @@ export default function TeamPage() {
           <section ref={inviteSectionRef} className="manage-surface space-y-3 p-4 md:p-5">
             <div>
               <h3 className="text-sm font-semibold text-neutral-900">Mã mời nhân sự</h3>
-              <p className="text-xs text-neutral-500">Chỉ BOSS mới quản lý</p>
+              <p className="text-xs text-neutral-500">
+                {myRole === "OWNER"
+                  ? "BOSS được tạo mã cho toàn bộ vai trò nội bộ."
+                  : "Chủ tiệm chỉ được tạo mã cho Quản lý, Lễ tân, Kế toán và Kỹ thuật viên."}
+              </p>
             </div>
 
             <div className="space-y-3 md:grid md:grid-cols-[minmax(0,1fr)_auto] md:gap-2 md:space-y-0">
               <InlineField label="Vai trò">
                 <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as InviteCodeRow["allowed_role"])}>
-                  {roleOptions.map((role) => (
+                  {inviteRoleOptions.map((role) => (
                     <option key={role} value={role}>{getRoleLabel(role)}</option>
                   ))}
                 </SelectInput>
@@ -542,7 +549,7 @@ export default function TeamPage() {
                       {canManage && row.role !== "OWNER" && row.role !== "PARTNER" ? (
                         <div className="flex min-w-[180px] flex-wrap items-center gap-2">
                           <SelectInput value={roleDraft} onChange={(e) => setRoleDrafts((prev) => ({ ...prev, [row.id]: e.target.value as AppRole }))} className="min-w-[180px] py-2 text-xs">
-                            {roleOptions.map((role) => (
+                            {editableRoleOptions.map((role) => (
                               <option key={role} value={role}>{getRoleLabel(role)}</option>
                             ))}
                           </SelectInput>

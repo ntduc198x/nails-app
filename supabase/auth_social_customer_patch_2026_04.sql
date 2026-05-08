@@ -14,9 +14,6 @@ declare
   v_registration_mode text;
   v_auth_provider text;
 begin
-  v_workspace := public.ensure_default_workspace();
-  v_org_id := (v_workspace ->> 'org_id')::uuid;
-  v_branch_id := (v_workspace ->> 'branch_id')::uuid;
   v_auth_provider := lower(coalesce(new.raw_app_meta_data ->> 'provider', 'email'));
   v_registration_mode := upper(
     coalesce(
@@ -27,6 +24,15 @@ begin
       end
     )
   );
+
+  if v_registration_mode <> 'USER' then
+    v_workspace := public.ensure_default_workspace();
+    v_org_id := coalesce((v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
+    v_branch_id := coalesce((v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
+  else
+    v_org_id := null;
+    v_branch_id := null;
+  end if;
 
   v_display_name := nullif(
     trim(
@@ -69,24 +75,25 @@ begin
       email = coalesce(excluded.email, public.profiles.email),
       phone = coalesce(excluded.phone, public.profiles.phone);
 
-  select case
-    when v_registration_mode = 'USER' then 'USER'
-    when exists (
-      select 1
-      from public.user_roles
-      where org_id = v_org_id
-        and role = 'OWNER'
-    ) then 'RECEPTION'
-    else 'OWNER'
-  end
-  into v_role;
+  if v_registration_mode <> 'USER' then
+    select case
+      when exists (
+        select 1
+        from public.user_roles
+        where org_id = v_org_id
+          and role = 'OWNER'
+      ) then 'RECEPTION'
+      else 'OWNER'
+    end
+    into v_role;
 
-  begin
-    insert into public.user_roles (user_id, org_id, role)
-    values (new.id, v_org_id, v_role);
-  exception when unique_violation then
-    null;
-  end;
+    begin
+      insert into public.user_roles (user_id, org_id, role)
+      values (new.id, v_org_id, v_role);
+    exception when unique_violation then
+      null;
+    end;
+  end if;
 
   return new;
 end;

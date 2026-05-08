@@ -20,6 +20,22 @@ function getBearerToken(req: Request) {
   return header.slice(7).trim() || null;
 }
 
+const ROLE_PRIORITY: Record<AppRole, number> = {
+  OWNER: 0,
+  PARTNER: 1,
+  MANAGER: 2,
+  RECEPTION: 3,
+  ACCOUNTANT: 4,
+  TECH: 5,
+  USER: 6,
+};
+
+function pickHighestPriorityRole(rows: Array<{ role?: string | null }>) {
+  return [...rows]
+    .filter((row): row is { role: AppRole } => Boolean(row.role))
+    .sort((left, right) => (ROLE_PRIORITY[left.role] ?? 99) - (ROLE_PRIORITY[right.role] ?? 99))[0]?.role;
+}
+
 async function requireLandingManager(req: Request) {
   const token = getBearerToken(req);
   if (!token) {
@@ -36,15 +52,18 @@ async function requireLandingManager(req: Request) {
   const roleRes = await supabase
     .from("user_roles")
     .select("org_id,role")
-    .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
+    .eq("user_id", user.id);
 
-  if (roleRes.error || !roleRes.data?.org_id || !roleRes.data?.role) {
+  if (roleRes.error || !roleRes.data?.length) {
     return { ok: false as const, response: NextResponse.json({ ok: false, error: roleRes.error?.message ?? "Missing role context" }, { status: 403 }) };
   }
 
-  const role = String(roleRes.data.role) as AppRole;
+  const orgId = String(roleRes.data[0]?.org_id ?? "");
+  const role = pickHighestPriorityRole(roleRes.data) as AppRole | undefined;
+  if (!orgId || !role) {
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Missing role context" }, { status: 403 }) };
+  }
+
   if (!canAccessManageLanding(role)) {
     return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
   }
@@ -53,7 +72,7 @@ async function requireLandingManager(req: Request) {
     ok: true as const,
     supabase,
     userId: user.id,
-    orgId: String(roleRes.data.org_id),
+    orgId,
     role: role as LandingManagerRole,
   };
 }

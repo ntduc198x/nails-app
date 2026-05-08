@@ -214,6 +214,7 @@ declare
   v_role text;
   v_display_name text;
   v_org_id uuid;
+  v_branch_id uuid;
 begin
   select tl.app_user_id
   into v_app_user_id
@@ -225,10 +226,20 @@ begin
     return jsonb_build_object('linked', false);
   end if;
 
-  select r.role, r.org_id
-  into v_role, v_org_id
+  select r.role, r.org_id, r.branch_id
+  into v_role, v_org_id, v_branch_id
   from public.user_roles r
   where r.user_id = v_app_user_id
+  order by
+    case r.role
+      when 'OWNER' then 0
+      when 'PARTNER' then 1
+      when 'MANAGER' then 2
+      when 'RECEPTION' then 3
+      when 'ACCOUNTANT' then 4
+      when 'TECH' then 5
+      else 99
+    end asc
   limit 1;
 
   select p.display_name
@@ -241,7 +252,8 @@ begin
     'user_id', v_app_user_id,
     'role', v_role,
     'display_name', v_display_name,
-    'org_id', v_org_id
+    'org_id', v_org_id,
+    'branch_id', v_branch_id
   );
 end;
 $$;

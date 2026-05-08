@@ -361,7 +361,7 @@ export function ManageBookingRequestsPanel({
 
   const compactHeader = refreshing ? "Đang làm mới..." : `${rows.length} request`;
   const canHandleRequest =
-    role === "OWNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
+    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const selectionMeta = selectedRow
     ? `${selectedRow.customer_name} · ${
         selectedRow.status === "NEEDS_RESCHEDULE"

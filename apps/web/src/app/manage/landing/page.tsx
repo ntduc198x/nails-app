@@ -249,7 +249,7 @@ export default function ManageLandingPage() {
         {!loading && role && !canAccessManageLanding(role) ? (
           <section className="manage-surface space-y-4">
             <ManageAlert tone="warn">
-              Chỉ OWNER, PARTNER hoặc MANAGER mới được xem landing quản trị.
+              Chỉ BOSS, Chủ tiệm hoặc Quản lý mới được xem landing quản trị.
             </ManageAlert>
             <div className="flex flex-wrap gap-3">
               <Link href={fallbackHref} className="manage-quick-link-accent">

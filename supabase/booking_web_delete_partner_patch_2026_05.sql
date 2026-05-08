@@ -1,3 +1,52 @@
+drop policy if exists "org read booking_requests" on public.booking_requests;
+create policy "org read booking_requests" on public.booking_requests
+for select using (
+  org_id = public.my_org_id()
+  and (
+    public.has_role('OWNER')
+    or public.has_role('PARTNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+  )
+);
+
+drop policy if exists "org update booking_requests" on public.booking_requests;
+create policy "org update booking_requests" on public.booking_requests
+for update using (
+  org_id = public.my_org_id()
+  and (
+    public.has_role('OWNER')
+    or public.has_role('PARTNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+  )
+)
+with check (
+  org_id = public.my_org_id()
+  and (
+    public.has_role('OWNER')
+    or public.has_role('PARTNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+  )
+);
+
+drop policy if exists "org delete booking_requests" on public.booking_requests;
+create policy "org delete booking_requests" on public.booking_requests
+for delete using (
+  org_id = public.my_org_id()
+  and (
+    public.has_role('OWNER')
+    or public.has_role('PARTNER')
+    or public.has_role('MANAGER')
+    or public.has_role('RECEPTION')
+    or public.has_role('TECH')
+  )
+);
+
 create or replace function public.convert_booking_request_to_appointment_secure(
   p_booking_request_id uuid,
   p_staff_user_id uuid default null,
@@ -119,19 +168,15 @@ begin
 
   update public.booking_requests
   set
+    status = 'CONVERTED',
     appointment_id = v_appointment_id,
-    status = 'CONVERTED'
+    branch_id = v_target_branch_id
   where id = v_req.id;
-
-  perform public.refresh_customer_metrics(v_customer_id, null);
 
   return jsonb_build_object(
     'booking_request_id', v_req.id,
     'appointment_id', v_appointment_id,
-    'status', 'CONVERTED',
-    'start_at', v_start,
-    'end_at', v_end,
-    'branch_id', v_target_branch_id
+    'status', 'CONVERTED'
   );
 end;
 $$;

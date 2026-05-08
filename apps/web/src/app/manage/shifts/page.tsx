@@ -77,6 +77,10 @@ function isSchedulableRole(role: AppRole | null | undefined): role is StaffRole 
   return role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT" || role === "TECH";
 }
 
+function canManageShiftOperations(role: AppRole | null | undefined) {
+  return role === "OWNER" || role === "PARTNER";
+}
+
 function getWeekdayLabel(dateKey: string) {
   const weekday = new Date(`${dateKey}T00:00:00`).getDay();
   return WEEKDAY_LABELS[(weekday + 6) % 7];
@@ -1161,13 +1165,13 @@ export default function ManageShiftsPage() {
           const userId = data.session?.user?.id ?? null;
           if (mounted) setCurrentUserId(userId);
 
-          if (userId && currentRole !== "OWNER") {
+          if (userId && !canManageShiftOperations(currentRole)) {
             await refreshPersonalShiftState(userId);
             if (!mounted) return;
           }
         }
 
-        if (currentRole === "OWNER") {
+        if (canManageShiftOperations(currentRole)) {
           const rows = (await listUserRoles()) as TeamRoleRow[];
           if (mounted) {
             setRawTeamRows(rows);
@@ -1209,7 +1213,7 @@ export default function ManageShiftsPage() {
   }, []);
 
   useEffect(() => {
-    if (role !== "OWNER") return;
+    if (!canManageShiftOperations(role)) return;
     let mounted = true;
 
     async function loadForecast() {
@@ -1230,7 +1234,7 @@ export default function ManageShiftsPage() {
   }, [role, weekStart]);
 
   useEffect(() => {
-    if (role !== "OWNER" || !ownerEmployees.length) return;
+    if (!canManageShiftOperations(role) || !ownerEmployees.length) return;
     let mounted = true;
     const requestId = ++weekLoadingRef.current;
 
@@ -1271,7 +1275,7 @@ export default function ManageShiftsPage() {
   }, [defaultDraft, ownerEmployees.length, role, weekStart]);
 
   useEffect(() => {
-    if (!role || role === "OWNER") return;
+    if (!role || canManageShiftOperations(role)) return;
     let mounted = true;
 
     async function loadPublishedWeek() {
@@ -1301,7 +1305,7 @@ export default function ManageShiftsPage() {
   }, [currentUserId, refreshPersonalShiftState, role, weekStart]);
 
   useEffect(() => {
-    if (role !== "OWNER") return;
+    if (!canManageShiftOperations(role)) return;
     let mounted = true;
 
     async function loadOwnerQueues() {
@@ -1334,7 +1338,7 @@ export default function ManageShiftsPage() {
     );
   }
 
-  if (role !== "OWNER") {
+  if (!canManageShiftOperations(role)) {
     const scheduledHours = personalAssignments.reduce((sum, item) => sum + item.hours, 0);
 
     return (

@@ -169,6 +169,7 @@ declare
   v_role text;
   v_code text;
   v_row public.invite_codes;
+  v_can_manage_all_roles boolean := false;
 begin
   if auth.uid() is null then
     raise exception 'UNAUTHENTICATED';
@@ -196,13 +197,33 @@ begin
     raise exception 'BRANCH_CONTEXT_REQUIRED';
   end if;
 
-  if not public.has_role('OWNER') then
+  if not (public.has_role('OWNER') or exists (
+    select 1
+    from public.user_roles ur
+    where ur.user_id = auth.uid()
+      and ur.org_id = v_org_id
+      and ur.role = 'PARTNER'
+      and ur.branch_id = v_branch_id
+  )) then
     raise exception 'FORBIDDEN';
   end if;
+
+  v_can_manage_all_roles := exists (
+    select 1
+    from public.user_roles ur
+    where ur.user_id = auth.uid()
+      and ur.org_id = v_org_id
+      and ur.role = 'OWNER'
+      and ur.branch_id is null
+  );
 
   v_role := coalesce(nullif(trim(p_allowed_role), ''), 'TECH');
   if v_role not in ('PARTNER','MANAGER','RECEPTION','ACCOUNTANT','TECH') then
     raise exception 'INVALID_ROLE';
+  end if;
+
+  if not v_can_manage_all_roles and v_role = 'PARTNER' then
+    raise exception 'FORBIDDEN_ROLE';
   end if;
 
   loop

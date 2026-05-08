@@ -63,7 +63,14 @@ export interface TelegramUserRole {
   role?: string;
   display_name?: string;
   org_id?: string;
+  branch_id?: string | null;
 }
+
+export type TelegramDataScope = {
+  orgId: string;
+  branchId?: string | null;
+  role?: string;
+};
 
 type TelegramConversationStep =
   | "report:custom"
@@ -112,6 +119,10 @@ export async function getTelegramUserRole(telegramUserId: number): Promise<Teleg
 
 export function isManagerOrOwner(role?: string): boolean {
   return role === "OWNER" || role === "PARTNER" || role === "MANAGER";
+}
+
+function isBranchRestrictedScope(scope: TelegramDataScope): boolean {
+  return scope.role === "PARTNER" && Boolean(scope.branchId);
 }
 
 function getConversationKey(telegramUserId: number): string {
@@ -497,7 +508,7 @@ function pickCustomerName(customers: { name?: string } | { name?: string }[] | n
   return customers?.name ?? "Khách";
 }
 
-export async function handleLichCommand(orgId: string, chatId: string) {
+export async function handleLichCommand(scope: TelegramDataScope, chatId: string) {
   const supabase = getAdminSupabase();
   const now = new Date();
   const start = new Date(now);
@@ -505,13 +516,19 @@ export async function handleLichCommand(orgId: string, chatId: string) {
   const end = new Date(start);
   end.setDate(end.getDate() + 1);
 
-  const { data: appointments, error } = await supabase
+  let appointmentsQuery = supabase
     .from("appointments")
     .select("id,status,start_at,staff_user_id,customers(name)")
-    .eq("org_id", orgId)
+    .eq("org_id", scope.orgId)
     .gte("start_at", start.toISOString())
     .lt("start_at", end.toISOString())
     .order("start_at", { ascending: true });
+
+  if (isBranchRestrictedScope(scope)) {
+    appointmentsQuery = appointmentsQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: appointments, error } = await appointmentsQuery;
 
   if (error) throw error;
 
@@ -562,8 +579,8 @@ export async function handleLichCommand(orgId: string, chatId: string) {
   await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
-export async function handleDoanhthuCommand(orgId: string, chatId: string) {
-  await handleRevenueReportCommand(orgId, chatId, "today");
+export async function handleDoanhthuCommand(scope: TelegramDataScope, chatId: string) {
+  await handleRevenueReportCommand(scope, chatId, "today");
   /*
   const trendIcon = trend > 0 ? "↑" : trend < 0 ? "↓" : "→";
 
@@ -586,16 +603,22 @@ export async function handleDoanhthuCommand(orgId: string, chatId: string) {
   */
 }
 
-export async function handleCaCommand(orgId: string, chatId: string) {
+export async function handleCaCommand(scope: TelegramDataScope, chatId: string) {
   const supabase = getAdminSupabase();
   const now = new Date();
 
-  const { data: openShifts, error } = await supabase
+  let openShiftsQuery = supabase
     .from("time_entries")
     .select("staff_user_id,clock_in")
-    .eq("org_id", orgId)
+    .eq("org_id", scope.orgId)
     .is("clock_out", null)
     .order("clock_in", { ascending: true });
+
+  if (isBranchRestrictedScope(scope)) {
+    openShiftsQuery = openShiftsQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: openShifts, error } = await openShiftsQuery;
 
   if (error) throw error;
 
@@ -628,17 +651,23 @@ export async function handleCaCommand(orgId: string, chatId: string) {
   await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
-export async function handleBookingCommand(orgId: string, chatId: string) {
+export async function handleBookingCommand(scope: TelegramDataScope, chatId: string) {
   const supabase = getAdminSupabase();
   const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 
-  const { data: bookings, error } = await supabase
+  let bookingQuery = supabase
     .from("booking_requests")
     .select("id,customer_name,customer_phone,requested_service,requested_start_at,status")
-    .eq("org_id", orgId)
+    .eq("org_id", scope.orgId)
     .in("status", ["NEW", "NEEDS_RESCHEDULE"])
     .order("requested_start_at", { ascending: true })
     .limit(10);
+
+  if (isBranchRestrictedScope(scope)) {
+    bookingQuery = bookingQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: bookings, error } = await bookingQuery;
 
   if (error) throw error;
 
@@ -1075,30 +1104,34 @@ async function findOrCreateTelegramCustomer(orgId: string, customerName: string,
   return createdCustomer.id as string;
 }
 
-async function createTelegramQuickAppointment(orgId: string, customerName: string, customerPhone: string, startAt: string, requestedService: string) {
+async function createTelegramQuickAppointment(scope: TelegramDataScope, customerName: string, customerPhone: string, startAt: string, requestedService: string) {
   const supabase = getAdminSupabase();
   const endAt = new Date(new Date(startAt).getTime() + 60 * 60 * 1000).toISOString();
-  const customerId = await findOrCreateTelegramCustomer(orgId, customerName, customerPhone, requestedService);
+  const customerId = await findOrCreateTelegramCustomer(scope.orgId, customerName, customerPhone, requestedService);
+  let targetBranchId = scope.branchId ?? null;
 
-  const { data: profileRow, error: profileError } = await supabase
-    .from("profiles")
-    .select("default_branch_id")
-    .eq("org_id", orgId)
-    .not("default_branch_id", "is", null)
-    .limit(1)
-    .maybeSingle();
+  if (!targetBranchId) {
+    const { data: profileRow, error: profileError } = await supabase
+      .from("profiles")
+      .select("default_branch_id")
+      .eq("org_id", scope.orgId)
+      .not("default_branch_id", "is", null)
+      .limit(1)
+      .maybeSingle();
 
-  if (profileError) throw profileError;
+    if (profileError) throw profileError;
+    targetBranchId = profileRow?.default_branch_id ?? null;
+  }
 
-  if (!profileRow?.default_branch_id) {
+  if (!targetBranchId) {
     throw new Error("Chua tim thay branch mac dinh de tao lich.");
   }
 
   const { data: appointment, error: appointmentError } = await supabase
     .from("appointments")
     .insert({
-      org_id: orgId,
-      branch_id: profileRow.default_branch_id,
+      org_id: scope.orgId,
+      branch_id: targetBranchId,
       customer_id: customerId,
       staff_user_id: null,
       resource_id: null,
@@ -1201,7 +1234,11 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     startDate.setHours(0, 0, 0, 0);
     endDate.setHours(23, 59, 59, 999);
     await clearConversationState(telegramUserId);
-    await handleRevenueReportCommand(state.data.orgId, chatId, "custom", startDate, endDate);
+    await handleRevenueReportCommand({
+      orgId: state.data.orgId,
+      branchId: state.data.branchId || null,
+      role: state.data.role,
+    }, chatId, "custom", startDate, endDate);
     return true;
   }
 
@@ -1451,7 +1488,7 @@ export async function handleCrmContactedCommand(orgId: string, chatId: string, c
   return result;
 }
 
-export async function handleOverviewCommand(orgId: string, chatId: string) {
+export async function handleOverviewCommand(scope: TelegramDataScope, chatId: string) {
   const supabase = getAdminSupabase();
   const now = new Date();
   const todayStart = new Date(now);
@@ -1461,13 +1498,29 @@ export async function handleOverviewCommand(orgId: string, chatId: string) {
   const yesterdayStart = new Date(todayStart);
   yesterdayStart.setDate(yesterdayStart.getDate() - 1);
 
+  let appointmentsQuery = supabase.from("appointments").select("id,status,start_at").eq("org_id", scope.orgId).gte("start_at", todayStart.toISOString()).lt("start_at", todayEnd.toISOString());
+  let todayTicketsQuery = supabase.from("tickets").select("totals_json").eq("org_id", scope.orgId).eq("status", "CLOSED").gte("created_at", todayStart.toISOString()).lt("created_at", todayEnd.toISOString());
+  let yesterdayTicketsQuery = supabase.from("tickets").select("totals_json").eq("org_id", scope.orgId).eq("status", "CLOSED").gte("created_at", yesterdayStart.toISOString()).lt("created_at", todayStart.toISOString());
+  let openShiftsQuery = supabase.from("time_entries").select("id").eq("org_id", scope.orgId).is("clock_out", null);
+  let newBookingsQuery = supabase.from("booking_requests").select("id").eq("org_id", scope.orgId).eq("status", "NEW");
+  let rescheduleQuery = supabase.from("booking_requests").select("id").eq("org_id", scope.orgId).eq("status", "NEEDS_RESCHEDULE");
+
+  if (isBranchRestrictedScope(scope)) {
+    appointmentsQuery = appointmentsQuery.eq("branch_id", scope.branchId);
+    todayTicketsQuery = todayTicketsQuery.eq("branch_id", scope.branchId);
+    yesterdayTicketsQuery = yesterdayTicketsQuery.eq("branch_id", scope.branchId);
+    openShiftsQuery = openShiftsQuery.eq("branch_id", scope.branchId);
+    newBookingsQuery = newBookingsQuery.eq("branch_id", scope.branchId);
+    rescheduleQuery = rescheduleQuery.eq("branch_id", scope.branchId);
+  }
+
   const [appointmentsRes, todayTicketsRes, yesterdayTicketsRes, openShiftsRes, newBookingsRes, rescheduleRes] = await Promise.all([
-    supabase.from("appointments").select("id,status,start_at").eq("org_id", orgId).gte("start_at", todayStart.toISOString()).lt("start_at", todayEnd.toISOString()),
-    supabase.from("tickets").select("totals_json").eq("org_id", orgId).eq("status", "CLOSED").gte("created_at", todayStart.toISOString()).lt("created_at", todayEnd.toISOString()),
-    supabase.from("tickets").select("totals_json").eq("org_id", orgId).eq("status", "CLOSED").gte("created_at", yesterdayStart.toISOString()).lt("created_at", todayStart.toISOString()),
-    supabase.from("time_entries").select("id").eq("org_id", orgId).is("clock_out", null),
-    supabase.from("booking_requests").select("id").eq("org_id", orgId).eq("status", "NEW"),
-    supabase.from("booking_requests").select("id").eq("org_id", orgId).eq("status", "NEEDS_RESCHEDULE"),
+    appointmentsQuery,
+    todayTicketsQuery,
+    yesterdayTicketsQuery,
+    openShiftsQuery,
+    newBookingsQuery,
+    rescheduleQuery,
   ]);
 
   if (appointmentsRes.error) throw appointmentsRes.error;
@@ -1515,7 +1568,7 @@ export async function handleOverviewCommand(orgId: string, chatId: string) {
   await sendManagedReplyPanel(chatId, lines.join("\n"), getReportMenuKeyboard());
 }
 
-export async function handleRevenueReportCommand(orgId: string, chatId: string, period: "today" | "week" | "month" | "custom", customStartDate?: Date, customEndDate?: Date) {
+export async function handleRevenueReportCommand(scope: TelegramDataScope, chatId: string, period: "today" | "week" | "month" | "custom", customStartDate?: Date, customEndDate?: Date) {
   const supabase = getAdminSupabase();
   const now = new Date();
   let startDate: Date;
@@ -1546,21 +1599,29 @@ export async function handleRevenueReportCommand(orgId: string, chatId: string, 
     title = "🗓️ BAO CAO THANG NAY";
   }
 
+  let ticketsQuery = supabase
+    .from("tickets")
+    .select("id,totals_json,created_at")
+    .eq("org_id", scope.orgId)
+    .eq("status", "CLOSED")
+    .gte("created_at", startDate.toISOString())
+    .lte("created_at", endDate.toISOString());
+  let paymentsQuery = supabase
+    .from("payments")
+    .select("ticket_id,method,amount,created_at,status")
+    .eq("org_id", scope.orgId)
+    .eq("status", "PAID")
+    .gte("created_at", startDate.toISOString())
+    .lte("created_at", endDate.toISOString());
+
+  if (isBranchRestrictedScope(scope)) {
+    ticketsQuery = ticketsQuery.eq("branch_id", scope.branchId);
+    paymentsQuery = paymentsQuery.eq("branch_id", scope.branchId);
+  }
+
   const [{ data: tickets, error: ticketsError }, { data: payments, error: paymentsError }] = await Promise.all([
-    supabase
-      .from("tickets")
-      .select("id,totals_json,created_at")
-      .eq("org_id", orgId)
-      .eq("status", "CLOSED")
-      .gte("created_at", startDate.toISOString())
-      .lte("created_at", endDate.toISOString()),
-    supabase
-      .from("payments")
-      .select("ticket_id,method,amount,created_at,status")
-      .eq("org_id", orgId)
-      .eq("status", "PAID")
-      .gte("created_at", startDate.toISOString())
-      .lte("created_at", endDate.toISOString()),
+    ticketsQuery,
+    paymentsQuery,
   ]);
 
   if (ticketsError) throw ticketsError;
@@ -1657,8 +1718,12 @@ export async function handleRevenueReportCommand(orgId: string, chatId: string, 
   await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
 }
 
-export async function beginCustomReportConversation(telegramUserId: number, orgId: string, chatId: string) {
-  await setConversationState(telegramUserId, "report:custom", { orgId });
+export async function beginCustomReportConversation(telegramUserId: number, scope: TelegramDataScope, chatId: string) {
+  await setConversationState(telegramUserId, "report:custom", {
+    orgId: scope.orgId,
+    branchId: scope.branchId ?? "",
+    role: scope.role ?? "",
+  });
   await sendManagedReplyPanel(
     chatId,
     "📊 <b>BÁO CÁO TÙY CHỌN</b>\n\nNhập theo định dạng:\n• <code>01/04 - 30/04</code>\n\nGõ <code>back</code> hoac <code>/cancel</code> để hủy.",
@@ -1666,8 +1731,12 @@ export async function beginCustomReportConversation(telegramUserId: number, orgI
   );
 }
 
-export async function beginQuickCreateAppointmentConversation(telegramUserId: number, orgId: string, chatId: string) {
-  await setConversationState(telegramUserId, "quickcreate:name", { orgId });
+export async function beginQuickCreateAppointmentConversation(telegramUserId: number, scope: TelegramDataScope, chatId: string) {
+  await setConversationState(telegramUserId, "quickcreate:name", {
+    orgId: scope.orgId,
+    branchId: scope.branchId ?? "",
+    role: scope.role ?? "",
+  });
   await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nTên khách hàng?", {
     reply_markup: getBackToAdminKeyboard(),
   });
@@ -1680,7 +1749,11 @@ export async function confirmQuickCreateAppointment(telegramUserId: number, chat
   }
 
   const appointment = await createTelegramQuickAppointment(
-    state.data.orgId,
+    {
+      orgId: state.data.orgId,
+      branchId: state.data.branchId || null,
+      role: state.data.role,
+    },
     state.data.customerName,
     state.data.customerPhone,
     state.data.appointmentTimeIso,
@@ -1705,7 +1778,7 @@ export async function confirmQuickCreateAppointment(telegramUserId: number, chat
   return { ok: true, message: "Đã tạo lịch mới!" };
 }
 
-export async function handleQuickCheckinMenu(orgId: string, chatId: string) {
+export async function handleQuickCheckinMenu(scope: TelegramDataScope, chatId: string) {
   const supabase = getAdminSupabase();
   const now = new Date();
   const todayStart = new Date(now);
@@ -1713,14 +1786,20 @@ export async function handleQuickCheckinMenu(orgId: string, chatId: string) {
   const todayEnd = new Date(todayStart);
   todayEnd.setDate(todayEnd.getDate() + 1);
 
-  const { data: appointments, error } = await supabase
+  let quickCheckinQuery = supabase
     .from("appointments")
     .select("id,status,start_at,customers(name)")
-    .eq("org_id", orgId)
+    .eq("org_id", scope.orgId)
     .eq("status", "BOOKED")
     .gte("start_at", todayStart.toISOString())
     .lt("start_at", todayEnd.toISOString())
     .order("start_at", { ascending: true });
+
+  if (isBranchRestrictedScope(scope)) {
+    quickCheckinQuery = quickCheckinQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: appointments, error } = await quickCheckinQuery;
 
   if (error) throw error;
 
@@ -1748,14 +1827,19 @@ export async function handleQuickCheckinMenu(orgId: string, chatId: string) {
   await sendTelegramMessage(chatId, lines.join("\n"), { reply_markup: { inline_keyboard: keyboardRows } });
 }
 
-export async function handleQuickCheckinAction(orgId: string, chatId: string, appointmentId: string) {
+export async function handleQuickCheckinAction(scope: TelegramDataScope, chatId: string, appointmentId: string) {
   const supabase = getAdminSupabase();
-  const { data: appointment, error } = await supabase
+  let appointmentQuery = supabase
     .from("appointments")
     .select("id,status,start_at,customers(name)")
-    .eq("org_id", orgId)
-    .eq("id", appointmentId)
-    .maybeSingle();
+    .eq("org_id", scope.orgId)
+    .eq("id", appointmentId);
+
+  if (isBranchRestrictedScope(scope)) {
+    appointmentQuery = appointmentQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: appointment, error } = await appointmentQuery.maybeSingle();
 
   if (error) throw error;
   if (!appointment?.id) {
@@ -1782,16 +1866,21 @@ export async function handleQuickCheckinAction(orgId: string, chatId: string, ap
   return { ok: true, message: "Đã check-in!" };
 }
 
-export async function handleBookingDetailCommand(orgId: string, chatId: string, bookingId: string) {
+export async function handleBookingDetailCommand(scope: TelegramDataScope, chatId: string, bookingId: string) {
   const supabase = getAdminSupabase();
   const manageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/appointments?tab=web-booking`;
   const isLocalManageUrl = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(manageUrl);
-  const { data: booking, error } = await supabase
+  let bookingDetailQuery = supabase
     .from("booking_requests")
     .select("id,org_id,customer_name,customer_phone,requested_service,requested_start_at,status,note")
-    .eq("org_id", orgId)
-    .eq("id", bookingId)
-    .maybeSingle();
+    .eq("org_id", scope.orgId)
+    .eq("id", bookingId);
+
+  if (isBranchRestrictedScope(scope)) {
+    bookingDetailQuery = bookingDetailQuery.eq("branch_id", scope.branchId);
+  }
+
+  const { data: booking, error } = await bookingDetailQuery.maybeSingle();
 
   if (error) throw error;
   if (!booking?.id) {

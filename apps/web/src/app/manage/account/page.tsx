@@ -335,11 +335,15 @@ export default function AccountPage() {
             </div>
           </form>
 
-          {(role === "OWNER" || role === "MANAGER") && (
+          {(role === "OWNER" || role === "PARTNER" || role === "MANAGER") && (
           <section className="manage-surface space-y-3 p-3 md:p-4">
             <div>
               <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Liên kết Telegram</h3>
-              <p className="text-xs text-neutral-500">Quản lý app từ Telegram bot.</p>
+              <p className="text-xs text-neutral-500">
+                {role === "PARTNER"
+                  ? "Tạo mã liên kết Telegram cho Chủ tiệm. Sau khi liên kết, bot chỉ hiển thị đúng dữ liệu chi nhánh của bạn."
+                  : "Tạo mã liên kết để quản lý app từ Telegram bot."}
+              </p>
             </div>
 
             {telegramError && (

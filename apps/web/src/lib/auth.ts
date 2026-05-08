@@ -5,17 +5,32 @@ import type { AppRole } from "@nails/shared";
 
 export type { AppRole } from "@nails/shared";
 
+const ROLE_PRIORITY: Record<AppRole, number> = {
+  OWNER: 0,
+  PARTNER: 1,
+  MANAGER: 2,
+  RECEPTION: 3,
+  ACCOUNTANT: 4,
+  TECH: 5,
+  USER: 6,
+};
+
+function pickHighestPriorityRole(roles: Array<AppRole | null | undefined>) {
+  return roles
+    .filter((role): role is AppRole => Boolean(role))
+    .sort((left, right) => (ROLE_PRIORITY[left] ?? 99) - (ROLE_PRIORITY[right] ?? 99))[0];
+}
+
 export async function getOrCreateRole(userId: string): Promise<AppRole> {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
 
   const { data: existing, error: readErr } = await supabase
     .from("user_roles")
     .select("role")
-    .eq("user_id", userId)
-    .limit(1);
+    .eq("user_id", userId);
 
   if (readErr) throw readErr;
-  const role = existing?.[0]?.role as AppRole | undefined;
+  const role = pickHighestPriorityRole((existing ?? []).map((row) => row.role as AppRole | undefined));
   if (role) return role;
 
   const { data: profile, error: profileErr } = await supabase
@@ -107,7 +122,7 @@ export async function updateUserRoleByRowId(id: string, role: AppRole) {
 
   const currentRole = await getOrCreateRole(currentUserId);
   if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
-    throw new Error("Chỉ BOSS mới có quyền đổi vai trò.");
+    throw new Error("Chỉ BOSS hoặc Chủ tiệm mới có quyền đổi vai trò.");
   }
 
   const { data: target, error: targetErr } = await supabase
@@ -134,7 +149,7 @@ export async function updateUserDisplayName(userId: string, displayName: string)
 
   const currentRole = await getOrCreateRole(currentUserId);
   if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
-    throw new Error("Chỉ BOSS mới có quyền sửa tên nhân sự.");
+    throw new Error("Chỉ BOSS hoặc Chủ tiệm mới có quyền sửa tên nhân sự.");
   }
 
   const { error } = await supabase.rpc("update_staff_display_name_secure", {

@@ -19,6 +19,23 @@ export type BookingRequestRow = {
   created_at: string;
 };
 
+function isPermissionDeniedError(error: unknown) {
+  const message = [
+    error instanceof Error ? error.message : "",
+    typeof error === "object" && error !== null && "details" in error ? String((error as { details?: unknown }).details ?? "") : "",
+    typeof error === "object" && error !== null && "hint" in error ? String((error as { hint?: unknown }).hint ?? "") : "",
+  ]
+    .join(" | ")
+    .toLowerCase();
+
+  return (
+    message.includes("permission denied") ||
+    message.includes("row-level security") ||
+    message.includes("violates row-level security") ||
+    message.includes("not allowed")
+  );
+}
+
 function patchExpiredRows(rows: BookingRequestRow[]) {
   const now = Date.now();
   const expiredIds = rows
@@ -137,7 +154,17 @@ export async function updateBookingRequestStatus(id: string, status: BookingRequ
     .eq("id", id)
     .eq("org_id", orgId);
 
-  if (error) throw error;
+  if (error) {
+    if (!isPermissionDeniedError(error)) throw error;
+
+    const { error: fallbackError } = await supabase
+      .from("booking_requests")
+      .update({ status: "CANCELLED" })
+      .eq("id", id)
+      .eq("org_id", orgId);
+
+    if (fallbackError) throw fallbackError;
+  }
   await rebalanceOpenBookingRequests({ orgId });
 }
 

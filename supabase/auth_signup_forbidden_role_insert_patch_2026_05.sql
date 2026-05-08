@@ -1,76 +1,56 @@
-create or replace function public.ensure_default_workspace()
-returns jsonb
+-- Fix signup failures caused by FORBIDDEN_ROLE_INSERT during auth.users insert.
+-- Root cause confirmed from schema backup supabase_schema_8-5-26.sql:
+-- 1. public.normalize_user_role_on_insert() rejects system-trigger inserts because auth.uid() is null
+-- 2. public.handle_new_auth_user() still inserts USER into public.user_roles for customer signups
+--
+-- Safe to run multiple times.
+
+begin;
+
+create or replace function public.normalize_user_role_on_insert()
+returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
 declare
-  v_default_org_id constant uuid := '00000000-0000-0000-0000-000000000001'::uuid;
-  v_default_branch_id constant uuid := '00000000-0000-0000-0000-000000000101'::uuid;
-  v_org_id uuid;
-  v_branch_id uuid;
+  v_owner_count int;
+  v_current_user_id uuid;
 begin
-  select id
-  into v_org_id
-  from public.orgs
-  where id <> v_default_org_id
-  order by created_at asc, id asc
-  limit 1;
+  v_current_user_id := auth.uid();
 
-  if v_org_id is null then
-    select id
-    into v_org_id
-    from public.orgs
-    order by created_at asc, id asc
-    limit 1;
+  if v_current_user_id is null then
+    return NEW;
   end if;
 
-  if v_org_id is null then
-    v_org_id := v_default_org_id;
+  if NEW.user_id = v_current_user_id then
+    select count(*)::int into v_owner_count
+    from public.user_roles
+    where org_id = NEW.org_id
+      and role = 'OWNER';
 
-    insert into public.orgs (id, name)
-    values (v_org_id, 'Nails App Default Org')
-    on conflict (id) do update
-      set name = excluded.name;
+    if v_owner_count = 0 then
+      NEW.role := 'OWNER';
+    else
+      NEW.role := 'RECEPTION';
+    end if;
+
+    return NEW;
   end if;
 
-  select id
-  into v_branch_id
-  from public.branches
-  where org_id = v_org_id
-  order by created_at asc, id asc
-  limit 1;
-
-  if v_branch_id is null then
-    v_branch_id := case
-      when v_org_id = v_default_org_id then v_default_branch_id
-      else gen_random_uuid()
-    end;
-
-    insert into public.branches (id, org_id, name, timezone, currency)
-    values (
-      v_branch_id,
-      v_org_id,
-      case when v_org_id = v_default_org_id then 'Main Branch' else 'Primary Branch' end,
-      'Asia/Bangkok',
-      'VND'
-    )
-    on conflict (id) do update
-      set
-        org_id = excluded.org_id,
-        name = excluded.name,
-        timezone = excluded.timezone,
-        currency = excluded.currency;
+  if exists (
+    select 1
+    from public.user_roles ur
+    where ur.org_id = NEW.org_id
+      and ur.user_id = v_current_user_id
+      and ur.role = 'OWNER'
+  ) then
+    return NEW;
   end if;
 
-  return jsonb_build_object(
-    'org_id', v_org_id,
-    'branch_id', v_branch_id
-  );
+  raise exception 'FORBIDDEN_ROLE_INSERT';
 end;
 $$;
-
-select public.ensure_default_workspace();
 
 create or replace function public.handle_new_auth_user()
 returns trigger
@@ -178,3 +158,5 @@ create trigger on_auth_user_created
 after insert on auth.users
 for each row
 execute function public.handle_new_auth_user();
+
+commit;

@@ -215,10 +215,10 @@ export async function loadManageNotifications(role: AppRole) {
   if (!supabase) return [] as ManageNotificationItem[];
 
   const { orgId } = await ensureOrgContext();
-  const canApproveShift = role === "OWNER" || role === "MANAGER";
-  const canSeeBookings = role === "OWNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
+  const canApproveShift = role === "OWNER" || role === "PARTNER" || role === "MANAGER";
+  const canSeeBookings = role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const canSeeAppointments =
-    role === "OWNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
+    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
   const shouldSeeShiftPublished = role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
 
   const { data: sessionData } = await supabase.auth.getSession();

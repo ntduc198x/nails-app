@@ -2201,6 +2201,3 @@ export default function ManageShiftsPage() {
     </AppShell>
   );
 }
-
-
-

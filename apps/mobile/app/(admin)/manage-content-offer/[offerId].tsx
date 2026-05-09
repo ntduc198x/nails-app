@@ -110,7 +110,7 @@ export default function AdminManageContentOfferDetailScreen() {
   const loadOffer = useCallback(async () => {
     const client = mobileSupabase;
     if (!client) {
-      setLastError("Thieu cau hinh Supabase mobile.");
+      setLastError("Thiếu cấu hình Database mobile.");
       setIsLoading(false);
       return;
     }
@@ -128,12 +128,12 @@ export default function AdminManageContentOfferDetailScreen() {
       const offer = snapshot.offers.find((item) => item.id === offerId);
 
       if (!offer) {
-        throw new Error("Khong tim thay uu dai can chinh sua.");
+        throw new Error("Không tìm thấy ưu đãi cần chỉnh sửa.");
       }
 
       setForm(buildOfferForm(offer));
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Khong tai duoc uu dai.");
+      setLastError(error instanceof Error ? error.message : "Không tải được ưu đãi.");
     } finally {
       setIsLoading(false);
     }
@@ -152,7 +152,7 @@ export default function AdminManageContentOfferDetailScreen() {
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Can cap quyen", "Hay cap quyen thu vien anh de tai anh uu dai.");
+      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện ảnh để tải ảnh.");
       return;
     }
 
@@ -173,7 +173,7 @@ export default function AdminManageContentOfferDetailScreen() {
       });
       setForm((current) => ({ ...current, imageUrl: uploaded.publicUrl }));
     } catch (error) {
-      Alert.alert("Khong tai duoc anh", error instanceof Error ? error.message : "Thu lai sau.");
+      Alert.alert("Không tải được ảnh", error instanceof Error ? error.message : "Thử lại sau.");
     }
   }
 
@@ -182,7 +182,7 @@ export default function AdminManageContentOfferDetailScreen() {
     if (!client) return;
 
     if (!form.title.trim() || !form.description.trim()) {
-      Alert.alert("Thieu du lieu", "Can nhap tieu de va mo ta uu dai.");
+      Alert.alert("Thiếu dữ liệu", "Cần nhập tiêu đề và mô tả ưu đãi.");
       return;
     }
 
@@ -197,7 +197,7 @@ export default function AdminManageContentOfferDetailScreen() {
 
       void router.replace("/(admin)/manage-content" as never);
     } catch (error) {
-      Alert.alert("Khong luu uu dai", error instanceof Error ? error.message : "Thu lai sau.");
+      Alert.alert("Không lưu ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");
     } finally {
       setIsSaving(false);
     }
@@ -207,10 +207,10 @@ export default function AdminManageContentOfferDetailScreen() {
     const client = mobileSupabase;
     if (!client || !form.id) return;
 
-    Alert.alert("An uu dai", "Uu dai nay se duoc tat cho khach hang. Tiep tuc?", [
-      { text: "Huy", style: "cancel" },
+    Alert.alert("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng. Tiếp tục?", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "An uu dai",
+        text: "Ẩn ưu đãi",
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -219,7 +219,7 @@ export default function AdminManageContentOfferDetailScreen() {
               await archiveAdminOfferForMobile(client, form.id!);
               void router.replace("/(admin)/manage-content" as never);
             } catch (error) {
-              Alert.alert("Khong an duoc uu dai", error instanceof Error ? error.message : "Thu lai sau.");
+              Alert.alert("Không ẩn được ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");
             } finally {
               setIsSaving(false);
             }
@@ -231,8 +231,8 @@ export default function AdminManageContentOfferDetailScreen() {
 
   return (
     <ManageScreenShell
-      title={isCreate ? "Them uu dai" : "Chi tiet uu dai"}
-      subtitle="Chinh sua du lieu hien thi cho Home, Explore va The thanh vien."
+      title={isCreate ? "Thêm ưu đãi" : "Chi tiết ưu đãi"}
+      subtitle="Chỉnh sửa dữ liệu hiển thị cho Home, Explore và Thẻ thành viên."
       currentKey="content"
       group="setup"
       backHref="/(admin)/manage-content"
@@ -242,7 +242,7 @@ export default function AdminManageContentOfferDetailScreen() {
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Dang tai uu dai...</Text>
+            <Text style={styles.stateText}>Đang tải ưu đãi...</Text>
           </View>
         ) : lastError ? (
           <View style={styles.stateCard}>
@@ -255,7 +255,7 @@ export default function AdminManageContentOfferDetailScreen() {
           <ScrollView contentContainerStyle={styles.formColumn} showsVerticalScrollIndicator={false}>
             <Text style={styles.label}>Tieu de</Text>
             <TextInput
-              placeholder="Nhap tieu de uu dai"
+              placeholder="Nhập tiêu đề ưu đãi"
               placeholderTextColor="#B4A89C"
               style={styles.input}
               value={form.title}
@@ -265,7 +265,7 @@ export default function AdminManageContentOfferDetailScreen() {
             <Text style={styles.label}>Mo ta</Text>
             <TextInput
               multiline
-              placeholder="Mo ta ngan gon cho khach hang"
+              placeholder="Mô tả ngắn gọn cho khách hàng"
               placeholderTextColor="#B4A89C"
               style={[styles.input, styles.textarea]}
               textAlignVertical="top"
@@ -319,7 +319,7 @@ export default function AdminManageContentOfferDetailScreen() {
             >
               <Feather color={form.isActive ? "#FFFFFF" : palette.accent} name="power" size={16} />
               <Text style={[styles.toggleText, form.isActive ? styles.toggleTextActive : null]}>
-                {form.isActive ? "Dang bat" : "Dang tat"}
+                {form.isActive ? "Đang bật" : "Đang tắt"}
               </Text>
             </Pressable>
 
@@ -335,7 +335,7 @@ export default function AdminManageContentOfferDetailScreen() {
             />
 
             <Pressable style={styles.primaryButton} disabled={isSaving} onPress={() => void handleSave()}>
-              <Text style={styles.primaryButtonText}>{isSaving ? "Dang luu..." : "Luu uu dai"}</Text>
+              <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu ưu đãi"}</Text>
             </Pressable>
 
             {canArchive ? (

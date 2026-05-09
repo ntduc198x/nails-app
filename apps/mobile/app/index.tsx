@@ -10,7 +10,7 @@ export default function IndexScreen() {
     return (
       <View style={styles.container}>
         <ActivityIndicator color="#2f241d" />
-        <Text style={styles.label}>Dang khoi tao mobile session...</Text>
+        <Text style={styles.label}>Đang khởi tạo mobile session...</Text>
       </View>
     );
   }
@@ -18,9 +18,9 @@ export default function IndexScreen() {
   if (error) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorTitle}>Mobile session gap loi</Text>
+        <Text style={styles.errorTitle}>Mobile session gặp lỗi</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.label}>Vui long dang nhap lai de tiep tuc.</Text>
+        <Text style={styles.label}>Vui lòng đăng nhập lại để tiếp tục.</Text>
         <Redirect href="/(auth)/sign-in" />
       </View>
     );

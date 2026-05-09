@@ -180,7 +180,7 @@ const DUMMY_FEED_POSTS: MobileAdminContentPostInput[] = [
     contentType: "trend",
     status: "published",
     priority: 101,
-    metadata: { source: "dummy_seed", section: "home_feed" },
+    metadata: { source: "seed", section: "home_feed" },
   },
   {
     title: "Chăm móng sau dịp gel: 4 bước đơn giản để móng đẹp và ít gãy",
@@ -190,7 +190,7 @@ const DUMMY_FEED_POSTS: MobileAdminContentPostInput[] = [
     contentType: "care",
     status: "published",
     priority: 102,
-    metadata: { source: "dummy_seed", section: "home_feed" },
+    metadata: { source: "seed", section: "home_feed" },
   },
   {
     title: "Đặt lịch sớm cuối tuần để giữ slot đẹp và tránh đợi lâu",
@@ -200,7 +200,7 @@ const DUMMY_FEED_POSTS: MobileAdminContentPostInput[] = [
     contentType: "offer_hint",
     status: "published",
     priority: 103,
-    metadata: { source: "dummy_seed", section: "home_feed" },
+    metadata: { source: "seed", section: "home_feed" },
   },
 ];
 
@@ -581,7 +581,7 @@ export default function AdminManageContentScreen() {
 
   const loadSnapshot = useCallback(async (branchIdOverride?: string) => {
     if (!mobileSupabase) {
-      setError("Thieu cau hinh Supabase mobile.");
+      setError("Thiếu cấu hình Database mobile.");
       setLoading(false);
       return;
     }
@@ -612,7 +612,7 @@ export default function AdminManageContentScreen() {
   const loadServices = useCallback(
     async (force = false, branchIdOverride?: string) => {
       if (!mobileSupabase) {
-        setError("Thieu cau hinh Supabase mobile.");
+        setError("Thiếu cấu hình Database mobile.");
         return;
       }
       if (servicesLoading) return;
@@ -698,24 +698,8 @@ export default function AdminManageContentScreen() {
     return () => clearTimeout(timeoutId);
   }, [loadServices, snapshot]);
 
-  useFocusEffect(
-    useCallback(() => {
-      if (!hasFocusedOnceRef.current) {
-        hasFocusedOnceRef.current = true;
-        return;
-      }
-
-      // Only reload if cache is expired
-      const cacheAge = getCacheAgeMs(SERVICES_CACHE_KEY);
-      const shouldReload = cacheAge > SERVICES_MAX_STALE_MS;
-      
-      void loadBranchOptionsRef.current();
-      void loadSnapshotRef.current();
-      if (shouldReload) {
-        void loadServicesRef.current(true);
-      }
-    }, []),
-  );
+  // Removed useFocusEffect to prevent layout shift when returning to screen
+  // Data is loaded on mount via useEffect below
 
   const lookbookServices = useMemo(
     () =>
@@ -968,9 +952,9 @@ export default function AdminManageContentScreen() {
       };
       await upsertAdminStorefrontProfileForMobile(mobileSupabase, payload);
       await loadSnapshot();
-      Alert.alert("Đã lưu", "Storefront của chi nhánh này đã được cập nhật.");
+      Alert.alert("Đã lưu", "Tiệm của chi nhánh này đã được cập nhật.");
     } catch (nextError) {
-      Alert.alert("Không lưu storefront", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert("Không lưu tiệm", nextError instanceof Error ? nextError.message : "Thử lại sau.");
     } finally {
       setSaving(false);
     }
@@ -1057,9 +1041,9 @@ export default function AdminManageContentScreen() {
 
   async function confirmTask(title: string, message: string, task: () => Promise<void>) {
     Alert.alert(title, message, [
-      { text: "Huy", style: "cancel" },
+      { text: "Hủy", style: "cancel" },
       {
-        text: "Xac nhan",
+        text: "Xác nhận",
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -1092,7 +1076,7 @@ export default function AdminManageContentScreen() {
   return (
     <ManageScreenShell
       title="Landing Feed"
-      subtitle={snapshot ? `Explore theo chi nhánh ${snapshot.branchName} · Home dùng chung toàn hệ thống` : "Quản lý Home và Explore cho ứng dụng khách hàng"}
+      subtitle="Quản lý nội dung Home và Explore"
       currentKey="content"
       group="setup"
       activeTab="booking"
@@ -1103,52 +1087,6 @@ export default function AdminManageContentScreen() {
       <View style={styles.heroRow}>
         <Chip active={activeTab === "home"} label="Home" onPress={() => setActiveTab("home")} />
         <Chip active={activeTab === "explore"} label="Explore" onPress={() => setActiveTab("explore")} />
-      </View>
-
-      <View style={styles.branchCard}>
-        <View style={styles.branchHeader}>
-          <View style={styles.branchCopy}>
-            <Text style={styles.branchTitle}>
-              {snapshot ? `Đang xem branch ${snapshot.branchName}` : "Chọn branch để preview Explore"}
-            </Text>
-            <Text style={styles.branchSubtitle}>
-              Đổi branch ở đây chỉ để xem thử trong Landing Feed, không đổi branch mặc định của tài khoản.
-            </Text>
-          </View>
-          {snapshot && !snapshot.isDefaultBranchView && defaultBranchId ? (
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => {
-                setSelectedBranchId(defaultBranchId);
-                void Promise.all([loadSnapshot(defaultBranchId), loadServices(true, defaultBranchId)]);
-              }}
-            >
-              <Text style={styles.actionButtonText}>Quay về mặc định</Text>
-            </Pressable>
-          ) : null}
-        </View>
-
-        <View style={styles.inlineButtons}>
-          {branchOptions.map((branch) => (
-            <Chip
-              key={branch.id}
-              active={branch.id === (selectedBranchId ?? defaultBranchId)}
-              label={branch.id === defaultBranchId ? `${branch.name} · mặc định` : branch.name}
-              onPress={() => {
-                if (branch.id === (selectedBranchId ?? defaultBranchId)) return;
-                setSelectedBranchId(branch.id);
-                void Promise.all([loadSnapshot(branch.id), loadServices(true, branch.id)]);
-              }}
-            />
-          ))}
-        </View>
-
-        {snapshot && !snapshot.isDefaultBranchView ? (
-          <View style={styles.inlineNotice}>
-            <Feather name="eye" size={14} color={palette.accent} />
-            <Text style={styles.inlineNoticeText}>Đang xem tạm dữ liệu theo branch này.</Text>
-          </View>
-        ) : null}
       </View>
 
       {servicesLoading ? (
@@ -1174,7 +1112,7 @@ export default function AdminManageContentScreen() {
 
       {activeTab === "home" ? (
         <>
-          <SectionCard title={`Lookbook cho Home (${homeServices.length} đang bật / ${lookbookServices.length} mẫu)`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường sẽ không nằm ở khu này." actionLabel={homeServicesExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setHomeServicesExpanded((current) => !current)}>
+          <SectionCard title={`Lookbook Home (${homeServices.length} đang bật / ${lookbookServices.length} mẫu)`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường sẽ không nằm ở khu này." actionLabel={homeServicesExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setHomeServicesExpanded((current) => !current)}>
             {homeServicesExpanded ? (
               <>
             <Input placeholder="Tìm dịch vụ lookbook cho Home..." value={homeServiceQuery} onChangeText={setHomeServiceQuery} />
@@ -1260,7 +1198,7 @@ export default function AdminManageContentScreen() {
         </>
       ) : (
         <>
-          <SectionCard title="Hồ sơ storefront" subtitle={`Đang chỉnh cho chi nhánh ${snapshot?.branchName ?? "hiện tại"}.`} actionLabel={snapshot?.storefront?.isActive ? "Đang hiển thị" : "Bật hiển thị"} onActionPress={snapshot?.storefront ? () => {
+          <SectionCard title="Hồ sơ tiệm" subtitle={`Đang chỉnh cho ${snapshot?.branchName ?? "hiện tại"}.`} actionLabel={snapshot?.storefront?.isActive ? "Đang hiển thị" : "Bật hiển thị"} onActionPress={snapshot?.storefront ? () => {
             if (!mobileSupabase) return;
             void (async () => {
               setSaving(true);
@@ -1276,8 +1214,8 @@ export default function AdminManageContentScreen() {
           } : undefined}>
             <View style={styles.formColumn}>
               <Input placeholder="Slug hiển thị" value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
-              <Input placeholder="Tên storefront" value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
-              <Input placeholder="Nhóm storefront" value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
+              <Input placeholder="Tên tiệm" value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
+              <Input placeholder="Nhóm tiệm" value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
               <TextArea placeholder="Mô tả" value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
               <Input placeholder="URL ảnh bìa" value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
               <Input placeholder="URL logo" value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
@@ -1298,12 +1236,12 @@ export default function AdminManageContentScreen() {
               <TextArea placeholder="Điểm nổi bật, mỗi dòng 1 ý" value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
               <View style={styles.inlineButtons}>
                 <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
-                <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ storefront</Text></Pressable>
+                <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ tiệm</Text></Pressable>
               </View>
             </View>
           </SectionCard>
 
-          <SectionCard title={`Dịch vụ nổi bật (${exploreServices.length} đang bật / ${lookbookServices.length} mẫu)`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường nằm ở Sản phẩm & phụ kiện." actionLabel={exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreFeaturedExpanded((current) => !current)}>
+          <SectionCard title={`Dịch vụ nổi bật (${exploreServices.length})`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường nằm ở Sản phẩm & phụ kiện." actionLabel={exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreFeaturedExpanded((current) => !current)}>
             {exploreFeaturedExpanded ? (
               <>
             <Input placeholder="Tìm dịch vụ lookbook cho Explore..." value={exploreFeaturedQuery} onChangeText={setExploreFeaturedQuery} />
@@ -1326,7 +1264,7 @@ export default function AdminManageContentScreen() {
             ) : null}
           </SectionCard>
 
-          <SectionCard title={`Sản phẩm storefront (${snapshot?.products.length ?? 0})`} subtitle="Danh sách này đồng bộ trực tiếp sang Explore qua bảng storefront_products." actionLabel="Thêm sản phẩm" onActionPress={() => setProductForm(emptyProductForm())}>
+          <SectionCard title={`Sản phẩm & phụ kiện (${snapshot?.products.length ?? 0})`} subtitle="Danh sách này đồng bộ trực tiếp với Khám phá" actionLabel="Thêm sản phẩm" onActionPress={() => setProductForm(emptyProductForm())}>
             <View style={styles.listColumn}>
               {(snapshot?.products ?? []).map((product) => (
                 <View key={product.id} style={styles.rowCard}>
@@ -1335,7 +1273,7 @@ export default function AdminManageContentScreen() {
                     <Text style={styles.rowTitle}>{product.name}</Text>
                     <Text style={styles.rowSubtitle}>{product.productType || "Không có loại"} · {product.priceLabel || "Không có giá"} · {product.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
                   </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa sản phẩm", "Sản phẩm này sẽ bị gỡ khỏi storefront.", async () => {
+                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa sản phẩm", "Sản phẩm này sẽ bị gỡ khỏi tiệm.", async () => {
                     if (!mobileSupabase) return;
                     await deleteAdminStorefrontProductForMobile(mobileSupabase, product.id);
                   })}>
@@ -1346,17 +1284,17 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title={`Dịch vụ thường dự phòng (${exploreRegularServices.length})`} subtitle="Chỉ dùng khi storefront_products chưa có dữ liệu. Nguồn này lấy từ bảng services." actionLabel={exploreRegularExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreRegularExpanded((current) => !current)}>
+          <SectionCard title={`Dịch vụ thường dự phòng (${exploreRegularServices.length})`} subtitle="Chỉ dùng khi sản phẩm & phụ kiện chưa có dữ liệu. Nguồn này lấy từ bảng services." actionLabel={exploreRegularExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreRegularExpanded((current) => !current)}>
             {exploreRegularExpanded ? (
               <>
-            <Input placeholder="Tìm dịch vụ thường cho Explore..." value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
+            <Input placeholder="Tìm dịch vụ thường cho Khám phá..." value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
             <View style={styles.listColumn}>
               {exploreRegularServices.map((service) => (
                 <Pressable
                   key={service.id}
                   style={styles.rowCard}
                   onPress={() => {
-                    setMerchContext("explore");
+                    setMerchContext("Khám phá");
                     setMerchForm(buildMerchForm(service));
                   }}
                 >
@@ -1373,7 +1311,7 @@ export default function AdminManageContentScreen() {
             ) : null}
           </SectionCard>
 
-          <SectionCard title={`Nhân sự storefront (${snapshot?.team.length ?? 0})`} actionLabel="Thêm nhân sự" onActionPress={() => setTeamForm(emptyTeamForm())}>
+          <SectionCard title={`Nhân sự tiệm (${snapshot?.team.length ?? 0})`} actionLabel="Thêm nhân sự" onActionPress={() => setTeamForm(emptyTeamForm())}>
             <View style={styles.listColumn}>
               {(snapshot?.team ?? []).map((member) => (
                 <View key={member.id} style={styles.rowCard}>
@@ -1382,7 +1320,7 @@ export default function AdminManageContentScreen() {
                     <Text style={styles.rowTitle}>{member.displayName}</Text>
                     <Text style={styles.rowSubtitle}>{member.roleLabel || "Không có vai trò"} · {member.isVisible ? "Đang hiển thị" : "Đang ẩn"}</Text>
                   </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa nhân sự", "Nhân sự này sẽ bị gỡ khỏi storefront.", async () => {
+                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa nhân sự", "Nhân sự này sẽ bị gỡ khỏi tiệm.", async () => {
                     if (!mobileSupabase) return;
                     await deleteAdminStorefrontTeamMemberForMobile(mobileSupabase, member.id);
                   })}>
@@ -1402,7 +1340,7 @@ export default function AdminManageContentScreen() {
                     <Text style={styles.rowTitle}>{item.title || item.kind || "Ảnh trong gallery"}</Text>
                     <Text style={styles.rowSubtitle}>{item.kind || "Không có loại"} · {item.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
                   </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa gallery", "Ảnh này sẽ bị gỡ khỏi storefront.", async () => {
+                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa gallery", "Ảnh này sẽ bị gỡ khỏi tiệm.", async () => {
                     if (!mobileSupabase) return;
                     await deleteAdminStorefrontGalleryItemForMobile(mobileSupabase, item.id);
                   })}>
@@ -1448,7 +1386,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     flexWrap: "wrap",
-    marginTop: 4,
+    marginTop: -8,
     marginBottom: 4,
   },
   branchCard: {

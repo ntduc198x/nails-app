@@ -3,10 +3,9 @@ import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MANAGE_SCREEN_ITEMS, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
 import { getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
@@ -122,7 +121,7 @@ export function ManageScreenShell({
   subtitle,
   currentKey,
   group,
-backHref,
+  backHref,
   activeTab = "profile",
   onRefresh,
   refreshing,
@@ -140,76 +139,71 @@ backHref,
   showTabs?: boolean;
   children: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { allowed, isHydrated, role } = useManageOwnerGuard();
+  const { role } = useSession();
+  // const {allowed, isHydrated, role} = useManageOwnerGuard();
 
-  if (!isHydrated || !allowed) {
-    return <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]} />;
-  }
+  // {if (!isHydrated || !allowed) {
+  //   return <View style={style.screen} />;
+  // }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: getAdminBottomBarPadding(insets.bottom),
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            onRefresh ? (
-              <RefreshControl
-                refreshing={Boolean(refreshing)}
-                onRefresh={onRefresh}
-                tintColor={palette.accent}
-                colors={[palette.accent]}
-              />
-            ) : undefined
-          }
-          contentInsetAdjustmentBehavior="automatic"
-        >
-          <View style={styles.header}>
-            <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
-              <Feather name="chevron-left" size={22} color={palette.text} />
-            </Pressable>
-            <View style={styles.headerCopy}>
-              <Text style={styles.headerTitle}>{title}</Text>
-              <Text style={styles.headerSubtitle}>{subtitle}</Text>
-            </View>
-            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
+        <View style={styles.header}>
+          <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
+            <Feather name="chevron-left" size={22} color={palette.text} />
+          </Pressable>
+          <View style={styles.headerCopy}>
+            <Text style={styles.headerTitle}>{title}</Text>
+            <Text style={styles.headerSubtitle}>{subtitle}</Text>
           </View>
+          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+        </View>
 
-          {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} /> : null}
+        {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} /> : null}
+      </AdminTopSafeArea>
 
-          {children}
-        </ScrollView>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          onRefresh ? (
+            <RefreshControl
+              refreshing={Boolean(refreshing)}
+              onRefresh={onRefresh}
+              tintColor={palette.accent}
+              colors={[palette.accent]}
+            />
+          ) : undefined
+        }
+      >
+        {children}
+      </ScrollView>
 
-        <AdminBottomNavDock
-          current={activeTab}
-          role={role}
-          insetBottom={insets.bottom}
-          onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
-        />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock
+        current={activeTab}
+        role={role}
+        onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: palette.bg,
-  },
   screen: {
     flex: 1,
     backgroundColor: palette.bg,
   },
   content: {
     paddingHorizontal: 14,
+    paddingTop: ADMIN_CONTENT_TOP_GAP,
+    paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE,
+    gap: 16,
+  },
+  topChrome: {
+    paddingHorizontal: 14,
+    paddingBottom: 16,
     gap: 16,
   },
   header: {

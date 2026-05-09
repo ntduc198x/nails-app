@@ -2,10 +2,9 @@ import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { ensureOrgContext } from "@nails/shared";
 import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
 import { upsertAndVerifyProfile } from "@/src/lib/profile-upsert";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
@@ -33,7 +32,6 @@ type ProfileData = {
 };
 
 export default function AdminSettingsScreen() {
-  const insets = useSafeAreaInsets();
   const { user, signOut, role, refreshSession } = useSession();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
@@ -196,34 +194,28 @@ export default function AdminSettingsScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={8}
-          style={styles.screen}
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
+        <View style={styles.header}>
+          <Pressable style={styles.headerButton} onPress={() => router.replace(getAdminProfileDestination(role))}>
+            <Feather name="chevron-left" size={24} color={palette.textPrimary} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Cài đặt cá nhân</Text>
+          <AdminHeaderActions onSettingsPress={() => undefined} />
+        </View>
+      </AdminTopSafeArea>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={8}
+        style={styles.screen}
+      >
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <ScrollView
-            contentContainerStyle={[
-              styles.content,
-              {
-                paddingTop: getAdminHeaderTopPadding(insets.top),
-                paddingBottom: 84 + getAdminBottomBarPadding(insets.bottom),
-              },
-            ]}
-            contentInsetAdjustmentBehavior="always"
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-          <View style={styles.header}>
-            <Pressable style={styles.headerButton} onPress={() => router.replace(getAdminProfileDestination(role))}>
-              <Feather name="chevron-left" size={24} color={palette.textPrimary} />
-            </Pressable>
-            <Text style={styles.headerTitle}>Cài đặt cá nhân</Text>
-            <AdminHeaderActions onSettingsPress={() => undefined} />
-          </View>
-
+          
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Thông tin cá nhân</Text>
             <InfoRow icon="user" label="Họ và tên" value={displayName} onPress={() => openEdit("fullName", displayName)} />
@@ -250,8 +242,8 @@ export default function AdminSettingsScreen() {
             <Feather name="log-out" size={18} color={palette.danger} />
             <Text style={styles.logoutButtonText}>Đăng xuất</Text>
           </Pressable>
-          </ScrollView>
-        </KeyboardAvoidingView>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
         <Modal visible={editingField !== null} transparent animationType="fade">
           <Pressable style={styles.modalOverlay} onPress={() => setEditingField(null)}>
@@ -308,9 +300,8 @@ export default function AdminSettingsScreen() {
           </Pressable>
         </Modal>
 
-        <AdminBottomNavDock current="profile" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+    </View>
   );
 }
 
@@ -371,10 +362,11 @@ function SecurityRow({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.bg },
   screen: { flex: 1, backgroundColor: palette.bg },
-  content: { paddingHorizontal: 20, gap: 16 },
+  topChrome: { paddingHorizontal: 20, paddingBottom: 12 },
+  content: { paddingHorizontal: 20, paddingTop: ADMIN_CONTENT_TOP_GAP, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingVertical: 8, marginBottom: 8 },
+  hiddenHeader: { display: "none" },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, fontSize: 22, fontWeight: "800", color: palette.textPrimary, textAlign: "center", letterSpacing: -0.4 },
   card: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 20, gap: 0 },

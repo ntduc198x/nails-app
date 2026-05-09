@@ -1,9 +1,8 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 
@@ -128,7 +127,6 @@ function normalizePhone(raw: string | null | undefined) {
 
 export default function AdminSchedulingScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ filter?: string; tab?: string }>();
   const {
     appointments,
@@ -140,6 +138,7 @@ export default function AdminSchedulingScreen() {
     customerCrmByPhone,
     loading,
     mutating,
+    reload,
     saveAppointment,
   } = useAdminOperations();
 
@@ -274,16 +273,34 @@ export default function AdminSchedulingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom) }]}
-          keyboardDismissMode="on-drag"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentInsetAdjustmentBehavior="automatic"
-        >
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.title}>Điều phối lịch</Text>
+            <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
+          </View>
+
+          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+        </View>
+      </AdminTopSafeArea>
+
+<ScrollView
+        contentContainerStyle={styles.content}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => void reload()}
+            tintColor={palette.brown}
+            colors={[palette.brown]}
+          />
+        }
+      >
+
+        <View style={[styles.header, styles.hiddenHeader]}>
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Điều phối lịch</Text>
             <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
@@ -637,9 +654,8 @@ export default function AdminSchedulingScreen() {
         </Pressable>
       </Modal>
 
-        <AdminBottomNavDock current="scheduling" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+    </View>
   );
 }
 
@@ -677,11 +693,11 @@ function Field({
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#f7f2ec" },
   screen: { flex: 1, backgroundColor: "#f7f2ec" },
+  topChrome: { paddingHorizontal: 16, paddingBottom: 12 },
   content: {
     gap: 12,
-    paddingBottom: 26,
+    paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE,
     paddingHorizontal: 16,
     paddingTop: 10,
   },
@@ -690,6 +706,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12,
     marginBottom: 2,
+  },
+  hiddenHeader: {
+    display: "none",
   },
   headerCopy: {
     flex: 1,

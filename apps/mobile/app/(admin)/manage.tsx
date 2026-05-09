@@ -1,11 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
 
 const palette = {
   bg: "#FCFAF8",
@@ -18,40 +17,32 @@ const palette = {
 };
 
 export default function AdminManageHubScreen() {
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isHydrated, allowed, role } = useManageOwnerGuard();
 
   if (!isHydrated || !allowed) {
-    return <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]} />;
+    return <View style={styles.screen} />;
   }
 
   const insightItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "insights");
   const setupItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "setup");
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom),
-            },
-          ]}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.headerRow}>
-            <View style={styles.headerCopy}>
-              <View style={styles.heroBadge}>
-                <Feather name="shield" size={14} color={palette.accent} />
-                <Text style={styles.heroBadgeText}>Admin only</Text>
-              </View>
-              <Text style={styles.headerTitle}>Manage</Text>
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <View style={styles.heroBadge}>
+              <Feather name="shield" size={14} color={palette.accent} />
+              <Text style={styles.heroBadgeText}>Admin only</Text>
             </View>
-            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+            <Text style={styles.headerTitle}>Manage</Text>
           </View>
+          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+        </View>
+      </AdminTopSafeArea>
+
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Thiết lập vận hành</Text>
@@ -87,21 +78,19 @@ export default function AdminManageHubScreen() {
           </Pressable>
         </ScrollView>
 
-        <AdminBottomNavDock
-          current="profile"
-          role={role}
-          insetBottom={insets.bottom}
-          onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
-        />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock
+        current="profile"
+        role={role}
+        onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.bg },
   screen: { flex: 1, backgroundColor: palette.bg },
-  content: { paddingHorizontal: 16, gap: 18 },
+  content: { paddingHorizontal: 16, paddingTop: ADMIN_CONTENT_TOP_GAP, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 18 },
+  topChrome: { paddingHorizontal: 16, paddingBottom: 12 },
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -200,14 +189,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 18,
     color: palette.sub,
-  },
-  bottomBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "transparent",
-    paddingHorizontal: 16,
-    paddingTop: 6,
   },
 });

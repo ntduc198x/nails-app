@@ -11,8 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNavDock, AdminHeaderActions, createCheckoutKey, formatVnd, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, createCheckoutKey, formatVnd } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileEnv } from "@/src/lib/env";
@@ -67,7 +66,6 @@ function formatShortDateTime(value: string | null | undefined) {
 export default function AdminCheckoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
-  const insets = useSafeAreaInsets();
   useSession();
   const { appointments, checkoutServices, createCheckout, reload, loading, role, techShiftOpen, busyTargetId, error, mutating } =
     useAdminOperations();
@@ -81,14 +79,8 @@ export default function AdminCheckoutScreen() {
   const [lastReceiptToken, setLastReceiptToken] = useState<string | null>(null);
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
 
-  useFocusEffect(
-    useCallback(
-      () => () => {
-        void reload();
-      },
-      [reload],
-    ),
-  );
+  // Removed useFocusEffect to prevent layout shift when returning to screen
+  // Data is loaded via useAdminOperations hook
 
   const checkedInAppointments = useMemo(() => appointments.filter((item) => item.status === "CHECKED_IN"), [appointments]);
   const selectedAppointment = useMemo(
@@ -166,15 +158,22 @@ export default function AdminCheckoutScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom) }]}
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
+        <View style={styles.header}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.headerTitle}>Thanh toán</Text>
+            <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
+          </View>
+          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+        </View>
+      </AdminTopSafeArea>
+      <ScrollView
+          contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={palette.brown} colors={[palette.brown]} />}
-          contentInsetAdjustmentBehavior="automatic"
         >
-          <View style={styles.header}>
+          <View style={[styles.header, styles.hiddenHeader]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>Thanh toán</Text>
               <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
@@ -371,17 +370,17 @@ export default function AdminCheckoutScreen() {
           ) : null}
         </ScrollView>
 
-        <AdminBottomNavDock current="checkout" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock current="checkout" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: palette.screen },
   screen: { flex: 1, backgroundColor: palette.screen },
-  content: { paddingHorizontal: 22, gap: 16 },
+  topChrome: { paddingHorizontal: 22, paddingBottom: 12 },
+  content: { paddingHorizontal: 22, paddingTop: ADMIN_CONTENT_TOP_GAP, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
   header: { flexDirection: "row", alignItems: "flex-start" },
+  hiddenHeader: { display: "none" },
   headerTitle: { fontSize: 28, lineHeight: 32, fontWeight: "800", color: palette.text, letterSpacing: -0.6 },
   headerSubtitle: { marginTop: 4, fontSize: 13, lineHeight: 18, color: palette.muted },
   card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 15, gap: 12 },

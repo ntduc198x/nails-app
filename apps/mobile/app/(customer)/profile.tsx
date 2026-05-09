@@ -398,8 +398,8 @@ export default function ProfileScreen() {
 
           {historyHydrated && !historyLoading && !historyItems.length ? (
             <SurfaceCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Chua co lich su dich vu</Text>
-              <Text style={styles.emptyText}>Lich su se tu cap nhat tu cac dich vu khach da hoan tat tai tiem.</Text>
+              <Text style={styles.emptyTitle}>Chưa có lịch sử dịch vụ</Text>
+              <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ các dịch vụ khách đã hoàn tất tại tiệm.</Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -437,8 +437,8 @@ export default function ProfileScreen() {
 
           {!favoriteServices.length ? (
             <SurfaceCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Chua co mau yeu thich</Text>
-              <Text style={styles.emptyText}>Luu cac mau ban thich o man Kham pha de xem lai nhanh tai day.</Text>
+              <Text style={styles.emptyTitle}>Chưa có mẫu yêu thích</Text>
+              <Text style={styles.emptyText}>Lưu các mẫu bạn thích ở màn Khám phá để xem lại nhanh tại đây.</Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -460,7 +460,7 @@ export default function ProfileScreen() {
 
       <Pressable disabled={isBusy} onPress={() => void handleSignOut()} style={styles.logoutButton}>
         <Feather color={theme.colors.dangerText} name="log-out" size={18} />
-        <Text style={styles.logoutLabel}>{isBusy ? "Dang dang xuat..." : "Dang xuat"}</Text>
+        <Text style={styles.logoutLabel}>{isBusy ? "Đang đăng xuất..." : "Đăng xuất"}</Text>
       </Pressable>
 
       <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />

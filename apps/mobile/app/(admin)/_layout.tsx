@@ -21,7 +21,7 @@ export default function AdminTabsLayout() {
       <Tabs.Screen name="scheduling" options={{ title: "\u0110i\u1ec1u ph\u1ed1i" }} />
       <Tabs.Screen name="scheduling/[appointmentId]" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="checkout" options={{ title: "Thu ti\u1ec1n" }} />
-      <Tabs.Screen name="shifts" options={{ title: "C\u00e1 nh\u00e2n" }} />
+      <Tabs.Screen name="shifts" options={{ title: "Lịch làm việc" }} />
       <Tabs.Screen name="manage" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="manage-customers" options={{ tabBarButton: () => null }} />
       <Tabs.Screen name="manage-reports" options={{ tabBarButton: () => null }} />

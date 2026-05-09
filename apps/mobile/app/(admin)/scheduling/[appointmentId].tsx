@@ -2,9 +2,8 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { AdminBottomNavDock, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 
 const palette = {
@@ -447,7 +446,6 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
 
 export default function AdminAppointmentDetailScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   const appointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
 
@@ -466,25 +464,21 @@ export default function AdminAppointmentDetailScreen() {
   if (!appointment) {
     return (
       <View style={styles.screen}>
-        <View style={[styles.header, { paddingTop: getAdminHeaderTopPadding(insets.top) + 8 }]}>
+        <View style={styles.header}>
           <Pressable style={styles.headerButton} onPress={() => router.back()}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Không tìm thấy lịch</Text>
           <View style={styles.headerActions} />
         </View>
-        <AdminBottomNavDock current="scheduling" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+        <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
       </View>
     );
   }
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top) + 8, paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom) }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
+      <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
           <Pressable style={styles.headerButton} onPress={() => router.replace("/(admin)/scheduling")}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
@@ -505,20 +499,25 @@ export default function AdminAppointmentDetailScreen() {
             </Pressable>
           </View>
         </View>
-
+      </AdminTopSafeArea>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
         <AppointmentEditor appointment={appointment} />
       </ScrollView>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavDock current="scheduling" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+      <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.bg },
-  content: { paddingHorizontal: 20, gap: 16 },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingBottom: 12 },
+  topChrome: { paddingHorizontal: 20, paddingBottom: 12 },
+  content: { paddingHorizontal: 20, paddingTop: 0, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingBottom: 0 },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerCenter: { flex: 1, marginLeft: 8 },
   headerSubtitle: { fontSize: 12, color: palette.textMuted, fontWeight: "500" },

@@ -1,549 +1,710 @@
 # REPOSITORY SUMMARY - NAILS APP
 
-## 1. TỔNG QUAN PROJECT
+Tài liệu này là bản tóm tắt kỹ thuật dành cho dev mới vào repo. Mục tiêu là giúp đọc nhanh để hiểu:
 
-### 1.1 Thông tin cơ bản
+- repo này gồm những phần nào;
+- mỗi app chạy theo runtime gì;
+- auth, session, org/branch binding hoạt động ra sao;
+- dữ liệu customer/admin đi qua những lớp nào;
+- các subsystem lớn cần chú ý khi sửa code.
 
-- **Tên Project**: Nails App
-- **Loại**: Monorepo với Web (Next.js) và Mobile (React Native/Expo)
-- **Backend**: Supabase (PostgreSQL + Auth + Realtime)
-- **Tính năng chính**: Quản lý salon nail, đặt lịch, CRM, Telegram bot, Lookbook, Báo cáo
+## 1. Tổng quan
 
-### 1.2 Cấu trúc thư mục
+### 1.1 Bản chất project
 
-```
+- **Tên project**: Nails App
+- **Loại repo**: monorepo
+- **Domain sản phẩm**: quản lý salon nail / beauty studio
+- **Hai mặt ứng dụng chính**:
+  - **customer-facing**: landing, lookbook, explore, offers, booking
+  - **internal operations**: lịch hẹn, checkout, CRM, shifts, reports, team, tax books
+- **Backend chính**: Supabase
+  - PostgreSQL
+  - Auth
+  - Realtime
+  - Storage
+  - RPC + RLS
+- **Kênh vận hành bổ sung**: Telegram bot cho thông báo và thao tác quản trị nhanh
+
+### 1.2 Cấu trúc thư mục chính
+
+```text
 nails-app/
-├── apps/
-│   ├── web/              # Next.js web application
-│   └── mobile/           # React Native/Expo mobile application
-├── packages/
-│   └── shared/           # Shared TypeScript types and utilities
-├── supabase/             # Database schema and migrations
-├── scripts/              # Development and deployment scripts
-├── package.json          # Root workspace configuration
-└── tsconfig.json         # Base TypeScript configuration
+  apps/
+    web/                  # Next.js web app
+    mobile/               # Expo / React Native mobile app
+  packages/
+    shared/               # shared contracts + helpers dùng chung
+  supabase/               # bootstrap SQL, patches, schema/runtime fixes
+  scripts/                # root runner scripts cho web/mobile
+  artifacts/              # debug artifacts, screenshots, emulator output
+  tmp/                    # local temp output, logs, bundle exports
+  package.json            # workspace orchestrator
 ```
+
+### 1.3 Điểm cần nhớ ngay
+
+- Root `package.json` **không chứa app logic**. Nó chỉ điều phối workspaces và scripts.
+- `apps/web` là web app production-facing cho landing + admin web.
+- `apps/mobile` là mobile app có cả customer shell và admin shell.
+- `packages/shared` là **contract layer** giữa web, mobile, và business logic Supabase-facing, không chỉ là “shared types”.
+- `supabase/bootstrap.sql` là entry SQL chuẩn cho project mới.
+
+## 2. Stack thực tế
+
+### 2.1 Root workspace
+
+- Workspaces: `apps/*`, `packages/*`
+- Root scripts:
+  - `npm run dev`
+  - `npm run build`
+  - `npm run start`
+  - `npm run lint`
+  - `npm run typecheck`
+  - `npm run mobile:*`
+
+### 2.2 Web app
+
+Theo [apps/web/package.json](/D:/Code/nails-app/apps/web/package.json):
+
+- **Next.js**: `16.2.3`
+- **React**: `19.1.0`
+- **TypeScript**: `5.9.3`
+- **Supabase JS**: `@supabase/supabase-js`
+- **Styling/tooling**:
+  - global CSS
+  - class-based UI styles
+  - Tailwind CSS v4 hiện diện trong toolchain
+  - PostCSS
+- **Một số thư viện nghiệp vụ/UI**:
+  - `html2canvas`
+  - `jspdf`
+  - `jspdf-autotable`
+  - `xlsx`
+  - `zod`
+
+### 2.3 Mobile app
+
+Theo [apps/mobile/package.json](/D:/Code/nails-app/apps/mobile/package.json):
+
+- **Expo SDK**: `54`
+- **React Native**: `0.81.5`
+- **Expo Router**: `6.0.23`
+- **React**: `19.1.0`
+- **Storage/auth support**:
+  - `@react-native-async-storage/async-storage`
+  - `expo-secure-store`
+  - `expo-web-browser`
+  - `expo-apple-authentication`
+- **Media/UI**:
+  - `expo-image`
+  - `expo-image-picker`
+  - `expo-linear-gradient`
+  - `expo-status-bar`
+
+### 2.4 Shared package
+
+Theo [packages/shared/package.json](/D:/Code/nails-app/packages/shared/package.json):
+
+- package internal: `@nails/shared`
+- dependency chính: `zod`
+- export trực tiếp từ `src/index.ts`
+
+## 3. Kiến trúc runtime
+
+## 3.1 Web runtime
+
+### Entry và layout
+
+- Root layout thật là [apps/web/src/app/layout.tsx](/D:/Code/nails-app/apps/web/src/app/layout.tsx)
+  - cấu hình metadata
+  - fonts
+  - Open Graph / Twitter card
+  - canonical site
+  - brand/domain `https://chambeauty.io.vn`
+
+### Landing flow
+
+- Landing page là [apps/web/src/app/page.tsx](/D:/Code/nails-app/apps/web/src/app/page.tsx)
+- Trang này:
+  - gọi `getLandingPagePayload()` từ [apps/web/src/lib/landing-content.ts](/D:/Code/nails-app/apps/web/src/lib/landing-content.ts)
+  - build `homeFeed` + `explore`
+  - inject JSON-LD cho salon + blog-like content
+  - render `LandingPageClient`
+
+### Manage flow
+
+- `/manage` không phải dashboard cuối cùng.
+- [apps/web/src/app/manage/page.tsx](/D:/Code/nails-app/apps/web/src/app/manage/page.tsx) chỉ:
+  - resolve role hiện tại
+  - redirect theo role qua `getDefaultManageHref()` trong [apps/web/src/lib/manage-landing-auth.ts](/D:/Code/nails-app/apps/web/src/lib/manage-landing-auth.ts)
+
+Mapping hiện tại:
+
+- `OWNER`, `PARTNER`, `MANAGER` -> `/manage/landing`
+- `ACCOUNTANT` -> `/manage/checkout`
+- `RECEPTION` -> `/manage/services`
+- `TECH` -> `/manage/appointments`
+
+### Supabase clients trên web
+
+[apps/web/src/lib/supabase.ts](/D:/Code/nails-app/apps/web/src/lib/supabase.ts) định nghĩa:
+
+- `supabase`: client thường cho browser/user flow
+- `createServiceRoleClient()`: client service-role cho server-side/API access
+
+Điều này quan trọng vì web đang dùng cả:
+
+- **user-scoped access**
+- **service-role scoped access**
+
+## 3.2 Mobile runtime
+
+### Root layout
+
+- Root layout là [apps/mobile/app/_layout.tsx](/D:/Code/nails-app/apps/mobile/app/_layout.tsx)
+- Toàn bộ app được bọc trong `SessionProvider`
+- Sau đó mount Expo Router `Stack`
+
+### App gate
+
+- [apps/mobile/app/index.tsx](/D:/Code/nails-app/apps/mobile/app/index.tsx) là runtime gate chính
+- Logic:
+  - nếu session chưa hydrate -> loading
+  - nếu session lỗi -> redirect `/\(auth\)/sign-in`
+  - nếu role là customer -> vào `/(customer)`
+  - còn lại -> vào `/(admin)`
+
+### Customer shell
+
+- Layout chính: [apps/mobile/app/(customer)/_layout.tsx](/D:/Code/nails-app/apps/mobile/app/(customer)/_layout.tsx)
+- Có:
+  - `CustomerPreferencesProvider`
+  - theme động
+  - `StatusBar` theo color scheme
+  - `CustomerRenderBoundary` để giữ fallback UI nếu customer tree lỗi
+
+### Admin shell
+
+- Layout chính: [apps/mobile/app/(admin)/_layout.tsx](/D:/Code/nails-app/apps/mobile/app/(admin)/_layout.tsx)
+- Dùng Expo Router `Tabs` nhưng:
+  - ẩn tab bar
+  - dùng tabs như internal route container
+
+### Route groups quan trọng
+
+- `/(auth)`:
+  - sign-in
+  - signup/reset flow
+  - auth callback
+- `/(customer)`:
+  - home feed
+  - explore
+  - booking
+  - membership
+  - history
+  - settings/profile
+- `/(admin)`:
+  - overview
+  - queue
+  - booking
+  - scheduling
+  - checkout
+  - shifts
+  - manage-content
+  - manage-customers
+  - manage-services
+  - manage-resources
+  - manage-team
+  - manage-tax-books
+  - reports
+
+## 4. Auth, session, và org binding
+
+## 4.1 Không chỉ dùng Supabase Auth mặc định
+
+Repo này có **2 lớp session**:
+
+1. **Supabase Auth session**
+2. **App session nội bộ của project**
+
+App session được dùng để:
+
+- ràng buộc theo device
+- validate user switching/session replacement
+- heartbeat online user
+- revoke session có chủ đích
+
+## 4.2 Web auth/session model
+
+File chính: [apps/web/src/lib/app-session.ts](/D:/Code/nails-app/apps/web/src/lib/app-session.ts)
+
+Web:
+
+- lưu app session token ở `localStorage`
+- gọi RPC:
+  - `create_app_session`
+  - `validate_app_session`
+  - `heartbeat_online_user`
+  - `revoke_app_session`
+- có recovery path nếu refresh token Supabase bị invalid:
+  - clear local app token
+  - clear cached auth state
+  - sign out local Supabase browser session
+
+Google auth callback web:
+
+- route: [apps/web/src/app/auth/callback/page.tsx](/D:/Code/nails-app/apps/web/src/app/auth/callback/page.tsx)
+- dùng `completeGoogleAuthFromCode()`
+
+## 4.3 Mobile auth/session model
+
+Files chính:
+
+- [apps/mobile/src/providers/session-provider.tsx](/D:/Code/nails-app/apps/mobile/src/providers/session-provider.tsx)
+- [apps/mobile/src/lib/supabase.ts](/D:/Code/nails-app/apps/mobile/src/lib/supabase.ts)
+- [apps/mobile/src/lib/app-session.ts](/D:/Code/nails-app/apps/mobile/src/lib/app-session.ts)
+
+Mobile:
+
+- dùng `safeStorage` để persist Supabase auth session
+- tạo app session theo:
+  - `deviceFingerprint`
+  - `deviceInfo`
+- lưu app session token riêng
+- validate token khi boot app
+- có fallback “basic app session” khi RPC/schema chưa sẵn sàng
+
+Mobile auth methods:
+
+- email/password
+- Google OAuth
+- Apple Sign-In
+
+Mobile callback path:
+
+- `auth/callback`
+- screen loading ở [apps/mobile/app/auth/callback.tsx](/D:/Code/nails-app/apps/mobile/app/auth/callback.tsx)
+
+## 4.4 Org/branch binding
+
+Điểm trung tâm ở web là [apps/web/src/lib/domain.ts](/D:/Code/nails-app/apps/web/src/lib/domain.ts)
+
+`ensureOrgContext()` làm các việc:
+
+- lấy `org_id` và `default_branch_id` từ `profiles`
+- fallback qua `user_roles` nếu cần
+- tự vá `profiles` nếu user có auth session nhưng profile chưa đủ dữ liệu
+- cache context theo session
+
+Ý nghĩa:
+
+- đa số business logic nội bộ đều phải đi qua `ensureOrgContext()`
+- gần như mọi query internal đều scoped theo `org_id`
+
+Trong shared layer, [packages/shared/src/session.ts](/D:/Code/nails-app/packages/shared/src/session.ts) còn có:
+
+- `ensureCurrentUserProfile()`
+- `getAuthenticatedUserSummary()`
+- `createAppSessionWithDevice()`
+- `validateAppSessionToken()`
+- `consumeInviteCodeWithClient()`
+
+=> auth/session/org binding là concern dùng chung cho cả web và mobile, không phải logic riêng của từng app.
+
+## 4.5 Role model
+
+Web role resolution nằm ở [apps/web/src/lib/auth.ts](/D:/Code/nails-app/apps/web/src/lib/auth.ts)
+
+Priority hiện tại:
+
+`OWNER > PARTNER > MANAGER > RECEPTION > ACCOUNTANT > TECH > USER`
+
+Lưu ý:
+
+- user nội bộ salon dùng `user_roles`
+- customer flow có thể bị ép role về `USER`
+- nếu role chưa tồn tại, hệ thống có thể bootstrap role phù hợp theo org hiện tại
+
+## 5. Shared package: contract layer
+
+`packages/shared` là lớp contract chung giữa:
+
+- web API
+- mobile hooks
+- business logic
+- Supabase-facing operations
+
+### 5.1 Những module quan trọng
+
+- `auth.ts`
+- `session.ts`
+- `org.ts`
+- `roles.ts`
+- `validation.ts`
+- `booking.ts`
+- `appointments.ts`
+- `checkout.ts`
+- `dashboard.ts`
+- `crm.ts`
+- `reporting.ts`
+- `services.ts`
+- `resources.ts`
+- `team.ts`
+- `tax-books.ts`
+- `customer-feed.ts`
+- `customer-explore.ts`
+- `customer-personalization.ts`
+- `admin-content.ts`
+- `auto-schedule.ts`
+
+### 5.2 Contracts customer-facing đáng chú ý
+
+Trong [packages/shared/src/customer-feed.ts](/D:/Code/nails-app/packages/shared/src/customer-feed.ts):
+
+- `LookbookItem`
+- `CustomerContentPost`
+- `MarketingOfferCard`
+- `normalizeLookbookRows()`
+
+Trong [packages/shared/src/customer-explore.ts](/D:/Code/nails-app/packages/shared/src/customer-explore.ts):
+
+- `ExploreStorefront`
+- `ExploreProduct`
+- `ExploreTeamMember`
+- `ExploreGalleryItem`
+- `ExploreMapCard`
+- `CustomerExplorePayload`
+- `buildExploreStats()`
+
+Trong [packages/shared/src/session.ts](/D:/Code/nails-app/packages/shared/src/session.ts):
+
+- `AuthenticatedUserSummary`
+- `AppSessionResult`
+- `AppSessionValidation`
+- `InviteCodeConsumptionResult`
+
+## 6. Customer-facing data flow
+
+## 6.1 Landing/home/explore data model
+
+Landing web và customer mobile đang dùng cùng domain model:
+
+- lookbook services
+- content posts
+- marketing offers
+- storefront profile
+- products
+- team members
+- gallery
+- map card
+
+Nguồn tổng hợp nằm ở [apps/web/src/lib/landing-content.ts](/D:/Code/nails-app/apps/web/src/lib/landing-content.ts)
+
+File này đọc từ các bảng:
+
+- `services`
+- `customer_content_posts`
+- `marketing_offers`
+- `storefront_profile`
+- `storefront_products`
+- `storefront_team_members`
+- `storefront_gallery`
+
+## 6.2 Customer API surface
+
+Hai API chính:
+
+- [apps/web/src/app/api/customer/home-feed/route.ts](/D:/Code/nails-app/apps/web/src/app/api/customer/home-feed/route.ts)
+- [apps/web/src/app/api/customer/explore/route.ts](/D:/Code/nails-app/apps/web/src/app/api/customer/explore/route.ts)
+
+Pattern chung:
+
+1. đọc bearer token
+2. xác thực user qua Supabase
+3. resolve customer scope
+4. trả payload typed từ `@nails/shared`
+
+Nghĩa là web API đang đóng vai trò **scoped façade** cho customer/mobile clients.
+
+## 6.3 Mobile customer fetch model
+
+File đại diện: [apps/mobile/src/hooks/use-customer-home-feed.ts](/D:/Code/nails-app/apps/mobile/src/hooks/use-customer-home-feed.ts)
+
+Thứ tự ưu tiên:
+
+1. gọi web API `GET /api/customer/home-feed` bằng bearer token
+2. nếu fail thì fallback query trực tiếp qua shared helpers + Supabase
+3. hydrate cache cục bộ
+4. prefetch ảnh cho card rendering
+
+Đây là mô hình **hybrid fetch**:
+
+- tuyến chuẩn: web API
+- fallback: direct Supabase
+
+Lợi ích:
+
+- mobile vẫn chạy được khi web API unavailable nhưng auth/supabase còn ổn
+- giảm cảm giác trắng dữ liệu khi network/path có lỗi cục bộ
+
+## 7. Admin / operations data flow
+
+## 7.1 Booking request flow
+
+Public booking request đi qua:
+
+- [apps/web/src/app/api/booking-request/route.ts](/D:/Code/nails-app/apps/web/src/app/api/booking-request/route.ts)
+
+Flow:
+
+1. nhận payload booking từ landing/public
+2. gọi RPC `create_booking_request_public`
+3. nếu tạo thành công:
+  - notify nội bộ sang `/api/telegram`
+  - rebalance booking capacity theo `org_id`
+
+## 7.2 Booking request domain logic
+
+File chính: [apps/web/src/lib/booking-requests.ts](/D:/Code/nails-app/apps/web/src/lib/booking-requests.ts)
+
+Lifecycle đang dùng:
+
+- `NEW`
+- `CONFIRMED`
+- `NEEDS_RESCHEDULE`
+- `CANCELLED`
+- `CONVERTED`
+
+File này xử lý:
+
+- list/count booking requests
+- patch request quá hạn sang `NEEDS_RESCHEDULE`
+- update/delete
+- check capacity
+- convert booking request sang appointment qua RPC secure
+
+## 7.3 Scheduling / appointments / checkout
+
+Một phần lớn business logic nội bộ đang nằm trong [apps/web/src/lib/domain.ts](/D:/Code/nails-app/apps/web/src/lib/domain.ts)
+
+Các nhóm nhiệm vụ chính:
+
+- service CRUD
+- resource CRUD
+- appointment list/create/update
+- overlap staff/resource
+- checked-in / done / cancelled / no-show
+- shift open-state check
+- checkout / close ticket / receipt token
+- recent tickets
+- realtime subscriptions cho appointments
+
+Mẫu chung:
+
+1. `ensureOrgContext()`
+2. query/RPC scoped theo `org_id`
+3. invalidate cache nếu có mutation
+4. realtime update nếu cần
+
+## 8. Telegram subsystem
+
+## 8.1 Đây là subsystem lớn, không chỉ là integration
+
+File chính: [apps/web/src/lib/telegram-bot.ts](/D:/Code/nails-app/apps/web/src/lib/telegram-bot.ts)
+
+Những thứ file này đang làm:
+
+- wrappers cho Telegram Bot API
+  - send message
+  - edit message
+  - delete message
+  - answer callback query
+- resolve Telegram user -> user nội bộ + role
+- link code flow giữa Telegram account và app account
+- booking detail / confirm / cancel / reschedule
+- quick check-in
+- quick-create appointment
+- report doanh thu
+- menu quản trị
+- conversation state management
+- reply panel state management
+- file fallback nếu bảng conversation chưa sẵn sàng
+
+=> Telegram hiện là **ops channel song song** với web/mobile admin.
+
+## 8.2 Telegram webhook route
+
+Booking notification route chính:
+
+- [apps/web/src/app/api/telegram/route.ts](/D:/Code/nails-app/apps/web/src/app/api/telegram/route.ts)
+
+Route này:
+
+- đọc booking request đã tạo
+- claim record để tránh double-processing
+- tính overlap/capacity warning
+- gửi message Telegram với action buttons
+- ghi lại `telegram_message_id`, `telegram_chat_id`, `notified_at`
+
+Ngoài route này còn có:
+
+- `/api/telegram/callback`
+- `/api/telegram/content`
+- `/api/telegram/setup`
+- `/api/telegram/notify`
+- `/api/telegram/dev`
+- `/api/telegram/daily-summary`
+- `/api/telegram/appointments-overdue`
+
+## 9. Supabase schema và patch strategy
+
+## 9.1 File nền tảng
+
+- [supabase/bootstrap.sql](/D:/Code/nails-app/supabase/bootstrap.sql)
+  - canonical one-shot SQL cho project mới
+- [supabase/deploy.sql](/D:/Code/nails-app/supabase/deploy.sql)
+  - legacy core deploy script
+- [supabase/README.md](/D:/Code/nails-app/supabase/README.md)
+  - giải thích patch order và mục đích từng file
+
+## 9.2 Các nhóm patch chính
+
+Nhìn theo capability thay vì theo ngày:
+
+- **auth / org bootstrap**
+  - `fresh_project_patch.sql`
+  - `auth_*`
+  - `ensure_default_workspace_runtime_patch_*`
+- **app / device sessions**
+  - `app_sessions.sql`
+- **CRM**
+  - `crm_patch_2026_04.sql`
+- **customer mobile schema/runtime**
+  - `customer_mobile_schema_2026_04.sql`
+  - `customer_mobile_runtime_patch_2026_05.sql`
+  - `customer_scope_repair_2026_05.sql`
+- **content feed / storefront / lookbook**
+  - `customer_content_feed_2026_04.sql`
+  - `customer_explore_storefront_2026_04.sql`
+  - `customer_lookbook_public_read_2026_04.sql`
+  - `customer_lookbook_backfill_2026_05.sql`
+  - `storefront_products_cham_mock_2026_05.sql`
+- **shift planning / staff profiles / attendance**
+  - `shift_plans_2026_04.sql`
+  - `shift_attendance_requests_2026_04.sql`
+  - `staff_shift_profiles_2026_04.sql`
+  - `partner_branch_roles_shift_plans_2026_04.sql`
+- **Telegram support / booking runtime**
+  - `runtime_patch_2026_04_telegram_booking.sql`
+  - `telegram_conversations.sql`
+  - `telegram_links.sql`
+  - `partner_invite_telegram_scope_patch_2026_05.sql`
+
+## 9.3 Kiểu logic đang dùng nhiều
+
+Repo này phụ thuộc nhiều vào:
+
+- Supabase RPC
+- RLS-aware queries
+- profile/org binding
+- runtime repair patches cho môi trường đã drift
+
+Không nên nhìn `supabase/` như thư mục “migrations thông thường” của ORM. Nó gần với:
+
+- bootstrap scripts
+- capability patches
+- runtime compatibility fixes
+
+## 10. Scripts và môi trường chạy
+
+## 10.1 Root scripts quan trọng
+
+- `npm run dev` -> chạy web
+- `npm run build` -> build web
+- `npm run start` -> start web
+- `npm run lint` -> lint web + mobile
+- `npm run typecheck` -> typecheck web + mobile
+
+## 10.2 Web scripts
+
+- `npm run web:dev`
+- `npm run web:build`
+- `npm run web:start`
+- `npm run web:lint`
+- `npm run web:typecheck`
+
+## 10.3 Mobile scripts
+
+- `npm run mobile:start`
+- `npm run mobile:go:lan`
+- `npm run mobile:go`
+- `npm run mobile:go:cloudflare`
+- `npm run mobile:android`
+- `npm run mobile:ios`
+- `npm run mobile:config`
+- `npm run mobile:doctor`
+- `npm run mobile:typecheck`
+
+## 10.4 Môi trường mobile
+
+Theo [apps/mobile/src/lib/env.ts](/D:/Code/nails-app/apps/mobile/src/lib/env.ts), mobile env hiện đọc:
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+- `EXPO_PUBLIC_API_BASE_URL`
+- `EXPO_PUBLIC_PASSWORD_RESET_URL`
+- `EXPO_PUBLIC_DEFAULT_ORG_ID`
+- `EXPO_PUBLIC_DEFAULT_BRANCH_ID`
+
+Điều này xác nhận mobile có thể:
+
+- gọi trực tiếp Supabase
+- gọi web API qua `apiBaseUrl`
+- fallback guest/customer scope theo default org/branch nếu được cấu hình
+
+## 11. Repo hygiene và lưu ý cho dev
+
+## 11.1 Những thư mục không phải source chính
+
+- `artifacts/`
+  - emulator screenshots
+  - XML UI dumps
+  - metro/debug output
+- `tmp/`
+  - temp logs
+  - exported bundles
+  - screenshots
+
+Hai thư mục này là **debug/dev artifacts**, không phải source kiến trúc chính.
+
+## 11.2 Những lưu ý nên nhớ khi sửa code
+
+- Đừng sửa summary cũ theo kiểu chỉ thêm tên file; ưu tiên mô tả behavior và data flow.
+- Khi sửa internal business logic web, gần như luôn phải kiểm tra:
+  - `ensureOrgContext()`
+  - role hiện tại
+  - query có còn đúng `org_id` / `branch_id` không
+- Khi sửa mobile auth/session, phải kiểm tra cả:
+  - Supabase auth session
+  - app session token riêng
+  - callback flow
+  - fallback khi RPC/schema chưa sẵn sàng
+- Khi sửa customer feed/explore, cần nhớ:
+  - web landing và mobile customer đang dùng cùng domain contracts
+  - mobile có web API path và direct Supabase fallback path
+- Khi sửa Telegram, cần coi đây là subsystem nghiệp vụ thật sự, không phải chỉ notification utility.
+
+## 12. TL;DR cho dev mới
+
+- Đây là monorepo salon-management gồm **web admin + mobile customer/admin + shared contracts + Supabase SQL**.
+- Web dùng Next.js 16; mobile dùng Expo 54; cả hai đều dựa trên Supabase nhưng có thêm **app session layer riêng**.
+- `packages/shared` là lớp contract và helper chung, rất quan trọng cho auth/session/customer payloads.
+- `ensureOrgContext()` là chìa khóa cho hầu hết logic nội bộ.
+- Customer data flow đang theo mô hình **hybrid fetch**: web API trước, direct Supabase fallback sau.
+- Telegram là một channel vận hành thật, có logic booking/report/check-in riêng.
+- `supabase/` chứa cả bootstrap, patch, runtime fixes, không chỉ migration tuần tự.
 
 ---
 
-## 2. WEB APPLICATION (`apps/web`)
-
-### 2.1 Công nghệ
-
-- **Framework**: Next.js 15 (App Router)
-- **UI**: React 19 with TypeScript
-- **Styling**: CSS Modules + Global CSS
-- **Backend**: Supabase client
-
-### 2.2 Cấu trúc source (`apps/web/src/`)
-
-```
-apps/web/src/
-├── app/                  # Next.js App Router pages
-│   ├── page.tsx           # Landing page (public)
-│   ├── login/             # Login page
-│   ├── account/          # User account page
-│   ├── auth/callback/    # OAuth callback handler
-│   ├── receipt/[token]/  # Receipt page
-│   ├── stories/[id]/      # Lookbook story page
-│   ├── manage/           # Admin dashboard pages
-│   │   ├── page.tsx      # Dashboard home
-│   │   ├── appointments/
-│   │   ├── booking-requests/
-│   │   ├── checkout/
-│   │   ├── customers/
-│   │   ├── landing/
-│   │   ├── reports/
-│   │   ├── services/
-│   │   ├── shifts/
-│   │   ├── team/
-│   │   ├── tax-books/
-│   │   └── resources/
-│   └── api/              # API routes
-│       ├── booking-request/
-│       ├── customer/
-│       ├── lookbook/
-│       └── telegram/
-├── components/           # Reusable React components
-│   ├── landing/          # Landing page components
-│   ├── manage-*.tsx      # Admin dashboard components
-│   └── *.tsx             # Shared components
-└── lib/                  # Business logic and utilities
-    ├── supabase.ts       # Supabase client configuration
-    ├── auth.ts           # Authentication & authorization
-    ├── domain.ts         # Organization context
-    ├── booking-requests.ts # Booking request management
-    ├── shift-*.ts        # Shift management
-    ├── crm.ts            # CRM operations
-    ├── reporting.ts      # Reporting functions
-    ├── telegram-bot.ts   # Telegram integration
-    └── *.ts              # Other utilities
-```
-
-### 2.3 Các trang quan trọng
-
-#### Public Pages
-
-| Page | File | Description |
-|------|------|-------------|
-| Landing | `app/page.tsx` | Public landing page with service showcase |
-| Login | `app/login/page.tsx` | User login page |
-| Account | `app/account/page.tsx` | User account management |
-| Auth Callback | `app/auth/callback/page.tsx` | OAuth provider callback |
-| Receipt | `app/receipt/[token]/page.tsx` | View receipt by token |
-| Stories | `app/stories/[id]/page.tsx` | Lookbook story viewer |
-
-#### Admin Dashboard Pages (`/manage`)
-
-| Route | Page | Description |
-|-------|------|-------------|
-| `/manage` | Dashboard | Main admin dashboard |
-| `/manage/appointments` | Appointments | Manage appointments calendar |
-| `/manage/booking-requests` | Booking Requests | Manage booking requests |
-| `/manage/checkout` | Checkout | Point of sale / checkout |
-| `/manage/customers` | Customers | Customer list and management |
-| `/manage/customers/[customerId]` | Customer Detail | Individual customer view |
-| `/manage/landing` | Landing Page | Landing page content management |
-| `/manage/reports` | Reports | Business reports and analytics |
-| `/manage/reports/[ticketId]` | Report Detail | Specific report view |
-| `/manage/services` | Services | Service catalog management |
-| `/manage/shifts` | Shifts | Staff schedule management |
-| `/manage/team` | Team | Team member management |
-| `/manage/tax-books` | Tax Books | Tax documentation |
-| `/manage/resources` | Resources | Resource/equipment management |
-| `/manage/account` | Account | Account settings |
-
-### 2.4 API Routes (`/api`)
-
-#### Booking Request API
-
-- `POST /api/booking-request` - Create booking request
-
-#### Customer API
-
-- `GET /api/customer/explore` - Customer explore/feed
-- `GET /api/customer/home-feed` - Home feed for customers
-
-#### Lookbook API
-
-- `GET /api/lookbook` - Get lookbook content
-
-#### Telegram API
-
-- `POST /api/telegram` - Main Telegram webhook
-- `POST /api/telegram/callback` - Telegram callback
-- `POST /api/telegram/content` - Content management
-- `POST /api/telegram/setup` - Bot setup
-- `POST /api/telegram/notify` - Send notifications
-- `POST /api/telegram/dev` - Development endpoints
-- `POST /api/telegram/appointments-overdue` - Overdue appointment notifications
-- `POST /api/telegram/daily-summary` - Daily summary notifications
-
-### 2.5 Key Library Files
-
-| File | Purpose | Dependencies |
-|------|---------|---------------|
-| `lib/supabase.ts` | Supabase client initialization | `@supabase/supabase-js` |
-| `lib/auth.ts` | Authentication & role management | `supabase.ts`, `domain.ts`, `@nails/shared` |
-| `lib/domain.ts` | Organization context | - |
-| `lib/booking-requests.ts` | Booking request CRUD | `supabase.ts`, `domain.ts`, `booking-capacity.ts` |
-| `lib/shift-plans.ts` | Shift planning | `supabase.ts`, `domain.ts` |
-| `lib/shift-attendance.ts` | Shift attendance tracking | `supabase.ts`, `domain.ts` |
-| `lib/shift-staff-profiles.ts` | Staff profile management | `supabase.ts` |
-| `lib/shift-forecast.ts` | Shift forecasting | - |
-| `lib/crm.ts` | CRM operations | `supabase.ts`, `domain.ts` |
-| `lib/reporting.ts` | Report generation | `supabase.ts`, `domain.ts` |
-| `lib/telegram-bot.ts` | Telegram bot integration | `supabase.ts` |
-| `lib/tax-books.ts` | Tax book management | `supabase.ts`, `domain.ts` |
-| `lib/invite-codes.ts` | Invite code management | `supabase.ts` |
-| `lib/app-session.ts` | Session management | `supabase.ts` |
-| `lib/role-labels.ts` | Role label definitions | - |
-| `lib/mock-data.ts` | Mock data for development | - |
-| `lib/landing-content.ts` | Landing page content | `supabase.ts` |
-| `lib/landing-booking.ts` | Landing page booking | `supabase.ts` |
-| `lib/manage-landing-auth.ts` | Landing auth management | - |
-| `lib/manage-setup-auth.ts` | Setup auth management | - |
-| `lib/device-fingerprint.ts` | Device identification | - |
-| `lib/booking-capacity.ts` | Booking capacity logic | `supabase.ts` |
-| `lib/service-images.ts` | Service image management | - |
-| `lib/route-secrets.ts` | Route secrets | - |
-| `lib/web-auth.ts` | Web authentication | - |
-
-### 2.6 Key Components
-
-| Component | Location | Description |
-|-----------|----------|-------------|
-| `app-shell.tsx` | `components/` | Main app layout shell |
-| `manage-*.tsx` | `components/` | Admin dashboard components |
-| `landing-*.tsx` | `components/landing/` | Landing page components |
-| `deferred-render.tsx` | `components/` | Deferred rendering utility |
-| `app-lazy-image.tsx` | `components/` | Lazy image loading |
-
----
-
-## 3. MOBILE APPLICATION (`apps/mobile`)
-
-### 3.1 Công nghệ
-
-- **Framework**: React Native with Expo
-- **Language**: TypeScript
-- **Navigation**: Expo Router
-- **State Management**: React Context + Custom hooks
-- **Storage**: AsyncStorage + Expo SecureStore
-
-### 3.2 Cấu trúc source (`apps/mobile/src/`)
-
-```
-apps/mobile/src/
-├── features/
-│   ├── admin/            # Admin feature modules
-│   │   ├── ui.tsx        # Admin UI components
-│   │   ├── manage-ui.tsx # Management UI
-│   │   ├── manage.ts     # Management logic
-│   │   ├── services-data.ts # Service data
-│   │   ├── content-images.ts # Content images
-│   │   ├── shifts/       # Shift management
-│   │   │   └── data.ts   # Shift data
-│   │   ├── navigation.ts # Admin navigation
-│   │   └── notifications.ts # Notifications
-│   └── customer/         # Customer feature modules
-│       ├── ui.tsx        # Customer UI components
-│       ├── data.ts       # Customer data
-│       ├── strings.ts    # Localization strings
-│       ├── image-preview-modal.tsx # Image preview
-│       └── cached-image.tsx # Cached images
-├── components/           # Shared components
-│   ├── cached-app-image.tsx
-│   └── masonry-grid.tsx
-├── hooks/                # Custom React hooks
-│   ├── use-customer-*.ts # Customer hooks
-│   ├── use-admin-*.ts    # Admin hooks
-│   └── use-*.ts          # General hooks
-├── lib/                  # Utilities
-│   ├── supabase.ts       # Supabase client
-│   ├── env.ts            # Environment variables
-│   ├── device.ts        # Device utilities
-│   ├── app-session.ts    # Session management
-│   ├── safe-storage.ts   # Secure storage
-│   ├── profile-upsert.ts # Profile upsert
-│   ├── profile-cache.ts  # Profile caching
-│   ├── customer-image-url.ts
-│   ├── customer-image-cache.ts
-│   └── customer-feed-cache.ts
-├── providers/            # React Context providers
-│   ├── session-provider.tsx
-│   └── customer-preferences-provider.tsx
-├── design/
-│   └── premium-theme.ts  # Theme configuration
-└── app.json             # Expo configuration
-```
-
-### 3.3 Tính năng chính
-
-#### Admin Features
-
-- Dashboard overview
-- Appointment management
-- Customer management
-- Service management
-- Staff shift management
-- Notifications
-- Content image management
-
-#### Customer Features
-
-- Home feed
-- Explore store
-- Lookbook viewing
-- Favorites
-- Membership
-- Booking history
-- Upcoming bookings
-- Guest booking
-
-### 3.4 Key Library Files
-
-| File | Purpose |
-|------|---------|
-| `lib/supabase.ts` | Supabase client with React Native storage |
-| `lib/env.ts` | Mobile environment configuration |
-| `lib/device.ts` | Device information utilities |
-| `lib/app-session.ts` | Mobile session management |
-| `lib/safe-storage.ts` | Secure storage wrapper |
-| `lib/profile-upsert.ts` | Profile upsert operations |
-| `lib/profile-cache.ts` | Profile caching |
-| `lib/customer-image-url.ts` | Image URL generation |
-| `lib/customer-image-cache.ts` | Image caching |
-| `lib/customer-feed-cache.ts` | Feed caching |
-
-### 3.5 Key Hooks
-
-| Hook | Purpose |
-|------|---------|
-| `use-customer-home-feed` | Customer home feed data |
-| `use-customer-explore` | Explore store data |
-| `use-customer-favorites` | Customer favorites |
-| `use-customer-membership` | Membership data |
-| `use-customer-history` | Booking history |
-| `use-customer-upcoming-bookings` | Upcoming bookings |
-| `use-lookbook-services` | Lookbook services |
-| `use-guest-booking` | Guest booking flow |
-| `use-admin-operations` | Admin operations |
-| `use-admin-overview` | Admin dashboard |
-
----
-
-## 4. SHARED PACKAGE (`packages/shared`)
-
-### 4.1 Overview
-
-The shared package contains TypeScript types, interfaces, and utilities used by both web and mobile applications.
-
-### 4.2 Module Structure
-
-| Module | Purpose |
-|--------|---------|
-| `auth.ts` | Authentication types |
-| `session.ts` | Session types |
-| `org.ts` | Organization types |
-| `roles.ts` | Role definitions |
-| `format.ts` | Formatting utilities |
-| `validation.ts` | Validation schemas |
-| `booking.ts` | Booking types |
-| `appointments.ts` | Appointment types |
-| `checkout.ts` | Checkout types |
-| `dashboard.ts` | Dashboard types |
-| `crm.ts` | CRM types |
-| `reporting.ts` | Reporting types |
-| `services.ts` | Service types |
-| `resources.ts` | Resource types |
-| `team.ts` | Team types |
-| `tax-books.ts` | Tax book types |
-| `customer-feed.ts` | Customer feed types |
-| `customer-explore.ts` | Customer explore types |
-| `customer-personalization.ts` | Personalization types |
-| `admin-content.ts` | Admin content types |
-| `auto-schedule.ts` | Auto-schedule types |
-
-### 4.3 Dependencies
-
-- **zod**: Data validation library
-
----
-
-## 5. SUPABASE DATABASE (`supabase/`)
-
-### 5.1 Overview
-
-The supabase directory contains SQL migration files that define the database schema, including tables, views, functions, and seed data.
-
-### 5.2 Main Schema Files
-
-| File | Description |
-|------|-------------|
-| `bootstrap.sql` | Initial schema setup (4481 lines) |
-| `deploy.sql` | Deployment script |
-
-### 5.3 Key Tables (from bootstrap.sql)
-
-- `orgs` - Organizations
-- `branches` - Branches/locations
-- `profiles` - User profiles
-- `user_roles` - User roles and permissions
-- `customers` - Customer records
-- `resources` - Equipment/resources (chairs, tables, rooms)
-- `services` - Services offered
-- `appointments` - Scheduled appointments
-- `booking_requests` - Booking requests
-- And more...
-
-### 5.4 Migration Files by Date
-
-#### April 2026
-
-- `auth_social_customer_patch_2026_04.sql` - Social auth for customers
-- `partner_branch_roles_shift_plans_2026_04.sql` - Partner/branch/roles/shift plans
-- `shift_plans_2026_04.sql` - Shift plans
-- `shift_attendance_requests_2026_04.sql` - Shift attendance
-- `staff_shift_profiles_2026_04.sql` - Staff shift profiles
-- `customer_content_feed_2026_04.sql` - Content feed
-- `customer_explore_storefront_2026_04.sql` - Explore storefront
-- `customer_lookbook_public_read_2026_04.sql` - Lookbook public read
-- `customer_mobile_schema_2026_04.sql` - Mobile schema
-- `crm_patch_2026_04.sql` - CRM patch
-
-#### May 2026
-
-- `booking_web_delete_partner_patch_2026_05.sql`
-- `fix_convert_booking_request_secure.sql`
-- `partner_invite_telegram_scope_patch_2026_05.sql`
-- `auth_signup_forbidden_role_insert_patch_2026_05.sql`
-- `auth_runtime_patch_2026_05_user_roles_conflict.sql`
-- `customer_scope_repair_2026_05.sql`
-- `customer_mobile_runtime_patch_2026_05.sql`
-- `customer_membership_settings_seed_2026_05.sql`
-- `customer_lookbook_backfill_2026_05.sql`
-- `storefront_products_cham_mock_2026_05.sql`
-- `ensure_default_workspace_runtime_patch_2026_05.sql`
-- `fresh_project_patch.sql`
-- `app_sessions.sql`
-- `runtime_patch_2026_04_telegram_booking.sql`
-
----
-
-## 6. SCRIPTS (`scripts/`)
-
-| Script | Purpose |
-|--------|---------|
-| `run-web-next.mjs` | Start Next.js development server |
-| `run-mobile-expo.mjs` | Start Expo development server |
-| `run-mobile-cloudflared.mjs` | Start cloudflared tunnel for mobile |
-| `shared-env.mjs` | Share environment variables |
-| `update-services-from-priceboard.js` | Update services from priceboard |
-| `check-mobile-env.mjs` | Check mobile environment configuration |
-
----
-
-## 7. NPM SCRIPTS
-
-### Root Scripts
-
-```bash
-npm run dev              # Start web development
-npm run build            # Build web app
-npm run start            # Start web app
-npm run lint             # Lint web + mobile
-npm run typecheck        # Typecheck web + mobile
-```
-
-### Web Scripts
-
-```bash
-npm run web:dev
-npm run web:build
-npm run web:start
-npm run web:lint
-npm run web:typecheck
-```
-
-### Mobile Scripts
-
-```bash
-npm run mobile:start
-npm run mobile:go:lan
-npm run mobile:go:cloudflare
-npm run mobile:android
-npm run mobile:ios
-npm run mobile:lint
-npm run mobile:typecheck
-```
-
----
-
-## 8. INTERCONNECTIONS
-
-### 8.1 Web App Dependencies
-
-```
-apps/web
-├── imports @nails/shared (types, utilities)
-├── imports @supabase/supabase-js
-├── uses lib/supabase.ts
-├── uses lib/auth.ts → imports domain.ts, device-fingerprint.ts
-├── uses lib/booking-requests.ts → imports domain.ts, booking-capacity.ts
-└── uses lib/shift-*.ts → imports domain.ts
-```
-
-### 8.2 Mobile App Dependencies
-
-```
-apps/mobile
-├── imports @nails/shared (types, utilities)
-├── imports @supabase/supabase-js
-├── imports expo modules
-├── uses lib/supabase.ts → imports env.ts, safe-storage.ts
-├── uses lib/env.ts
-└── uses various hooks from hooks/
-```
-
-### 8.3 Shared Package
-
-```
-packages/shared
-├── exports types from auth, session, org, roles, etc.
-├── imports zod for validation
-└── used by both web and mobile
-```
-
-### 8.4 Supabase Integration
-
-```
-Both apps use Supabase for:
-├── Authentication (email, OAuth)
-├── Database (PostgreSQL)
-├── Realtime subscriptions
-└── Storage (for images)
-```
-
----
-
-## 9. DEVELOPMENT WORKFLOW
-
-### 9.1 Local Development
-
-1. **Web**: `npm run dev` starts Next.js at http://localhost:3000
-2. **Mobile**: `npm run mobile:go:cloudflare` starts Expo with cloudflare tunnel
-3. **Database**: Supabase local or cloud instance
-
-### 9.2 Environment Variables
-
-- Root `.env.local` contains shared environment
-- `apps/web/.env.local` for web-specific vars
-- `apps/mobile/.env.local` for mobile-specific vars
-- `apps/mobile/.env` for Expo vars
-
----
-
-## 10. KEY INTEGRATIONS
-
-### 10.1 Telegram Bot
-
-- Webhook-based integration
-- Notifications for bookings, appointments, daily summaries
-- Content management via bot
-
-### 10.2 Authentication
-
-- Supabase Auth (email/password, OAuth)
-- Role-based access control (OWNER, PARTNER, MANAGER, RECEPTION, ACCOUNTANT, TECH, USER)
-- Device session management
-
-### 10.3 Booking System
-
-- Booking requests with status workflow
-- Capacity management
-- Convert requests to appointments
-
----
-
-## 11. FILE NAMING CONVENTIONS
-
-- **Components**: PascalCase (e.g., `ManageBookingRequestsPanel.tsx`)
-- **Utilities**: camelCase (e.g., `booking-requests.ts`)
-- **Pages**: kebab-case (e.g., `booking-requests/page.tsx`)
-- **SQL migrations**: `descriptive_name_date.sql`
-
----
-
-## 12. NOTES FOR DEVELOPERS
-
-1. **Web app uses @ alias** - configured in tsconfig.json to point to `apps/web/src`
-2. **Mobile uses Expo** - requires Expo CLI and environment
-3. **Shared package is internal** - not published to npm
-4. **Database migrations are additive** - never modify old migration files
-5. **Telegram bot requires** - Bot token and webhook configuration
-6. **Device sessions** - Used for security and session management
-
----
-
-*Last updated: May 2026*
+*Last updated: 2026-05-09*

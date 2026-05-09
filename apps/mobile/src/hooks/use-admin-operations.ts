@@ -77,6 +77,12 @@ let inflightAdminLoad: Promise<AdminOperationsState> | null = null;
 const adminStateListeners = new Set<(state: AdminOperationsState) => void>();
 
 function emitAdminState(nextState: AdminOperationsState) {
+  // Only emit state if data actually changed to prevent unnecessary re-renders
+  const stateChanged = JSON.stringify(cachedAdminState) !== JSON.stringify(nextState);
+  if (!stateChanged) {
+    return;
+  }
+
   cachedAdminState = nextState;
   cachedAdminStateAt = Date.now();
   adminStateListeners.forEach((listener) => listener(nextState));

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { addMinutesToIso, AdminBottomNavDock, getAdminBottomBarPadding } from "@/src/features/admin/ui";
+import { addMinutesToIso, AdminBottomNavDock, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 
 const palette = {
@@ -543,15 +543,8 @@ export default function BookingRequestDetailScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 8, paddingBottom: 108 + getAdminBottomBarPadding(insets.bottom) },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
           <Pressable style={styles.headerButton} onPress={() => router.back()}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
@@ -575,7 +568,14 @@ export default function BookingRequestDetailScreen() {
             </Pressable>
           </View>
         </View>
-
+      </AdminTopSafeArea>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + getAdminBottomBarPadding(insets.bottom) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {!booking ? (
           <View style={styles.emptyCard}>
             <Text style={styles.emptyText}>Không tìm thấy booking</Text>
@@ -607,7 +607,7 @@ export default function BookingRequestDetailScreen() {
           void router.replace(getAdminNavHref(target, role));
         }}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -616,8 +616,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: palette.bg,
   },
+  topChrome: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
   content: {
     paddingHorizontal: 20,
+    paddingTop: 0,
     gap: 16,
   },
   header: {

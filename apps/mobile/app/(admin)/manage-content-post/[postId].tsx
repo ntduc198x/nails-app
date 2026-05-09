@@ -119,7 +119,7 @@ export default function AdminManageContentPostDetailScreen() {
   const loadPost = useCallback(async () => {
     const client = mobileSupabase;
     if (!client) {
-      setLastError("Thieu cau hinh Supabase mobile.");
+      setLastError("Thiếu cấu hình Database mobile.");
       setIsLoading(false);
       return;
     }
@@ -137,12 +137,12 @@ export default function AdminManageContentPostDetailScreen() {
       const post = snapshot.posts.find((item) => item.id === postId);
 
       if (!post) {
-        throw new Error("Khong tim thay bai feed can chinh sua.");
+        throw new Error("Không tìm thấy bài feed cần chỉnh sửa.");
       }
 
       setForm(buildPostForm(post));
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Khong tai duoc bai feed.");
+      setLastError(error instanceof Error ? error.message : "Không tải được bài feed.");
     } finally {
       setIsLoading(false);
     }
@@ -161,7 +161,7 @@ export default function AdminManageContentPostDetailScreen() {
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Can cap quyen", "Hay cap quyen thu vien anh de tai anh bai feed.");
+      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện để tải ảnh bài feed.");
       return;
     }
 
@@ -182,7 +182,7 @@ export default function AdminManageContentPostDetailScreen() {
       });
       setForm((current) => ({ ...current, coverImageUrl: uploaded.publicUrl }));
     } catch (error) {
-      Alert.alert("Khong tai duoc anh", error instanceof Error ? error.message : "Thu lai sau.");
+      Alert.alert("Không tải được ảnh", error instanceof Error ? error.message : "Thử lại sau.");
     }
   }
 
@@ -191,7 +191,7 @@ export default function AdminManageContentPostDetailScreen() {
     if (!client) return;
 
     if (!form.title.trim() || !form.summary.trim() || !form.body.trim()) {
-      Alert.alert("Thieu du lieu", "Can nhap tieu de, tom tat va noi dung bai feed.");
+      Alert.alert("Thiếu dữ liệu", "Cần nhập tiêu đề, tóm tắt và nội dung bài feed.");
       return;
     }
 
@@ -206,7 +206,7 @@ export default function AdminManageContentPostDetailScreen() {
 
       void router.replace("/(admin)/manage-content" as never);
     } catch (error) {
-      Alert.alert("Khong luu bai viet", error instanceof Error ? error.message : "Thu lai sau.");
+      Alert.alert("Không lưu bài viết", error instanceof Error ? error.message : "Thử lại sau.");
     } finally {
       setIsSaving(false);
     }
@@ -216,10 +216,10 @@ export default function AdminManageContentPostDetailScreen() {
     const client = mobileSupabase;
     if (!client || !form.id) return;
 
-    Alert.alert("An bai viet", "Bai nay se duoc go khoi Home. Tiep tuc?", [
-      { text: "Huy", style: "cancel" },
+    Alert.alert("Ẩn bài viết", "Bài này sẽ được gỡ khỏi Home. Tiếp tục?", [
+      { text: "Hủy", style: "cancel" },
       {
-        text: "An bai",
+        text: "Ẩn bài",
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -228,7 +228,7 @@ export default function AdminManageContentPostDetailScreen() {
               await archiveAdminContentPostForMobile(client, form.id!);
               void router.replace("/(admin)/manage-content" as never);
             } catch (error) {
-              Alert.alert("Khong an duoc bai viet", error instanceof Error ? error.message : "Thu lai sau.");
+              Alert.alert("Không ẩn được bài viết", error instanceof Error ? error.message : "Thử lại sau.");
             } finally {
               setIsSaving(false);
             }
@@ -240,8 +240,8 @@ export default function AdminManageContentPostDetailScreen() {
 
   return (
     <ManageScreenShell
-      title={isCreate ? "Them bai feed" : "Chi tiet bai feed"}
-      subtitle="Chinh sua noi dung Home va dong bo du lieu Landing Feed."
+      title={isCreate ? "Thêm bài feed" : "Chi tiết bài feed"}
+      subtitle="Chỉnh sửa nội dung Home và đồng bộ dữ liệu Landing Feed."
       currentKey="content"
       group="setup"
       backHref="/(admin)/manage-content"
@@ -251,20 +251,20 @@ export default function AdminManageContentPostDetailScreen() {
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Dang tai bai feed...</Text>
+            <Text style={styles.stateText}>Đang tải bài feed...</Text>
           </View>
         ) : lastError ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{lastError}</Text>
             <Pressable style={styles.secondaryButton} onPress={() => void loadPost()}>
-              <Text style={styles.secondaryButtonText}>Tai lai</Text>
+              <Text style={styles.secondaryButtonText}>Tải lại</Text>
             </Pressable>
           </View>
         ) : (
           <ScrollView contentContainerStyle={styles.formColumn} showsVerticalScrollIndicator={false}>
             <Text style={styles.label}>Tieu de</Text>
             <TextInput
-              placeholder="Nhap tieu de bai feed"
+              placeholder="Nhập tiêu đề bài feed"
               placeholderTextColor="#B4A89C"
               style={styles.input}
               value={form.title}
@@ -274,7 +274,7 @@ export default function AdminManageContentPostDetailScreen() {
             <Text style={styles.label}>Tom tat</Text>
             <TextInput
               multiline
-              placeholder="Tom tat ngan gon hien thi tren Home"
+              placeholder="Tóm tắt ngắn gọn hiển thị trên Home"
               placeholderTextColor="#B4A89C"
               style={[styles.input, styles.textarea]}
               textAlignVertical="top"
@@ -282,10 +282,10 @@ export default function AdminManageContentPostDetailScreen() {
               onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))}
             />
 
-            <Text style={styles.label}>Noi dung</Text>
+            <Text style={styles.label}>Nội dung</Text>
             <TextInput
               multiline
-              placeholder="Noi dung chi tiet"
+              placeholder="Nội dung chi tiết"
               placeholderTextColor="#B4A89C"
               style={[styles.input, styles.bodyTextarea]}
               textAlignVertical="top"
@@ -293,7 +293,7 @@ export default function AdminManageContentPostDetailScreen() {
               onChangeText={(value) => setForm((current) => ({ ...current, body: value }))}
             />
 
-            <Text style={styles.label}>Anh bia</Text>
+            <Text style={styles.label}>Ảnh bìa</Text>
             {form.coverImageUrl ? <CachedAppImage source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
             <TextInput
               placeholder="https://..."
@@ -303,10 +303,10 @@ export default function AdminManageContentPostDetailScreen() {
               onChangeText={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))}
             />
             <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage()}>
-              <Text style={styles.secondaryButtonText}>Tai anh bia</Text>
+              <Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text>
             </Pressable>
 
-            <Text style={styles.label}>Do uu tien</Text>
+            <Text style={styles.label}>Độ ưu tiên</Text>
             <TextInput
               keyboardType="number-pad"
               placeholder="100"
@@ -316,7 +316,7 @@ export default function AdminManageContentPostDetailScreen() {
               onChangeText={(value) => setForm((current) => ({ ...current, priority: value }))}
             />
 
-            <Text style={styles.label}>Loai noi dung</Text>
+            <Text style={styles.label}>Loại nội dung</Text>
             <View style={styles.chipRow}>
               {(["trend", "care", "news", "offer_hint"] as const).map((item) => (
                 <Pressable
@@ -329,7 +329,7 @@ export default function AdminManageContentPostDetailScreen() {
               ))}
             </View>
 
-            <Text style={styles.label}>Trang thai</Text>
+            <Text style={styles.label}>Trạng thái</Text>
             <View style={styles.chipRow}>
               {(["draft", "approved", "published", "archived"] as const).map((item) => (
                 <Pressable
@@ -361,12 +361,12 @@ export default function AdminManageContentPostDetailScreen() {
             />
 
             <Pressable style={styles.primaryButton} disabled={isSaving} onPress={() => void handleSave()}>
-              <Text style={styles.primaryButtonText}>{isSaving ? "Dang luu..." : "Luu bai viet"}</Text>
+              <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu bài viết"}</Text>
             </Pressable>
 
             {canArchive ? (
               <Pressable style={styles.archiveButton} disabled={isSaving} onPress={() => void handleArchive()}>
-                <Text style={styles.archiveButtonText}>An bai feed</Text>
+                <Text style={styles.archiveButtonText}>Ẩn bài feed</Text>
               </Pressable>
             ) : null}
           </ScrollView>

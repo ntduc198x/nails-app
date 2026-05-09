@@ -57,9 +57,9 @@ function CustomerLayoutContent() {
       <View style={[styles.container, { backgroundColor: colors.background, padding: spacing.xl }]}>
         <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radius.xl, borderColor: colors.border, gap: spacing.sm, paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl }]}>
-          <Text style={[styles.eyebrow, { color: colors.accentWarm }]}>Cham Beauty</Text>
+          <Text style={[styles.eyebrow, { color: colors.accentWarm }]}>Chạm Beauty</Text>
           <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.label, { color: colors.textSoft }]}>Dang tai khong gian khach hang...</Text>
+          <Text style={[styles.label, { color: colors.textSoft }]}>Đang tải không gian khách hàng...</Text>
         </View>
       </View>
     );

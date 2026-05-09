@@ -11,6 +11,8 @@ import { getAdminProfileDestination, isOwnerRole, type AdminNavTarget } from "@/
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 export const ADMIN_HEADER_TOP_OFFSET = 4;
 export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 2;
+export const ADMIN_CONTENT_TOP_GAP = 12;
+export const ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE = 112;
 
 export function getAdminBottomBarPadding(insetBottom: number) {
   return ADMIN_BOTTOM_BAR_BOTTOM_OFFSET + Math.max(insetBottom, 6);
@@ -18,6 +20,14 @@ export function getAdminBottomBarPadding(insetBottom: number) {
 
 export function getAdminHeaderTopPadding(insetTop: number) {
   return Math.max(insetTop, 4) + ADMIN_HEADER_TOP_OFFSET;
+}
+
+export function getAdminHeaderSafeAreaPadding(insetTop: number) {
+  return Math.max(getAdminHeaderTopPadding(insetTop) - insetTop, ADMIN_HEADER_TOP_OFFSET);
+}
+
+export function getAdminBottomDockSafeAreaPadding(insetBottom: number) {
+  return Math.max(getAdminBottomBarPadding(insetBottom) - insetBottom, ADMIN_BOTTOM_BAR_BOTTOM_OFFSET);
 }
 
 const ADMIN_NAV_ITEMS: Array<{
@@ -93,13 +103,27 @@ export function AdminScreen({
   const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+    <View style={styles.container}>
+      <AdminTopSafeArea style={styles.adminScreenHeaderSafeArea}>
+        <View style={styles.header}>
+          <Text style={styles.title}>{title}</Text>
+          {!compactHeader ? (
+            <>
+              <Text style={styles.eyebrow}>Week 4 Admin Core Flows</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
+              <Text style={styles.date}>Hôm nay: {formatViDate(new Date())}</Text>
+              <Text style={styles.date}>Role: {role ?? "-"}</Text>
+              <Text style={styles.date}>User: {userEmail ?? "-"}</Text>
+            </>
+          ) : null}
+        </View>
+      </AdminTopSafeArea>
       <ScrollView
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: getAdminHeaderTopPadding(insets.top),
-            paddingBottom: getAdminBottomBarPadding(insets.bottom),
+            paddingTop: ADMIN_CONTENT_TOP_GAP,
+            paddingBottom: footer ? 24 : ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE,
           },
         ]}
         refreshControl={
@@ -113,33 +137,38 @@ export function AdminScreen({
           ) : undefined
         }
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>{title}</Text>
-          {!compactHeader ? (
-            <>
-              <Text style={styles.eyebrow}>Week 4 Admin Core Flows</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
-              <Text style={styles.date}>H\u00f4m nay: {formatViDate(new Date())}</Text>
-              <Text style={styles.date}>Role: {role ?? "-"}</Text>
-              <Text style={styles.date}>User: {userEmail ?? "-"}</Text>
-            </>
-          ) : null}
-        </View>
-
         {children}
 
         <SessionActions />
       </ScrollView>
       {footer ? (
-        <View
-          style={[
-            styles.footerShell,
-            { paddingBottom: getAdminBottomBarPadding(insets.bottom) },
-          ]}
-        >
-          {footer}
-        </View>
+        <SafeAreaView style={styles.footerSafeArea} edges={["bottom"]}>
+          <View
+            style={[
+              styles.footerShell,
+              { paddingBottom: getAdminBottomDockSafeAreaPadding(insets.bottom) },
+            ]}
+          >
+            {footer}
+          </View>
+        </SafeAreaView>
       ) : null}
+    </View>
+  );
+}
+
+export function AdminTopSafeArea({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: ViewStyle | ViewStyle[];
+}) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <SafeAreaView style={styles.topSafeArea} edges={["top"]}>
+      <View style={[{ paddingTop: getAdminHeaderSafeAreaPadding(insets.top) }, style]}>{children}</View>
     </SafeAreaView>
   );
 }
@@ -284,13 +313,23 @@ export function AdminBottomNavDock({
 }: {
   current: AdminNavTarget | null;
   role: string | null | undefined;
-  insetBottom: number;
+  insetBottom?: number;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
+  const insets = useSafeAreaInsets();
+  const resolvedInsetBottom = insetBottom ?? insets.bottom;
+
   return (
-    <View style={[styles.bottomNavDock, { paddingBottom: getAdminBottomBarPadding(insetBottom) }]}>
-      <AdminBottomNav current={current} role={role} onNavigate={onNavigate} />
-    </View>
+    <SafeAreaView style={styles.bottomNavSafeArea} edges={["bottom"]}>
+      <View
+        style={[
+          styles.bottomNavDock,
+          { paddingBottom: getAdminBottomDockSafeAreaPadding(resolvedInsetBottom) },
+        ]}
+      >
+        <AdminBottomNav current={current} role={role} onNavigate={onNavigate} />
+      </View>
+    </SafeAreaView>
   );
 }
 
@@ -481,9 +520,16 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f5f1ea",
   },
+  topSafeArea: {
+    backgroundColor: "transparent",
+  },
   content: {
     padding: 24,
     gap: 20,
+  },
+  adminScreenHeaderSafeArea: {
+    paddingHorizontal: 24,
+    paddingBottom: 12,
   },
   header: {
     gap: 10,
@@ -805,18 +851,25 @@ export const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "700",
   },
+  footerSafeArea: {
+    backgroundColor: "transparent",
+  },
   footerShell: {
     backgroundColor: "transparent",
     paddingHorizontal: 12,
     paddingTop: 2,
     paddingBottom: 0,
   },
-  bottomNavDock: {
+  bottomNavSafeArea: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 10,
+    bottom: -25,
+    backgroundColor: "transparent",
+  },
+  bottomNavDock: {
     paddingHorizontal: 14,
+    paddingBottom: 0,
     paddingTop: 4,
   },
   bottomNav: {

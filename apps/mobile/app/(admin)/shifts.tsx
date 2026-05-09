@@ -11,8 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -243,7 +242,6 @@ function replaceProfile(profiles: StaffShiftProfileRecord[], nextProfile: StaffS
 
 export default function AdminShiftsScreen() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const { isHydrated, role, user } = useSession();
   const canManage = canManageShiftPlans(role);
   const todayKey = useMemo(() => toDateKey(new Date()), []);
@@ -424,18 +422,18 @@ export default function AdminShiftsScreen() {
   );
   const todayShiftStatus = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Dang mo ca"
-      : "Da xuat ban"
+      ? "Đang mở ca"
+      : "Đã xuất lịch"
     : todayDraftAssignment
-      ? "Cho xuat ban"
-      : "Chua co lich";
+      ? "Chờ xuất lịch"
+      : "Chưa có lịch";
   const todayShiftMessage = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Ca hom nay dang duoc mo. Theo doi gio ra de cham cong chinh xac."
-      : "Lich hom nay da duoc xuat ban. Kiem tra loai ca va khung gio ben duoi."
+      ? "Ca hôm nay đang được mở. Theo dõi giờ ra để chấm công chính xác."
+      : "Lịch hôm nay đã được xuất. Vui lòng kiểm tra loại ca và khung giờ bên dưới."
     : todayDraftAssignment
-      ? "Ban da duoc xep lich, nhung ca nay chua duoc xuat ban chinh thuc."
-      : "Hom nay chua co ca nao duoc xuat ban cho ban.";
+      ? "Bạn đã được xếp lịch, nhưng ca này chưa được xuất lịch chính thức."
+      : "Hôm nay chưa có ca nào được xuất lịch cho bạn.";
   const selectedEmployee = useMemo(
     () => employees.find((employee) => employee.id === selectedCell?.employeeId) ?? null,
     [employees, selectedCell?.employeeId],
@@ -525,9 +523,9 @@ export default function AdminShiftsScreen() {
     try {
       setSaving(true);
       await persistDraft(draftResult, "published");
-      Alert.alert("Đã xuất bản", "Lịch ca tuần này đã được cập nhật cho nhân sự.");
+      Alert.alert("Đã xuất lịch", "Lịch ca tuần này đã được cập nhật cho nhân sự.");
     } catch (nextError) {
-      Alert.alert("Không thể xuất bản", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert("Không thể xuất lịch", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
     } finally {
       setSaving(false);
     }
@@ -637,49 +635,43 @@ export default function AdminShiftsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <View style={styles.screen}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={c.primary} />
           <Text style={styles.loadingText}>Đang tải lịch ca...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
-      <View style={styles.screen}>
-        <ScrollView
-          contentContainerStyle={[
-            styles.content,
-            {
-              paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom),
-            },
-          ]}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={() => void loadData(true)}
-              tintColor={c.primary}
-              colors={[c.primary]}
-            />
-          }
-          showsVerticalScrollIndicator={false}
-          contentInsetAdjustmentBehavior="automatic"
-        >
-          <View style={styles.header}>
+    <View style={styles.screen}>
+      <AdminTopSafeArea style={styles.topChrome}>
+        <View style={styles.header}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{initials(user?.email?.split("@")[0] || "AD")}</Text>
             </View>
             <View style={styles.headerCopy}>
-              <Text style={styles.title}>{canManage ? "Quản lý ca làm" : "Ca làm"}</Text>
+              <Text style={styles.title}>{canManage ? "Quản lý ca làm" : "Lịch làm việc"}</Text>
               <Text style={styles.subtitle}>
-                {canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm đã xuất bản và chấm công cá nhân."}
+                {canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm, xin nghỉ và chấm công cá nhân."}
               </Text>
             </View>
             <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
           </View>
+      </AdminTopSafeArea>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => void loadData(true)}
+            tintColor={c.primary}
+            colors={[c.primary]}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {planSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `shift_plans`, đang dùng draft tạm trên mobile.</Text> : null}
@@ -688,7 +680,7 @@ export default function AdminShiftsScreen() {
           <View style={styles.sectionCard}>
             <View style={styles.rowBetween}>
               <Text style={styles.sectionTitle}>Tuần làm việc</Text>
-              <Text style={styles.badgeText}>{draftPlan?.status === "published" || publishedPlan ? "Đã có lịch" : "Chưa xuất bản"}</Text>
+              <Text style={styles.badgeText}>{draftPlan?.status === "published" || publishedPlan ? "Đã có lịch" : "Chưa xuất lịch"}</Text>
             </View>
             <View style={styles.weekNavRow}>
               <Pressable style={styles.iconRound} onPress={() => setWeekStart((current) => addDays(current, -7))}>
@@ -710,7 +702,7 @@ export default function AdminShiftsScreen() {
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handlePublish()} disabled={saving || !draftResult}>
                     <Feather name="upload" size={16} color={c.text} />
-                    <Text style={styles.secondaryButtonText}>Xuất bản</Text>
+                    <Text style={styles.secondaryButtonText}>Xuất lịch</Text>
                   </Pressable>
                 </>
               ) : (
@@ -834,11 +826,11 @@ export default function AdminShiftsScreen() {
 
           {!canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Lich cua toi trong tuan</Text>
+              <Text style={styles.sectionTitle}>Lịch của tôi trong tuần</Text>
               <Text style={styles.sectionSubtitle}>
                 {selectedPersonalAssignment
-                  ? `Ngay ${formatDayChip(selectedDateKey)} ban duoc phan ${selectedPersonalAssignment.shiftLabel.toLowerCase()}.`
-                  : "Chon tung ngay de xem ro ban duoc xep ca sang, chieu hay ca ngay."}
+                  ? `Ngày ${formatDayChip(selectedDateKey)} bạn được phân ${selectedPersonalAssignment.shiftLabel.toLowerCase()}.`
+                  : "Chọn từng ngày để xem rõ bạn được xếp ca sáng, ca chiều hay cả ngày."}
               </Text>
               <View style={styles.cardStack}>
                 {personalWeekAssignments.map(({ dateKey, assignment, published }) => {
@@ -863,7 +855,7 @@ export default function AdminShiftsScreen() {
                           <Text style={styles.personalShiftDayMeta}>
                             {assignment
                               ? `${assignment.shiftLabel} • ${assignment.startTime} - ${assignment.endTime}`
-                              : "Chua co ca duoc xuat ban"}
+                              : "Chưa có ca được xuất lịch"}
                           </Text>
                         </View>
                         <View style={[styles.todayShiftBadge, { borderColor: assignment ? colors.border : c.border }]}>
@@ -874,7 +866,7 @@ export default function AdminShiftsScreen() {
                       </View>
                       <View style={styles.personalShiftMetaRow}>
                         <Text style={styles.personalShiftStatus}>
-                          {published ? "Da xuat ban" : assignment ? "Cho xuat ban" : "OFF"}
+                          {published ? "Đã xuất lịch" : assignment ? "Chờ xuất lịch" : "OFF"}
                         </Text>
                         {assignment ? <Text style={styles.personalShiftHours}>{assignment.startTime} - {assignment.endTime}</Text> : null}
                       </View>
@@ -947,7 +939,7 @@ export default function AdminShiftsScreen() {
             <Text style={styles.sectionSubtitle}>
               {todayPublishedAssignment
                 ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
-                : "Hôm nay chưa có ca nào được xuất bản cho bạn."}
+                : "Hôm nay chưa có ca nào được xuất lịch cho bạn."}
             </Text>
             {visibleTodayAssignment ? (
               <View
@@ -983,7 +975,7 @@ export default function AdminShiftsScreen() {
                     <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
                   </View>
                   <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Trang thai</Text>
+                    <Text style={styles.todayShiftMetaLabel}>Trạng thái</Text>
                     <Text
                       style={[
                         styles.todayShiftMetaValue,
@@ -994,7 +986,7 @@ export default function AdminShiftsScreen() {
                     </Text>
                   </View>
                   <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Gio lam</Text>
+                    <Text style={styles.todayShiftMetaLabel}>Giờ làm</Text>
                     <Text style={styles.todayShiftMetaValue}>
                       {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                         ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
@@ -1002,7 +994,7 @@ export default function AdminShiftsScreen() {
                     </Text>
                   </View>
                   <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Tinh cong</Text>
+                    <Text style={styles.todayShiftMetaLabel}>Tính công</Text>
                     <Text style={styles.todayShiftMetaValue}>
                       {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                         ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
@@ -1086,19 +1078,19 @@ export default function AdminShiftsScreen() {
           </Pressable>
         </Modal>
 
-        <AdminBottomNavDock current="profile" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-      </View>
-    </SafeAreaView>
+      <AdminBottomNavDock current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: c.bg },
   screen: { flex: 1, backgroundColor: c.bg },
   loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { color: c.sub, fontSize: 14, lineHeight: 20 },
-  content: { paddingHorizontal: 18, gap: 16 },
+  topChrome: { paddingHorizontal: 18, paddingBottom: 12 },
+  content: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
   header: { flexDirection: "row", alignItems: "center", gap: 12 },
+  hiddenHeader: { display: "none" },
   avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: c.primarySoft, alignItems: "center", justifyContent: "center" },
   avatarText: { color: c.primary, fontSize: 18, lineHeight: 22, fontWeight: "800" },
   headerCopy: { flex: 1, gap: 2 },

@@ -29,19 +29,19 @@ function buildHelperText(input: {
   expiresAt: string | null;
 }) {
   if (!input.hasMembership) {
-    return "Dang san sang kich hoat the thanh vien that tu du lieu cua cua hang.";
+    return "Đang sẵn sàng kích hoạt thẻ thành viên thật từ dữ liệu của cửa hàng.";
   }
 
   if (input.nextTierName) {
-    return `Dang tich luy ${formatNumber(input.pointsBalance)} diem. Muc chi tieu hien tai ${formatNumber(input.totalSpent)} va ${formatNumber(input.totalVisits)} luot hen, muc tieu tiep theo la ${input.nextTierName}.`;
+    return `Đang tích lũy ${formatNumber(input.pointsBalance)} điểm. Mức chi tiêu hiện tại ${formatNumber(input.totalSpent)} và ${formatNumber(input.totalVisits)} lượt hẹn, mục tiêu tiếp theo là ${input.nextTierName}.`;
   }
 
   const expiresText = formatDate(input.expiresAt);
   if (expiresText) {
-    return `Ban dang o hang cao nhat. Quyen loi hien tai co hieu luc den ${expiresText}.`;
+    return `Bạn đang ở hạng cao nhất. Quyền lợi hiện tại có hiệu lực đến ${expiresText}.`;
   }
 
-  return "Ban dang o hang cao nhat va co the tiep tuc su dung cac quyen loi hien co.";
+  return "Bạn đang ở hạng cao nhất và có thể tiếp tục sử dụng các quyền lợi hiện có.";
 }
 
 function describeTierRequirements(tier: {
@@ -113,7 +113,7 @@ export default function MembershipScreen() {
     nextTier,
   } = useCustomerMembership();
 
-  const tierName = currentTier?.name || "Thanh vien";
+  const tierName = currentTier?.name || "Thành viên";
   const tierAccent = currentTier?.accentColor || "#efc26d";
   const helperText = buildHelperText({
     hasMembership,
@@ -142,13 +142,13 @@ export default function MembershipScreen() {
         <View style={styles.patternLarge} />
         <View style={styles.patternSmall} />
 
-        <Text style={styles.brand}>CHAM BEAUTY</Text>
+        <Text style={styles.brand}>CHẠM BEAUTY</Text>
         <Text style={styles.tier}>
           Member <Text style={[styles.tierAccent, { color: tierAccent }]}>{tierName}</Text>
         </Text>
 
-        <Text style={styles.pointsLabel}>Diem hien tai</Text>
-        <Text style={styles.points}>{formatNumber(pointsBalance)} diem</Text>
+        <Text style={styles.pointsLabel}>Điểm hiện tại</Text>
+        <Text style={styles.points}>{formatNumber(pointsBalance)} điểm</Text>
 
         <View style={styles.progressRow}>
           <View style={styles.progressTrack}>
@@ -180,7 +180,7 @@ export default function MembershipScreen() {
         <Text style={styles.sectionTitle}>Quyền lợi của bạn</Text>
 
         <View style={styles.perkList}>
-          {(perks.length ? perks : ["Khong co quyen loi nao duoc cau hinh cho hang hien tai."]).map((perk) => (
+          {(perks.length ? perks : ["Không có quyền lợi nào được cấu hình cho hạng hiện tại."]).map((perk) => (
             <SurfaceCard key={perk} style={styles.perkCard}>
               <View style={styles.perkIcon}>
                 <Feather color={colors.text} name="star" size={18} />
@@ -188,7 +188,7 @@ export default function MembershipScreen() {
 
               <View style={styles.perkCopy}>
                 <Text style={styles.perkTitle}>{perk}</Text>
-                <Text style={styles.perkDetail}>Du lieu quyen loi dang doc truc tiep tu hang thanh vien that.</Text>
+                <Text style={styles.perkDetail}>Dữ liệu quyền lợi đang đọc trực tiếp từ hạng thành viên thật.</Text>
               </View>
             </SurfaceCard>
           ))}
@@ -235,8 +235,8 @@ export default function MembershipScreen() {
             ))
           ) : (
             <SurfaceCard style={styles.ctaCard}>
-              <Text style={styles.ctaTitle}>Chua co uu dai dang bat</Text>
-              <Text style={styles.ctaText}>Khi admin cap nhat Landing Feed, uu dai se tu dong hien tai day.</Text>
+              <Text style={styles.ctaTitle}>Chưa có ưu đãi đang bật</Text>
+              <Text style={styles.ctaText}>Khi admin cập nhật Landing Feed, ưu đãi sẽ tự động hiển thị đầy đủ.</Text>
             </SurfaceCard>
           )}
         </View>

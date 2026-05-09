@@ -4,8 +4,8 @@ export default function AuthCallbackScreen() {
   return (
     <View style={styles.container}>
       <ActivityIndicator color="#4a3424" />
-      <Text style={styles.title}>Dang hoan tat dang nhap...</Text>
-      <Text style={styles.subtitle}>Ung dung se tu dong quay lai trang phu hop sau khi dong bo session.</Text>
+      <Text style={styles.title}>Đang hoàn tất đăng nhập...</Text>
+      <Text style={styles.subtitle}>Ứng dụng sẽ tự động quay lại trang phù hợp sau khi đồng bộ session.</Text>
     </View>
   );
 }

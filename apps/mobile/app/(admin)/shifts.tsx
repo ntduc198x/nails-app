@@ -666,6 +666,7 @@ export default function AdminShiftsScreen() {
             />
           }
           showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="automatic"
         >
           <View style={styles.header}>
             <View style={styles.avatar}>

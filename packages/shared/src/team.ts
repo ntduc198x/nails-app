@@ -62,12 +62,12 @@ async function requireOwner(client: SharedSupabaseClient) {
 
   const currentUser = session?.user;
   if (!currentUser) {
-    throw new Error("Chua dang nhap");
+    throw new Error("Chưa đăng nhập");
   }
 
   const currentRole = await getOrCreateRole(client, currentUser.id);
   if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
-    throw new Error("Chi BOSS hoac Chủ tiệm moi co quyen quan ly nhan su.");
+    throw new Error("Chỉ BOSS hoac Chủ tiệm mới có quyền quản lý nhân sự.");
   }
 
   return currentUser.id;
@@ -154,7 +154,7 @@ export async function updateTeamMemberRoleForMobile(
   }
 
   if (String(target.data?.user_id ?? "") === currentUserId) {
-    throw new Error("Khong the tu doi vai tro cua chinh minh.");
+    throw new Error("Không thể tự đổi vai trò của chính minh.");
   }
 
   const { error } = await client

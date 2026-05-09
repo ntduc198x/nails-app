@@ -172,6 +172,7 @@ export default function AdminCheckoutScreen() {
           contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom) }]}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={palette.brown} colors={[palette.brown]} />}
+          contentInsetAdjustmentBehavior="automatic"
         >
           <View style={styles.header}>
             <View style={{ flex: 1 }}>

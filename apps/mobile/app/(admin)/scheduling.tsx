@@ -1,7 +1,7 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { AdminBottomNavDock, AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
@@ -274,19 +274,15 @@ export default function AdminSchedulingScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={8}
-        style={styles.screen}
-      >
-      <ScrollView
-        contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: getAdminBottomBarPadding(insets.bottom) }]}
-        contentInsetAdjustmentBehavior="always"
-        keyboardDismissMode="on-drag"
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
+    <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <View style={styles.screen}>
+        <ScrollView
+          contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 112 + getAdminBottomBarPadding(insets.bottom) }]}
+          keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="automatic"
+        >
         <View style={styles.header}>
           <View style={styles.headerCopy}>
             <Text style={styles.title}>Điều phối lịch</Text>
@@ -562,7 +558,6 @@ export default function AdminSchedulingScreen() {
           </View>
         </View>
       </ScrollView>
-      </KeyboardAvoidingView>
 
       {/* Date Picker Modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -642,7 +637,8 @@ export default function AdminSchedulingScreen() {
         </Pressable>
       </Modal>
 
-      <AdminBottomNavDock current="scheduling" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+        <AdminBottomNavDock current="scheduling" role={role} insetBottom={insets.bottom} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+      </View>
     </SafeAreaView>
   );
 }
@@ -681,10 +677,8 @@ function Field({
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    backgroundColor: "#f7f2ec",
-    flex: 1,
-  },
+  safeArea: { flex: 1, backgroundColor: "#f7f2ec" },
+  screen: { flex: 1, backgroundColor: "#f7f2ec" },
   content: {
     gap: 12,
     paddingBottom: 26,

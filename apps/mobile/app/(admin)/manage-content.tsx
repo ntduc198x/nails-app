@@ -57,6 +57,7 @@ import { getAdminHeaderTopPadding } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { getCacheAgeMs, hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 
 const palette = {
   border: "#EADFD3",
@@ -68,6 +69,10 @@ const palette = {
   danger: "#C25A43",
   mutedSoft: "#F7F3EE",
 };
+
+const SERVICES_CACHE_KEY = "admin-services";
+const SERVICES_FRESH_MS = 2 * 60 * 1000;
+const SERVICES_MAX_STALE_MS = 10 * 60 * 1000;
 
 type ContentTab = "home" | "explore";
 type MerchContext = "home" | "explore";
@@ -611,22 +616,56 @@ export default function AdminManageContentScreen() {
         return;
       }
       if (servicesLoading) return;
-      if (servicesLoaded && !force) return;
+      
+      // Check cache first if not forcing reload
+      if (!force && servicesLoaded) {
+        const cacheAge = Date.now() - (services.length > 0 ? Date.now() : Number.POSITIVE_INFINITY);
+        if (cacheAge <= SERVICES_FRESH_MS) {
+          return;
+        }
+      }
 
       setServicesLoading(true);
       try {
         const { branchId } = await ensureOrgContext(mobileSupabase);
         const effectiveBranchId = branchIdOverride ?? selectedBranchId ?? branchId;
+        
+        // Try to load from cache first
+        if (!force) {
+          const cached = await hydrateCachedValue<MobileAdminMerchService[]>(SERVICES_CACHE_KEY);
+          if (cached && isCacheFresh(SERVICES_CACHE_KEY, SERVICES_MAX_STALE_MS)) {
+            setServices(cached.value);
+            setServicesLoaded(true);
+            
+            // If cache is stale but still usable, refresh in background
+            if (!isCacheFresh(SERVICES_CACHE_KEY, SERVICES_FRESH_MS)) {
+              // Background refresh
+              listAdminMerchServicesForMobile(mobileSupabase, { branchId: effectiveBranchId })
+                .then((next) => {
+                  setServices(next);
+                  setServicesLoaded(true);
+                  void writeCachedValue(SERVICES_CACHE_KEY, next);
+                })
+                .catch(() => {
+                  // Ignore background refresh errors
+                });
+            }
+            return;
+          }
+        }
+        
+        // Load from server
         const next = await listAdminMerchServicesForMobile(mobileSupabase, { branchId: effectiveBranchId });
         setServices(next);
         setServicesLoaded(true);
+        await writeCachedValue(SERVICES_CACHE_KEY, next);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Không tải được danh sách dịch vụ.");
       } finally {
         setServicesLoading(false);
       }
     },
-    [selectedBranchId, servicesLoaded, servicesLoading],
+    [selectedBranchId, servicesLoaded, servicesLoading, services.length],
   );
 
   useEffect(() => {
@@ -666,9 +705,15 @@ export default function AdminManageContentScreen() {
         return;
       }
 
+      // Only reload if cache is expired
+      const cacheAge = getCacheAgeMs(SERVICES_CACHE_KEY);
+      const shouldReload = cacheAge > SERVICES_MAX_STALE_MS;
+      
       void loadBranchOptionsRef.current();
       void loadSnapshotRef.current();
-      void loadServicesRef.current(true);
+      if (shouldReload) {
+        void loadServicesRef.current(true);
+      }
     }, []),
   );
 

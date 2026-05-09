@@ -707,25 +707,25 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
 
 function getCompactAdminReplyKeyboard() {
   return {
-    keyboard: [[{ text: "🧭 Mo menu quan tri" }]],
+    keyboard: [[{ text: "🧭 Mở menu quan trị" }]],
     resize_keyboard: true,
     one_time_keyboard: false,
     is_persistent: true,
-    input_field_placeholder: "Mo lai menu quan tri...",
+    input_field_placeholder: "Mở lại menu quản trị...",
   };
 }
 
 function getAdminReplyKeyboard() {
   return {
     keyboard: [
-      [{ text: "📊 Tong quan" }, { text: "CRM" }],
-      [{ text: "📌 Booking" }, { text: "🕐 Ca lam" }],
-      [{ text: "⚡ Tao nhanh" }],
+      [{ text: "📊 Tổng quan" }, { text: "CRM" }],
+      [{ text: "📌 Booking" }, { text: "🕐 Ca làm" }],
+      [{ text: "⚡ Tạo nhanh" }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
     is_persistent: true,
-    input_field_placeholder: "Chon chuc nang quan tri...",
+    input_field_placeholder: "Chọn chức năng quản trị...",
   };
 }
 
@@ -759,8 +759,8 @@ function getQuickCreateDateKeyboard() {
         { text: "📆 Mai", callback_data: "quickcreate:date:tomorrow" },
       ],
       [
-        { text: "🗓️ Mot", callback_data: "quickcreate:date:day_after_tomorrow" },
-        { text: "✍️ Tuy chon", callback_data: "quickcreate:date:custom" },
+        { text: "🗓️ Mốt", callback_data: "quickcreate:date:day_after_tomorrow" },
+        { text: "✍️ Tùy chọn", callback_data: "quickcreate:date:custom" },
       ],
       [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
     ],
@@ -782,7 +782,7 @@ function getQuickCreateServiceKeyboard(services: TelegramQuickCreateServiceSugge
   return {
     inline_keyboard: [
       ...serviceRows,
-      [{ text: "✍️ Tu nhap dich vu", callback_data: "quickcreate:service:custom" }],
+      [{ text: "✍️ Tự nhập dịch vụ", callback_data: "quickcreate:service:custom" }],
       [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
     ],
   };
@@ -1124,7 +1124,7 @@ async function createTelegramQuickAppointment(scope: TelegramDataScope, customer
   }
 
   if (!targetBranchId) {
-    throw new Error("Chua tim thay branch mac dinh de tao lich.");
+    throw new Error("Chưa tìm thấy chi nhánh mặc định để tạo lịch.");
   }
 
   const { data: appointment, error: appointmentError } = await supabase
@@ -1202,7 +1202,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
   if (normalized === "back" || normalized === "huy" || normalized === "/cancel") {
     await clearConversationState(telegramUserId);
     if (state.step === "report:custom") {
-      await sendTelegramMessage(chatId, "📈 <b>BAO CAO DOANH THU</b>\n\nChon khoang thoi gian:", {
+      await sendTelegramMessage(chatId, "📈 <b>BÁO CÁO DOANH THU</b>\n\nChọn khoảng thời gian:", {
         reply_markup: getReportMenuKeyboard(),
       });
     } else {
@@ -1216,7 +1216,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
   if (state.step === "report:custom") {
     const parts = text.split("-").map((item) => item.trim());
     if (parts.length !== 2) {
-      await sendTelegramMessage(chatId, "❌ Dinh dang không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
+      await sendTelegramMessage(chatId, "❌ Định dạng không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
         parse_mode: "HTML",
       });
       return true;
@@ -1225,7 +1225,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     const startDate = parseCustomReportDate(parts[0]);
     const endDate = parseCustomReportDate(parts[1]);
     if (!startDate || !endDate) {
-      await sendTelegramMessage(chatId, "❌ Dinh dang ngay không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
+      await sendTelegramMessage(chatId, "❌ Định dạng ngày không đúng.\n\nVD: <code>01/04 - 30/04</code>\n\nThử lại:", {
         parse_mode: "HTML",
       });
       return true;
@@ -1268,7 +1268,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
       ...state.data,
       customerPhone: normalizedPhone,
     });
-    await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nChon ngay hen:", {
+    await sendTelegramMessage(chatId, "⚡ <b>TẠO LỊCH MỚI</b>\n\nChọn ngày hẹn:", {
       parse_mode: "HTML",
       reply_markup: getQuickCreateDateKeyboard(),
     });
@@ -1280,7 +1280,7 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
     if (!parsedDate) {
       await sendTelegramMessage(
         chatId,
-        "❌ Ngày hẹn khong hop le.\n\nNhap theo dinh dang <code>dd/mm</code> hoac <code>dd/mm/yyyy</code> và không được nhỏ hơn hôm nay.",
+        "❌ Ngày hẹn không hợp lệ.\n\nNhập theo định dạng <code>dd/mm</code> hoặc <code>dd/mm/yyyy</code> và không được nhỏ hơn hôm nay.",
         { parse_mode: "HTML" },
       );
       return true;
@@ -1376,7 +1376,7 @@ export async function sendFreshAdminReplyKeyboard(chatId: string) {
     reply_markup: { remove_keyboard: true },
   });
 
-  await sendTelegramMessage(chatId, "⏳ Dang dong ban phim cu...", {
+  await sendTelegramMessage(chatId, "⏳ Đang đóng bàn phím cũ...", {
     reply_markup: { remove_keyboard: true },
   });
 
@@ -1387,7 +1387,7 @@ export async function sendFreshAdminReplyKeyboard(chatId: string) {
 
 export async function handleCompactManageCommand(chatId: string) {
   await deleteTrackedReplyPanel(chatId);
-  await sendTelegramMessage(chatId, "🧭 Menu quan tri da duoc an. Bam icon menu canh emoji de mo lai khi can.", {
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm icon menu cạnh emoji để mở lại khi cần.", {
     reply_markup: getCompactAdminReplyKeyboard(),
   });
 }
@@ -1464,15 +1464,15 @@ export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
   const inlineKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
 
   for (const row of rows) {
-    const displayName = escapeHtml(String(row.full_name || row.name || "Khach"));
-    const phone = escapeHtml(String(row.phone || "Chua co SDT"));
-    const lastVisit = row.last_visit_at ? formatViDateTime(String(row.last_visit_at)) : "Chua co";
+    const displayName = escapeHtml(String(row.full_name || row.name || "Khách"));
+    const phone = escapeHtml(String(row.phone || "Chưa có SĐT"));
+    const lastVisit = row.last_visit_at ? formatViDateTime(String(row.last_visit_at)) : "Chưa có";
     const rawStatus = String(row.customer_status || "AT_RISK");
     const status = rawStatus === "LOST" ? "Đã mất" : rawStatus === "AT_RISK" ? "Có nguy cơ" : rawStatus;
     lines.push(`• <b>${displayName}</b> — ${status}`);
     lines.push(`  SĐT: ${phone} | Lần ghé cuối: ${lastVisit}`);
     inlineKeyboard.push([
-      { text: `Done ${String(row.full_name || row.name || "Khach").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
+      { text: `Done ${String(row.full_name || row.name || "Khách").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
       { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
     ]);
   }
@@ -1584,19 +1584,19 @@ export async function handleRevenueReportCommand(scope: TelegramDataScope, chatI
     startDate.setHours(0, 0, 0, 0);
     endDate = new Date(startDate);
     endDate.setDate(endDate.getDate() + 1);
-    title = "📅 BAO CAO HOM NAY";
+    title = "📅 BÁO CÁO HÔM NAY";
   } else if (period === "week") {
     startDate = new Date(now);
     startDate.setDate(now.getDate() - now.getDay());
     startDate.setHours(0, 0, 0, 0);
     endDate = new Date(now);
     endDate.setHours(23, 59, 59, 999);
-    title = "📆 BAO CAO TUAN NAY";
+    title = "📆 BÁO CÁO TUẦN NÀY";
   } else {
     startDate = new Date(now.getFullYear(), now.getMonth(), 1);
     startDate.setHours(0, 0, 0, 0);
     endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-    title = "🗓️ BAO CAO THANG NAY";
+    title = "🗓️ BÁO CÁO THÁNG NÀY";
   }
 
   let ticketsQuery = supabase
@@ -1669,20 +1669,20 @@ export async function handleRevenueReportCommand(scope: TelegramDataScope, chatI
 
   const lines = [
     `<b>${title}</b>`,
-    `🗓️ Tu: <b>${formatViShortDate(startDate.toISOString())}</b> den <b>${formatViShortDate(reportEndDate.toISOString())}</b>`,
+    `🗓️ Từ: <b>${formatViShortDate(startDate.toISOString())}</b> đến <b>${formatViShortDate(reportEndDate.toISOString())}</b>`,
     "",
-    `💰 Tong doanh thu: <b>${formatVND(revenue)}</b>`,
-    `🧾 So bill: <b>${rows.length}</b>`,
-    `💵 Trung binh: <b>${formatVND(averageBill)}</b>/bill`,
-    `📆 Trung binh/ngay: <b>${formatVND(averagePerDay)}</b>`,
-    `🏆 Bill cao nhat: <b>${formatVND(highestBill)}</b>`,
+    `💰 Tổng doanh thu: <b>${formatVND(revenue)}</b>`,
+    `🧾 Số bill: <b>${rows.length}</b>`,
+    `💵 Trung bình: <b>${formatVND(averageBill)}</b>/bill`,
+    `📆 Trung bình/ngày: <b>${formatVND(averagePerDay)}</b>`,
+    `🏆 Bill cao nhất: <b>${formatVND(highestBill)}</b>`,
     "",
-    `💵 Tien mat: ${formatVND(cashRevenue)}`,
-    `🏦 Chuyen khoan: ${formatVND(transferRevenue)}`,
+    `💵 Tiền mặt: ${formatVND(cashRevenue)}`,
+    `🏦 Chuyển khoản: ${formatVND(transferRevenue)}`,
   ];
 
   if (paymentBreakdown.size > 0) {
-    lines.push("", "<b>💳 Co cau thanh toan:</b>");
+    lines.push("", "<b>💳 Cơ cấu thanh toán:</b>");
     for (const [method, amount] of [...paymentBreakdown.entries()].sort((a, b) => b[1] - a[1])) {
       const percent = revenue > 0 ? Math.round((amount / revenue) * 100) : 0;
       lines.push(`• ${method}: ${formatVND(amount)} (${percent}%)`);
@@ -1690,20 +1690,20 @@ export async function handleRevenueReportCommand(scope: TelegramDataScope, chatI
   }
 
   if (peakDay) {
-    lines.push("", `📈 Ngay cao nhat: <b>${formatViShortDate(peakDay[0])}</b> — <b>${formatVND(peakDay[1])}</b>`);
+    lines.push("", `📈 Ngày cao nhất: <b>${formatViShortDate(peakDay[0])}</b> — <b>${formatVND(peakDay[1])}</b>`);
   }
 
   if (period === "today") {
-    lines.push("", "<b>🕐 5 bill gan nhat:</b>");
+    lines.push("", "<b>🕐 5 bill gần nhất:</b>");
     if (recentBills.length === 0) {
-      lines.push("• Chua co bill nao.");
+      lines.push("• Chưa có bill nào.");
     } else {
       for (const row of recentBills) {
         lines.push(`• ${formatViDateTime(String(row.created_at))}: ${formatVND(getTicketGrandTotal(row as { totals_json?: { grand_total?: number } | null }))}`);
       }
     }
   } else {
-    lines.push("", "<b>📊 Chi tiet theo ngay:</b>");
+    lines.push("", "<b>📊 Chi tiết theo ngày:</b>");
     for (const [date, amount] of dailyBuckets.entries()) {
       const dayLabel = new Date(date).toLocaleDateString("vi-VN", {
         timeZone: "Asia/Ho_Chi_Minh",
@@ -1884,7 +1884,7 @@ export async function handleBookingDetailCommand(scope: TelegramDataScope, chatI
 
   if (error) throw error;
   if (!booking?.id) {
-    await sendTelegramMessage(chatId, "❌ Khong tim thay booking.");
+    await sendTelegramMessage(chatId, "❌ Không tìm thấy booking.");
     return;
   }
 
@@ -1960,12 +1960,12 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
   await sendManagedReplyPanel(
     chatId,
     [
-      "✅ <b>LIEN KET THANH CONG!</b>",
+      "✅ <b>LIÊN KẾT THÀNH CÔNG!</b>",
       "",
-      `Tai khoan: <b>${linkedUser.displayName}</b>`,
-      `Vai tro: <b>${linkedUser.role}</b>`,
+      `Tài khoản: <b>${linkedUser.displayName}</b>`,
+      `Vai trò: <b>${linkedUser.role}</b>`,
       "",
-      "Tu gio chi can bam nut menu canh emoji la dung duoc.",
+      "Từ giờ chỉ cần bấm nút menu cạnh emoji là dùng được.",
     ].join("\n"),
     getAdminReplyKeyboard(),
   );

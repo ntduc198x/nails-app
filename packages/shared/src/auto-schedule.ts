@@ -404,8 +404,8 @@ function buildSuggestionsForDemand(
       employeeId: candidate.employee.id,
       employeeName: candidate.employee.name,
       reason: candidate.skillMatch
-        ? "Phu hop khung gio va co the trám ca ngay"
-        : "Dung role nhung can bo sung skill khi dieu chinh tay",
+        ? "Phù hợp khung giờ và có thể trám ca ngày"
+        : "Dùng role nhưng cần bổ sung skill khi điều chỉnh thủ công",
       score: Math.round(candidate.score),
     }));
 }
@@ -473,7 +473,7 @@ export function getRecommendedShiftTypesForDate(employee: AutoScheduleEmployee, 
 }
 
 function isSchedulableEmployee(employee: AutoScheduleEmployee) {
-  // FIX RANDOM ROLES: OWNER không tham gia chia ca / random.
+  // FIX RANDOM ROLES: OWNER và PARTNER không tham gia chia ca / random.
   // Các role còn lại như MANAGER, TECH, RECEPTION... nếu có availability thì đều được đưa vào thuật toán.
   return (employee.role as AppRole) !== "OWNER" && (employee.role as AppRole) !== "PARTNER";
 }
@@ -564,7 +564,7 @@ export function buildDefaultWeekDemands({
         requiredSkills: [],
         forecastBookings: bookingLoad,
         peak,
-        label: "Nhan su ca sang",
+        label: "Nhân sự ca sáng",
       });
     }
 
@@ -579,7 +579,7 @@ export function buildDefaultWeekDemands({
         requiredSkills: [],
         forecastBookings: bookingLoad,
         peak,
-        label: "Nhan su ca chieu",
+        label: "Nhân sự ca chiều",
       });
     }
 
@@ -595,7 +595,7 @@ export function buildDefaultWeekDemands({
         requiredSkills: [],
         forecastBookings: bookingLoad,
         peak: true,
-        label: "Ho tro san",
+        label: "Hỗ trợ sàn",
       });
     }
 

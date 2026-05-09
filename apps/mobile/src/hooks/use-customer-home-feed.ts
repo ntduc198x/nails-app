@@ -138,7 +138,7 @@ export function useCustomerHomeFeed() {
     }
   }, [loadFromApi, loadFromSupabase]);
 
-  useEffect(() => {
+useEffect(() => {
     let cancelled = false;
 
     const boot = async () => {
@@ -148,10 +148,19 @@ export function useCustomerHomeFeed() {
       if (cached && hasRealHomeFeedData(cached.value)) {
         setFeed(normalizeHomeFeed(cached.value));
         setIsLoading(false);
-        if (Date.now() - cached.updatedAt <= HOME_FEED_MAX_STALE_MS) {
+        const cacheAge = Date.now() - cached.updatedAt;
+        
+        if (cacheAge > HOME_FEED_FRESH_MS && cacheAge <= HOME_FEED_MAX_STALE_MS) {
           void refresh({ silent: true });
           return;
         }
+        
+        if (cacheAge > HOME_FEED_MAX_STALE_MS) {
+          void refresh();
+          return;
+        }
+        
+        return;
       }
 
       void refresh();

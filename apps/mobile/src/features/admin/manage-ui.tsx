@@ -156,7 +156,7 @@ backHref,
             styles.content,
             {
               paddingTop: getAdminHeaderTopPadding(insets.top),
-              paddingBottom: 88 + getAdminBottomBarPadding(insets.bottom),
+              paddingBottom: getAdminBottomBarPadding(insets.bottom),
             },
           ]}
           showsVerticalScrollIndicator={false}
@@ -170,7 +170,8 @@ backHref,
               />
             ) : undefined
           }
-          >
+          contentInsetAdjustmentBehavior="automatic"
+        >
           <View style={styles.header}>
             <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
               <Feather name="chevron-left" size={22} color={palette.text} />
@@ -187,7 +188,7 @@ backHref,
           {children}
         </ScrollView>
 
-<AdminBottomNavDock
+        <AdminBottomNavDock
           current={activeTab}
           role={role}
           insetBottom={insets.bottom}

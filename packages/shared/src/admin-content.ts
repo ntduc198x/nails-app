@@ -204,7 +204,7 @@ function asRecord(value: unknown) {
 }
 
 function normalizeBranchName(row: UnknownRow | null | undefined) {
-  return typeof row?.name === "string" && row.name.trim() ? row.name.trim() : "chi nhanh hien tai";
+  return typeof row?.name === "string" && row.name.trim() ? row.name.trim() : "chi nhánh hiện tại";
 }
 
 function normalizeMerchService(row: UnknownRow): MobileAdminMerchService {

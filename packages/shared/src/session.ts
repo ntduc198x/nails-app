@@ -245,7 +245,7 @@ async function ensureCurrentUserProfile(client: SharedSupabaseClient, userId?: s
 
   const currentUser = session?.user;
   if (!currentUser) {
-    throw new Error("Chua dang nhap");
+    throw new Error("Chưa đăng nhập");
   }
 
   const targetUserId = userId ?? currentUser.id;

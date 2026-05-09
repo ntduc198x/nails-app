@@ -112,7 +112,7 @@ export async function updateAppointmentStatusForMobile(
     }
 
     if (currentAppointment.status === "CHECKED_IN" && currentRoleRow?.role !== "OWNER") {
-      throw new Error("Chi OWNER moi duoc huy lich da check-in.");
+      throw new Error("Chỉ OWNER mới được hủy lịch đã check-in.");
     }
   }
 
@@ -141,7 +141,7 @@ async function findOrCreateCustomerForMobile(
   const normalizedName = customerName.trim();
   const normalizedPhone = customerPhone?.trim() ? customerPhone.trim() : null;
   if (!normalizedName) {
-    throw new Error("Ten khach hang la bat buoc.");
+    throw new Error("Tên khách hàng là bắt buộc.");
   }
 
   const existing = await client

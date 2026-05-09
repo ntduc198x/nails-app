@@ -866,7 +866,7 @@ export default function AdminShiftsScreen() {
                       </View>
                       <View style={styles.personalShiftMetaRow}>
                         <Text style={styles.personalShiftStatus}>
-                          {published ? "Đã xuất lịch" : assignment ? "Chờ xuất lịch" : "OFF"}
+                          {published ? "Đi làm" : assignment ? "Chờ xuất lịch" : "Nghỉ"}
                         </Text>
                         {assignment ? <Text style={styles.personalShiftHours}>{assignment.startTime} - {assignment.endTime}</Text> : null}
                       </View>

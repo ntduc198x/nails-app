@@ -1064,7 +1064,7 @@ export default function AdminManageContentScreen() {
 
   if (loading && !snapshot) {
     return (
-      <ManageScreenShell title="Landing Feed" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false}>
+      <ManageScreenShell title="Landing Feed" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false} showBackButton={false}>
         <View style={styles.stateCard}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.stateTitle}>Đang đồng bộ nội dung hiển thị cho khách hàng...</Text>
@@ -1081,6 +1081,7 @@ export default function AdminManageContentScreen() {
       group="setup"
       activeTab="booking"
       showTabs={false}
+      showBackButton={false}
       onRefresh={() => void Promise.all([loadBranchOptions(), loadSnapshot(), loadServices(true)])}
       refreshing={loading || servicesLoading}
     >
@@ -1294,7 +1295,7 @@ export default function AdminManageContentScreen() {
                   key={service.id}
                   style={styles.rowCard}
                   onPress={() => {
-                    setMerchContext("Khám phá");
+                    setMerchContext("explore");
                     setMerchForm(buildMerchForm(service));
                   }}
                 >

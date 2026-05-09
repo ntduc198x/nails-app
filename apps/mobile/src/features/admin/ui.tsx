@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
-import { getAdminProfileDestination, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
+import { getAdminNavHref, isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 export const ADMIN_HEADER_TOP_OFFSET = 4;
@@ -279,14 +279,17 @@ export function AdminBottomNav({
   role: string | null | undefined;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
+  const canLanding = canAccessLandingFeed(role as AppRole | null | undefined);
+  const visibleItems = canLanding ? ADMIN_NAV_ITEMS : ADMIN_NAV_ITEMS.filter((item) => item.key !== "booking");
+
   return (
     <View style={styles.bottomNav}>
-      {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
+      {visibleItems.map(({ key, label, icon }) => {
         const isProfile = key === "profile";
         const active = current === key;
         const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Manage" : label;
         const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
-        const targetHref = isProfile ? getAdminProfileDestination(role as AppRole | null | undefined) : null;
+        const targetHref = isProfile ? (isOwnerRole(role as AppRole | null | undefined) ? "/(admin)/manage" : "/(admin)/shifts") : null;
         return (
           <Pressable
             key={`${key}-${resolvedLabel}`}

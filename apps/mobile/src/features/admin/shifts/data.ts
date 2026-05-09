@@ -1000,5 +1000,5 @@ export function getTodayAssignmentFromPlan(plan: ShiftPlanRecord | null, userId:
 }
 
 export function canManageShiftPlans(role: AppRole | null) {
-  return role === "OWNER" || role === "PARTNER" || role === "MANAGER";
+  return role === "OWNER" || role === "PARTNER";
 }

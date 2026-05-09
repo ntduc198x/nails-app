@@ -8,7 +8,7 @@ type CachedAppImageProps = ExpoImageProps & {
 
 function mapResizeModeToContentFit(resizeMode: ExpoImageProps["resizeMode"], contentFit: ExpoImageProps["contentFit"]) {
   if (contentFit) return contentFit;
-  if (resizeMode === "contain" || resizeMode === "center") return "contain";
+  if (resizeMode === "contain") return "contain";
   if (resizeMode === "stretch") return "fill";
   return "cover";
 }

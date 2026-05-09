@@ -9,24 +9,45 @@ type UploadAdminContentImageOptions = {
   baseName?: string;
 };
 
+export type AvatarSize = 256 | 512 | 1024;
+export type AvatarFormat = "webp" | "jpeg";
+
 export type AvatarResizeOptions = {
-  maxSize: number;
+  size: AvatarSize;
   quality: number;
+  format?: AvatarFormat;
+};
+
+const AVATAR_QUALITY_MAP: Record<AvatarSize, number> = {
+  256: 1,
+  512: 1,
+  1024: 1,
 };
 
 export async function resizeAvatarImage(
   asset: ImagePickerAsset,
-  options: AvatarResizeOptions = { maxSize: 96, quality: 0.42 },
+  options: Partial<AvatarResizeOptions> = {},
 ): Promise<ImagePickerAsset> {
   if (!asset.uri) {
     return asset;
   }
 
+  const size = options.size ?? 256;
+  const quality = options.quality ?? AVATAR_QUALITY_MAP[size];
+  const format = options.format ?? "webp";
+
+  const saveFormat = format === "webp"
+    ? ImageManipulator.SaveFormat.WEBP
+    : ImageManipulator.SaveFormat.JPEG;
+
   const manipResult = await ImageManipulator.manipulateAsync(
     asset.uri,
-    [{ resize: { width: options.maxSize } }],
-    { compress: options.quality, format: ImageManipulator.SaveFormat.JPEG },
+    [{ resize: { width: size } }],
+    { compress: quality, format: saveFormat },
   );
+
+  const ext = format === "webp" ? "webp" : "jpg";
+  const mimeType = format === "webp" ? "image/webp" : "image/jpeg";
 
   return {
     ...asset,
@@ -34,8 +55,8 @@ export async function resizeAvatarImage(
     width: manipResult.width,
     height: manipResult.height,
     fileSize: undefined,
-    fileName: asset.fileName?.replace(/\.[^.]+$/, ".jpg") ?? "avatar.jpg",
-    mimeType: "image/jpeg",
+    fileName: asset.fileName?.replace(/\.[^.]+$/, `.${ext}`) ?? `avatar.${ext}`,
+    mimeType,
   };
 }
 

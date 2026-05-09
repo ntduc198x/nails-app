@@ -12,6 +12,7 @@ type CustomerCachedImageProps = Omit<ImageProps, "source"> & {
   source: { uri: string } | number;
   containerStyle?: StyleProp<ViewStyle>;
   intent?: CustomerImageIntent;
+  transparent?: boolean;
 };
 
 export function CustomerCachedImage({
@@ -19,6 +20,7 @@ export function CustomerCachedImage({
   source,
   style,
   intent = "card",
+  transparent = false,
   ...rest
 }: CustomerCachedImageProps) {
   const theme = useCustomerTheme();
@@ -47,8 +49,8 @@ export function CustomerCachedImage({
       style={[
         {
           overflow: "hidden",
-          backgroundColor: theme.colors.surfaceMuted,
         },
+        !transparent && { backgroundColor: theme.colors.surfaceMuted },
         containerStyle,
       ]}
     >

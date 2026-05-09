@@ -12,7 +12,11 @@ export function canSelectAdminBranch(role: AppRole | null | undefined) {
 }
 
 export function canAccessManage(role: AppRole | null | undefined) {
-  return isOwnerRole(role);
+  return role === "OWNER";
+}
+
+export function canAccessLandingFeed(role: AppRole | null | undefined) {
+  return isOwnerRole(role) || role === "MANAGER";
 }
 
 export function getAdminProfileDestination(role: AppRole | null | undefined): Href {
@@ -22,14 +26,14 @@ export function getAdminProfileDestination(role: AppRole | null | undefined): Hr
 export function getAdminNavHref(target: AdminNavTarget, role: AppRole | null | undefined): Href {
   switch (target) {
     case "booking":
-      return "/(admin)/booking";
+      return canAccessLandingFeed(role) ? "/(admin)/booking" : "/(admin)/shifts";
     case "scheduling":
       return "/(admin)/scheduling";
     case "checkout":
       return "/(admin)/checkout";
     case "profile":
-      return getAdminProfileDestination(role);
+      return isOwnerRole(role) ? "/(admin)/manage" : "/(admin)/shifts";
     default:
-      return "/(admin)/booking";
+      return canAccessLandingFeed(role) ? "/(admin)/booking" : "/(admin)/shifts";
   }
 }

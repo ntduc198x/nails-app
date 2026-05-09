@@ -126,6 +126,7 @@ export function ManageScreenShell({
   onRefresh,
   refreshing,
   showTabs = true,
+  showBackButton = true,
   children,
 }: {
   title: string;
@@ -137,23 +138,23 @@ export function ManageScreenShell({
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
   showTabs?: boolean;
+  showBackButton?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
   const { role } = useSession();
-  // const {allowed, isHydrated, role} = useManageOwnerGuard();
-
-  // {if (!isHydrated || !allowed) {
-  //   return <View style={style.screen} />;
-  // }
 
   return (
     <View style={styles.screen}>
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
-            <Feather name="chevron-left" size={22} color={palette.text} />
-          </Pressable>
+          {showBackButton ? (
+            <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
+              <Feather name="chevron-left" size={22} color={palette.text} />
+            </Pressable>
+          ) : (
+            <View style={styles.headerButtonPlaceholder} />
+          )}
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle}>{title}</Text>
             <Text style={styles.headerSubtitle}>{subtitle}</Text>
@@ -220,6 +221,10 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerButtonPlaceholder: {
+    width: 42,
+    height: 42,
   },
   headerCopy: {
     flex: 1,

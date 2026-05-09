@@ -254,8 +254,7 @@ export default function ProfileScreen() {
       let nextAvatarUrl: string | null = null;
 
       const resizedAsset = await resizeAvatarImage(result.assets[0], {
-        maxSize: 96,
-        quality: 0.42,
+        size: 1024,
       });
 
       try {
@@ -345,7 +344,7 @@ export default function ProfileScreen() {
 
       <View style={styles.profileHero}>
         <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()}>
-          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: avatarUri }} intent="avatar" style={styles.avatar} />
+          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: avatarUri }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
           <View style={styles.cameraBadge}>
             <Feather color={theme.colors.textSoft} name="camera" size={15} />
           </View>
@@ -566,6 +565,9 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     avatarWrap: {
       position: "relative",
+    },
+    avatarContainer: {
+      borderRadius: 43,
     },
     avatar: {
       borderRadius: 43,

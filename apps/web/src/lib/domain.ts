@@ -225,30 +225,52 @@ export async function ensureOrgContext(opts?: { force?: boolean }): Promise<OrgC
   */
 }
 
-export async function listServices(opts?: { force?: boolean }) {
+export async function listServices(opts?: { force?: boolean; branchId?: string }) {
   if (!supabase) return [];
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId: profileBranchId } = await ensureOrgContext();
   const sessionId = await getCurrentSessionId() ?? "";
+  
+  // Use branch from profile as default if not specified
+  const targetBranchId = opts?.branchId ?? profileBranchId;
+  
+  // Use cache only if no specific branch filter is requested
+  const cacheKey = targetBranchId ?? 'default';
   if (!opts?.force && servicesCache?.sessionId === sessionId && servicesCache?.orgId === orgId && isFresh(servicesCache)) {
-    return servicesCache!.value;
+    // Return cached services, optionally filtered by branch
+    const cached = servicesCache!.value as Array<{branch_id?: string | null}>;
+    if (targetBranchId) {
+      return cached.filter(s => s.branch_id === targetBranchId || s.branch_id === null);
+    }
+    return cached;
   }
 
-  let { data, error } = await supabase
+  let query = supabase
     .from("services")
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active")
-    .eq("org_id", orgId)
-    .order("name", { ascending: true });
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id")
+    .eq("org_id", orgId);
+
+  // Filter by branch_id - show services of current branch + org-wide (null)
+  if (targetBranchId) {
+    query = query.or(`branch_id.eq.${targetBranchId},branch_id.is.null`);
+  }
+
+  let { data, error } = await query.order("name", { ascending: true });
 
   if (error) {
     const msg = error.message || "";
-    const missingNewFields = msg.includes("short_description") || msg.includes("image_url") || msg.includes("featured_in_lookbook");
+    const missingNewFields = msg.includes("short_description") || msg.includes("image_url") || msg.includes("featured_in_lookbook") || msg.includes("branch_id");
     if (!missingNewFields) throw error;
 
-    const fallback = await supabase
+    let fallbackQuery = supabase
       .from("services")
-      .select("id,name,duration_min,base_price,vat_rate,active")
-      .eq("org_id", orgId)
-      .order("name", { ascending: true });
+      .select("id,name,duration_min,base_price,vat_rate,active,branch_id")
+      .eq("org_id", orgId);
+
+    if (targetBranchId) {
+      fallbackQuery = fallbackQuery.or(`branch_id.eq.${targetBranchId},branch_id.is.null`);
+    }
+
+    const fallback = await fallbackQuery.order("name", { ascending: true });
 
     if (fallback.error) throw fallback.error;
 
@@ -347,6 +369,7 @@ export async function updateService(input: {
   basePrice: number;
   vatPercent: number;
   active: boolean;
+  branchId?: string | null;  // Added: branch association
 }) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
@@ -354,6 +377,7 @@ export async function updateService(input: {
   const { data, error } = await supabase
     .from("services")
     .update({
+      branch_id: input.branchId ?? null,
       name: input.name,
       short_description: input.shortDescription ?? null,
       image_url: input.imageUrl ?? null,
@@ -425,6 +449,7 @@ export async function createService(input: {
   durationMin: number;
   basePrice: number;
   vatPercent: number;
+  branchId?: string | null;  // Added: branch association
 }) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
@@ -433,6 +458,7 @@ export async function createService(input: {
     .from("services")
     .insert({
       org_id: orgId,
+      branch_id: input.branchId ?? null,
       name: input.name,
       short_description: input.shortDescription ?? null,
       image_url: input.imageUrl ?? null,
@@ -442,7 +468,7 @@ export async function createService(input: {
       vat_rate: input.vatPercent / 100,
       active: true,
     })
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id")
     .single();
   if (error) throw error;
 

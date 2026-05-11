@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import * as AppleAuthentication from "expo-apple-authentication";
+import * as AuthSession from "expo-auth-session";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -114,20 +115,56 @@ async function withSessionTimeout<T>(promise: Promise<T>, fallbackValue: T) {
 }
 
 function buildAuthRedirectUrl() {
-  return Linking.createURL(OAUTH_CALLBACK_PATH);
+  return AuthSession.makeRedirectUri({
+    path: OAUTH_CALLBACK_PATH,
+  });
+}
+
+function buildSupabaseCallbackUrl() {
+  if (mobileEnv.supabaseUrl) {
+    const baseUrl = mobileEnv.supabaseUrl.replace(/\/$/, "");
+    return `${baseUrl}/auth/v1/callback`;
+  }
+  return buildAuthRedirectUrl();
 }
 
 function readAuthParams(url: string) {
-  const parsedUrl = new URL(url);
-  const hash = parsedUrl.hash.startsWith("#") ? parsedUrl.hash.slice(1) : parsedUrl.hash;
-  const hashParams = new URLSearchParams(hash);
-  const searchParams = parsedUrl.searchParams;
+  const hashStart = url.indexOf("#");
+  if (hashStart === -1) {
+    return { code: null, accessToken: null, refreshToken: null };
+  }
 
+  const hash = url.substring(hashStart + 1);
+  const params = new URLSearchParams(hash);
   return {
-    code: searchParams.get("code"),
-    accessToken: hashParams.get("access_token") ?? searchParams.get("access_token"),
-    refreshToken: hashParams.get("refresh_token") ?? searchParams.get("refresh_token"),
+    code: null,
+    accessToken: params.get("access_token"),
+    refreshToken: params.get("refresh_token"),
+    expiresIn: params.get("expires_in"),
+    expiresAt: params.get("expires_at"),
+    providerToken: params.get("provider_token"),
+    providerRefreshToken: params.get("provider_refresh_token"),
   };
+}
+
+function isOAuthCallbackUrl(url: string | null | undefined) {
+  if (!url) return false;
+  const appCallbackUrl = buildAuthRedirectUrl();
+  const redirectPrefix = appCallbackUrl.split(OAUTH_CALLBACK_PATH)[0];
+  if (url.includes(OAUTH_CALLBACK_PATH) && url.startsWith(redirectPrefix)) {
+    return true;
+  }
+  const hasAccessToken = url.includes("access_token=");
+  const hasRefreshToken = url.includes("refresh_token=");
+  const hasCode = url.includes("code=");
+  const hasError = url.includes("error=");
+  if ((hasAccessToken && hasRefreshToken) || (hasCode && !hasError)) {
+    return true;
+  }
+  if (url.includes("/auth/callback")) {
+    return true;
+  }
+  return false;
 }
 
 function buildDisplayNameFromApple(credential: AppleAuthentication.AppleAuthenticationCredential) {
@@ -179,12 +216,6 @@ async function ensureCustomerUserMetadata() {
   if (error) {
     throw error;
   }
-}
-
-function isOAuthCallbackUrl(url: string | null | undefined) {
-  if (!url) return false;
-  const redirectPrefix = buildAuthRedirectUrl().split(OAUTH_CALLBACK_PATH)[0];
-  return url.includes(OAUTH_CALLBACK_PATH) && url.startsWith(redirectPrefix);
 }
 
 function isRecoverableMobileSessionErrorMessage(message: string | null | undefined) {
@@ -369,32 +400,62 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const completeOAuthUrl = useCallback(
     async (url: string) => {
-      if (!mobileSupabase || !isOAuthCallbackUrl(url)) {
+      console.log("[OAuth] completeOAuthUrl called with URL:", url);
+
+      if (!mobileSupabase) {
+        console.log("[OAuth] No mobileSupabase client");
+        return false;
+      }
+
+      if (!isOAuthCallbackUrl(url)) {
+        console.log("[OAuth] URL does not match OAuth callback pattern:", url);
         return false;
       }
 
       const { code, accessToken, refreshToken } = readAuthParams(url);
+      console.log("[OAuth] Parsed params - code:", !!code, "accessToken:", !!accessToken, "refreshToken:", !!refreshToken);
 
       if (code) {
-        const { error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(code);
+        console.log("[OAuth] Exchanging code for session...");
+        const { data: sessionData, error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(code);
         if (exchangeError) {
+          console.log("[OAuth] Exchange code error:", exchangeError);
           throw exchangeError;
         }
+        console.log("[OAuth] Code exchanged successfully, session:", !!sessionData?.session);
       } else if (accessToken && refreshToken) {
+        console.log("[OAuth] Setting session with tokens...");
         const { error: setSessionError } = await mobileSupabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
         });
         if (setSessionError) {
+          console.log("[OAuth] Set session error:", setSessionError);
           throw setSessionError;
         }
+        console.log("[OAuth] Session set successfully");
       } else {
-        return false;
+        console.log("[OAuth] No code or tokens found, checking if session was already stored...");
+        const { data: sessionData } = await mobileSupabase.auth.getSession();
+        if (sessionData?.session) {
+          console.log("[OAuth] Session found in storage (already saved by auth state change)");
+        } else {
+          console.log("[OAuth] No code/tokens and no stored session");
+          return false;
+        }
       }
 
-      await ensureCustomerUserMetadata();
+      console.log("[OAuth] Ensuring customer metadata...");
+      try {
+        await ensureCustomerUserMetadata();
+        console.log("[OAuth] Metadata ensured successfully");
+      } catch (metadataError) {
+        console.log("[OAuth] Metadata update failed (non-fatal):", metadataError);
+      }
+      console.log("[OAuth] Hydrating after auth...");
       await hydrateAfterAuth();
       const summary = await getMobileAuthenticatedUserSummary();
+      console.log("[OAuth] User summary:", summary?.email, "role:", summary?.role);
       router.replace(getPostAuthHref(summary?.role ?? "USER"));
       return true;
     },
@@ -571,11 +632,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      const redirectTo = buildAuthRedirectUrl();
+      const appCallbackUrl = buildAuthRedirectUrl();
+      console.log("[Google Auth] App callback URL:", appCallbackUrl);
+
       const { data, error: oauthError } = await mobileSupabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo,
+          redirectTo: appCallbackUrl,
           skipBrowserRedirect: true,
           queryParams: {
             access_type: "offline",
@@ -585,6 +648,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
 
       if (oauthError) {
+        console.log("[Google Auth] OAuth error:", oauthError);
         throw oauthError;
       }
 
@@ -592,19 +656,50 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         throw new Error("Khong tao duoc duong dan dang nhap Google.");
       }
 
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      console.log("[Google Auth] Opening browser with URL:", data.url);
+      const result = await WebBrowser.openAuthSessionAsync(data.url, appCallbackUrl);
 
       if (result.type === "cancel" || result.type === "dismiss") {
+        console.log("[Google Auth] User cancelled or dismissed");
         return;
       }
 
+      console.log("[Google Auth] Browser result type:", result.type);
+      console.log("[Google Auth] Browser result URL:", (result as { url?: string }).url);
+
       if (result.type !== "success" || !result.url) {
+        console.log("[Google Auth] Browser did not return success URL");
         throw new Error("Khong hoan tat duoc dang nhap Google.");
       }
 
-      const completed = await completeOAuthUrl(result.url);
-      if (!completed) {
-        throw new Error("Google da xac thuc nhung app chua nhan duoc callback hop le.");
+      const resultUrl = (result as { url: string }).url;
+      console.log("[Google Auth] Browser returned URL:", resultUrl.substring(0, 100));
+
+      if (resultUrl.includes("#access_token=")) {
+        console.log("[Google Auth] Detected fragment token in URL, using setSession directly...");
+        const params = readAuthParams(resultUrl);
+        if (params.accessToken && params.refreshToken) {
+          const { error: setError } = await mobileSupabase.auth.setSession({
+            access_token: params.accessToken,
+            refresh_token: params.refreshToken,
+          });
+          if (setError) {
+            console.log("[Google Auth] setSession error:", setError);
+            throw setError;
+          }
+          console.log("[Google Auth] Session set from fragment tokens");
+        }
+      } else {
+        const completed = await completeOAuthUrl(resultUrl);
+        if (!completed) {
+          console.log("[Google Auth] completeOAuthUrl returned false, checking stored session...");
+          const { data: sessionData } = await mobileSupabase.auth.getSession();
+          if (sessionData?.session) {
+            console.log("[Google Auth] Session found in storage after callback");
+          } else {
+            throw new Error("Google da xac thuc nhung app chua nhan duoc callback hop le.");
+          }
+        }
       }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap Google that bai.");

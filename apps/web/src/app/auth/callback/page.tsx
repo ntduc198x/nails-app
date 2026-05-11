@@ -16,7 +16,17 @@ function AuthCallbackContent() {
 
     async function completeAuth() {
       try {
+        // Debug: log all search params
+        console.log("[Callback] Full URL:", window.location.href);
+        console.log("[Callback] SearchParams:", Object.fromEntries(searchParams.entries()));
+        console.log("[Callback] Hash:", window.location.hash);
+
         const nextPath = searchParams.get("next");
+        const code = searchParams.get("code");
+        const error = searchParams.get("error");
+
+        console.log("[Callback] code:", code, "| error:", error);
+
         const result = await completeGoogleAuthFromCode(nextPath);
         if (cancelled) {
           return;
@@ -25,6 +35,7 @@ function AuthCallbackContent() {
         router.refresh();
       } catch (error) {
         if (!cancelled) {
+          console.error("[Callback] Auth error:", error);
           setMessage(error instanceof Error ? error.message : "Không hoàn tất được đăng nhập Google.");
         }
       }

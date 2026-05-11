@@ -174,6 +174,8 @@ export async function signInWithGoogleCustomer(nextPath = "/") {
   }
 
   const redirectTo = buildAuthCallbackUrl(nextPath);
+  console.log("[Auth] signInWithGoogleCustomer redirectTo:", redirectTo);
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
@@ -186,6 +188,7 @@ export async function signInWithGoogleCustomer(nextPath = "/") {
   });
 
   if (error) {
+    console.error("[Auth] signInWithOAuth error:", error);
     throw error;
   }
 }
@@ -200,15 +203,53 @@ export async function completeGoogleAuthFromCode(nextPath?: string | null) {
     throw new Error("Không xác định được URL callback.");
   }
 
+  console.log("[Auth] Callback URL:", currentUrl);
+  console.log("[Auth] Search:", window.location.search);
+  console.log("[Auth] Hash:", window.location.hash);
+
   const url = new URL(currentUrl);
-  const code = url.searchParams.get("code");
-  if (!code) {
+
+  // Check for error from OAuth provider
+  const errorParam = url.searchParams.get("error");
+  if (errorParam) {
+    const errorDesc = url.searchParams.get("error_description") || errorParam;
+    console.error("[Auth] OAuth error:", errorParam, errorDesc);
+    throw new Error(`Lỗi OAuth: ${errorDesc}`);
+  }
+
+  // Try to find code in query params first
+  let code = url.searchParams.get("code");
+  let accessToken = url.hash.includes("access_token=") ? 
+    url.hash.split("access_token=")[1]?.split("&")[0] : null;
+
+  console.log("[Auth] Found code:", code ? "yes: " + code.substring(0, 20) + "..." : "no");
+  console.log("[Auth] Found fragment token:", accessToken ? "yes: " + accessToken.substring(0, 20) + "..." : "no");
+
+  if (!code && !accessToken) {
+    // Check if Supabase stored the session via detectSessionInUrl
+    console.log("[Auth] No code/token found, checking Supabase session...");
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData?.session) {
+      console.log("[Auth] Session found in storage:", sessionData.session.user?.email);
+      await ensureCustomerMetadata();
+      const summary = await bootstrapAuthenticatedBrowserUser();
+      return {
+        summary,
+        redirectPath: getPostAuthRedirectPath(summary, nextPath),
+      };
+    }
     throw new Error("Thiếu mã xác thực từ Google.");
   }
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
-    throw error;
+  // For code-based flow, exchange code for session
+  if (code) {
+    console.log("[Auth] Exchanging code for session...");
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      console.error("[Auth] Code exchange error:", error);
+      throw error;
+    }
+    console.log("[Auth] Code exchange successful");
   }
 
   await ensureCustomerMetadata();

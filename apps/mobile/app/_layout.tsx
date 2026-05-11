@@ -6,7 +6,9 @@ export default function RootLayout() {
   return (
     <SessionProvider>
       <StatusBar style="dark" />
-      <Stack screenOptions={{ headerShown: false }} />
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)/callback" options={{ headerShown: false }} />
+      </Stack>
     </SessionProvider>
   );
 }

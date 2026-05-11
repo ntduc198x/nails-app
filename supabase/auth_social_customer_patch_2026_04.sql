@@ -25,13 +25,20 @@ begin
     )
   );
 
-  if v_registration_mode <> 'USER' then
+  if v_registration_mode = 'USER' then
+    v_workspace := public.ensure_default_workspace();
+    v_org_id := coalesce(
+      nullif((v_workspace ->> 'org_id')::text, '')::uuid,
+      '00000000-0000-0000-0000-000000000001'::uuid
+    );
+    v_branch_id := coalesce(
+      nullif((v_workspace ->> 'branch_id')::text, '')::uuid,
+      '00000000-0000-0000-0000-000000000101'::uuid
+    );
+  else
     v_workspace := public.ensure_default_workspace();
     v_org_id := coalesce((v_workspace ->> 'org_id')::uuid, '00000000-0000-0000-0000-000000000001'::uuid);
     v_branch_id := coalesce((v_workspace ->> 'branch_id')::uuid, '00000000-0000-0000-0000-000000000101'::uuid);
-  else
-    v_org_id := null;
-    v_branch_id := null;
   end if;
 
   v_display_name := nullif(

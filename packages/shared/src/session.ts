@@ -295,10 +295,27 @@ async function ensureCustomerAccountLink(client: SharedSupabaseClient, user: Use
 }
 
 async function shouldForceCustomerRole(client: SharedSupabaseClient, user: User) {
+  // Check if user already has a valid internal role in user_roles table
+  // If they do, never force them to customer role
+  const { data: existingRole, error: roleError } = await client
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (!roleError && existingRole?.role && existingRole.role !== "USER") {
+    // User has a valid internal role (OWNER, PARTNER, MANAGER, RECEPTION, ACCOUNTANT, TECH)
+    // Never force them to customer role
+    return false;
+  }
+
+  // Fallback: Check registration mode
   if (getRegistrationMode(user) === "USER") {
     return true;
   }
 
+  // Check if user has a customer account link
   const existingLink = await client
     .from("customer_accounts")
     .select("customer_id")

@@ -105,11 +105,11 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
 }
 
 function getBookingStatusLabel(status: BookingStatusGroup) {
-  return status === "NEW" ? "Moi" : "Can doi lich";
+  return status === "NEW" ? "Mới" : "Cần dời lịch";
 }
 
 function getBookingSourceLabel(source: string | null) {
-  if (!source) return "Khach tu do";
+  if (!source) return "Khách tự do";
   if (source === "landing_page") return "Landing web";
   if (source === "mobile_guest") return "Mobile guest";
   return source.replace(/_/g, " ");
@@ -496,7 +496,7 @@ export default function AdminSchedulingScreen() {
                     <View key={groupKey} style={styles.bookingSection}>
                       <View style={styles.bookingSectionHeader}>
                         <Text style={styles.bookingSectionTitle}>
-                          {groupKey === "NEW" ? "Booking moi" : "Can doi lich"}
+                          {groupKey === "NEW" ? "Booking moi" : "Cần dời lịch"}
                         </Text>
                         <Text style={styles.bookingSectionCount}>{rows.length}</Text>
                       </View>

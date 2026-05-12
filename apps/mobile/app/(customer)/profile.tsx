@@ -7,13 +7,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
-import { FALLBACK_SERVICES, OFFERS, PROFILE_SUMMARY } from "@/src/features/customer/data";
+import { FALLBACK_SERVICES, OFFERS } from "@/src/features/customer/data";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { useCustomerHistory } from "@/src/hooks/use-customer-history";
+import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
 import { useLookbookServices } from "@/src/hooks/use-lookbook-services";
 import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
 import { upsertAndVerifyProfile } from "@/src/lib/profile-upsert";
@@ -42,19 +43,20 @@ export default function ProfileScreen() {
   const { favoriteIds, refresh: refreshFavorites } = useCustomerFavorites();
   const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshHistory } =
     useCustomerHistory(8);
+  const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend } = useCustomerMembership();
   const { refresh: refreshLookbook, services } = useLookbookServices(FALLBACK_SERVICES);
   const [activeTab, setActiveTab] = useState<TabKey>("history");
-  const [avatarUri, setAvatarUri] = useState(PROFILE_SUMMARY.avatar);
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [form, setForm] = useState({
-    name: user?.displayName?.trim() || user?.email?.split("@")[0] || PROFILE_SUMMARY.name,
-    birthDate: PROFILE_SUMMARY.birthDate,
-    phone: PROFILE_SUMMARY.phone,
-    email: user?.email ?? PROFILE_SUMMARY.email,
-    address: PROFILE_SUMMARY.address,
+    name: user?.displayName?.trim() || user?.email?.split("@")[0] || "",
+    birthDate: "",
+    phone: "",
+    email: user?.email ?? "",
+    address: "",
   });
 
   const favoriteServices = useMemo(
@@ -69,6 +71,33 @@ export default function ProfileScreen() {
     }
   }, [params.tab]);
 
+  const displayAvatar = useMemo(() => {
+    if (avatarUri?.trim()) {
+      return avatarUri.trim();
+    }
+
+    const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || "Customer");
+    return `https://ui-avatars.com/api/?name=${seed}&background=F3E7DA&color=6E4E37&size=256`;
+  }, [avatarUri, form.name, user?.email]);
+
+  const membershipBlurb = useMemo(() => {
+    if (!nextTier) {
+      return `Đang ở hạng ${currentTier?.name ?? "cao nhất"} với ${pointsBalance.toLocaleString("vi-VN")} điểm.`;
+    }
+
+    const parts: string[] = [];
+    if (remainingSpentToNext > 0) {
+      parts.push(`${remainingSpentToNext.toLocaleString("vi-VN")}đ chi tiêu`);
+    }
+    if (remainingVisitsToNext > 0) {
+      parts.push(`${remainingVisitsToNext.toLocaleString("vi-VN")} lượt hẹn chuẩn`);
+    }
+
+    return parts.length
+      ? `Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
+      : `Mục tiêu tiếp theo là ${nextTier.name}.`;
+  }, [currentTier?.name, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
+
   const summary = useMemo(() => {
     const totalSpent = historyItems.reduce((sum, item) => {
       const numericPrice = Number((item.servicePriceLabel ?? "0").replace(/[^\d]/g, ""));
@@ -76,11 +105,11 @@ export default function ProfileScreen() {
     }, 0);
 
     return {
-      totalSpent: `${totalSpent.toLocaleString("vi-VN")}d`,
-      totalVisits: String(historyItems.length),
+      totalSpent: `${totalSpent.toLocaleString("vi-VN")}đ`,
+      totalVisits: String(eligibleVisitsMinSpend),
       offerWallet: String(Math.max(1, OFFERS.length - 1)),
     };
-  }, [historyItems]);
+  }, [eligibleVisitsMinSpend, historyItems]);
 
   const loadProfile = useCallback(async () => {
     const cached = user?.id ? await readProfileCache(user.id) : null;
@@ -95,22 +124,24 @@ export default function ProfileScreen() {
     const avatarFromMetadata =
       typeof authUser?.user_metadata?.avatar_url === "string" && authUser.user_metadata.avatar_url.trim()
         ? authUser.user_metadata.avatar_url.trim()
-        : PROFILE_SUMMARY.avatar;
+        : null;
 
     setAvatarUri(avatarFromMetadata);
-    void prefetchCustomerImagesForIntent([avatarFromMetadata], "avatar");
+    if (avatarFromMetadata) {
+      void prefetchCustomerImagesForIntent([avatarFromMetadata], "avatar");
+    }
 
     if (!user?.id) {
-      setForm((current) => ({ ...current, email: user?.email ?? PROFILE_SUMMARY.email }));
+      setForm((current) => ({ ...current, email: user?.email ?? "" }));
       return;
     }
 
     if (cached) {
       setForm({
-        name: cached.displayName || user.displayName?.trim() || user.email?.split("@")[0] || PROFILE_SUMMARY.name,
+        name: cached.displayName || user.displayName?.trim() || user.email?.split("@")[0] || "",
         birthDate: cached.birthDate || "",
         phone: cached.phone || "",
-        email: user.email ?? PROFILE_SUMMARY.email,
+        email: user.email ?? "",
         address: cached.address || "",
       });
     }
@@ -129,10 +160,10 @@ export default function ProfileScreen() {
       if (error) throw error;
 
       const newForm = {
-        name: data?.display_name?.trim() || user.displayName?.trim() || user.email?.split("@")[0] || PROFILE_SUMMARY.name,
+        name: data?.display_name?.trim() || user.displayName?.trim() || user.email?.split("@")[0] || "",
         birthDate: data?.birth_date?.trim() || "",
         phone: data?.phone?.trim() || "",
-        email: user.email ?? PROFILE_SUMMARY.email,
+        email: user.email ?? "",
         address: data?.address?.trim() || "",
       };
 
@@ -143,11 +174,11 @@ export default function ProfileScreen() {
         birthDate: newForm.birthDate,
         phone: newForm.phone,
         address: newForm.address,
-        avatarUrl: avatarFromMetadata,
+        avatarUrl: avatarFromMetadata ?? "",
       });
     } catch {
       if (!cached) {
-        setForm((current) => ({ ...current, email: user?.email ?? PROFILE_SUMMARY.email }));
+        setForm((current) => ({ ...current, email: user?.email ?? "" }));
       }
     }
   }, [user?.displayName, user?.email, user?.id]);
@@ -191,7 +222,7 @@ export default function ProfileScreen() {
         name: verifiedProfile.display_name?.trim() || form.name.trim(),
         birthDate: verifiedProfile.birth_date?.trim() || "",
         phone: verifiedProfile.phone?.trim() || "",
-        email: user.email ?? PROFILE_SUMMARY.email,
+        email: user.email ?? "",
         address: verifiedProfile.address?.trim() || "",
       };
 
@@ -202,7 +233,7 @@ export default function ProfileScreen() {
         birthDate: newForm.birthDate,
         phone: newForm.phone,
         address: newForm.address,
-        avatarUrl: avatarUri,
+        avatarUrl: avatarUri ?? "",
       });
 
       Alert.alert(strings.saveSuccess, strings.saveSuccess);
@@ -344,7 +375,7 @@ export default function ProfileScreen() {
 
       <View style={styles.profileHero}>
         <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()}>
-          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: avatarUri }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
+          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: displayAvatar }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
           <View style={styles.cameraBadge}>
             <Feather color={theme.colors.textSoft} name="camera" size={15} />
           </View>
@@ -353,6 +384,22 @@ export default function ProfileScreen() {
         <Text style={styles.name}>{form.name}</Text>
         <Text style={styles.contact}>{form.phone || form.email}</Text>
       </View>
+
+      <Pressable onPress={() => router.push("/(customer)/membership")}>
+        <LinearGradient
+          colors={[currentTier?.accentColor || "#C18A57", "#2F241B"]}
+          end={{ x: 1, y: 1 }}
+          start={{ x: 0, y: 0 }}
+          style={styles.membershipCard}
+        >
+          <View style={styles.membershipCopy}>
+            <Text style={styles.membershipEyebrow}>Membership</Text>
+            <Text style={styles.membershipTitle}>{currentTier?.name || "Bronze"}</Text>
+            <Text style={styles.contact}>{membershipBlurb}</Text>
+          </View>
+          <Feather color="#F5E8D8" name="award" size={22} />
+        </LinearGradient>
+      </Pressable>
 
       <SurfaceCard style={styles.metricsCard}>
         <ProfileMetric styles={styles} icon="credit-card" label="Tổng chi tiêu" value={summary.totalSpent} />
@@ -378,7 +425,7 @@ export default function ProfileScreen() {
         <View style={styles.cardList}>
           {historyItems.map((item) => (
             <SurfaceCard key={item.id} style={styles.rowCard}>
-              <CustomerCachedImage alt={item.serviceName} source={{ uri: item.serviceImageUrl ?? PROFILE_SUMMARY.avatar }} intent="thumbnail" style={styles.rowImage} />
+              <CustomerCachedImage alt={item.serviceName} source={{ uri: item.serviceImageUrl ?? displayAvatar }} intent="thumbnail" style={styles.rowImage} />
               <View style={styles.rowCopy}>
                 <Text style={styles.rowTitle}>{item.serviceName}</Text>
                 <Text style={styles.rowSubtitle}>

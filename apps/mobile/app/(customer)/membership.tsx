@@ -1,11 +1,13 @@
 import Feather from "@expo/vector-icons/Feather";
+import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
 import { useCustomerStrings } from "@/src/features/customer/strings";
+import type { CustomerMembershipTier } from "@nails/shared";
 
 const { colors, radius } = premiumTheme;
 
@@ -26,6 +28,7 @@ function buildHelperText(input: {
   pointsBalance: number;
   totalSpent: number;
   totalVisits: number;
+  eligibleVisitsMinSpend: number;
   expiresAt: string | null;
 }) {
   if (!input.hasMembership) {
@@ -33,7 +36,7 @@ function buildHelperText(input: {
   }
 
   if (input.nextTierName) {
-    return `Đang tích lũy ${formatNumber(input.pointsBalance)} điểm. Mức chi tiêu hiện tại ${formatNumber(input.totalSpent)} và ${formatNumber(input.totalVisits)} lượt hẹn, mục tiêu tiếp theo là ${input.nextTierName}.`;
+    return `Đang tích lũy ${formatNumber(input.pointsBalance)} điểm. Mức chi tiêu hiện tại ${formatNumber(input.totalSpent)} và ${formatNumber(input.eligibleVisitsMinSpend)}/${formatNumber(input.totalVisits)} lượt hẹn chuẩn, mục tiêu tiếp theo là ${input.nextTierName}.`;
   }
 
   const expiresText = formatDate(input.expiresAt);
@@ -61,6 +64,33 @@ function describeTierRequirements(tier: {
   return parts.length ? parts.join(" hoặc ") : "điều kiện linh hoạt theo cửa hàng";
 }
 
+function getTierGradient(tier: CustomerMembershipTier | null) {
+  switch ((tier?.themeKey || tier?.code || "bronze").toLowerCase()) {
+    case "silver":
+      return ["#E7EBF0", "#98A2B3"] as const;
+    case "gold":
+      return ["#F6D48B", "#B9852F"] as const;
+    case "platinum":
+      return ["#DDE4EA", "#6E7C8C"] as const;
+    case "diamond":
+      return ["#344A7A", "#111827"] as const;
+    case "bronze":
+    default:
+      return ["#C18A57", "#5D3B22"] as const;
+  }
+}
+
+function getTierBadgeLabel(input: {
+  tier: CustomerMembershipTier;
+  currentTier: CustomerMembershipTier | null;
+  nextTier: CustomerMembershipTier | null;
+}) {
+  if (input.currentTier?.id === input.tier.id) return "Hạng hiện tại";
+  if (input.nextTier?.id === input.tier.id) return "Mục tiêu tiếp theo";
+  if (input.currentTier && input.tier.sortOrder < input.currentTier.sortOrder) return "Đã mở khóa";
+  return "Chưa mở";
+}
+
 function buildNextTierGuidance(input: {
   nextTier: {
     name: string;
@@ -68,7 +98,7 @@ function buildNextTierGuidance(input: {
     visitThreshold: number;
   } | null;
   totalSpent: number;
-  totalVisits: number;
+  eligibleVisitsMinSpend: number;
   pointsBalance: number;
 }) {
   if (!input.nextTier) {
@@ -76,7 +106,7 @@ function buildNextTierGuidance(input: {
   }
 
   const remainingSpend = Math.max(0, input.nextTier.spendingThreshold - input.totalSpent);
-  const remainingVisits = Math.max(0, input.nextTier.visitThreshold - input.totalVisits);
+  const remainingVisits = Math.max(0, input.nextTier.visitThreshold - input.eligibleVisitsMinSpend);
   const parts: string[] = [`Bạn đang có ${formatNumber(input.pointsBalance)} điểm.`];
 
   if (input.nextTier.spendingThreshold > 0) {
@@ -97,6 +127,7 @@ function buildNextTierGuidance(input: {
 export default function MembershipScreen() {
   const strings = useCustomerStrings();
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
+  const [selectedTier, setSelectedTier] = useState<CustomerMembershipTier | null>(null);
   const {
     currentTier,
     expiresAt,
@@ -106,11 +137,16 @@ export default function MembershipScreen() {
     perks,
     pointsBalance,
     progress,
+    progressSpent,
+    progressVisits,
     refresh,
     tiers,
     totalSpent,
     totalVisits,
+    eligibleVisitsMinSpend,
     nextTier,
+    remainingSpentToNext,
+    remainingVisitsToNext,
   } = useCustomerMembership();
 
   const tierName = currentTier?.name || "Thành viên";
@@ -121,15 +157,20 @@ export default function MembershipScreen() {
     pointsBalance,
     totalSpent,
     totalVisits,
+    eligibleVisitsMinSpend,
     expiresAt,
   });
   const progressWidth = `${Math.max(0, Math.min(progress, 1)) * 100}%` as `${number}%`;
   const nextTierGuidance = buildNextTierGuidance({
     nextTier,
     totalSpent,
-    totalVisits,
+    eligibleVisitsMinSpend,
     pointsBalance,
   });
+  const heroGradient = getTierGradient(currentTier);
+  const selectedTierBadge = selectedTier ? getTierBadgeLabel({ tier: selectedTier, currentTier, nextTier }) : null;
+  const selectedTierRemainingSpend = selectedTier ? Math.max(0, selectedTier.spendingThreshold - totalSpent) : 0;
+  const selectedTierRemainingVisits = selectedTier ? Math.max(0, selectedTier.visitThreshold - eligibleVisitsMinSpend) : 0;
 
   return (
     <CustomerScreen hideHeader title={strings.membershipTitle} contentContainerStyle={styles.content} onRefresh={() => void refresh()} refreshing={isRefreshing}>
@@ -138,7 +179,7 @@ export default function MembershipScreen() {
         <CustomerTopActions />
       </View>
 
-      <View style={styles.heroCard}>
+      <LinearGradient colors={heroGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
         <View style={styles.patternLarge} />
         <View style={styles.patternSmall} />
 
@@ -174,7 +215,25 @@ export default function MembershipScreen() {
             </View>
           </View>
         </View>
-      </View>
+      </LinearGradient>
+
+      <SurfaceCard style={styles.progressSummaryCard}>
+        <View style={styles.progressMetricBlock}>
+          <Text style={styles.progressMetricLabel}>Chi tiêu hiện tại</Text>
+          <Text style={styles.progressMetricValue}>{formatNumber(totalSpent)}đ</Text>
+          <Text style={styles.progressMetricHint}>
+            {nextTier ? `Còn ${formatNumber(remainingSpentToNext)}đ để lên ${nextTier.name}` : "Đã đạt hạng cao nhất"}
+          </Text>
+        </View>
+        <View style={styles.progressMetricDivider} />
+        <View style={styles.progressMetricBlock}>
+          <Text style={styles.progressMetricLabel}>Lượt hẹn chuẩn</Text>
+          <Text style={styles.progressMetricValue}>{formatNumber(eligibleVisitsMinSpend)}/{formatNumber(totalVisits)}</Text>
+          <Text style={styles.progressMetricHint}>
+            Chỉ tính bill từ {formatNumber(300000)}đ. {nextTier ? `Còn ${formatNumber(remainingVisitsToNext)} lượt để lên ${nextTier.name}` : ""}
+          </Text>
+        </View>
+      </SurfaceCard>
 
       <View style={styles.sectionBlock}>
         <Text style={styles.sectionTitle}>Quyền lợi của bạn</Text>
@@ -199,20 +258,26 @@ export default function MembershipScreen() {
         <Text style={styles.sectionTitle}>Các hạng thành viên</Text>
 
         <View style={styles.perkList}>
-          {tiers.map((tier) => (
-            <SurfaceCard key={tier.id} style={styles.tierCard}>
-              <View style={styles.tierCardHeader}>
-                <Text style={styles.tierCardTitle}>{tier.name}</Text>
-                <Text style={[styles.tierCardBadge, tier.id === currentTier?.id ? styles.tierCardBadgeActive : null]}>
-                  {tier.id === currentTier?.id ? "Hạng hiện tại" : "Mục tiêu"}
-                </Text>
-              </View>
-              <Text style={styles.tierCardRule}>Điều kiện: {describeTierRequirements(tier)}</Text>
-              <Text style={styles.tierCardRule}>
-                Ưu đãi: {tier.perks.length ? tier.perks.join(", ") : "Chưa có mô tả ưu đãi cho hạng này."}
-              </Text>
-            </SurfaceCard>
-          ))}
+          {tiers.map((tier) => {
+            const badgeLabel = getTierBadgeLabel({ tier, currentTier, nextTier });
+            const tierGradient = getTierGradient(tier);
+            return (
+              <Pressable key={tier.id} onPress={() => setSelectedTier(tier)}>
+                <LinearGradient colors={tierGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tierCard}>
+                  <View style={styles.tierCardHeader}>
+                    <Text style={styles.tierCardTitle}>{tier.name}</Text>
+                    <Text style={[styles.tierCardBadge, tier.id === currentTier?.id ? styles.tierCardBadgeActive : null]}>
+                      {badgeLabel}
+                    </Text>
+                  </View>
+                  <Text style={styles.tierCardRule}>Điều kiện: {describeTierRequirements(tier)}</Text>
+                  <Text style={styles.tierCardRule}>
+                    Ưu đãi: {tier.perks.length ? tier.perks.join(", ") : "Chưa có mô tả ưu đãi cho hạng này."}
+                  </Text>
+                </LinearGradient>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
@@ -241,6 +306,32 @@ export default function MembershipScreen() {
           )}
         </View>
       </View>
+
+      <Modal visible={Boolean(selectedTier)} transparent animationType="fade" onRequestClose={() => setSelectedTier(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setSelectedTier(null)}>
+          <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
+            <Text style={styles.modalTitle}>{selectedTier?.name}</Text>
+            <Text style={styles.modalBody}>{selectedTier?.description?.trim() || "Thông tin hạng thành viên đang được cập nhật."}</Text>
+            <Text style={styles.modalSectionTitle}>{selectedTierBadge}</Text>
+            <Text style={styles.modalBody}>Điều kiện: {selectedTier ? describeTierRequirements(selectedTier) : "-"}</Text>
+            <Text style={styles.modalBody}>
+              {selectedTier?.perks.length ? `Ưu đãi: ${selectedTier.perks.join(", ")}` : "Chưa có mô tả ưu đãi cho hạng này."}
+            </Text>
+            <Text style={styles.modalSectionTitle}>Tiến độ của bạn</Text>
+            <Text style={styles.modalBody}>Chi tiêu hiện tại: {formatNumber(totalSpent)}đ</Text>
+            <Text style={styles.modalBody}>Lượt hẹn chuẩn: {formatNumber(eligibleVisitsMinSpend)}/{formatNumber(totalVisits)} (chỉ tính bill từ 300.000đ)</Text>
+            {selectedTier && selectedTier.id !== currentTier?.id ? (
+              <>
+                <Text style={styles.modalBody}>Cần thêm {formatNumber(selectedTierRemainingSpend)}đ chi tiêu.</Text>
+                <Text style={styles.modalBody}>Cần thêm {formatNumber(selectedTierRemainingVisits)} lượt hẹn chuẩn.</Text>
+              </>
+            ) : null}
+            <Pressable style={styles.modalCloseButton} onPress={() => setSelectedTier(null)}>
+              <Text style={styles.modalCloseText}>Đã hiểu</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal visible={showBenefitsModal} transparent animationType="fade" onRequestClose={() => setShowBenefitsModal(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowBenefitsModal(false)}>
@@ -435,6 +526,35 @@ const styles = StyleSheet.create({
   sectionBlock: {
     gap: 12,
   },
+  progressSummaryCard: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  progressMetricBlock: {
+    flex: 1,
+    gap: 4,
+  },
+  progressMetricDivider: {
+    backgroundColor: colors.border,
+    width: 1,
+  },
+  progressMetricLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  progressMetricValue: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800",
+  },
+  progressMetricHint: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+  },
   sectionTitle: {
     color: colors.text,
     fontSize: 17,
@@ -450,6 +570,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   tierCard: {
+    borderRadius: 20,
     gap: 8,
     padding: 14,
   },

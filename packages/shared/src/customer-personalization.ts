@@ -51,6 +51,8 @@ type TicketHistoryRow = {
     | null;
 };
 
+const MEMBERSHIP_VISIT_MIN_SPEND = 300_000;
+
 type OfferRow = Record<string, unknown>;
 type StorefrontRow = Record<string, unknown>;
 type ProductRow = Record<string, unknown>;
@@ -71,6 +73,11 @@ export type CustomerMembershipTier = {
   spendingThreshold: number;
   visitThreshold: number;
   accentColor: string | null;
+  gradientFrom: string | null;
+  gradientTo: string | null;
+  badgeIcon: string | null;
+  themeKey: string | null;
+  sortOrder: number;
   perks: string[];
   isActive: boolean;
 };
@@ -87,9 +94,15 @@ export type CustomerMembershipSummary = {
   lifetimePoints: number;
   totalSpent: number;
   totalVisits: number;
+  eligibleVisitsMinSpend: number;
   joinedAt: string | null;
   expiresAt: string | null;
   progress: number;
+  progressSpent: number;
+  progressVisits: number;
+  remainingSpentToNext: number;
+  remainingVisitsToNext: number;
+  isTopTier: boolean;
   perks: string[];
   offers: CustomerMembershipOffer[];
 };
@@ -356,6 +369,11 @@ function normalizeTier(row: Record<string, unknown>): CustomerMembershipTier {
     spendingThreshold: Number(row.spending_threshold ?? 0),
     visitThreshold: Number(row.visit_threshold ?? 0),
     accentColor: typeof row.accent_color === "string" ? row.accent_color : null,
+    gradientFrom: typeof row.gradient_from === "string" ? row.gradient_from : null,
+    gradientTo: typeof row.gradient_to === "string" ? row.gradient_to : null,
+    badgeIcon: typeof row.badge_icon === "string" ? row.badge_icon : null,
+    themeKey: typeof row.theme_key === "string" ? row.theme_key : null,
+    sortOrder: Number(row.sort_order ?? 0),
     perks: Array.isArray(row.perks) ? row.perks.filter((item): item is string => typeof item === "string") : [],
     isActive: row.is_active !== false,
   };
@@ -370,30 +388,42 @@ function getMembershipTierRecord(value: unknown): Record<string, unknown> | null
   return typeof value === "object" && value ? (value as Record<string, unknown>) : null;
 }
 
-function buildMembershipProgress(input: {
+function normalizeProgress(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(value, 1));
+}
+
+function buildMembershipProgressMetrics(input: {
   nextTier: CustomerMembershipTier | null;
   totalSpent: number;
-  totalVisits: number;
+  eligibleVisitsMinSpend: number;
 }) {
   if (!input.nextTier) {
-    return 1;
+    return {
+      progress: 1,
+      progressSpent: 1,
+      progressVisits: 1,
+      remainingSpentToNext: 0,
+      remainingVisitsToNext: 0,
+      isTopTier: true,
+    };
   }
 
-  const progressParts: number[] = [];
+  const progressSpent = input.nextTier.spendingThreshold > 0
+    ? normalizeProgress(input.totalSpent / input.nextTier.spendingThreshold)
+    : 0;
+  const progressVisits = input.nextTier.visitThreshold > 0
+    ? normalizeProgress(input.eligibleVisitsMinSpend / input.nextTier.visitThreshold)
+    : 0;
 
-  if (input.nextTier.spendingThreshold > 0) {
-    progressParts.push(input.totalSpent / input.nextTier.spendingThreshold);
-  }
-
-  if (input.nextTier.visitThreshold > 0) {
-    progressParts.push(input.totalVisits / input.nextTier.visitThreshold);
-  }
-
-  if (!progressParts.length) {
-    return 0;
-  }
-
-  return Math.max(0, Math.min(Math.max(...progressParts), 1));
+  return {
+    progress: normalizeProgress(Math.max(progressSpent, progressVisits)),
+    progressSpent,
+    progressVisits,
+    remainingSpentToNext: Math.max(0, input.nextTier.spendingThreshold - input.totalSpent),
+    remainingVisitsToNext: Math.max(0, input.nextTier.visitThreshold - input.eligibleVisitsMinSpend),
+    isTopTier: false,
+  };
 }
 
 export async function listCustomerHomeFeedForContext(
@@ -596,29 +626,36 @@ export async function listCustomerMembershipSummary(
       lifetimePoints: 0,
       totalSpent: 0,
       totalVisits: 0,
+      eligibleVisitsMinSpend: 0,
       joinedAt: null,
       expiresAt: null,
       progress: 0,
+      progressSpent: 0,
+      progressVisits: 0,
+      remainingSpentToNext: 0,
+      remainingVisitsToNext: 0,
+      isTopTier: false,
       perks: [],
       offers: [],
     };
   }
 
   const nowMs = Date.now();
-  const [membershipResult, tiersResult, offersResult] = await Promise.all([
+  const [membershipResult, tiersResult, offersResult, ticketsResult] = await Promise.all([
     client
       .from("customer_memberships")
       .select(
-        "id,tier_id,points_balance,lifetime_points,total_spent,total_visits,joined_at,expires_at,membership_tiers(id,code,name,description,spending_threshold,visit_threshold,accent_color,perks,is_active)",
+        "id,tier_id,points_balance,lifetime_points,total_spent,total_visits,joined_at,expires_at,membership_tiers(id,code,name,description,spending_threshold,visit_threshold,accent_color,gradient_from,gradient_to,badge_icon,theme_key,sort_order,perks,is_active)",
       )
       .eq("org_id", context.orgId)
       .eq("user_id", context.userId)
       .maybeSingle(),
     client
       .from("membership_tiers")
-      .select("id,code,name,description,spending_threshold,visit_threshold,accent_color,perks,is_active")
+      .select("id,code,name,description,spending_threshold,visit_threshold,accent_color,gradient_from,gradient_to,badge_icon,theme_key,sort_order,perks,is_active")
       .eq("org_id", context.orgId)
       .eq("is_active", true)
+      .order("sort_order", { ascending: true })
       .order("spending_threshold", { ascending: true })
       .order("visit_threshold", { ascending: true }),
     client
@@ -628,6 +665,14 @@ export async function listCustomerMembershipSummary(
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
       .limit(12),
+    client
+      .from("tickets")
+      .select("id,created_at,ticket_items(unit_price,services(base_price))")
+      .eq("org_id", context.orgId)
+      .eq("customer_id", context.customerId)
+      .eq("status", "CLOSED")
+      .order("created_at", { ascending: false })
+      .limit(250),
   ]);
 
   if (membershipResult.error) {
@@ -642,13 +687,48 @@ export async function listCustomerMembershipSummary(
     throw offersResult.error;
   }
 
+  if (ticketsResult.error) {
+    throw ticketsResult.error;
+  }
+
   const tiers = ((tiersResult.data ?? []) as Array<Record<string, unknown>>).map(normalizeTier);
-  const currentTierRecord = getMembershipTierRecord(membershipResult.data?.membership_tiers);
-  const currentTier = currentTierRecord ? normalizeTier(currentTierRecord) : null;
+  const totalSpent = Number(membershipResult.data?.total_spent ?? 0);
+  const persistedVisits = Number(membershipResult.data?.total_visits ?? 0);
+  const ticketRows = (ticketsResult.data ?? []) as TicketHistoryRow[];
+  const eligibleVisitsMinSpend = ticketRows.reduce((count, row) => {
+    const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
+    const ticketTotal = items.reduce((sum, item) => {
+      const unitPrice = typeof item.unit_price === "number"
+        ? item.unit_price
+        : typeof item.services?.base_price === "number"
+          ? item.services.base_price
+          : 0;
+      return sum + unitPrice;
+    }, 0);
+
+    return ticketTotal >= MEMBERSHIP_VISIT_MIN_SPEND ? count + 1 : count;
+  }, 0);
+  const totalVisits = Math.max(persistedVisits, eligibleVisitsMinSpend);
+
+  const currentTier = tiers.reduce<CustomerMembershipTier | null>((best, tier) => {
+    const qualifiesBySpend = tier.spendingThreshold > 0 ? totalSpent >= tier.spendingThreshold : true;
+    const qualifiesByVisits = tier.visitThreshold > 0 ? eligibleVisitsMinSpend >= tier.visitThreshold : true;
+    const qualifies = (tier.spendingThreshold <= 0 && tier.visitThreshold <= 0) || qualifiesBySpend || qualifiesByVisits;
+
+    if (!qualifies) {
+      return best;
+    }
+
+    if (!best || tier.sortOrder >= best.sortOrder) {
+      return tier;
+    }
+
+    return best;
+  }, null);
+
   const currentTierIndex = currentTier ? tiers.findIndex((tier) => tier.id === currentTier.id) : -1;
   const nextTier = currentTierIndex >= 0 ? tiers[currentTierIndex + 1] ?? null : tiers[0] ?? null;
-  const totalSpent = Number(membershipResult.data?.total_spent ?? 0);
-  const totalVisits = Number(membershipResult.data?.total_visits ?? 0);
+  const progressMetrics = buildMembershipProgressMetrics({ nextTier, totalSpent, eligibleVisitsMinSpend });
 
   return {
     hasMembership: Boolean(membershipResult.data),
@@ -660,9 +740,15 @@ export async function listCustomerMembershipSummary(
     lifetimePoints: Number(membershipResult.data?.lifetime_points ?? 0),
     totalSpent,
     totalVisits,
+    eligibleVisitsMinSpend,
     joinedAt: typeof membershipResult.data?.joined_at === "string" ? membershipResult.data.joined_at : null,
     expiresAt: typeof membershipResult.data?.expires_at === "string" ? membershipResult.data.expires_at : null,
-    progress: buildMembershipProgress({ nextTier, totalSpent, totalVisits }),
+    progress: progressMetrics.progress,
+    progressSpent: progressMetrics.progressSpent,
+    progressVisits: progressMetrics.progressVisits,
+    remainingSpentToNext: progressMetrics.remainingSpentToNext,
+    remainingVisitsToNext: progressMetrics.remainingVisitsToNext,
+    isTopTier: progressMetrics.isTopTier,
     perks: currentTier?.perks ?? [],
     offers: normalizeOffers((offersResult.data ?? []) as OfferRow[])
       .filter((offer) => isOfferActiveNow(offer, nowMs))

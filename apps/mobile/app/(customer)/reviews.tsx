@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { CachedAppImage } from "@/src/components/cached-app-image";
-import { REVIEWS } from "@/src/features/customer/data";
+import Feather from "@expo/vector-icons/Feather";
 import { CustomerScreen, SegmentedTabs, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 
@@ -21,58 +20,43 @@ export default function ReviewsScreen() {
     <CustomerScreen title="Đánh giá của tôi">
       <SegmentedTabs activeKey={activeFilter} items={FILTERS} onChange={setActiveFilter} />
 
-      <View style={styles.list}>
-        {REVIEWS.map((review) => (
-          <SurfaceCard key={review.id} style={styles.card}>
-            <CachedAppImage alt={review.service} source={{ uri: review.image }} style={styles.image} />
-
-            <View style={styles.copy}>
-              <Text style={styles.title}>{activeFilter === "service" ? review.service : review.staff}</Text>
-              <Text style={styles.subtitle}>{activeFilter === "service" ? review.staff : review.service}</Text>
-              <Text style={styles.stars}>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</Text>
-              <Text style={styles.date}>{review.date}</Text>
-            </View>
-          </SurfaceCard>
-        ))}
-      </View>
+      <SurfaceCard style={styles.emptyCard}>
+        <View style={styles.iconWrap}>
+          <Feather color={colors.textSoft} name="message-square" size={20} />
+        </View>
+        <Text style={styles.title}>Chưa có đánh giá nào được đồng bộ</Text>
+        <Text style={styles.subtitle}>
+          Màn này đã bỏ toàn bộ review mock. Khi hệ thống review thật được nối, dữ liệu sẽ hiển thị theo bộ lọc dịch vụ hoặc kỹ thuật viên.
+        </Text>
+      </SurfaceCard>
     </CustomerScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  list: {
-    gap: spacing.md,
-  },
-  card: {
+  emptyCard: {
     alignItems: "center",
-    flexDirection: "row",
     gap: spacing.md,
+    paddingVertical: spacing.lg,
   },
-  image: {
-    borderRadius: 16,
-    height: 88,
-    width: 88,
-  },
-  copy: {
-    flex: 1,
-    gap: 6,
+  iconWrap: {
+    alignItems: "center",
+    backgroundColor: "#f7f1ea",
+    borderRadius: 18,
+    height: 44,
+    justifyContent: "center",
+    width: 44,
   },
   title: {
     color: colors.text,
     fontSize: 18,
     fontWeight: "800",
+    textAlign: "center",
   },
   subtitle: {
     color: colors.textSoft,
-    fontSize: 15,
-  },
-  stars: {
-    color: "#d79856",
-    fontSize: 16,
-    letterSpacing: 1,
-  },
-  date: {
-    color: colors.textSoft,
     fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
   },
 });

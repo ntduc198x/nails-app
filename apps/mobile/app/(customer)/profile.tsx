@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
-import { FALLBACK_SERVICES, OFFERS } from "@/src/features/customer/data";
+import { FALLBACK_SERVICES } from "@/src/features/customer/data";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
@@ -43,7 +43,7 @@ export default function ProfileScreen() {
   const { favoriteIds, refresh: refreshFavorites } = useCustomerFavorites();
   const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshHistory } =
     useCustomerHistory(8);
-  const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend } = useCustomerMembership();
+  const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership();
   const { refresh: refreshLookbook, services } = useLookbookServices(FALLBACK_SERVICES);
   const [activeTab, setActiveTab] = useState<TabKey>("history");
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -107,9 +107,9 @@ export default function ProfileScreen() {
     return {
       totalSpent: `${totalSpent.toLocaleString("vi-VN")}đ`,
       totalVisits: String(eligibleVisitsMinSpend),
-      offerWallet: String(Math.max(1, OFFERS.length - 1)),
+      offerWallet: String(offers.length),
     };
-  }, [eligibleVisitsMinSpend, historyItems]);
+  }, [eligibleVisitsMinSpend, historyItems, offers.length]);
 
   const loadProfile = useCallback(async () => {
     const cached = user?.id ? await readProfileCache(user.id) : null;

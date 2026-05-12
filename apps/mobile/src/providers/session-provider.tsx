@@ -252,8 +252,8 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
       return summary;
     }
   } catch {
-    // Customer users are linked through profiles + customer_accounts.
-    // user_roles is reserved for internal/admin/staff roles in this project.
+    // Customer users should resolve primarily through customer_accounts.
+    // profiles is reserved for internal/admin/staff and only used as legacy fallback data.
   }
 
   const {
@@ -398,6 +398,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
+  const finalizePostAuthRedirect = useCallback(async (fallbackRole: AppRole = "USER") => {
+    try {
+      await ensureCustomerUserMetadata();
+    } catch (metadataError) {
+      console.log("[OAuth] Metadata update failed (non-fatal):", metadataError);
+    }
+
+    await hydrateAfterAuth();
+    const summary = await getMobileAuthenticatedUserSummary();
+    const nextRole = summary?.role ?? fallbackRole;
+    console.log("[OAuth] Final redirect role:", nextRole);
+    router.replace(getPostAuthHref(nextRole));
+    return summary;
+  }, [hydrateAfterAuth]);
+
   const completeOAuthUrl = useCallback(
     async (url: string) => {
       console.log("[OAuth] completeOAuthUrl called with URL:", url);
@@ -445,21 +460,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      console.log("[OAuth] Ensuring customer metadata...");
-      try {
-        await ensureCustomerUserMetadata();
-        console.log("[OAuth] Metadata ensured successfully");
-      } catch (metadataError) {
-        console.log("[OAuth] Metadata update failed (non-fatal):", metadataError);
-      }
-      console.log("[OAuth] Hydrating after auth...");
-      await hydrateAfterAuth();
-      const summary = await getMobileAuthenticatedUserSummary();
+      console.log("[OAuth] Finalizing post-auth redirect...");
+      const summary = await finalizePostAuthRedirect("USER");
       console.log("[OAuth] User summary:", summary?.email, "role:", summary?.role);
-      router.replace(getPostAuthHref(summary?.role ?? "USER"));
       return true;
     },
-    [hydrateAfterAuth],
+    [finalizePostAuthRedirect],
   );
 
   useEffect(() => {
@@ -688,6 +694,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             throw setError;
           }
           console.log("[Google Auth] Session set from fragment tokens");
+          const summary = await finalizePostAuthRedirect("USER");
+          console.log("[Google Auth] Redirected after fragment token session, role:", summary?.role);
         }
       } else {
         const completed = await completeOAuthUrl(resultUrl);
@@ -696,6 +704,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const { data: sessionData } = await mobileSupabase.auth.getSession();
           if (sessionData?.session) {
             console.log("[Google Auth] Session found in storage after callback");
+            const summary = await finalizePostAuthRedirect("USER");
+            console.log("[Google Auth] Redirected after stored session fallback, role:", summary?.role);
           } else {
             throw new Error("Google da xac thuc nhung app chua nhan duoc callback hop le.");
           }

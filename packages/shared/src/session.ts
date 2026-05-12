@@ -134,6 +134,9 @@ async function getCustomerAccountContext(client: SharedSupabaseClient, userId: s
 
 async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, user: User) {
   const registrationMode = getRegistrationMode(user);
+  if (registrationMode === "USER") {
+    return;
+  }
   const { data: currentProfile, error: currentProfileErr } = await client
     .from("profiles")
     .select("user_id,org_id,default_branch_id,display_name,email,phone")
@@ -153,7 +156,7 @@ async function fallbackEnsureCurrentUserProfile(client: SharedSupabaseClient, us
         : null;
 
   let orgId = typeof currentProfile?.org_id === "string" ? currentProfile.org_id : undefined;
-  if (!orgId && registrationMode !== "USER") {
+  if (!orgId) {
     const { data: fallbackRole, error: fallbackRoleErr } = await client
       .from("user_roles")
       .select("org_id")
@@ -251,6 +254,10 @@ async function ensureCurrentUserProfile(client: SharedSupabaseClient, userId?: s
   const targetUserId = userId ?? currentUser.id;
   if (targetUserId !== currentUser.id) {
     throw new Error("UNAUTHORIZED_PROFILE_BOOTSTRAP");
+  }
+
+  if (getRegistrationMode(currentUser) === "USER") {
+    return;
   }
 
   const { error } = await client.rpc("ensure_current_user_profile", {

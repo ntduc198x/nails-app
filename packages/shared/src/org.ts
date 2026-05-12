@@ -7,6 +7,22 @@ export type OrgContext = {
   branchId: string;
 };
 
+function getRegistrationMode(user: { app_metadata?: Record<string, unknown> | null; user_metadata?: Record<string, unknown> | null }) {
+  const provider =
+    typeof user.app_metadata?.provider === "string" && user.app_metadata.provider.trim()
+      ? user.app_metadata.provider.trim().toLowerCase()
+      : "email";
+
+  const rawMode =
+    typeof user.user_metadata?.registration_mode === "string" && user.user_metadata.registration_mode.trim()
+      ? user.user_metadata.registration_mode.trim().toUpperCase()
+      : provider === "google" || provider === "apple"
+        ? "USER"
+        : "ADMIN";
+
+  return rawMode === "USER" ? "USER" : "ADMIN";
+}
+
 export async function ensureOrgContext(client: SharedSupabaseClient): Promise<OrgContext> {
   const {
     data: { session },
@@ -83,6 +99,10 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
   }
 
   if (!currentProfile) {
+    if (getRegistrationMode(currentUser) === "USER") {
+      return { orgId, branchId };
+    }
+
     const { error: insertProfileErr } = await client.from("profiles").insert({
       user_id: currentUser.id,
       org_id: orgId,

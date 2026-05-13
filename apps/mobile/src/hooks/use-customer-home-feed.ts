@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getCustomerScopedContext,
   getCustomerScopedContextForGuest,
@@ -36,6 +36,7 @@ export function useCustomerHomeFeed() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const bootStartedRef = useRef(false);
 
   const loadFromApi = useCallback(async () => {
     if (!mobileEnv.apiBaseUrl || !mobileSupabase) return null;
@@ -141,25 +142,33 @@ export function useCustomerHomeFeed() {
 useEffect(() => {
     let cancelled = false;
 
+    if (bootStartedRef.current) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    bootStartedRef.current = true;
+
     const boot = async () => {
       const cached = await hydrateCachedValue<CustomerHomeFeedPayload>(HOME_FEED_CACHE_KEY);
       if (cancelled) return;
 
       if (cached && hasRealHomeFeedData(cached.value)) {
+        const cacheAge = Date.now() - cached.updatedAt;
         setFeed(normalizeHomeFeed(cached.value));
         setIsLoading(false);
-        const cacheAge = Date.now() - cached.updatedAt;
-        
+
         if (cacheAge > HOME_FEED_FRESH_MS && cacheAge <= HOME_FEED_MAX_STALE_MS) {
           void refresh({ silent: true });
           return;
         }
-        
+
         if (cacheAge > HOME_FEED_MAX_STALE_MS) {
           void refresh();
           return;
         }
-        
+
         return;
       }
 

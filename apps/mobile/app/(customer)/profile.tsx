@@ -91,8 +91,8 @@ export default function ProfileScreen() {
       }
 
       return parts.length
-        ? `Anh đang là thành viên thường. Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
-        : `Anh đang là thành viên thường. Mục tiêu tiếp theo là ${nextTier.name}.`;
+        ? `Bạn đang là thành viên thường. Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
+        : `Bạn đang là thành viên thường. Mục tiêu tiếp theo là ${nextTier.name}.`;
     }
 
     if (!nextTier) {
@@ -218,26 +218,43 @@ export default function ProfileScreen() {
 
     setIsSavingProfile(true);
     try {
-      const verifiedProfile = await upsertAndVerifyProfile({
-        userId: user.id,
-        displayName: form.name,
-        phone: form.phone,
-        birthDate: form.birthDate,
-        address: form.address,
-      });
+      const trimmedForm = {
+        name: form.name.trim(),
+        birthDate: form.birthDate.trim(),
+        phone: form.phone.trim(),
+        address: form.address.trim(),
+      };
+
+      let verifiedProfile: Awaited<ReturnType<typeof upsertAndVerifyProfile>> | null = null;
+
+      try {
+        verifiedProfile = await upsertAndVerifyProfile({
+          userId: user.id,
+          displayName: trimmedForm.name,
+          phone: trimmedForm.phone,
+          birthDate: trimmedForm.birthDate,
+          address: trimmedForm.address,
+        });
+      } catch (profileError) {
+      }
 
       const { error: authError } = await mobileSupabase.auth.updateUser({
-        data: { display_name: form.name.trim() },
+        data: {
+          display_name: trimmedForm.name,
+          phone: trimmedForm.phone,
+          birth_date: trimmedForm.birthDate,
+          address: trimmedForm.address,
+        },
       });
 
       if (authError) throw authError;
 
       const newForm = {
-        name: verifiedProfile.display_name?.trim() || form.name.trim(),
-        birthDate: verifiedProfile.birth_date?.trim() || "",
-        phone: verifiedProfile.phone?.trim() || "",
+        name: verifiedProfile?.display_name?.trim() || trimmedForm.name,
+        birthDate: verifiedProfile?.birth_date?.trim() || trimmedForm.birthDate,
+        phone: verifiedProfile?.phone?.trim() || trimmedForm.phone,
         email: user.email ?? "",
-        address: verifiedProfile.address?.trim() || "",
+        address: verifiedProfile?.address?.trim() || trimmedForm.address,
       };
 
       setForm(newForm);
@@ -383,7 +400,7 @@ export default function ProfileScreen() {
       refreshing={isRefreshing}
     >
       <View style={styles.topBar}>
-        <View style={styles.topBarSpacer} />
+        <Text style={styles.topBarTitle}>{strings.profileTitle}</Text>
         <CustomerTopActions />
       </View>
 
@@ -513,9 +530,9 @@ export default function ProfileScreen() {
         <SurfaceCard style={styles.formCard}>
           <EditableField styles={styles} label={strings.profileName} value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} />
           <EditableField styles={styles} label={strings.profileBirthDate} value={form.birthDate} onChangeText={(value) => setForm((current) => ({ ...current, birthDate: value }))} />
-          <EditableField styles={styles} label={strings.profilePhone} value={form.phone} onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))} />
-          <EditableField styles={styles} label={strings.profileEmail} value={form.email} editable={false} />
-          <EditableField styles={styles} label={strings.profileAddress} value={form.address} onChangeText={(value) => setForm((current) => ({ ...current, address: value }))} />
+          <EditableField styles={styles} label={strings.profilePhone} value={form.phone} keyboardType="phone-pad" onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))} />
+          <EditableField styles={styles} label={strings.profileEmail} value={form.email} editable={false} keyboardType="email-address" />
+          <EditableField styles={styles} label={strings.profileAddress} value={form.address} multiline onChangeText={(value) => setForm((current) => ({ ...current, address: value }))} />
 
           <Pressable onPress={() => void handleSaveProfile()} style={[styles.primaryButton, isSavingProfile ? styles.primaryButtonDisabled : null]} disabled={isSavingProfile}>
             <Text style={styles.primaryButtonText}>{isSavingProfile ? strings.profileSaving : strings.profileSave}</Text>
@@ -558,24 +575,32 @@ function EditableField({
   value,
   onChangeText,
   editable = true,
+  keyboardType,
+  multiline = false,
   styles,
 }: {
   label: string;
   value: string;
   onChangeText?: (value: string) => void;
   editable?: boolean;
+  keyboardType?: React.ComponentProps<typeof TextInput>["keyboardType"];
+  multiline?: boolean;
   styles: ReturnType<typeof createStyles>;
 }) {
   return (
     <View style={styles.fieldGroup}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
-        style={[styles.input, !editable ? styles.inputDisabled : null]}
+        style={[styles.input, multiline ? styles.inputMultiline : null, !editable ? styles.inputDisabled : null]}
         value={value}
         editable={editable}
+        keyboardType={keyboardType}
+        multiline={multiline}
         onChangeText={onChangeText}
         placeholder={label}
         placeholderTextColor="#9c8f84"
+        textAlignVertical={multiline ? "top" : "center"}
+        autoCapitalize={label.toLowerCase().includes("email") ? "none" : "sentences"}
       />
     </View>
   );
@@ -594,8 +619,12 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       marginBottom: 18,
       minHeight: 40,
     },
-    topBarSpacer: {
+    topBarTitle: {
+      color: theme.colors.text,
       flex: 1,
+      fontSize: 30,
+      fontWeight: "800",
+      letterSpacing: -0.8,
     },
     membershipCard: {
       alignItems: "center",
@@ -841,6 +870,9 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       minHeight: 52,
       paddingHorizontal: 16,
       paddingVertical: 12,
+    },
+    inputMultiline: {
+      minHeight: 92,
     },
     inputDisabled: {
       color: theme.colors.textSoft,

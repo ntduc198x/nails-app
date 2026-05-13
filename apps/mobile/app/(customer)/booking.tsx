@@ -8,6 +8,7 @@ import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerUpcomingBookings } from "@/src/hooks/use-customer-upcoming-bookings";
 import { useGuestBooking } from "@/src/hooks/use-guest-booking";
+import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
 const { colors, radius, spacing } = premiumTheme;
@@ -25,6 +26,54 @@ export default function BookingScreen() {
       updateValue("requestedService", params.service);
     }
   }, [params.service, updateValue, values.requestedService]);
+
+  useEffect(() => {
+    if (values.customerName.trim()) return;
+
+    const nextName = user?.displayName?.trim() || user?.email?.split("@")[0]?.trim() || "";
+    if (!nextName) return;
+
+    updateValue("customerName", nextName);
+  }, [updateValue, user?.displayName, user?.email, values.customerName]);
+
+  useEffect(() => {
+    if (values.customerPhone.trim()) return;
+
+    let active = true;
+
+    async function hydratePhoneFromProfile() {
+      if (!mobileSupabase || !user?.id) return;
+
+      const {
+        data: { user: authUser },
+      } = await mobileSupabase.auth.getUser();
+
+      const authPhone = typeof authUser?.user_metadata?.phone === "string" ? authUser.user_metadata.phone.trim() : "";
+      if (authPhone) {
+        if (active) updateValue("customerPhone", authPhone);
+        return;
+      }
+
+      const { data, error } = await mobileSupabase
+        .from("profiles")
+        .select("phone")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) return;
+
+      const profilePhone = typeof data?.phone === "string" ? data.phone.trim() : "";
+      if (active && profilePhone) {
+        updateValue("customerPhone", profilePhone);
+      }
+    }
+
+    void hydratePhoneFromProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [updateValue, user?.id, values.customerPhone]);
 
   useEffect(() => {
     if (!params.offerCode || typeof params.offerCode !== "string") return;

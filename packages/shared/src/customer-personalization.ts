@@ -52,6 +52,7 @@ type TicketHistoryRow = {
 };
 
 const MEMBERSHIP_VISIT_MIN_SPEND = 300_000;
+const MEMBERSHIP_OFFER_PACKAGE_ORDER = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
 
 type OfferRow = Record<string, unknown>;
 type StorefrontRow = Record<string, unknown>;
@@ -304,6 +305,47 @@ function isOfferActiveNow(offer: MarketingOfferCard, nowMs: number) {
   if (Number.isFinite(startsAtMs) && startsAtMs > nowMs) return false;
   if (Number.isFinite(endsAtMs) && endsAtMs < nowMs) return false;
   return true;
+}
+
+function getOfferPackageTier(metadata: Record<string, unknown>) {
+  const raw = typeof metadata.packageTier === "string" ? metadata.packageTier.trim().toUpperCase() : "REGULAR";
+  return (MEMBERSHIP_OFFER_PACKAGE_ORDER as readonly string[]).includes(raw) ? raw : "REGULAR";
+}
+
+function getOfferPackageOrder(metadata: Record<string, unknown>) {
+  const raw = Number(metadata.packageOrder ?? metadata.displayOrder ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+function getActiveOfferPackageTier(currentTierCode?: string | null) {
+  const normalizedTierCode = typeof currentTierCode === "string" ? currentTierCode.trim().toUpperCase() : "REGULAR";
+  return (MEMBERSHIP_OFFER_PACKAGE_ORDER as readonly string[]).includes(normalizedTierCode) ? normalizedTierCode : "REGULAR";
+}
+
+function filterOffersForTier(
+  offers: MarketingOfferCard[],
+  nowMs: number,
+  currentTierCode?: string | null,
+  limit?: number,
+) {
+  const activePackageTier = getActiveOfferPackageTier(currentTierCode);
+  const filtered = offers
+    .filter((offer) => isOfferActiveNow(offer, nowMs))
+    .filter((offer) => getOfferPackageTier(offer.metadata) === activePackageTier)
+    .sort((left, right) => {
+      const leftPackage = getOfferPackageTier(left.metadata);
+      const rightPackage = getOfferPackageTier(right.metadata);
+      const leftPackageIndex = MEMBERSHIP_OFFER_PACKAGE_ORDER.indexOf(leftPackage as (typeof MEMBERSHIP_OFFER_PACKAGE_ORDER)[number]);
+      const rightPackageIndex = MEMBERSHIP_OFFER_PACKAGE_ORDER.indexOf(rightPackage as (typeof MEMBERSHIP_OFFER_PACKAGE_ORDER)[number]);
+      if (leftPackageIndex !== rightPackageIndex) return leftPackageIndex - rightPackageIndex;
+
+      const orderDelta = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
+      if (orderDelta !== 0) return orderDelta;
+
+      return left.title.localeCompare(right.title, "vi");
+    });
+
+  return typeof limit === "number" ? filtered.slice(0, limit) : filtered;
 }
 
 function normalizeStorefront(row?: StorefrontRow | null): ExploreStorefront | null {
@@ -786,9 +828,12 @@ export async function listCustomerMembershipSummary(
     remainingVisitsToNext: progressMetrics.remainingVisitsToNext,
     isTopTier: progressMetrics.isTopTier,
     perks: currentTier?.perks ?? [],
-    offers: normalizeOffers((offersResult.data ?? []) as OfferRow[])
-      .filter((offer) => isOfferActiveNow(offer, nowMs))
-      .slice(0, 6),
+    offers: filterOffersForTier(
+      normalizeOffers((offersResult.data ?? []) as OfferRow[]),
+      nowMs,
+      currentTier?.code ?? null,
+      6,
+    ),
   };
 }
 

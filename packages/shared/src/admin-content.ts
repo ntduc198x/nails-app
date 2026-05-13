@@ -231,6 +231,18 @@ function normalizeMerchService(row: UnknownRow): MobileAdminMerchService {
   };
 }
 
+const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+
+function getOfferPackageTier(metadata: Record<string, unknown>) {
+  const raw = typeof metadata.packageTier === "string" ? metadata.packageTier.trim().toUpperCase() : "REGULAR";
+  return (OFFER_PACKAGE_TIERS as readonly string[]).includes(raw) ? raw : "REGULAR";
+}
+
+function getOfferPackageOrder(metadata: Record<string, unknown>) {
+  const raw = Number(metadata.packageOrder ?? metadata.displayOrder ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
 function normalizeOffer(row: UnknownRow): MobileAdminOffer {
   return {
     id: String(row.id ?? ""),
@@ -522,7 +534,20 @@ export async function listAdminContentSnapshotForMobile(
     isDefaultBranchView: branchId === defaultBranchId,
     storefront,
     posts: (postsRes.data ?? []).map((row) => normalizePost(row as UnknownRow)),
-    offers: (offersRes.data ?? []).map((row) => normalizeOffer(row as UnknownRow)),
+    offers: (offersRes.data ?? [])
+      .map((row) => normalizeOffer(row as UnknownRow))
+      .sort((left, right) => {
+        const leftTier = getOfferPackageTier(left.metadata);
+        const rightTier = getOfferPackageTier(right.metadata);
+        const leftTierIndex = OFFER_PACKAGE_TIERS.indexOf(leftTier as (typeof OFFER_PACKAGE_TIERS)[number]);
+        const rightTierIndex = OFFER_PACKAGE_TIERS.indexOf(rightTier as (typeof OFFER_PACKAGE_TIERS)[number]);
+        if (leftTierIndex !== rightTierIndex) return leftTierIndex - rightTierIndex;
+
+        const orderDelta = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
+        if (orderDelta !== 0) return orderDelta;
+
+        return left.title.localeCompare(right.title, "vi");
+      }),
     products: (productsRes?.data ?? []).map((row) => normalizeProduct(row as UnknownRow)),
     team: (teamRes?.data ?? []).map((row) => normalizeTeamMember(row as UnknownRow)),
     gallery: (galleryRes?.data ?? []).map((row) => normalizeGalleryItem(row as UnknownRow)),

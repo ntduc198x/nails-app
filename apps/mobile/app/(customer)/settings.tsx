@@ -32,7 +32,7 @@ function formatCacheSize(bytes: number) {
 export default function SettingsScreen() {
   const strings = useCustomerStrings();
   const theme = useCustomerTheme();
-  const { user } = useSession();
+  const { user, signOut } = useSession();
   const { colorScheme, locale } = useCustomerPreferences();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [cacheSize, setCacheSize] = useState("0 KB");
@@ -316,6 +316,11 @@ export default function SettingsScreen() {
         </View>
       </SurfaceCard>
 
+      <Pressable style={styles.signOutButton} onPress={() => void signOut()}>
+        <Feather color={theme.colors.dangerText} name="log-out" size={18} />
+        <Text style={styles.signOutButtonText}>Đăng xuất</Text>
+      </Pressable>
+
       <Modal visible={showLanguageModal} transparent animationType="fade" onRequestClose={() => setShowLanguageModal(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowLanguageModal(false)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
@@ -496,6 +501,24 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     passwordButtonText: {
       color: theme.colors.surface,
+      fontSize: 14,
+      fontWeight: "800",
+    },
+    signOutButton: {
+      alignItems: "center",
+      backgroundColor: "#FFFDFB",
+      borderColor: "#F1E7DE",
+      borderRadius: 22,
+      borderWidth: 1,
+      flexDirection: "row",
+      gap: 10,
+      justifyContent: "center",
+      marginTop: 4,
+      minHeight: 56,
+      paddingHorizontal: theme.spacing.lg,
+    },
+    signOutButtonText: {
+      color: theme.colors.dangerText,
       fontSize: 14,
       fontWeight: "800",
     },

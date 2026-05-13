@@ -93,6 +93,8 @@ type MerchFormState = {
   lookbookTone: string;
 };
 
+const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+
 type OfferFormState = {
   id?: string;
   title: string;
@@ -102,6 +104,8 @@ type OfferFormState = {
   startsAt: string;
   endsAt: string;
   isActive: boolean;
+  packageTier: (typeof OFFER_PACKAGE_TIERS)[number];
+  packageOrder: string;
   metadataText: string;
 };
 
@@ -261,11 +265,18 @@ function emptyOfferForm(): OfferFormState {
     startsAt: "",
     endsAt: "",
     isActive: true,
+    packageTier: "REGULAR",
+    packageOrder: "0",
     metadataText: "",
   };
 }
 
 function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
+  const packageTier = typeof offer.metadata.packageTier === "string" && OFFER_PACKAGE_TIERS.includes(offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number])
+    ? offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number]
+    : "REGULAR";
+  const packageOrder = Number(offer.metadata.packageOrder ?? offer.metadata.displayOrder ?? 0);
+
   return {
     id: offer.id,
     title: offer.title,
@@ -275,6 +286,8 @@ function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
     startsAt: offer.startsAt ?? "",
     endsAt: offer.endsAt ?? "",
     isActive: offer.isActive,
+    packageTier,
+    packageOrder: String(Number.isFinite(packageOrder) ? packageOrder : 0),
     metadataText: stringifyMetadata(offer.metadata),
   };
 }
@@ -841,6 +854,10 @@ export default function AdminManageContentScreen() {
   }
 
   function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
+    const metadata = parseMetadata(form.metadataText);
+    metadata.packageTier = form.packageTier;
+    metadata.packageOrder = Number(form.packageOrder || 0);
+
     return {
       title: form.title.trim(),
       description: form.description.trim(),
@@ -849,7 +866,7 @@ export default function AdminManageContentScreen() {
       startsAt: form.startsAt.trim() || null,
       endsAt: form.endsAt.trim() || null,
       isActive: form.isActive,
-      metadata: parseMetadata(form.metadataText),
+      metadata,
     };
   }
 
@@ -1359,7 +1376,7 @@ export default function AdminManageContentScreen() {
       </ModalShell>
 
       <ModalShell title={offerForm?.id ? "Sửa ưu đãi" : "Thêm ưu đãi"} visible={Boolean(offerForm)} onClose={() => setOfferForm(null)}>
-        {offerForm ? <View style={styles.formColumn}><ImagePreview uri={offerForm.imageUrl} label="Ảnh ưu đãi hiện tại" /><Input placeholder="Tiêu đề" value={offerForm.title} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder="Mô tả" value={offerForm.description} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, description: value } : prev))} /><Input placeholder="URL ảnh" value={offerForm.imageUrl} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("offers", offerForm.title || "offer", (publicUrl) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn" value={offerForm.badge} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, badge: value } : prev))} /><Input placeholder="Thời gian bắt đầu (ISO)" value={offerForm.startsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, startsAt: value } : prev))} /><Input placeholder="Thời gian kết thúc (ISO)" value={offerForm.endsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, endsAt: value } : prev))} /><TextArea placeholder='Metadata JSON' value={offerForm.metadataText} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Chip active={offerForm.isActive} label={offerForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setOfferForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveOffer()}><Text style={styles.primaryButtonText}>Lưu ưu đãi</Text></Pressable></View> : null}
+        {offerForm ? <View style={styles.formColumn}><ImagePreview uri={offerForm.imageUrl} label="Ảnh ưu đãi hiện tại" /><Input placeholder="Tiêu đề" value={offerForm.title} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder="Mô tả" value={offerForm.description} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, description: value } : prev))} /><Input placeholder="URL ảnh" value={offerForm.imageUrl} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("offers", offerForm.title || "offer", (publicUrl) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn" value={offerForm.badge} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, badge: value } : prev))} /><Input placeholder="Thời gian bắt đầu (ISO)" value={offerForm.startsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, startsAt: value } : prev))} /><Input placeholder="Thời gian kết thúc (ISO)" value={offerForm.endsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, endsAt: value } : prev))} /><Text style={styles.rowSubtitle}>Gói ưu đãi theo hạng</Text><View style={styles.inlineButtons}>{OFFER_PACKAGE_TIERS.map((tier) => <Chip key={tier} active={offerForm.packageTier === tier} label={tier} onPress={() => setOfferForm((prev) => (prev ? { ...prev, packageTier: tier } : prev))} />)}</View><Input placeholder="Thứ tự hiển thị trong gói" keyboardType="number-pad" value={offerForm.packageOrder} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, packageOrder: value } : prev))} /><TextArea placeholder='Metadata JSON' value={offerForm.metadataText} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Chip active={offerForm.isActive} label={offerForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setOfferForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveOffer()}><Text style={styles.primaryButtonText}>Lưu ưu đãi</Text></Pressable></View> : null}
       </ModalShell>
 
       <ModalShell title={postForm?.id ? "Sửa bài feed" : "Thêm bài feed"} visible={Boolean(postForm)} onClose={() => setPostForm(null)}>

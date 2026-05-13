@@ -34,6 +34,8 @@ const palette = {
   danger: "#C25A43",
 };
 
+const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+
 type OfferFormState = {
   id?: string;
   title: string;
@@ -43,6 +45,8 @@ type OfferFormState = {
   startsAt: string;
   endsAt: string;
   isActive: boolean;
+  packageTier: (typeof OFFER_PACKAGE_TIERS)[number];
+  packageOrder: string;
   metadataText: string;
 };
 
@@ -55,6 +59,8 @@ function emptyOfferForm(): OfferFormState {
     startsAt: "",
     endsAt: "",
     isActive: true,
+    packageTier: "REGULAR",
+    packageOrder: "0",
     metadataText: "",
   };
 }
@@ -64,6 +70,11 @@ function stringifyMetadata(metadata: Record<string, unknown>) {
 }
 
 function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
+  const packageTier = typeof offer.metadata.packageTier === "string" && OFFER_PACKAGE_TIERS.includes(offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number])
+    ? offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number]
+    : "REGULAR";
+  const packageOrder = Number(offer.metadata.packageOrder ?? offer.metadata.displayOrder ?? 0);
+
   return {
     id: offer.id,
     title: offer.title,
@@ -73,6 +84,8 @@ function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
     startsAt: offer.startsAt ?? "",
     endsAt: offer.endsAt ?? "",
     isActive: offer.isActive,
+    packageTier,
+    packageOrder: String(Number.isFinite(packageOrder) ? packageOrder : 0),
     metadataText: stringifyMetadata(offer.metadata),
   };
 }
@@ -84,6 +97,10 @@ function parseMetadata(text: string) {
 }
 
 function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
+  const metadata = parseMetadata(form.metadataText);
+  metadata.packageTier = form.packageTier;
+  metadata.packageOrder = Number(form.packageOrder || 0);
+
   return {
     title: form.title.trim(),
     description: form.description.trim(),
@@ -92,7 +109,7 @@ function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
     startsAt: form.startsAt.trim() || null,
     endsAt: form.endsAt.trim() || null,
     isActive: form.isActive,
-    metadata: parseMetadata(form.metadataText),
+    metadata,
   };
 }
 
@@ -323,6 +340,29 @@ export default function AdminManageContentOfferDetailScreen() {
               </Text>
             </Pressable>
 
+            <Text style={styles.label}>Gói ưu đãi theo hạng</Text>
+            <View style={styles.chipRow}>
+              {OFFER_PACKAGE_TIERS.map((tier) => (
+                <Pressable
+                  key={tier}
+                  style={[styles.chip, form.packageTier === tier ? styles.chipActive : null]}
+                  onPress={() => setForm((current) => ({ ...current, packageTier: tier }))}
+                >
+                  <Text style={[styles.chipText, form.packageTier === tier ? styles.chipTextActive : null]}>{tier}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.label}>Thứ tự hiển thị trong gói</Text>
+            <TextInput
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor="#B4A89C"
+              style={styles.input}
+              value={form.packageOrder}
+              onChangeText={(value) => setForm((current) => ({ ...current, packageOrder: value }))}
+            />
+
             <Text style={styles.label}>Metadata JSON</Text>
             <TextInput
               multiline
@@ -466,6 +506,30 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   toggleTextActive: {
+    color: "#FFFFFF",
+  },
+  chipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  chip: {
+    borderColor: palette.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  chipActive: {
+    backgroundColor: palette.accent,
+    borderColor: palette.accent,
+  },
+  chipText: {
+    color: palette.text,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  chipTextActive: {
     color: "#FFFFFF",
   },
 });

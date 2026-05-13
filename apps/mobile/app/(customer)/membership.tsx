@@ -235,6 +235,25 @@ function getOfferBookingCtaLabel(offer: { metadata?: Record<string, unknown> }) 
   return typeof value === "string" && value.trim() ? value.trim() : "Dùng khi đặt lịch";
 }
 
+function getOfferPackageLabel(offer: { metadata?: Record<string, unknown> }) {
+  const packageTier = typeof offer.metadata?.packageTier === "string" ? offer.metadata.packageTier.trim().toUpperCase() : "REGULAR";
+  switch (packageTier) {
+    case "BRONZE":
+      return "Gói Bronze";
+    case "SILVER":
+      return "Gói Silver";
+    case "GOLD":
+      return "Gói Gold";
+    case "PLATINUM":
+      return "Gói Platinum";
+    case "DIAMOND":
+      return "Gói Diamond";
+    case "REGULAR":
+    default:
+      return "Gói thành viên thường";
+  }
+}
+
 export default function MembershipScreen() {
   const strings = useCustomerStrings();
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
@@ -337,17 +356,18 @@ export default function MembershipScreen() {
         <View style={styles.patternLarge} />
         <View style={styles.patternSmall} />
 
-        <Text style={styles.brand}>CHẠM BEAUTY</Text>
-        <Text style={styles.tierEyebrow}>MEMBERSHIP CARD</Text>
-        <Text style={styles.tier}>
+        <View style={styles.heroHeadingRow}>
+          <Text style={styles.brand}>CHẠM BEAUTY</Text>
           {hasCurrentTierBadge ? (
-            <>
-              Member <Text style={[styles.tierAccent, { color: tierAccent }]}>{currentTier?.name}</Text>
-            </>
+            <View style={[styles.tierBadge, { borderColor: tierAccent }]}> 
+              <Feather color={tierAccent} name={getTierIconName(currentTier)} size={14} />
+              <Text style={[styles.tierBadgeText, { color: tierAccent }]}>{currentTier?.name}</Text>
+            </View>
           ) : (
-            "Member"
+            <Text style={styles.tier}>Member</Text>
           )}
-        </Text>
+        </View>
+        <Text style={styles.tierEyebrow}>MEMBERSHIP CARD</Text>
 
         <Text style={styles.pointsLabel}>Điểm hiện tại</Text>
         <Text style={styles.points}>{formatNumber(pointsBalance)} điểm</Text>
@@ -459,51 +479,64 @@ export default function MembershipScreen() {
               const redeemLabel = getOfferRedeemLabel(offer);
 
               return (
-                <SurfaceCard key={offer.id} style={styles.perkCard}>
-                  <View style={styles.perkIcon}>
-                    <Feather color={colors.text} name="tag" size={18} />
-                  </View>
+                <Pressable
+                  key={offer.id}
+                  onPress={() =>
+                    offerCode
+                      ? router.push({
+                          pathname: "/(customer)/booking",
+                          params: {
+                            offerCode,
+                            offerTitle: offer.title,
+                          },
+                        })
+                      : setShowUsageModal(true)
+                  }
+                >
+                  <SurfaceCard style={styles.offerCard}>
+                    <View style={styles.offerTopRow}>
+                      <View style={styles.perkIcon}>
+                        <Feather color={colors.text} name="tag" size={18} />
+                      </View>
 
-                  <View style={styles.perkCopy}>
-                    <Text style={styles.perkTitle}>{offer.title}</Text>
-                    <Text style={styles.perkDetail}>{offer.description}</Text>
-                    {offerCode ? (
-                      <Pressable
-                        style={styles.offerCodePillButton}
-                        onPress={() =>
-                          router.push({
-                            pathname: "/(customer)/booking",
-                            params: {
-                              offerCode,
-                              offerTitle: offer.title,
-                            },
-                          })
-                        }
-                      >
-                        <Text style={styles.offerCodePill}>Mã ưu đãi: {offerCode}</Text>
-                      </Pressable>
-                    ) : null}
-                    {redeemLabel ? <Text style={styles.offerRedeemText}>{redeemLabel}</Text> : null}
-                    <Text style={styles.perkFootnote}>{offerUsageHint}</Text>
-                    {offerCode ? (
-                      <Pressable
-                        style={styles.offerBookingButton}
-                        onPress={() =>
-                          router.push({
-                            pathname: "/(customer)/booking",
-                            params: {
-                              offerCode,
-                              offerTitle: offer.title,
-                            },
-                          })
-                        }
-                      >
-                        <Feather color="#fff8f0" name="calendar" size={14} />
-                        <Text style={styles.offerBookingButtonText}>{getOfferBookingCtaLabel(offer)}</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                </SurfaceCard>
+                      <View style={styles.perkCopy}>
+                        <Text style={styles.perkTitle}>{offer.title}</Text>
+                        <Text numberOfLines={2} style={styles.perkDetail}>{offer.description}</Text>
+                        <View style={styles.offerTierChip}>
+                          <Feather color={colors.accentWarm} name="award" size={12} />
+                          <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer)}</Text>
+                        </View>
+                      </View>
+
+                      <Feather color={colors.textSoft} name="chevron-right" size={18} />
+                    </View>
+
+                    <View style={styles.offerBottomRow}>
+                      {offerCode ? (
+                        <Pressable
+                          style={styles.offerCodeBox}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/(customer)/booking",
+                              params: {
+                                offerCode,
+                                offerTitle: offer.title,
+                              },
+                            })
+                          }
+                        >
+                          <Text style={styles.offerMetaLabel}>Mã ưu đãi</Text>
+                          <Text style={styles.offerCodeText}>{offerCode}</Text>
+                        </Pressable>
+                      ) : null}
+
+                      <View style={styles.offerUsageBox}>
+                        <Feather color={colors.text} name="calendar" size={16} />
+                        <Text numberOfLines={2} style={styles.offerUsageText}>{offerUsageHint}</Text>
+                      </View>
+                    </View>
+                  </SurfaceCard>
+                </Pressable>
               );
             })
           ) : (
@@ -705,10 +738,9 @@ const styles = StyleSheet.create({
   title: {
     color: colors.text,
     flex: 1,
-    fontSize: 26,
+    fontSize: 30,
     fontWeight: "800",
-    letterSpacing: -0.6,
-    textAlign: "center",
+    letterSpacing: -0.8,
   },
   heroCard: {
     backgroundColor: "#34291d",
@@ -745,11 +777,17 @@ const styles = StyleSheet.create({
     transform: [{ rotate: "18deg" }],
     width: 160,
   },
+  heroHeadingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 6,
+  },
   brand: {
     color: "#E8C28E",
     fontSize: 14,
     fontWeight: "800",
-    marginBottom: 6,
   },
   tierEyebrow: {
     color: "rgba(255,244,229,0.72)",
@@ -760,10 +798,24 @@ const styles = StyleSheet.create({
   },
   tier: {
     color: "#ffffff",
-    fontSize: 30,
+    fontSize: 22,
     fontWeight: "800",
-    lineHeight: 35,
-    marginBottom: 14,
+    lineHeight: 26,
+    textAlign: "right",
+  },
+  tierBadge: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  tierBadgeText: {
+    fontSize: 14,
+    fontWeight: "800",
   },
   tierAccent: {
     color: "#efc26d",
@@ -955,6 +1007,20 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 14,
   },
+  offerCard: {
+    gap: 14,
+    padding: 16,
+  },
+  offerTopRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+  },
+  offerBottomRow: {
+    alignItems: "stretch",
+    flexDirection: "row",
+    gap: 12,
+  },
   tierListCard: {
     alignItems: "center",
     flexDirection: "row",
@@ -1031,43 +1097,60 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 4,
   },
-  offerCodePillButton: {
-    alignSelf: "flex-start",
-    marginTop: 6,
-  },
-  offerCodePill: {
-    alignSelf: "flex-start",
-    backgroundColor: "#f6efe7",
-    borderRadius: 999,
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "800",
-    overflow: "hidden",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  offerRedeemText: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-    lineHeight: 17,
-    marginTop: 6,
-  },
-  offerBookingButton: {
+  offerTierChip: {
     alignItems: "center",
     alignSelf: "flex-start",
-    backgroundColor: colors.accent,
+    backgroundColor: "#fbf5ee",
     borderRadius: 999,
     flexDirection: "row",
     gap: 6,
     marginTop: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  offerBookingButtonText: {
-    color: "#fff8f0",
+  offerTierChipText: {
+    color: colors.textSoft,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
+  },
+  offerCodeBox: {
+    backgroundColor: "#fbf5ee",
+    borderRadius: 16,
+    flex: 0.95,
+    gap: 4,
+    justifyContent: "center",
+    minHeight: 68,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  offerMetaLabel: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  offerCodeText: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+  },
+  offerUsageBox: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderLeftWidth: 1,
+    flex: 1.25,
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "center",
+    minHeight: 68,
+    paddingLeft: 12,
+    paddingRight: 4,
+  },
+  offerUsageText: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
   },
   ctaCard: {
     backgroundColor: "#fff7ef",

@@ -407,7 +407,6 @@ export const PROFILE_SUMMARY = {
 
 export const PROFILE_LINKS = [
   { id: "profile-link-1", title: "Thông tin cá nhân", href: "/(customer)/settings", detail: "" },
-  { id: "profile-link-2", title: "Địa chỉ", href: "/(customer)/addresses", detail: "" },
   { id: "profile-link-3", title: "Phương thức thanh toán", href: "/(customer)/payment-methods", detail: "" },
   { id: "profile-link-4", title: "Bảo mật", href: "/(customer)/settings", detail: "" },
   { id: "profile-link-5", title: "Ngôn ngữ", href: "/(customer)/settings", detail: "Tiếng Việt" },

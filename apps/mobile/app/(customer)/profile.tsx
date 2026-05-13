@@ -77,10 +77,24 @@ export default function ProfileScreen() {
     }
 
     const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || "Customer");
-    return `https://ui-avatars.com/api/?name=${seed}&background=F3E7DA&color=6E4E37&size=256`;
+    return `https://ui-avatars.com/api/?name=${seed}&background=B4937D&color=FFFFFF&size=256`;
   }, [avatarUri, form.name, user?.email]);
 
   const membershipBlurb = useMemo(() => {
+    if (!currentTier && nextTier) {
+      const parts: string[] = [];
+      if (remainingSpentToNext > 0) {
+        parts.push(`${remainingSpentToNext.toLocaleString("vi-VN")}đ chi tiêu`);
+      }
+      if (remainingVisitsToNext > 0) {
+        parts.push(`${remainingVisitsToNext.toLocaleString("vi-VN")} lượt hẹn chuẩn`);
+      }
+
+      return parts.length
+        ? `Anh đang là thành viên thường. Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
+        : `Anh đang là thành viên thường. Mục tiêu tiếp theo là ${nextTier.name}.`;
+    }
+
     if (!nextTier) {
       return `Đang ở hạng ${currentTier?.name ?? "cao nhất"} với ${pointsBalance.toLocaleString("vi-VN")} điểm.`;
     }
@@ -385,21 +399,23 @@ export default function ProfileScreen() {
         <Text style={styles.contact}>{form.phone || form.email}</Text>
       </View>
 
-      <Pressable onPress={() => router.push("/(customer)/membership")}>
-        <LinearGradient
-          colors={[currentTier?.accentColor || "#C18A57", "#2F241B"]}
-          end={{ x: 1, y: 1 }}
-          start={{ x: 0, y: 0 }}
-          style={styles.membershipCard}
-        >
-          <View style={styles.membershipCopy}>
-            <Text style={styles.membershipEyebrow}>Membership</Text>
-            <Text style={styles.membershipTitle}>{currentTier?.name || "Bronze"}</Text>
-            <Text style={styles.contact}>{membershipBlurb}</Text>
-          </View>
-          <Feather color="#F5E8D8" name="award" size={22} />
-        </LinearGradient>
-      </Pressable>
+      <LinearGradient
+        colors={["#FAEEDF", "#F4E0C8"]}
+        end={{ x: 1, y: 1 }}
+        start={{ x: 0, y: 0 }}
+        style={styles.membershipCard}
+      >
+        <View style={styles.membershipCopy}>
+          <Text style={styles.membershipEyebrow}>MEMBERSHIP</Text>
+          <Text style={styles.membershipTitle}>{currentTier?.name || "Thành viên"}</Text>
+          <Text style={styles.membershipHint}>{membershipBlurb}</Text>
+        </View>
+        <View style={styles.membershipAwardWrap}>
+          <LinearGradient colors={["#C89B76", "#9F7453"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
+            <Feather color="#FFF7F0" name="award" size={18} />
+          </LinearGradient>
+        </View>
+      </LinearGradient>
 
       <SurfaceCard style={styles.metricsCard}>
         <ProfileMetric styles={styles} icon="credit-card" label="Tổng chi tiêu" value={summary.totalSpent} />
@@ -444,6 +460,9 @@ export default function ProfileScreen() {
 
           {historyHydrated && !historyLoading && !historyItems.length ? (
             <SurfaceCard style={styles.emptyCard}>
+              <View style={styles.emptyIconWrap}>
+                <Feather color="#D8B892" name="calendar" size={22} />
+              </View>
               <Text style={styles.emptyTitle}>Chưa có lịch sử dịch vụ</Text>
               <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ các dịch vụ khách đã hoàn tất tại tiệm.</Text>
             </SurfaceCard>
@@ -566,84 +585,114 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
   return StyleSheet.create({
     content: {
       paddingBottom: 148,
-      paddingTop: 2,
+      paddingTop: 8,
     },
     topBar: {
       alignItems: "center",
       flexDirection: "row",
       justifyContent: "space-between",
-      marginBottom: 12,
+      marginBottom: 18,
+      minHeight: 40,
     },
     topBarSpacer: {
       flex: 1,
     },
     membershipCard: {
       alignItems: "center",
-      borderRadius: theme.radius.xl,
+      borderRadius: 24,
       flexDirection: "row",
       justifyContent: "space-between",
-      marginBottom: 12,
+      marginBottom: 14,
+      minHeight: 138,
+      overflow: "hidden",
       paddingHorizontal: theme.spacing.lg,
       paddingVertical: theme.spacing.lg,
+      position: "relative",
     },
     membershipCopy: {
       flex: 1,
-      gap: 4,
+      gap: 6,
+      maxWidth: "72%",
       paddingRight: theme.spacing.md,
+      zIndex: 2,
     },
     membershipEyebrow: {
-      color: theme.colors.textSoft,
+      color: "#B99773",
       fontSize: 12,
       fontWeight: "800",
-      letterSpacing: 0.8,
+      letterSpacing: 1,
       textTransform: "uppercase",
     },
     membershipTitle: {
-      color: theme.colors.text,
-      fontSize: 16,
-      fontWeight: "800",
-      lineHeight: 22,
+      color: "#171311",
+      fontSize: 18,
+      fontWeight: "900",
+      lineHeight: 24,
+    },
+    membershipHint: {
+      color: "#6E5B4C",
+      fontSize: 13,
+      lineHeight: 19,
+      maxWidth: "100%",
+    },
+    membershipAwardWrap: {
+      alignItems: "center",
+      justifyContent: "center",
+      width: 58,
+      zIndex: 2,
+    },
+    membershipAwardCircle: {
+      alignItems: "center",
+      borderRadius: 22,
+      height: 42,
+      justifyContent: "center",
+      shadowColor: "#8B6444",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.16,
+      shadowRadius: 12,
+      width: 42,
     },
     profileHero: {
       alignItems: "center",
       gap: 8,
-      marginBottom: 12,
-      paddingTop: 6,
+      marginBottom: 16,
+      paddingTop: 10,
     },
     avatarWrap: {
       position: "relative",
     },
     avatarContainer: {
-      borderRadius: 43,
+      borderRadius: 48,
     },
     avatar: {
-      borderRadius: 43,
-      height: 86,
-      width: 86,
+      borderRadius: 48,
+      height: 96,
+      width: 96,
     },
     cameraBadge: {
       alignItems: "center",
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
+      backgroundColor: "#FFFDFB",
+      borderColor: "#F1E5D8",
       borderRadius: theme.radius.pill,
-      borderWidth: 1,
-      bottom: -4,
-      height: 32,
+      borderWidth: 2,
+      bottom: 0,
+      height: 34,
       justifyContent: "center",
       position: "absolute",
-      right: -10,
-      width: 32,
+      right: -4,
+      width: 34,
     },
     name: {
       color: theme.colors.text,
-      fontSize: 16,
-      fontWeight: "700",
+      fontSize: 18,
+      fontWeight: "800",
       textAlign: "center",
     },
     contact: {
       color: theme.colors.textSoft,
-      fontSize: 12,
+      fontSize: 13,
       fontWeight: "500",
+      textAlign: "center",
     },
     avatarHint: {
       color: theme.colors.textSoft,
@@ -652,10 +701,11 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     metricsCard: {
       alignItems: "stretch",
+      borderRadius: 24,
       flexDirection: "row",
-      minHeight: 88,
-      paddingHorizontal: 8,
-      paddingVertical: 8,
+      minHeight: 100,
+      paddingHorizontal: 10,
+      paddingVertical: 10,
     },
     metricItem: {
       flex: 1,
@@ -666,7 +716,7 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       paddingVertical: 4,
     },
     metricDivider: {
-      backgroundColor: theme.colors.border,
+      backgroundColor: "#F1E7DE",
       marginVertical: 10,
       width: 1,
     },
@@ -681,22 +731,23 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       fontWeight: "700",
     },
     tabsCard: {
+      borderRadius: 24,
       flexDirection: "row",
       gap: 6,
       padding: 6,
     },
     tabButton: {
       alignItems: "center",
-      borderRadius: 13,
+      borderRadius: 16,
       flex: 1,
       flexDirection: "row",
       gap: 6,
       justifyContent: "center",
-      minHeight: 37,
+      minHeight: 42,
       paddingHorizontal: 5,
     },
     tabButtonActive: {
-      backgroundColor: theme.colors.accentSoft,
+      backgroundColor: "#FFF7EF",
     },
     tabLabel: {
       color: theme.colors.textSoft,
@@ -744,8 +795,17 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     emptyCard: {
       alignItems: "center",
-      gap: 8,
-      padding: 18,
+      borderRadius: 28,
+      gap: 10,
+      padding: 24,
+    },
+    emptyIconWrap: {
+      alignItems: "center",
+      backgroundColor: "#FFF8F1",
+      borderRadius: 28,
+      height: 56,
+      justifyContent: "center",
+      width: 56,
     },
     emptyTitle: {
       color: theme.colors.text,
@@ -805,15 +865,15 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     logoutButton: {
       alignItems: "center",
-      backgroundColor: theme.colors.surface,
-      borderColor: theme.colors.border,
-      borderRadius: 18,
+      backgroundColor: "#FFFDFB",
+      borderColor: "#F1E7DE",
+      borderRadius: 22,
       borderWidth: 1,
       flexDirection: "row",
       gap: 10,
       justifyContent: "center",
-      marginTop: 2,
-      minHeight: 52,
+      marginTop: 4,
+      minHeight: 56,
       paddingHorizontal: theme.spacing.lg,
     },
     logoutLabel: {

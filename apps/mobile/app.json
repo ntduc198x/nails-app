@@ -1,6 +1,7 @@
 {
   "expo": {
-    "name": "Nails App",
+    "name": "Chạm Beauty",
+    "owner": "ducnt198x@gmail.com",
     "slug": "nails-app-mobile",
     "scheme": "nails-app",
     "version": "1.0.0",

@@ -72,6 +72,7 @@ export type CustomerMembershipTier = {
   description: string | null;
   spendingThreshold: number;
   visitThreshold: number;
+  visitMinSpend: number;
   accentColor: string | null;
   gradientFrom: string | null;
   gradientTo: string | null;
@@ -95,6 +96,7 @@ export type CustomerMembershipSummary = {
   totalSpent: number;
   totalVisits: number;
   eligibleVisitsMinSpend: number;
+  eligibleVisitsByTierCode: Record<string, number>;
   joinedAt: string | null;
   expiresAt: string | null;
   progress: number;
@@ -360,14 +362,32 @@ function normalizeGallery(rows: GalleryRow[]): ExploreGalleryItem[] {
     }));
 }
 
+function getTierVisitMinSpendDefault(code: string) {
+  switch (code.toUpperCase()) {
+    case "GOLD":
+      return 350_000;
+    case "PLATINUM":
+      return 400_000;
+    case "DIAMOND":
+      return 500_000;
+    case "BRONZE":
+    case "SILVER":
+    default:
+      return MEMBERSHIP_VISIT_MIN_SPEND;
+  }
+}
+
 function normalizeTier(row: Record<string, unknown>): CustomerMembershipTier {
+  const code = String(row.code ?? "");
+
   return {
     id: String(row.id ?? ""),
-    code: String(row.code ?? ""),
+    code,
     name: String(row.name ?? ""),
     description: typeof row.description === "string" ? row.description : null,
     spendingThreshold: Number(row.spending_threshold ?? 0),
     visitThreshold: Number(row.visit_threshold ?? 0),
+    visitMinSpend: Number(row.visit_min_spend ?? getTierVisitMinSpendDefault(code)),
     accentColor: typeof row.accent_color === "string" ? row.accent_color : null,
     gradientFrom: typeof row.gradient_from === "string" ? row.gradient_from : null,
     gradientTo: typeof row.gradient_to === "string" ? row.gradient_to : null,
@@ -393,10 +413,31 @@ function normalizeProgress(value: number) {
   return Math.max(0, Math.min(value, 1));
 }
 
+function countEligibleVisitsForTier(
+  ticketRows: TicketHistoryRow[],
+  tier: Pick<CustomerMembershipTier, "visitMinSpend"> | null,
+) {
+  const threshold = Math.max(0, tier?.visitMinSpend ?? MEMBERSHIP_VISIT_MIN_SPEND);
+
+  return ticketRows.reduce((count, row) => {
+    const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
+    const ticketTotal = items.reduce((sum, item) => {
+      const unitPrice = typeof item.unit_price === "number"
+        ? item.unit_price
+        : typeof item.services?.base_price === "number"
+          ? item.services.base_price
+          : 0;
+      return sum + unitPrice;
+    }, 0);
+
+    return ticketTotal >= threshold ? count + 1 : count;
+  }, 0);
+}
+
 function buildMembershipProgressMetrics(input: {
   nextTier: CustomerMembershipTier | null;
   totalSpent: number;
-  eligibleVisitsMinSpend: number;
+  eligibleVisitsForNextTier: number;
 }) {
   if (!input.nextTier) {
     return {
@@ -413,7 +454,7 @@ function buildMembershipProgressMetrics(input: {
     ? normalizeProgress(input.totalSpent / input.nextTier.spendingThreshold)
     : 0;
   const progressVisits = input.nextTier.visitThreshold > 0
-    ? normalizeProgress(input.eligibleVisitsMinSpend / input.nextTier.visitThreshold)
+    ? normalizeProgress(input.eligibleVisitsForNextTier / input.nextTier.visitThreshold)
     : 0;
 
   return {
@@ -421,7 +462,7 @@ function buildMembershipProgressMetrics(input: {
     progressSpent,
     progressVisits,
     remainingSpentToNext: Math.max(0, input.nextTier.spendingThreshold - input.totalSpent),
-    remainingVisitsToNext: Math.max(0, input.nextTier.visitThreshold - input.eligibleVisitsMinSpend),
+    remainingVisitsToNext: Math.max(0, input.nextTier.visitThreshold - input.eligibleVisitsForNextTier),
     isTopTier: false,
   };
 }
@@ -627,6 +668,7 @@ export async function listCustomerMembershipSummary(
       totalSpent: 0,
       totalVisits: 0,
       eligibleVisitsMinSpend: 0,
+      eligibleVisitsByTierCode: {},
       joinedAt: null,
       expiresAt: null,
       progress: 0,
@@ -695,24 +737,16 @@ export async function listCustomerMembershipSummary(
   const totalSpent = Number(membershipResult.data?.total_spent ?? 0);
   const persistedVisits = Number(membershipResult.data?.total_visits ?? 0);
   const ticketRows = (ticketsResult.data ?? []) as TicketHistoryRow[];
-  const eligibleVisitsMinSpend = ticketRows.reduce((count, row) => {
-    const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
-    const ticketTotal = items.reduce((sum, item) => {
-      const unitPrice = typeof item.unit_price === "number"
-        ? item.unit_price
-        : typeof item.services?.base_price === "number"
-          ? item.services.base_price
-          : 0;
-      return sum + unitPrice;
-    }, 0);
-
-    return ticketTotal >= MEMBERSHIP_VISIT_MIN_SPEND ? count + 1 : count;
-  }, 0);
+  const eligibleVisitsMinSpend = countEligibleVisitsForTier(ticketRows, null);
+  const eligibleVisitsByTierCode = Object.fromEntries(
+    tiers.map((tier) => [tier.code, countEligibleVisitsForTier(ticketRows, tier)]),
+  ) as Record<string, number>;
   const totalVisits = Math.max(persistedVisits, eligibleVisitsMinSpend);
 
   const currentTier = tiers.reduce<CustomerMembershipTier | null>((best, tier) => {
+    const eligibleVisitsForTier = eligibleVisitsByTierCode[tier.code] ?? 0;
     const qualifiesBySpend = tier.spendingThreshold > 0 ? totalSpent >= tier.spendingThreshold : true;
-    const qualifiesByVisits = tier.visitThreshold > 0 ? eligibleVisitsMinSpend >= tier.visitThreshold : true;
+    const qualifiesByVisits = tier.visitThreshold > 0 ? eligibleVisitsForTier >= tier.visitThreshold : true;
     const qualifies = (tier.spendingThreshold <= 0 && tier.visitThreshold <= 0) || qualifiesBySpend || qualifiesByVisits;
 
     if (!qualifies) {
@@ -728,7 +762,8 @@ export async function listCustomerMembershipSummary(
 
   const currentTierIndex = currentTier ? tiers.findIndex((tier) => tier.id === currentTier.id) : -1;
   const nextTier = currentTierIndex >= 0 ? tiers[currentTierIndex + 1] ?? null : tiers[0] ?? null;
-  const progressMetrics = buildMembershipProgressMetrics({ nextTier, totalSpent, eligibleVisitsMinSpend });
+  const eligibleVisitsForNextTier = nextTier ? (eligibleVisitsByTierCode[nextTier.code] ?? 0) : 0;
+  const progressMetrics = buildMembershipProgressMetrics({ nextTier, totalSpent, eligibleVisitsForNextTier });
 
   return {
     hasMembership: Boolean(membershipResult.data),
@@ -741,6 +776,7 @@ export async function listCustomerMembershipSummary(
     totalSpent,
     totalVisits,
     eligibleVisitsMinSpend,
+    eligibleVisitsByTierCode,
     joinedAt: typeof membershipResult.data?.joined_at === "string" ? membershipResult.data.joined_at : null,
     expiresAt: typeof membershipResult.data?.expires_at === "string" ? membershipResult.data.expires_at : null,
     progress: progressMetrics.progress,

@@ -45,11 +45,11 @@ const strings = {
     membershipTitle: "Thẻ thành viên",
     membershipBenefitsTitle: "Quyền lợi thành viên",
     membershipBenefitsBody:
-      "Thẻ thành viên giúp bạn tích điểm, nhận ưu đãi theo hạng và mở thêm quyền lợi khi tăng chi tiêu hoặc số lượt ghé.",
+      "Bạn luôn là thành viên của cửa hàng. Khi tích lũy đủ chi tiêu và lượt hẹn chuẩn, bạn sẽ lên hạng để mở thêm quyền lợi và ưu đãi tốt hơn.",
     membershipHowToUpgrade:
-      "Để nâng hạng, hãy tiếp tục tích lũy chi tiêu và số lượt hẹn cho đến khi đạt ngưỡng của hạng tiếp theo.",
+      "Để nâng hạng, hãy tiếp tục tích lũy chi tiêu và số lượt hẹn chuẩn cho đến khi đạt ngưỡng của hạng tiếp theo.",
     membershipHowToBoost:
-      "Để tăng ưu đãi, hãy dùng các offer đang hoạt động, quay lại thường xuyên và giữ điểm tích lũy tăng đều.",
+      "Ưu đãi đang hiển thị là ưu đãi bạn có thể dùng khi đặt lịch hoặc sử dụng dịch vụ. Nếu ưu đãi chưa tự áp dụng trong app, bạn có thể đưa mã hoặc tên ưu đãi cho cửa hàng để được hỗ trợ.",
     bookingCta: "Đặt lịch",
     imagePreviewClose: "Đóng ảnh",
     profileHistory: "Lịch sử hẹn",

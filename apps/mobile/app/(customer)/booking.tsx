@@ -13,7 +13,7 @@ import { useSession } from "@/src/providers/session-provider";
 const { colors, radius, spacing } = premiumTheme;
 
 export default function BookingScreen() {
-  const params = useLocalSearchParams<{ service?: string }>();
+  const params = useLocalSearchParams<{ service?: string; offerCode?: string; offerTitle?: string }>();
   const strings = useCustomerStrings();
   const { user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
@@ -25,6 +25,20 @@ export default function BookingScreen() {
       updateValue("requestedService", params.service);
     }
   }, [params.service, updateValue, values.requestedService]);
+
+  useEffect(() => {
+    if (!params.offerCode || typeof params.offerCode !== "string") return;
+    if (values.note.includes(params.offerCode)) return;
+
+    const nextOfferNote = [
+      values.note.trim(),
+      `Ưu đãi áp dụng: ${params.offerCode}${params.offerTitle && typeof params.offerTitle === "string" ? ` - ${params.offerTitle}` : ""}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    updateValue("note", nextOfferNote);
+  }, [params.offerCode, params.offerTitle, updateValue, values.note]);
 
   return (
     <CustomerScreen title="" hideHeader keyboardAware keyboardVerticalOffset={12} contentContainerStyle={styles.content}>
@@ -46,6 +60,19 @@ export default function BookingScreen() {
           <Text style={styles.sectionTitle}>Thông tin yêu cầu</Text>
           <Text style={styles.sectionSubtitle}>Điền nhanh để salon giữ chỗ chính xác hơn.</Text>
         </View>
+
+        {params.offerCode && typeof params.offerCode === "string" ? (
+          <View style={styles.offerBadgeRow}>
+            <View style={styles.offerBadgeIcon}>
+              <Feather color={colors.accentWarm} name="tag" size={16} />
+            </View>
+            <View style={styles.offerBadgeCopy}>
+              <Text style={styles.offerBadgeLabel}>Mã ưu đãi đang áp dụng</Text>
+              <Text style={styles.offerBadgeCode}>{params.offerCode}</Text>
+              {params.offerTitle && typeof params.offerTitle === "string" ? <Text style={styles.offerBadgeHint}>{params.offerTitle}</Text> : null}
+            </View>
+          </View>
+        ) : null}
 
         <FieldBlock label="Mẫu nail" error={fieldErrors.requestedService}>
           <TextInput
@@ -287,6 +314,45 @@ const styles = StyleSheet.create({
   },
   formCard: {
     gap: 18,
+  },
+  offerBadgeRow: {
+    alignItems: "center",
+    backgroundColor: "#fff6ea",
+    borderColor: "#ecd9c2",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  offerBadgeIcon: {
+    alignItems: "center",
+    backgroundColor: "#f7ead7",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  offerBadgeCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  offerBadgeLabel: {
+    color: colors.textSoft,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  offerBadgeCode: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    letterSpacing: 0.3,
+  },
+  offerBadgeHint: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
   },
   utilityCard: {
     gap: 14,

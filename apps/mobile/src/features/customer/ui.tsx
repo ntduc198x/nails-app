@@ -27,7 +27,6 @@ const PROFILE_PATHS = new Set([
   "/reviews",
   "/notifications",
   "/payment-methods",
-  "/addresses",
   "/settings",
 ]);
 
@@ -541,7 +540,7 @@ export function CustomerTopActions() {
   function navigateIfNeeded(targetHref: "/(customer)/notifications" | "/(customer)/settings") {
     const targetPath = targetHref.replace("/(customer)", "");
     if (targetPath === pathname) return;
-    router.replace(targetHref);
+    router.push(targetHref);
   }
 
   return (

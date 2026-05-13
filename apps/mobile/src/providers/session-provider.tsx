@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
 import * as Linking from "expo-linking";
@@ -329,6 +329,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthenticatedUserSummary | null>(null);
   const [appSession, setAppSession] = useState<AppSessionValidation | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const authFinalizePromiseRef = useRef<Promise<AuthenticatedUserSummary | null> | null>(null);
+  const handledOAuthUrlsRef = useRef<Set<string>>(new Set());
+  const lastPostAuthHrefRef = useRef<string | null>(null);
 
   const hydrateAfterAuth = useCallback(async () => {
     if (!mobileSupabase) {
@@ -398,24 +401,55 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
-  const finalizePostAuthRedirect = useCallback(async (fallbackRole: AppRole = "USER") => {
-    try {
-      await ensureCustomerUserMetadata();
-    } catch (metadataError) {
-      console.log("[OAuth] Metadata update failed (non-fatal):", metadataError);
+  const navigatePostAuth = useCallback((nextRole: AppRole) => {
+    const nextHref = getPostAuthHref(nextRole);
+    if (lastPostAuthHrefRef.current === nextHref) {
+      console.log("[OAuth] Skip duplicate redirect to:", nextHref);
+      return;
     }
 
-    await hydrateAfterAuth();
-    const summary = await getMobileAuthenticatedUserSummary();
-    const nextRole = summary?.role ?? fallbackRole;
-    console.log("[OAuth] Final redirect role:", nextRole);
-    router.replace(getPostAuthHref(nextRole));
-    return summary;
-  }, [hydrateAfterAuth]);
+    lastPostAuthHrefRef.current = nextHref;
+    router.replace(nextHref);
+  }, []);
+
+  const finalizePostAuthRedirect = useCallback(async (fallbackRole: AppRole = "USER") => {
+    if (authFinalizePromiseRef.current) {
+      console.log("[OAuth] Reusing in-flight finalizePostAuthRedirect");
+      return authFinalizePromiseRef.current;
+    }
+
+    const finalizePromise = (async () => {
+      try {
+        await ensureCustomerUserMetadata();
+      } catch (metadataError) {
+        console.log("[OAuth] Metadata update failed (non-fatal):", metadataError);
+      }
+
+      await hydrateAfterAuth();
+      const summary = await getMobileAuthenticatedUserSummary();
+      const nextRole = summary?.role ?? fallbackRole;
+      console.log("[OAuth] Final redirect role:", nextRole);
+      navigatePostAuth(nextRole);
+      return summary;
+    })();
+
+    authFinalizePromiseRef.current = finalizePromise;
+
+    try {
+      return await finalizePromise;
+    } finally {
+      authFinalizePromiseRef.current = null;
+    }
+  }, [hydrateAfterAuth, navigatePostAuth]);
 
   const completeOAuthUrl = useCallback(
     async (url: string) => {
       console.log("[OAuth] completeOAuthUrl called with URL:", url);
+
+      if (handledOAuthUrlsRef.current.has(url)) {
+        console.log("[OAuth] Skip already handled callback URL");
+        return true;
+      }
 
       if (!mobileSupabase) {
         console.log("[OAuth] No mobileSupabase client");
@@ -462,6 +496,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       console.log("[OAuth] Finalizing post-auth redirect...");
       const summary = await finalizePostAuthRedirect("USER");
+      handledOAuthUrlsRef.current.add(url);
       console.log("[OAuth] User summary:", summary?.email, "role:", summary?.role);
       return true;
     },
@@ -618,9 +653,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         throw signInError;
       }
 
-      await hydrateAfterAuth();
-      const summary = await getMobileAuthenticatedUserSummary();
-      router.replace(getPostAuthHref(summary?.role ?? "USER"));
+      await finalizePostAuthRedirect("USER");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap that bai.");
       throw nextError;
@@ -771,9 +804,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         throw updateError;
       }
 
-      await hydrateAfterAuth();
-      const summary = await getMobileAuthenticatedUserSummary();
-      router.replace(getPostAuthHref(summary?.role ?? "USER"));
+      await finalizePostAuthRedirect("USER");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap Apple that bai.");
       throw nextError;
@@ -881,6 +912,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await revokeAppSessionToken(mobileSupabase, await getStoredAppSessionToken());
       await clearStoredAppSessionToken();
       await mobileSupabase.auth.signOut();
+      lastPostAuthHrefRef.current = null;
+      handledOAuthUrlsRef.current.clear();
       setUser(null);
       setRoleState(null);
       setAppSession(null);

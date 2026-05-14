@@ -3,6 +3,7 @@ import { Redirect } from "expo-router";
 import { useMemo, useState } from "react";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -103,13 +104,35 @@ export default function SignInScreen() {
   }
 
   async function handlePasswordReset() {
-    if (!email.trim()) {
+    const nextEmail = email.trim();
+    if (!nextEmail) {
       setMessage("Nhập email trước khi gửi yêu cầu đặt lại mật khẩu.");
       return;
     }
 
-    await requestPasswordReset(email.trim());
-    setMessage("Đã gửi email đặt lại mật khẩu. Vui lòng kiểm tra hộp thư đến của bạn.");
+    Alert.alert(
+      "Xác nhận gửi link",
+      `Gửi email đặt lại mật khẩu tới ${nextEmail}?`,
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Gửi link",
+          onPress: () => {
+            void (async () => {
+              try {
+                setMessage(null);
+                clearError();
+                await requestPasswordReset(nextEmail);
+                setMessage("Đã gửi email đặt lại mật khẩu. Vui lòng kiểm tra hộp thư đến của bạn.");
+              } catch {
+                // Session provider already surfaces the concrete error state.
+              }
+            })();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
   }
 
   async function handleGooglePress() {

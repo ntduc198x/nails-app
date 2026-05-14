@@ -120,6 +120,10 @@ function buildAuthRedirectUrl() {
   });
 }
 
+function buildNativeAppRedirectUrl() {
+  return Linking.createURL(OAUTH_CALLBACK_PATH, { scheme: "nails-app" });
+}
+
 function buildSupabaseCallbackUrl() {
   if (mobileEnv.supabaseUrl) {
     const baseUrl = mobileEnv.supabaseUrl.replace(/\/$/, "");
@@ -865,8 +869,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
+      const resetRedirectUrl =
+        mobileEnv.passwordResetUrl ||
+        (mobileEnv.apiBaseUrl ? `${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/reset-password` : buildNativeAppRedirectUrl());
       const { error: resetError } = await mobileSupabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: mobileEnv.passwordResetUrl || undefined,
+        redirectTo: resetRedirectUrl,
       });
 
       if (resetError) {

@@ -267,7 +267,7 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
 
   const { data: customerAccount, error: customerAccountError } = await mobileSupabase
     .from("customer_accounts")
-    .select("id, customer_id, org_id, branch_id")
+    .select("id, customer_id, org_id")
     .eq("user_id", authUser.id)
     .maybeSingle();
 
@@ -277,16 +277,29 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
     .eq("user_id", authUser.id)
     .maybeSingle();
 
+  let customer: { full_name?: string | null; name?: string | null; email?: string | null; phone?: string | null } | null = null;
+  if (customerAccount?.customer_id) {
+    const { data: customerData } = await mobileSupabase
+      .from("customers")
+      .select("full_name,name,email,phone")
+      .eq("id", customerAccount.customer_id)
+      .eq("org_id", customerAccount.org_id)
+      .maybeSingle();
+    customer = customerData ?? null;
+  }
+
   if (customerAccountError && customerAccountError.code !== "PGRST116") {
     return {
       id: authUser.id,
-      email: profile?.email || authUser.email || "",
+      email: customer?.email || profile?.email || authUser.email || "",
       displayName:
+        (typeof customer?.full_name === "string" && customer.full_name.trim()) ||
+        (typeof customer?.name === "string" && customer.name.trim()) ||
         (typeof profile?.display_name === "string" && profile.display_name.trim()) ||
         (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
         (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
         authUser.email?.split("@")[0] ||
-        "KhÃ¡ch hÃ ng",
+        "Khách hàng",
       role: "USER" as AppRole,
     } satisfies AuthenticatedUserSummary;
   }
@@ -294,29 +307,35 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
   if (!customerAccount) {
     return {
       id: authUser.id,
-      email: profile?.email || authUser.email || "",
+      email: customer?.email || profile?.email || authUser.email || "",
       displayName:
+        (typeof customer?.full_name === "string" && customer.full_name.trim()) ||
+        (typeof customer?.name === "string" && customer.name.trim()) ||
         (typeof profile?.display_name === "string" && profile.display_name.trim()) ||
         (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
         (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
         authUser.email?.split("@")[0] ||
-        "KhÃ¡ch hÃ ng",
+        "Khách hàng",
       role: "USER" as AppRole,
     } satisfies AuthenticatedUserSummary;
   }
 
   const displayName =
-    typeof profile?.display_name === "string" && profile.display_name.trim()
-      ? profile.display_name.trim()
-      : typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()
-        ? authUser.user_metadata.display_name.trim()
-        : typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()
-          ? authUser.user_metadata.full_name.trim()
-          : authUser.email?.split("@")[0] ?? "Khách hàng";
+    typeof customer?.full_name === "string" && customer.full_name.trim()
+      ? customer.full_name.trim()
+      : typeof customer?.name === "string" && customer.name.trim()
+        ? customer.name.trim()
+        : typeof profile?.display_name === "string" && profile.display_name.trim()
+          ? profile.display_name.trim()
+          : typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()
+            ? authUser.user_metadata.display_name.trim()
+            : typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()
+              ? authUser.user_metadata.full_name.trim()
+              : authUser.email?.split("@")[0] ?? "Khách hàng";
 
   return {
     id: authUser.id,
-    email: profile?.email || authUser.email || "",
+    email: customer?.email || profile?.email || authUser.email || "",
     displayName,
     role: "USER" as AppRole,
   } satisfies AuthenticatedUserSummary;

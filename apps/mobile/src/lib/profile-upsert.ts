@@ -1,9 +1,9 @@
-import { ensureOrgContext } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 export type ProfileUpdateInput = {
   userId: string;
   displayName?: string | null;
+  email?: string | null;
   phone?: string | null;
   birthDate?: string | null;
   address?: string | null;
@@ -11,18 +11,48 @@ export type ProfileUpdateInput = {
   defaultBranchId?: string | null;
 };
 
-function isMissingCustomerProfileContextError(error: unknown) {
-  return error instanceof Error && error.message === "CUSTOMER_PROFILE_CONTEXT_MISSING";
-}
-
 export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
   if (!mobileSupabase) {
     throw new Error("Thieu cau hinh Supabase mobile.");
   }
 
+  let { data: customerAccount, error: customerAccountError } = await mobileSupabase
+    .from("customer_accounts")
+    .select("org_id,customer_id")
+    .eq("user_id", input.userId)
+    .maybeSingle();
+
+  if (customerAccountError) {
+    throw customerAccountError;
+  }
+
+  if (!customerAccount?.customer_id) {
+    const relinkRpc = await mobileSupabase.rpc("link_customer_account_for_current_user");
+    if (relinkRpc.error && !relinkRpc.error.message?.includes("AUTH_USER_NOT_FOUND")) {
+      throw relinkRpc.error;
+    }
+
+    const relinked = await mobileSupabase
+      .from("customer_accounts")
+      .select("org_id,customer_id")
+      .eq("user_id", input.userId)
+      .maybeSingle();
+
+    if (relinked.error) {
+      throw relinked.error;
+    }
+
+    customerAccount = relinked.data ?? null;
+  }
+
+  const orgId = customerAccount?.org_id ?? null;
+  if (!orgId) {
+    throw new Error("CUSTOMER_ORG_CONTEXT_MISSING");
+  }
+
   const { data: existingProfile, error: existingProfileError } = await mobileSupabase
     .from("profiles")
-    .select("user_id,org_id,default_branch_id")
+    .select("user_id,org_id")
     .eq("user_id", input.userId)
     .maybeSingle();
 
@@ -30,61 +60,15 @@ export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
     throw existingProfileError;
   }
 
-  const existingOrgId = existingProfile?.org_id ?? null;
-  const existingBranchId = existingProfile?.default_branch_id ?? null;
-  let orgId: string | null = existingOrgId;
-  let branchId: string | null = existingBranchId;
-
-  try {
-    const orgContext = await ensureOrgContext(mobileSupabase);
-    orgId = orgContext.orgId ?? orgId;
-    branchId = orgContext.branchId ?? branchId;
-  } catch (error) {
-    if (!isMissingCustomerProfileContextError(error)) {
-      console.warn("Profile save using fallback org context", error);
-    }
-
-    // Customer profile updates can still proceed using the existing profile context.
-  }
-
-  if (!orgId || !branchId) {
-    const { data: customerAccount, error: customerAccountError } = await mobileSupabase
-      .from("customer_accounts")
-      .select("org_id,branch_id")
-      .eq("user_id", input.userId)
-      .maybeSingle();
-
-    if (customerAccountError) {
-      throw customerAccountError;
-    }
-
-    orgId = orgId ?? customerAccount?.org_id ?? null;
-    branchId = branchId ?? customerAccount?.branch_id ?? null;
-  }
-
-  const resolvedBranchId = input.defaultBranchId ?? branchId ?? existingBranchId;
-  const canPersistProfileContext = Boolean(orgId && resolvedBranchId);
-
-  if (!existingProfile?.user_id && !canPersistProfileContext) {
-    throw new Error("CUSTOMER_PROFILE_CONTEXT_MISSING");
-  }
-
   const trimmedLanguage = input.language?.trim() || "";
   const payload: Record<string, string | null> & { updated_at: string } = {
+    org_id: orgId,
     display_name: input.displayName?.trim() || null,
     phone: input.phone?.trim() || null,
     birth_date: input.birthDate?.trim() || null,
     address: input.address?.trim() || null,
     updated_at: new Date().toISOString(),
   };
-
-  if (orgId) {
-    payload.org_id = orgId;
-  }
-
-  if (resolvedBranchId) {
-    payload.default_branch_id = resolvedBranchId;
-  }
 
   if (trimmedLanguage) {
     payload.language = trimmedLanguage;
@@ -109,6 +93,25 @@ export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
 
     if (insertError) {
       throw new Error(insertError.message || "PROFILE_INSERT_FAILED");
+    }
+  }
+
+  if (customerAccount?.customer_id) {
+    const { error: customerUpdateError } = await mobileSupabase
+      .from("customers")
+      .update({
+        full_name: input.displayName?.trim() || null,
+        name: input.displayName?.trim() || null,
+        email: input.email?.trim() || null,
+        phone: input.phone?.trim() || null,
+        birthday: input.birthDate?.trim() || null,
+        address: input.address?.trim() || null,
+      })
+      .eq("id", customerAccount.customer_id)
+      .eq("org_id", customerAccount.org_id);
+
+    if (customerUpdateError) {
+      throw customerUpdateError;
     }
   }
 

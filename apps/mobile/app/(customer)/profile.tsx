@@ -2,9 +2,10 @@ import Feather from "@expo/vector-icons/Feather";
 import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
 import { FALLBACK_SERVICES } from "@/src/features/customer/data";
@@ -24,6 +25,40 @@ import { useSession } from "@/src/providers/session-provider";
 import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 
 type TabKey = "history" | "favorites" | "info";
+
+function formatBirthDateLabel(value: string) {
+  if (!value) return "";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function parseBirthDateValue(value: string) {
+  if (!value) {
+    return new Date(2000, 0, 1);
+  }
+
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date(2000, 0, 1);
+  }
+
+  return parsed;
+}
+
+function toDateInputValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
 
 export default function ProfileScreen() {
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
@@ -58,6 +93,8 @@ export default function ProfileScreen() {
     email: user?.email ?? "",
     address: "",
   });
+  const [isBirthDatePickerOpen, setIsBirthDatePickerOpen] = useState(false);
+  const [birthDateDraft, setBirthDateDraft] = useState<Date>(parseBirthDateValue(""));
 
   const favoriteServices = useMemo(
     () => services.filter((service) => favoriteIds.includes(service.id)),
@@ -165,20 +202,50 @@ export default function ProfileScreen() {
     }
 
     try {
-      const { data, error } = await mobileSupabase
-        .from("profiles")
-        .select("display_name,phone,birth_date,address")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const [profileResult, customerAccountResult] = await Promise.all([
+        mobileSupabase
+          .from("profiles")
+          .select("display_name,phone,birth_date,address")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        mobileSupabase
+          .from("customer_accounts")
+          .select("org_id,customer_id")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
 
-      if (error) throw error;
+      if (profileResult.error) throw profileResult.error;
+      if (customerAccountResult.error) throw customerAccountResult.error;
+
+      let customerData: { full_name?: string | null; name?: string | null; email?: string | null; phone?: string | null; birthday?: string | null; address?: string | null } | null = null;
+
+      if (customerAccountResult.data?.customer_id) {
+        const customerResult = await mobileSupabase
+          .from("customers")
+          .select("full_name,name,email,phone,birthday,address")
+          .eq("id", customerAccountResult.data.customer_id)
+          .eq("org_id", customerAccountResult.data.org_id)
+          .maybeSingle();
+
+        if (customerResult.error) throw customerResult.error;
+        customerData = customerResult.data ?? null;
+      }
+
+      const data = profileResult.data;
 
       const newForm = {
-        name: data?.display_name?.trim() || user.displayName?.trim() || user.email?.split("@")[0] || "",
-        birthDate: data?.birth_date?.trim() || "",
-        phone: data?.phone?.trim() || "",
-        email: user.email ?? "",
-        address: data?.address?.trim() || "",
+        name:
+          customerData?.full_name?.trim() ||
+          customerData?.name?.trim() ||
+          data?.display_name?.trim() ||
+          user.displayName?.trim() ||
+          user.email?.split("@")[0] ||
+          "",
+        birthDate: customerData?.birthday?.trim() || data?.birth_date?.trim() || "",
+        phone: customerData?.phone?.trim() || data?.phone?.trim() || "",
+        email: customerData?.email?.trim() || user.email || "",
+        address: customerData?.address?.trim() || data?.address?.trim() || "",
       };
 
       setForm(newForm);
@@ -210,6 +277,43 @@ export default function ProfileScreen() {
     }
   }, [loadProfile, refreshFavorites, refreshHistory, refreshLookbook]);
 
+  function openBirthDatePicker() {
+    setBirthDateDraft(parseBirthDateValue(form.birthDate));
+    setIsBirthDatePickerOpen(true);
+  }
+
+  function handleBirthDateChange(event: DateTimePickerEvent, selectedDate?: Date) {
+    if (event.type === "dismissed") {
+      if (Platform.OS === "android") {
+        setIsBirthDatePickerOpen(false);
+      }
+      return;
+    }
+
+    if (!selectedDate) {
+      return;
+    }
+
+    if (Platform.OS === "android") {
+      setForm((current) => ({
+        ...current,
+        birthDate: toDateInputValue(selectedDate),
+      }));
+      setIsBirthDatePickerOpen(false);
+      return;
+    }
+
+    setBirthDateDraft(selectedDate);
+  }
+
+  function applyBirthDateDraft() {
+    setForm((current) => ({
+      ...current,
+      birthDate: toDateInputValue(birthDateDraft),
+    }));
+    setIsBirthDatePickerOpen(false);
+  }
+
   async function handleSaveProfile() {
     if (!mobileSupabase || !user?.id) {
       Alert.alert(strings.cacheClearFailedTitle, strings.commonError);
@@ -220,27 +324,26 @@ export default function ProfileScreen() {
     try {
       const trimmedForm = {
         name: form.name.trim(),
+        email: form.email.trim(),
         birthDate: form.birthDate.trim(),
         phone: form.phone.trim(),
         address: form.address.trim(),
       };
 
-      let verifiedProfile: Awaited<ReturnType<typeof upsertAndVerifyProfile>> | null = null;
-
-      try {
-        verifiedProfile = await upsertAndVerifyProfile({
-          userId: user.id,
-          displayName: trimmedForm.name,
-          phone: trimmedForm.phone,
-          birthDate: trimmedForm.birthDate,
-          address: trimmedForm.address,
-        });
-      } catch (profileError) {
-      }
+      const verifiedProfile = await upsertAndVerifyProfile({
+        userId: user.id,
+        displayName: trimmedForm.name,
+        email: trimmedForm.email,
+        phone: trimmedForm.phone,
+        birthDate: trimmedForm.birthDate,
+        address: trimmedForm.address,
+      });
 
       const { error: authError } = await mobileSupabase.auth.updateUser({
         data: {
           display_name: trimmedForm.name,
+          full_name: trimmedForm.name,
+          name: trimmedForm.name,
           phone: trimmedForm.phone,
           birth_date: trimmedForm.birthDate,
           address: trimmedForm.address,
@@ -253,7 +356,7 @@ export default function ProfileScreen() {
         name: verifiedProfile?.display_name?.trim() || trimmedForm.name,
         birthDate: verifiedProfile?.birth_date?.trim() || trimmedForm.birthDate,
         phone: verifiedProfile?.phone?.trim() || trimmedForm.phone,
-        email: user.email ?? "",
+        email: trimmedForm.email || user.email || "",
         address: verifiedProfile?.address?.trim() || trimmedForm.address,
       };
 
@@ -393,8 +496,8 @@ export default function ProfileScreen() {
       hideHeader
       scroll
       keyboardAware
-      keyboardVerticalOffset={12}
-      contentContainerStyle={styles.content}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 96 : 32}
+      contentContainerStyle={[styles.content, styles.keyboardSafeContent]}
       title={strings.profileTitle}
       onRefresh={() => void handleRefresh()}
       refreshing={isRefreshing}
@@ -470,7 +573,11 @@ export default function ProfileScreen() {
                     minute: "2-digit",
                   })}
                 </Text>
-                <Text style={styles.rowMeta}>{item.servicePriceLabel ?? "0d"}</Text>
+                <Text style={styles.rowMeta}>
+                  {item.statusLabel}
+                  {item.servicePriceLabel ? ` · ${item.servicePriceLabel}` : ""}
+                  {item.preferredStaff ? ` · ${item.preferredStaff}` : ""}
+                </Text>
               </View>
             </SurfaceCard>
           ))}
@@ -480,8 +587,8 @@ export default function ProfileScreen() {
               <View style={styles.emptyIconWrap}>
                 <Feather color="#D8B892" name="calendar" size={22} />
               </View>
-              <Text style={styles.emptyTitle}>Chưa có lịch sử dịch vụ</Text>
-              <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ các dịch vụ khách đã hoàn tất tại tiệm.</Text>
+              <Text style={styles.emptyTitle}>Chưa có lịch sử hẹn</Text>
+              <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ lịch hẹn và yêu cầu đặt lịch của khách.</Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -529,7 +636,12 @@ export default function ProfileScreen() {
       {activeTab === "info" ? (
         <SurfaceCard style={styles.formCard}>
           <EditableField styles={styles} label={strings.profileName} value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} />
-          <EditableField styles={styles} label={strings.profileBirthDate} value={form.birthDate} onChangeText={(value) => setForm((current) => ({ ...current, birthDate: value }))} />
+          <DatePickerField
+            styles={styles}
+            label={strings.profileBirthDate}
+            value={form.birthDate}
+            onPress={openBirthDatePicker}
+          />
           <EditableField styles={styles} label={strings.profilePhone} value={form.phone} keyboardType="phone-pad" onChangeText={(value) => setForm((current) => ({ ...current, phone: value }))} />
           <EditableField styles={styles} label={strings.profileEmail} value={form.email} editable={false} keyboardType="email-address" />
           <EditableField styles={styles} label={strings.profileAddress} value={form.address} multiline onChangeText={(value) => setForm((current) => ({ ...current, address: value }))} />
@@ -539,6 +651,36 @@ export default function ProfileScreen() {
           </Pressable>
         </SurfaceCard>
       ) : null}
+
+      <Modal transparent animationType="fade" visible={isBirthDatePickerOpen} onRequestClose={() => setIsBirthDatePickerOpen(false)}>
+        <View style={styles.datePickerOverlay}>
+          <View style={styles.datePickerModal}>
+            <View style={styles.datePickerHeader}>
+              <Text style={styles.datePickerTitle}>{strings.profileBirthDate}</Text>
+              <Pressable onPress={() => setIsBirthDatePickerOpen(false)} style={styles.datePickerCloseButton}>
+                <Feather color={theme.colors.text} name="x" size={18} />
+              </Pressable>
+            </View>
+            <DateTimePicker
+              value={Platform.OS === "ios" ? birthDateDraft : parseBirthDateValue(form.birthDate)}
+              mode="date"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              maximumDate={new Date()}
+              onChange={handleBirthDateChange}
+            />
+            {Platform.OS === "ios" ? (
+              <View style={styles.datePickerActions}>
+                <Pressable onPress={() => setIsBirthDatePickerOpen(false)} style={styles.datePickerGhostButton}>
+                  <Text style={styles.datePickerGhostLabel}>Hủy</Text>
+                </Pressable>
+                <Pressable onPress={applyBirthDateDraft} style={styles.datePickerPrimaryButton}>
+                  <Text style={styles.datePickerPrimaryLabel}>Chọn ngày</Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       <Pressable disabled={isBusy} onPress={() => void handleSignOut()} style={styles.logoutButton}>
         <Feather color={theme.colors.dangerText} name="log-out" size={18} />
@@ -566,6 +708,30 @@ function ProfileMetric({
       <Feather color="#8f7c6e" name={icon} size={15} />
       <Text style={styles.metricLabel}>{label}</Text>
       <Text style={styles.metricValue}>{value}</Text>
+    </View>
+  );
+}
+
+function DatePickerField({
+  label,
+  value,
+  onPress,
+  styles,
+}: {
+  label: string;
+  value: string;
+  onPress: () => void;
+  styles: ReturnType<typeof createStyles>;
+}) {
+  return (
+    <View style={styles.fieldGroup}>
+      <Text style={styles.fieldLabel}>{label}</Text>
+      <Pressable onPress={onPress} style={styles.dateInputButton}>
+        <Text style={[styles.dateInputText, !value ? styles.dateInputPlaceholder : null]}>
+          {value ? formatBirthDateLabel(value) : label}
+        </Text>
+        <Feather color="#9c8f84" name="calendar" size={16} />
+      </Pressable>
     </View>
   );
 }
@@ -611,6 +777,9 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     content: {
       paddingBottom: 148,
       paddingTop: 8,
+    },
+    keyboardSafeContent: {
+      paddingBottom: 220,
     },
     topBar: {
       alignItems: "center",
@@ -877,6 +1046,95 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     inputDisabled: {
       color: theme.colors.textSoft,
       opacity: 0.78,
+    },
+    dateInputButton: {
+      alignItems: "center",
+      backgroundColor: theme.colors.surface,
+      borderColor: theme.colors.border,
+      borderRadius: 18,
+      borderWidth: 1,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 52,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+    },
+    dateInputText: {
+      color: theme.colors.text,
+      flex: 1,
+      fontSize: 14,
+    },
+    dateInputPlaceholder: {
+      color: "#9c8f84",
+    },
+    datePickerOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(47,36,29,0.28)",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 20,
+    },
+    datePickerModal: {
+      width: "100%",
+      maxWidth: 360,
+      borderRadius: 24,
+      backgroundColor: theme.colors.surface,
+      paddingHorizontal: 16,
+      paddingTop: 16,
+      paddingBottom: 12,
+      gap: 12,
+    },
+    datePickerHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 10,
+    },
+    datePickerTitle: {
+      color: theme.colors.text,
+      fontSize: 17,
+      fontWeight: "800",
+    },
+    datePickerCloseButton: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: theme.colors.surfaceMuted,
+    },
+    datePickerActions: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 10,
+      marginTop: 4,
+    },
+    datePickerGhostButton: {
+      minHeight: 40,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.colors.border,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    datePickerGhostLabel: {
+      color: theme.colors.text,
+      fontSize: 14,
+      fontWeight: "700",
+    },
+    datePickerPrimaryButton: {
+      minHeight: 40,
+      borderRadius: 14,
+      backgroundColor: theme.colors.accent,
+      paddingHorizontal: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    datePickerPrimaryLabel: {
+      color: theme.colors.surface,
+      fontSize: 14,
+      fontWeight: "800",
     },
     primaryButton: {
       alignItems: "center",

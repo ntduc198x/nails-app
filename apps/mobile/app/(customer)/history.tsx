@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import type { CustomerHistoryItem } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { CustomerScreen, SegmentedTabs, StatusTag, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
@@ -14,6 +15,25 @@ const FILTERS = [
 ] as const;
 
 type FilterKey = (typeof FILTERS)[number]["key"];
+
+function getStatusTone(item: CustomerHistoryItem): "success" | "warning" | "danger" | "default" {
+  switch (item.status) {
+    case "DONE":
+      return "success";
+    case "CANCELLED":
+    case "NO_SHOW":
+    case "NEEDS_RESCHEDULE":
+      return "warning";
+    case "BOOKED":
+    case "CHECKED_IN":
+    case "IN_SERVICE":
+    case "CONFIRMED":
+    case "NEW":
+      return "default";
+    default:
+      return "default";
+  }
+}
 
 function formatOccurredAt(value: string) {
   const date = new Date(value);
@@ -64,12 +84,14 @@ export default function HistoryScreen() {
                   <Text style={styles.time}>{formatOccurredAt(item.occurredAt)}</Text>
                   <Text style={styles.staff}>{item.serviceName}</Text>
                   <Text style={styles.service}>
-                    {item.servicePriceLabel ?? "Đã hoàn tất tại tiệm"}
+                    {item.source === "appointment" ? "Lịch hẹn" : "Yêu cầu đặt lịch"}
+                    {item.preferredStaff ? ` · ${item.preferredStaff}` : ""}
+                    {item.servicePriceLabel ? ` · ${item.servicePriceLabel}` : ""}
                     {item.serviceSummary ? ` · ${item.serviceSummary}` : ""}
                   </Text>
                 </View>
                 <View style={styles.aside}>
-                  <StatusTag label="Đã hoàn tất" tone="success" />
+                  <StatusTag label={item.statusLabel} tone={getStatusTone(item)} />
                 </View>
               </View>
             </SurfaceCard>
@@ -78,8 +100,8 @@ export default function HistoryScreen() {
 
         {isHydrated && !items.length ? (
           <SurfaceCard>
-            <Text style={styles.emptyTitle}>Chưa có lịch sử dịch vụ</Text>
-            <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ các dịch vụ khách đã hoàn tất tại tiệm.</Text>
+            <Text style={styles.emptyTitle}>Chưa có lịch sử hẹn</Text>
+            <Text style={styles.emptyText}>Lịch sử sẽ hiển thị các lịch hẹn và yêu cầu đặt lịch của khách theo thời gian.</Text>
           </SurfaceCard>
         ) : null}
       </View>

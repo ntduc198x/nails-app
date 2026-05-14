@@ -35,6 +35,23 @@ export type CrmDashboardMetrics = {
   repeat30: number;
 };
 
+export type CustomerDuplicateCandidate = {
+  orgId: string;
+  matchType: "EMAIL" | "PHONE";
+  matchValue: string;
+  duplicateCount: number;
+  canonicalCustomerId: string;
+  duplicateCustomerIds: string[];
+};
+
+export type CustomerMergeResult = {
+  success: boolean;
+  orgId: string;
+  canonicalCustomerId: string;
+  duplicateCustomerId: string;
+  reason: string;
+};
+
 export type CustomerCrmFilters = {
   search?: string;
   status?: CustomerStatus | "ALL";
@@ -209,6 +226,68 @@ export async function listFollowUpCandidatesForMobile(
     if (range?.toIso && time > new Date(range.toIso).getTime()) return false;
     return row.followUpStatus !== "DONE";
   });
+}
+
+export async function listCustomerDuplicateCandidatesForMobile(
+  client: SharedSupabaseClient,
+): Promise<CustomerDuplicateCandidate[]> {
+  const rpc = await client.rpc("list_customer_duplicate_candidates");
+  if (rpc.error) {
+    throw rpc.error;
+  }
+
+  return ((rpc.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    orgId: String(row.org_id ?? ""),
+    matchType: String(row.match_type ?? "PHONE") as "EMAIL" | "PHONE",
+    matchValue: String(row.match_value ?? ""),
+    duplicateCount: Number(row.duplicate_count ?? 0),
+    canonicalCustomerId: String(row.canonical_customer_id ?? ""),
+    duplicateCustomerIds: Array.isArray(row.duplicate_customer_ids)
+      ? row.duplicate_customer_ids.map((item) => String(item))
+      : [],
+  }));
+}
+
+export async function mergeCustomerRecordsForMobile(
+  client: SharedSupabaseClient,
+  input: { canonicalCustomerId: string; duplicateCustomerId: string; reason?: string },
+): Promise<CustomerMergeResult> {
+  const rpc = await client.rpc("merge_customer_records", {
+    p_canonical_customer_id: input.canonicalCustomerId,
+    p_duplicate_customer_id: input.duplicateCustomerId,
+    p_reason: input.reason ?? "MANUAL_CRM_MERGE",
+  });
+
+  if (rpc.error) {
+    throw rpc.error;
+  }
+
+  const row = (rpc.data ?? {}) as Record<string, unknown>;
+  return {
+    success: Boolean(row.success),
+    orgId: String(row.org_id ?? ""),
+    canonicalCustomerId: String(row.canonical_customer_id ?? input.canonicalCustomerId),
+    duplicateCustomerId: String(row.duplicate_customer_id ?? input.duplicateCustomerId),
+    reason: String(row.reason ?? input.reason ?? "MANUAL_CRM_MERGE"),
+  };
+}
+
+export async function previewSafeCustomerDuplicateMergesForMobile(
+  client: SharedSupabaseClient,
+  input: { kind: "EMAIL" | "PHONE" },
+): Promise<Array<{ canonicalCustomerId: string; duplicateCustomerId: string; matchValue: string; action: string; reason: string }>> {
+  const fn = input.kind === "EMAIL" ? "merge_safe_customer_duplicates_by_email" : "merge_safe_customer_duplicates_by_phone";
+  const rpc = await client.rpc(fn, { p_org_id: null, p_dry_run: true });
+  if (rpc.error) {
+    throw rpc.error;
+  }
+  return ((rpc.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+    canonicalCustomerId: String(row.canonical_customer_id ?? ""),
+    duplicateCustomerId: String(row.duplicate_customer_id ?? ""),
+    matchValue: String(row.match_value ?? ""),
+    action: String(row.action ?? "DRY_RUN"),
+    reason: String(row.reason ?? ""),
+  }));
 }
 
 export async function getCrmDashboardMetricsForMobile(client: SharedSupabaseClient): Promise<CrmDashboardMetrics> {

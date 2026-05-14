@@ -2,6 +2,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -11,9 +12,13 @@ import {
 } from "react-native";
 import {
   getCrmDashboardMetricsForMobile,
+  listCustomerDuplicateCandidatesForMobile,
   listCustomersCrmForMobile,
+  mergeCustomerRecordsForMobile,
+  previewSafeCustomerDuplicateMergesForMobile,
   type CrmDashboardMetrics,
   type CustomerCrmSummary,
+  type CustomerDuplicateCandidate,
   type CustomerStatus,
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
@@ -248,6 +253,10 @@ function CustomerRow({ item }: { item: CustomerCrmSummary }) {
 export default function AdminManageCustomersScreen() {
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<CustomerDuplicateCandidate[]>([]);
+  const [safeEmailPreviewCount, setSafeEmailPreviewCount] = useState(0);
+  const [safePhonePreviewCount, setSafePhonePreviewCount] = useState(0);
+  const [mergingPairKey, setMergingPairKey] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<CrmDashboardMetrics>({
     newToday: 0,
     returningToday: 0,
@@ -281,7 +290,7 @@ export default function AdminManageCustomersScreen() {
       }
       setError(null);
 
-      const [filteredRows, customers, dashboard] = await Promise.all([
+      const [filteredRows, customers, dashboard, duplicates, safeEmailPreview, safePhonePreview] = await Promise.all([
         listCustomersCrmForMobile(mobileSupabase, {
           search,
           status,
@@ -291,11 +300,17 @@ export default function AdminManageCustomersScreen() {
         }),
         listCustomersCrmForMobile(mobileSupabase),
         getCrmDashboardMetricsForMobile(mobileSupabase),
+        listCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
+        previewSafeCustomerDuplicateMergesForMobile(mobileSupabase, { kind: "EMAIL" }).catch(() => []),
+        previewSafeCustomerDuplicateMergesForMobile(mobileSupabase, { kind: "PHONE" }).catch(() => []),
       ]);
 
       setRows(filteredRows);
       setAllRows(customers);
       setMetrics(dashboard);
+      setDuplicateCandidates(duplicates);
+      setSafeEmailPreviewCount(safeEmailPreview.length);
+      setSafePhonePreviewCount(safePhonePreview.length);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được CRM khách.");
     } finally {
@@ -337,6 +352,31 @@ export default function AdminManageCustomersScreen() {
     () => DORMANT_DAY_OPTIONS.find((option) => option.value === dormantDays)?.label ?? `${dormantDays} ngày`,
     [dormantDays],
   );
+
+  async function handleMergeDuplicate(candidate: CustomerDuplicateCandidate, duplicateCustomerId: string) {
+    if (!mobileSupabase) {
+      return;
+    }
+
+    const pairKey = `${candidate.canonicalCustomerId}:${duplicateCustomerId}`;
+    try {
+      setMergingPairKey(pairKey);
+      await mergeCustomerRecordsForMobile(mobileSupabase, {
+        canonicalCustomerId: candidate.canonicalCustomerId,
+        duplicateCustomerId,
+        reason: `MANUAL_${candidate.matchType}_MERGE`,
+      });
+      Alert.alert("Đã merge", "Đã gộp hồ sơ trùng và làm mới danh sách.");
+      await load(true);
+    } catch (mergeError) {
+      Alert.alert(
+        "Không merge được",
+        mergeError instanceof Error ? mergeError.message : "Merge thất bại.",
+      );
+    } finally {
+      setMergingPairKey(null);
+    }
+  }
 
   return (
     <ManageScreenShell
@@ -393,6 +433,65 @@ export default function AdminManageCustomersScreen() {
             <Text style={styles.vipFieldText}>Chỉ khách VIP</Text>
           </Pressable>
         </View>
+      </View>
+
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionHeader}>
+          <View style={styles.sectionTitleWrap}>
+            <View style={styles.sectionIcon}>
+              <Feather name="git-merge" size={15} color={palette.accent} />
+            </View>
+            <Text style={styles.sectionTitle}>Rà hồ sơ trùng</Text>
+          </View>
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{duplicateCandidates.length} nhóm</Text>
+          </View>
+        </View>
+
+        <View style={styles.duplicateSummaryRow}>
+          <View style={styles.duplicateSummaryCard}>
+            <Text style={styles.duplicateSummaryLabel}>Safe email</Text>
+            <Text style={styles.duplicateSummaryValue}>{safeEmailPreviewCount}</Text>
+          </View>
+          <View style={styles.duplicateSummaryCard}>
+            <Text style={styles.duplicateSummaryLabel}>Safe phone</Text>
+            <Text style={styles.duplicateSummaryValue}>{safePhonePreviewCount}</Text>
+          </View>
+        </View>
+
+        {duplicateCandidates.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>Hiện chưa thấy nhóm hồ sơ trùng nào cần rà.</Text>
+          </View>
+        ) : (
+          <View style={styles.listStack}>
+            {duplicateCandidates.slice(0, 8).map((candidate) => (
+              <View key={`${candidate.matchType}:${candidate.matchValue}`} style={styles.duplicateCard}>
+                <View style={styles.duplicateHeader}>
+                  <Text style={styles.duplicateTitle}>{candidate.matchType} · {candidate.matchValue}</Text>
+                  <Text style={styles.duplicateMeta}>{candidate.duplicateCount} hồ sơ</Text>
+                </View>
+                <Text style={styles.duplicateHint}>Bản chính: {candidate.canonicalCustomerId.slice(0, 8)}…</Text>
+                <View style={styles.duplicateActions}>
+                  {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId) => {
+                    const pairKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
+                    const busy = mergingPairKey === pairKey;
+                    return (
+                      <Pressable
+                        key={duplicateId}
+                        style={[styles.mergeButton, busy ? styles.mergeButtonDisabled : null]}
+                        disabled={busy}
+                        onPress={() => void handleMergeDuplicate(candidate, duplicateId)}
+                      >
+                        {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.mergeButtonText}>Merge {duplicateId.slice(0, 8)}…</Text>}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.sectionCard}>
@@ -818,6 +917,85 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     alignItems: "center",
     gap: 4,
+  },
+  duplicateSummaryRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  duplicateSummaryCard: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FCFAF8",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  duplicateSummaryLabel: {
+    fontSize: 12,
+    lineHeight: 15,
+    color: palette.sub,
+  },
+  duplicateSummaryValue: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  duplicateCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  duplicateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  duplicateTitle: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  duplicateMeta: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: palette.sub,
+  },
+  duplicateHint: {
+    fontSize: 11,
+    lineHeight: 15,
+    color: palette.sub,
+  },
+  duplicateActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  mergeButton: {
+    minHeight: 34,
+    borderRadius: 17,
+    backgroundColor: palette.accent,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mergeButtonDisabled: {
+    opacity: 0.7,
+  },
+  mergeButtonText: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
   phonePill: {
     fontSize: 10,

@@ -271,11 +271,7 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
     .eq("user_id", authUser.id)
     .maybeSingle();
 
-  const { data: profile } = await mobileSupabase
-    .from("profiles")
-    .select("display_name,email,phone")
-    .eq("user_id", authUser.id)
-    .maybeSingle();
+  const profile = null as { display_name?: string | null; email?: string | null; phone?: string | null } | null;
 
   let customer: { full_name?: string | null; name?: string | null; email?: string | null; phone?: string | null } | null = null;
   if (customerAccount?.customer_id) {

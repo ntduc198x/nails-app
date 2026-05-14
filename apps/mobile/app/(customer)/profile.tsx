@@ -202,20 +202,12 @@ export default function ProfileScreen() {
     }
 
     try {
-      const [profileResult, customerAccountResult] = await Promise.all([
-        mobileSupabase
-          .from("profiles")
-          .select("display_name,phone,birth_date,address")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-        mobileSupabase
-          .from("customer_accounts")
-          .select("org_id,customer_id")
-          .eq("user_id", user.id)
-          .maybeSingle(),
-      ]);
+      const customerAccountResult = await mobileSupabase
+        .from("customer_accounts")
+        .select("org_id,customer_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
 
-      if (profileResult.error) throw profileResult.error;
       if (customerAccountResult.error) throw customerAccountResult.error;
 
       let customerData: { full_name?: string | null; name?: string | null; email?: string | null; phone?: string | null; birthday?: string | null; address?: string | null } | null = null;
@@ -232,20 +224,17 @@ export default function ProfileScreen() {
         customerData = customerResult.data ?? null;
       }
 
-      const data = profileResult.data;
-
       const newForm = {
         name:
           customerData?.full_name?.trim() ||
           customerData?.name?.trim() ||
-          data?.display_name?.trim() ||
           user.displayName?.trim() ||
           user.email?.split("@")[0] ||
           "",
-        birthDate: customerData?.birthday?.trim() || data?.birth_date?.trim() || "",
-        phone: customerData?.phone?.trim() || data?.phone?.trim() || "",
+        birthDate: customerData?.birthday?.trim() || "",
+        phone: customerData?.phone?.trim() || "",
         email: customerData?.email?.trim() || user.email || "",
-        address: customerData?.address?.trim() || data?.address?.trim() || "",
+        address: customerData?.address?.trim() || "",
       };
 
       setForm(newForm);

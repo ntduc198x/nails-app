@@ -1,3 +1,4 @@
+import { ensureOrgContext } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 export type ProfileUpdateInput = {
@@ -10,6 +11,10 @@ export type ProfileUpdateInput = {
   language?: string | null;
   defaultBranchId?: string | null;
 };
+
+function isMissingCustomerProfileContextError(error: unknown) {
+  return error instanceof Error && error.message === "CUSTOMER_PROFILE_CONTEXT_MISSING";
+}
 
 export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
   if (!mobileSupabase) {
@@ -46,58 +51,10 @@ export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
   }
 
   const orgId = customerAccount?.org_id ?? null;
-  if (!orgId) {
-    throw new Error("CUSTOMER_ORG_CONTEXT_MISSING");
-  }
+  const customerId = customerAccount?.customer_id ?? null;
 
-  const { data: existingProfile, error: existingProfileError } = await mobileSupabase
-    .from("profiles")
-    .select("user_id,org_id")
-    .eq("user_id", input.userId)
-    .maybeSingle();
-
-  if (existingProfileError) {
-    throw existingProfileError;
-  }
-
-  const trimmedLanguage = input.language?.trim() || "";
-  const payload: Record<string, string | null> & { updated_at: string } = {
-    org_id: orgId,
-    display_name: input.displayName?.trim() || null,
-    phone: input.phone?.trim() || null,
-    birth_date: input.birthDate?.trim() || null,
-    address: input.address?.trim() || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (trimmedLanguage) {
-    payload.language = trimmedLanguage;
-  } else if (!existingProfile?.user_id) {
-    payload.language = "vi";
-  }
-
-  if (existingProfile?.user_id) {
-    const { error: updateError } = await mobileSupabase
-      .from("profiles")
-      .update(payload)
-      .eq("user_id", input.userId);
-
-    if (updateError) {
-      throw new Error(updateError.message || "PROFILE_UPDATE_FAILED");
-    }
-  } else {
-    const { error: insertError } = await mobileSupabase.from("profiles").insert({
-      user_id: input.userId,
-      ...payload,
-    });
-
-    if (insertError) {
-      throw new Error(insertError.message || "PROFILE_INSERT_FAILED");
-    }
-  }
-
-  if (customerAccount?.customer_id) {
-    const { error: customerUpdateError } = await mobileSupabase
+  if (customerAccount?.customer_id && orgId) {
+    const { data: customerData, error: customerUpdateError } = await mobileSupabase
       .from("customers")
       .update({
         full_name: input.displayName?.trim() || null,
@@ -107,27 +64,98 @@ export async function upsertAndVerifyProfile(input: ProfileUpdateInput) {
         birthday: input.birthDate?.trim() || null,
         address: input.address?.trim() || null,
       })
-      .eq("id", customerAccount.customer_id)
-      .eq("org_id", customerAccount.org_id);
+      .eq("id", customerId)
+      .eq("org_id", orgId)
+      .select("id,org_id,full_name,name,email,phone,birthday,address")
+      .single();
 
     if (customerUpdateError) {
       throw customerUpdateError;
     }
+
+    return {
+      user_id: input.userId,
+      org_id: orgId,
+      default_branch_id: null,
+      display_name: (customerData?.full_name ?? customerData?.name ?? input.displayName ?? "") as string,
+      phone: (customerData?.phone ?? input.phone ?? "") as string,
+      birth_date: (customerData?.birthday ?? input.birthDate ?? "") as string,
+      address: (customerData?.address ?? input.address ?? "") as string,
+      email: (customerData?.email ?? input.email ?? "") as string,
+      language: input.language?.trim() || "vi",
+    };
   }
 
-  const { data, error: verifyError } = await mobileSupabase
+  const { data: existingProfile, error: existingProfileError } = await mobileSupabase
     .from("profiles")
-    .select("user_id,org_id,default_branch_id,display_name,phone,birth_date,address,language")
+    .select("user_id,org_id,default_branch_id")
     .eq("user_id", input.userId)
     .maybeSingle();
 
-  if (verifyError) {
-    throw verifyError;
+  if (existingProfileError) {
+    throw existingProfileError;
   }
 
-  if (!data?.user_id) {
-    throw new Error("PROFILE_VERIFY_FAILED");
+  const existingOrgId = existingProfile?.org_id ?? null;
+  const existingBranchId = existingProfile?.default_branch_id ?? null;
+  let resolvedOrgId: string | null = existingOrgId;
+  let resolvedBranchId: string | null = input.defaultBranchId ?? existingBranchId;
+
+  try {
+    const orgContext = await ensureOrgContext(mobileSupabase);
+    resolvedOrgId = orgContext.orgId ?? resolvedOrgId;
+    resolvedBranchId = resolvedBranchId ?? orgContext.branchId ?? null;
+  } catch (error) {
+    if (!isMissingCustomerProfileContextError(error)) {
+      console.warn("Profile save using fallback org context", error);
+    }
   }
 
-  return data;
+  if (!resolvedOrgId) {
+    throw new Error("PROFILE_ORG_CONTEXT_MISSING");
+  }
+
+  const trimmedLanguage = input.language?.trim() || "";
+  const payload: Record<string, string | null> & { updated_at: string } = {
+    org_id: resolvedOrgId,
+    display_name: input.displayName?.trim() || null,
+    phone: input.phone?.trim() || null,
+    birth_date: input.birthDate?.trim() || null,
+    address: input.address?.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (resolvedBranchId) {
+    payload.default_branch_id = resolvedBranchId;
+  }
+
+  if (trimmedLanguage) {
+    payload.language = trimmedLanguage;
+  } else if (!existingProfile?.user_id) {
+    payload.language = "vi";
+  }
+
+  if (existingProfile?.user_id) {
+    const { error: updateError } = await mobileSupabase.from("profiles").update(payload).eq("user_id", input.userId);
+    if (updateError) {
+      throw new Error(updateError.message || "PROFILE_UPDATE_FAILED");
+    }
+  } else {
+    const { error: insertError } = await mobileSupabase.from("profiles").insert({ user_id: input.userId, ...payload });
+    if (insertError) {
+      throw new Error(insertError.message || "PROFILE_INSERT_FAILED");
+    }
+  }
+
+  return {
+    user_id: input.userId,
+    org_id: resolvedOrgId,
+    default_branch_id: resolvedBranchId,
+    display_name: input.displayName?.trim() || "",
+    phone: input.phone?.trim() || "",
+    birth_date: input.birthDate?.trim() || "",
+    address: input.address?.trim() || "",
+    email: input.email?.trim() || "",
+    language: trimmedLanguage || "vi",
+  };
 }

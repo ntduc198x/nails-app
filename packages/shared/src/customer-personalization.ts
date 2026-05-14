@@ -254,32 +254,18 @@ export async function getCustomerScopedContextForUser(
   client: SharedSupabaseClient,
   userId: string,
 ): Promise<CustomerScopedContext | null> {
-  const [profileResult, accountResult] = await Promise.all([
-    client
-      .from("profiles")
-      .select("org_id,default_branch_id")
-      .eq("user_id", userId)
-      .maybeSingle(),
-    client
-      .from("customer_accounts")
-      .select("org_id,customer_id")
-      .eq("user_id", userId)
-      .maybeSingle(),
-  ]);
-
-  if (profileResult.error) {
-    throw profileResult.error;
-  }
+  const accountResult = await client
+    .from("customer_accounts")
+    .select("org_id,customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
 
   if (accountResult.error) {
     throw accountResult.error;
   }
 
-  // Customer-facing data should follow the CRM/customer mapping first.
-  const orgId =
-    (typeof accountResult.data?.org_id === "string" && accountResult.data.org_id) ||
-    (typeof profileResult.data?.org_id === "string" && profileResult.data.org_id) ||
-    null;
+  const orgId = typeof accountResult.data?.org_id === "string" ? accountResult.data.org_id : null;
+  const customerId = typeof accountResult.data?.customer_id === "string" ? accountResult.data.customer_id : null;
 
   if (!orgId) {
     return null;
@@ -287,8 +273,8 @@ export async function getCustomerScopedContextForUser(
 
   return {
     orgId,
-    branchId: typeof profileResult.data?.default_branch_id === "string" ? profileResult.data.default_branch_id : null,
-    customerId: typeof accountResult.data?.customer_id === "string" ? accountResult.data.customer_id : null,
+    branchId: null,
+    customerId,
     userId,
   };
 }

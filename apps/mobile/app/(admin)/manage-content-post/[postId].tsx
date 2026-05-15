@@ -1,26 +1,20 @@
+import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CachedAppImage } from "@/src/components/cached-app-image";
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import type { MobileAdminContentPost, MobileAdminContentPostInput } from "@nails/shared";
 import {
   archiveAdminContentPostForMobile,
   createAdminContentPostForMobile,
-  listAdminContentSnapshotForMobile,
+  getAdminContentPostForMobile,
   updateAdminContentPostForMobile,
 } from "@nails/shared";
+import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -30,8 +24,14 @@ const palette = {
   sub: "#84776C",
   accent: "#A56D3D",
   accentSoft: "#F5E9DD",
-  danger: "#C25A43",
+  danger: "#E06754",
 };
+const POST_DETAIL_CACHE_PREFIX = "admin-content-post-detail:";
+const DETAIL_FRESH_MS = 2 * 60 * 1000;
+const DETAIL_MAX_STALE_MS = 5 * 60 * 1000;
+const CONTENT_TYPES = ["trend", "care", "news", "offer_hint"] as const;
+const POST_STATUSES = ["draft", "approved", "published", "archived"] as const;
+const SOURCE_PLATFORMS = ["Cham Beauty", "mobile_admin", "telegram", "dummy_seed"] as const;
 
 type PostFormState = {
   id?: string;
@@ -102,7 +102,23 @@ function toPostInput(form: PostFormState): MobileAdminContentPostInput {
     status: form.status,
     priority: parseNumberInput(form.priority),
     metadata: parseMetadata(form.metadataText),
+    sourcePlatform: form.sourcePlatform?.trim() || "mobile_admin",
   };
+}
+
+function DetailFieldLabel({
+  icon,
+  children,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.labelRow}>
+      <Feather color={palette.accent} name={icon} size={18} />
+      <Text style={styles.label}>{children}</Text>
+    </View>
+  );
 }
 
 export default function AdminManageContentPostDetailScreen() {
@@ -133,14 +149,20 @@ export default function AdminManageContentPostDetailScreen() {
         return;
       }
 
-      const snapshot = await listAdminContentSnapshotForMobile(client, { includeServices: false });
-      const post = snapshot.posts.find((item) => item.id === postId);
-
-      if (!post) {
-        throw new Error("Không tìm thấy bài feed cần chỉnh sửa.");
+      const cacheKey = `${POST_DETAIL_CACHE_PREFIX}${postId}`;
+      const cached = await hydrateCachedValue<MobileAdminContentPost>(cacheKey);
+      if (cached && isCacheFresh(cacheKey, DETAIL_MAX_STALE_MS)) {
+        setForm(buildPostForm(cached.value));
+        setIsLoading(false);
+        if (isCacheFresh(cacheKey, DETAIL_FRESH_MS)) {
+          return;
+        }
       }
 
+      const post = await getAdminContentPostForMobile(client, postId);
+      if (!post) throw new Error("Không tìm thấy bài feed cần chỉnh sửa.");
       setForm(buildPostForm(post));
+      await writeCachedValue(cacheKey, post);
     } catch (error) {
       setLastError(error instanceof Error ? error.message : "Không tải được bài feed.");
     } finally {
@@ -152,7 +174,6 @@ export default function AdminManageContentPostDetailScreen() {
     const timeoutId = setTimeout(() => {
       void loadPost();
     }, 0);
-
     return () => clearTimeout(timeoutId);
   }, [loadPost]);
 
@@ -171,9 +192,7 @@ export default function AdminManageContentPostDetailScreen() {
       quality: 0.85,
     });
 
-    if (result.canceled || !result.assets[0]) {
-      return;
-    }
+    if (result.canceled || !result.assets[0]) return;
 
     try {
       const uploaded = await uploadPickedAdminContentImage(result.assets[0], {
@@ -189,7 +208,6 @@ export default function AdminManageContentPostDetailScreen() {
   async function handleSave() {
     const client = mobileSupabase;
     if (!client) return;
-
     if (!form.title.trim() || !form.summary.trim() || !form.body.trim()) {
       Alert.alert("Thiếu dữ liệu", "Cần nhập tiêu đề, tóm tắt và nội dung bài feed.");
       return;
@@ -199,11 +217,12 @@ export default function AdminManageContentPostDetailScreen() {
     try {
       const payload = toPostInput(form);
       if (form.id) {
-        await updateAdminContentPostForMobile(client, form.id, payload, form.publishedAt ?? null);
+        const next = await updateAdminContentPostForMobile(client, form.id, payload, form.publishedAt ?? null);
+        await writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${form.id}`, next);
       } else {
-        await createAdminContentPostForMobile(client, payload);
+        const next = await createAdminContentPostForMobile(client, payload);
+        await writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${next.id}`, next);
       }
-
       void router.replace("/(admin)/manage-content" as never);
     } catch (error) {
       Alert.alert("Không lưu bài viết", error instanceof Error ? error.message : "Thử lại sau.");
@@ -256,120 +275,108 @@ export default function AdminManageContentPostDetailScreen() {
         ) : lastError ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{lastError}</Text>
-            <Pressable style={styles.secondaryButton} onPress={() => void loadPost()}>
+            <Pressable style={styles.retryButton} onPress={() => void loadPost()}>
               <Text style={styles.secondaryButtonText}>Tải lại</Text>
             </Pressable>
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.formColumn} showsVerticalScrollIndicator={false}>
-            <Text style={styles.label}>Tieu de</Text>
-            <TextInput
-              placeholder="Nhập tiêu đề bài feed"
-              placeholderTextColor="#B4A89C"
-              style={styles.input}
-              value={form.title}
-              onChangeText={(value) => setForm((current) => ({ ...current, title: value }))}
-            />
-
-            <Text style={styles.label}>Tom tat</Text>
-            <TextInput
-              multiline
-              placeholder="Tóm tắt ngắn gọn hiển thị trên Home"
-              placeholderTextColor="#B4A89C"
-              style={[styles.input, styles.textarea]}
-              textAlignVertical="top"
-              value={form.summary}
-              onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))}
-            />
-
-            <Text style={styles.label}>Nội dung</Text>
-            <TextInput
-              multiline
-              placeholder="Nội dung chi tiết"
-              placeholderTextColor="#B4A89C"
-              style={[styles.input, styles.bodyTextarea]}
-              textAlignVertical="top"
-              value={form.body}
-              onChangeText={(value) => setForm((current) => ({ ...current, body: value }))}
-            />
-
-            <Text style={styles.label}>Ảnh bìa</Text>
-            {form.coverImageUrl ? <CachedAppImage source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
-            <TextInput
-              placeholder="https://..."
-              placeholderTextColor="#B4A89C"
-              style={styles.input}
-              value={form.coverImageUrl}
-              onChangeText={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))}
-            />
-            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage()}>
-              <Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text>
-            </Pressable>
-
-            <Text style={styles.label}>Độ ưu tiên</Text>
-            <TextInput
-              keyboardType="number-pad"
-              placeholder="100"
-              placeholderTextColor="#B4A89C"
-              style={styles.input}
-              value={form.priority}
-              onChangeText={(value) => setForm((current) => ({ ...current, priority: value }))}
-            />
-
-            <Text style={styles.label}>Loại nội dung</Text>
-            <View style={styles.chipRow}>
-              {(["trend", "care", "news", "offer_hint"] as const).map((item) => (
-                <Pressable
-                  key={item}
-                  style={[styles.chip, form.contentType === item ? styles.chipActive : null]}
-                  onPress={() => setForm((current) => ({ ...current, contentType: item }))}
-                >
-                  <Text style={[styles.chipText, form.contentType === item ? styles.chipTextActive : null]}>{item}</Text>
-                </Pressable>
-              ))}
+          <View style={styles.formColumn}>
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="tag">Tiêu đề</DetailFieldLabel>
+              <AdminKeyboardTextInput placeholder="Nhập tiêu đề bài feed" placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
             </View>
-
-            <Text style={styles.label}>Trạng thái</Text>
-            <View style={styles.chipRow}>
-              {(["draft", "approved", "published", "archived"] as const).map((item) => (
-                <Pressable
-                  key={item}
-                  style={[styles.chip, form.status === item ? styles.chipActive : null]}
-                  onPress={() => setForm((current) => ({ ...current, status: item }))}
-                >
-                  <Text style={[styles.chipText, form.status === item ? styles.chipTextActive : null]}>{item}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="file-text">Tóm tắt</DetailFieldLabel>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Tóm tắt ngắn gọn hiển thị trên Home" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.summary} onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))} />
             </View>
-
-            {form.id ? (
-              <Text style={styles.metaText}>
-                Nguon: {form.sourcePlatform || "mobile_admin"}
-                {form.sourceMessageId ? ` · msg ${form.sourceMessageId}` : ""}
-              </Text>
-            ) : null}
-
-            <Text style={styles.label}>Metadata JSON</Text>
-            <TextInput
-              multiline
-              placeholder="{ }"
-              placeholderTextColor="#B4A89C"
-              style={[styles.input, styles.textarea]}
-              textAlignVertical="top"
-              value={form.metadataText}
-              onChangeText={(value) => setForm((current) => ({ ...current, metadataText: value }))}
-            />
-
-            <Pressable style={styles.primaryButton} disabled={isSaving} onPress={() => void handleSave()}>
-              <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu bài viết"}</Text>
-            </Pressable>
-
-            {canArchive ? (
-              <Pressable style={styles.archiveButton} disabled={isSaving} onPress={() => void handleArchive()}>
-                <Text style={styles.archiveButtonText}>Ẩn bài feed</Text>
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="message-circle">Nội dung</DetailFieldLabel>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Nội dung chi tiết" placeholderTextColor="#B4A89C" style={[styles.input, styles.bodyTextarea]} textAlignVertical="top" value={form.body} onChangeText={(value) => setForm((current) => ({ ...current, body: value }))} />
+            </View>
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="image">Ảnh bìa</DetailFieldLabel>
+              {form.coverImageUrl ? <CachedAppImage source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
+              <View style={styles.inputShell}>
+                <Feather color={palette.accent} name="link" size={18} />
+                <AdminKeyboardTextInput placeholder="https://..." placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput]} value={form.coverImageUrl} onChangeText={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))} />
+                <Feather color={palette.sub} name="copy" size={18} />
+              </View>
+              <Pressable style={styles.uploadButton} onPress={() => void pickAndUploadImage()}>
+                <Feather color={palette.accent} name="upload" size={18} />
+                <Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text>
               </Pressable>
-            ) : null}
-          </ScrollView>
+            </View>
+            <View style={styles.splitRow}>
+              <View style={[styles.fieldBlock, styles.priorityColumn]}>
+                <DetailFieldLabel icon="star">Độ ưu tiên</DetailFieldLabel>
+                <AdminKeyboardTextInput keyboardType="number-pad" placeholder="100" placeholderTextColor="#B4A89C" style={styles.input} value={form.priority} onChangeText={(value) => setForm((current) => ({ ...current, priority: value }))} />
+              </View>
+              <View style={[styles.fieldBlock, styles.flexColumn]}>
+                <DetailFieldLabel icon="folder">Loại nội dung</DetailFieldLabel>
+                <View style={styles.chipRow}>
+                  {CONTENT_TYPES.map((item) => (
+                    <Pressable key={item} style={[styles.chip, form.contentType === item ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, contentType: item }))}>
+                      <Text style={[styles.chipText, form.contentType === item ? styles.chipTextActive : null]}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </View>
+            <View style={styles.splitRow}>
+              <View style={[styles.fieldBlock, styles.flexColumn]}>
+                <DetailFieldLabel icon="flag">Trạng thái</DetailFieldLabel>
+                <View style={styles.chipRow}>
+                  {POST_STATUSES.map((item) => (
+                    <Pressable key={item} style={[styles.chip, form.status === item ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, status: item }))}>
+                      <Text style={[styles.chipText, form.status === item ? styles.chipTextActive : null]}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+              <View style={[styles.fieldBlock, styles.sourceColumn]}>
+                <DetailFieldLabel icon="user">Nguồn</DetailFieldLabel>
+                <AdminKeyboardTextInput
+                  placeholder="Nhập nguồn bài feed"
+                  placeholderTextColor="#B4A89C"
+                  style={styles.input}
+                  value={form.sourcePlatform || ""}
+                  onChangeText={(value) => setForm((current) => ({ ...current, sourcePlatform: value }))}
+                />
+                <View style={styles.sourceChipRow}>
+                  {SOURCE_PLATFORMS.map((item) => (
+                    <Pressable
+                      key={item}
+                      style={[styles.sourceChip, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipActive : null]}
+                      onPress={() => setForm((current) => ({ ...current, sourcePlatform: item }))}
+                    >
+                      <Text style={[styles.sourceChipText, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipTextActive : null]}>{item}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            </View>
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="code">Metadata JSON</DetailFieldLabel>
+              <View style={styles.metadataShell}>
+                <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="{ }" placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput, styles.metadataInput]} textAlignVertical="top" value={form.metadataText} onChangeText={(value) => setForm((current) => ({ ...current, metadataText: value }))} />
+                <View style={styles.metadataIconWrap}>
+                  <Feather color={palette.sub} name="copy" size={18} />
+                </View>
+              </View>
+            </View>
+            <View style={styles.actionRow}>
+              <Pressable style={[styles.primaryButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleSave()}>
+                <Feather color="#FFFFFF" name="save" size={18} />
+                <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu bài viết"}</Text>
+              </Pressable>
+              {canArchive ? (
+                <Pressable style={[styles.archiveButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleArchive()}>
+                  <Feather color={palette.danger} name="trash-2" size={18} />
+                  <Text style={styles.archiveButtonText}>Ẩn bài feed</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
         )}
       </View>
     </ManageScreenShell>
@@ -377,132 +384,44 @@ export default function AdminManageContentPostDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  sectionCard: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 16,
-  },
-  stateCard: {
-    alignItems: "center",
-    gap: 10,
-    paddingVertical: 28,
-  },
-  stateText: {
-    color: palette.sub,
-    fontSize: 13,
-  },
-  errorText: {
-    color: palette.danger,
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-  },
-  formColumn: {
-    gap: 12,
-  },
-  label: {
-    color: palette.text,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  input: {
-    backgroundColor: "#FFFFFF",
-    borderColor: palette.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    color: palette.text,
-    fontSize: 14,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  textarea: {
-    minHeight: 104,
-  },
-  bodyTextarea: {
-    minHeight: 148,
-  },
-  previewImage: {
-    aspectRatio: 16 / 9,
-    backgroundColor: "#F4ECE2",
-    borderRadius: 14,
-    width: "100%",
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: 17,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 34,
-    paddingHorizontal: 12,
-  },
-  chipActive: {
-    backgroundColor: palette.accentSoft,
-    borderColor: palette.accent,
-  },
-  chipText: {
-    color: palette.sub,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  chipTextActive: {
-    color: palette.accent,
-  },
-  metaText: {
-    color: palette.sub,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  primaryButton: {
-    alignItems: "center",
-    backgroundColor: palette.accent,
-    borderRadius: 14,
-    justifyContent: "center",
-    minHeight: 46,
-    paddingHorizontal: 16,
-  },
-  primaryButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  secondaryButton: {
-    alignItems: "center",
-    backgroundColor: "#FFF9F3",
-    borderColor: "#E4D7C8",
-    borderRadius: 14,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  secondaryButtonText: {
-    color: palette.accent,
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  archiveButton: {
-    alignItems: "center",
-    backgroundColor: "#FFF6F2",
-    borderColor: "#F3DFD7",
-    borderRadius: 14,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 42,
-    paddingHorizontal: 14,
-  },
-  archiveButtonText: {
-    color: palette.danger,
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  sectionCard: { backgroundColor: palette.card, borderColor: palette.border, borderRadius: 24, borderWidth: 1, padding: 16 },
+  stateCard: { alignItems: "center", gap: 10, paddingVertical: 28 },
+  stateText: { color: palette.sub, fontSize: 13 },
+  errorText: { color: palette.danger, fontSize: 13, lineHeight: 18, textAlign: "center" },
+  retryButton: { alignItems: "center", backgroundColor: "#FFF9F3", borderColor: "#E4D7C8", borderRadius: 14, borderWidth: 1, justifyContent: "center", minHeight: 42, paddingHorizontal: 16 },
+  formColumn: { gap: 18 },
+  fieldBlock: { gap: 10 },
+  splitRow: { flexDirection: "row", gap: 12 },
+  priorityColumn: { width: 132 },
+  flexColumn: { flex: 1 },
+  sourceColumn: { width: 156 },
+  labelRow: { alignItems: "center", flexDirection: "row", gap: 10 },
+  label: { color: palette.text, fontSize: 15, fontWeight: "700" },
+  input: { backgroundColor: "#FFFFFF", borderColor: palette.border, borderRadius: 14, borderWidth: 1, color: palette.text, fontSize: 14, minHeight: 52, paddingHorizontal: 14, paddingVertical: 12 },
+  embeddedInput: { backgroundColor: "transparent", borderWidth: 0, flex: 1, minHeight: 0, paddingHorizontal: 0, paddingVertical: 0 },
+  textarea: { minHeight: 104 },
+  bodyTextarea: { minHeight: 142 },
+  previewImage: { aspectRatio: 16 / 7.7, backgroundColor: "#F4ECE2", borderRadius: 16, width: "100%" },
+  inputShell: { alignItems: "center", backgroundColor: "#FFFFFF", borderColor: palette.border, borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 10, minHeight: 52, paddingHorizontal: 14 },
+  uploadButton: { alignItems: "center", backgroundColor: "#FFF9F3", borderColor: "#E4D7C8", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 8, justifyContent: "center", minHeight: 50, paddingHorizontal: 18 },
+  secondaryButtonText: { color: palette.accent, fontSize: 13, fontWeight: "700" },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  chip: { backgroundColor: "#FFFFFF", borderColor: palette.border, borderRadius: 999, borderWidth: 1, minHeight: 38, paddingHorizontal: 16, paddingVertical: 9 },
+  chipActive: { backgroundColor: palette.accentSoft, borderColor: palette.accent },
+  chipText: { color: palette.sub, fontSize: 13, fontWeight: "700" },
+  chipTextActive: { color: palette.accent },
+  sourceChipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  sourceChip: { backgroundColor: "#FFFFFF", borderColor: palette.border, borderRadius: 999, borderWidth: 1, minHeight: 34, paddingHorizontal: 12, paddingVertical: 7 },
+  sourceChipActive: { backgroundColor: palette.accentSoft, borderColor: palette.accent },
+  sourceChipText: { color: palette.sub, fontSize: 12, fontWeight: "700" },
+  sourceChipTextActive: { color: palette.accent },
+  metadataShell: { backgroundColor: "#FFFFFF", borderColor: palette.border, borderRadius: 16, borderWidth: 1, minHeight: 168, paddingBottom: 12, paddingHorizontal: 14, paddingTop: 14 },
+  metadataInput: { minHeight: 126, paddingRight: 28, paddingTop: 0 },
+  metadataIconWrap: { alignItems: "flex-end" },
+  actionRow: { flexDirection: "row", gap: 12, paddingTop: 4 },
+  actionButton: { flex: 1, minHeight: 54 },
+  primaryButton: { alignItems: "center", backgroundColor: palette.accent, borderRadius: 14, flexDirection: "row", gap: 8, justifyContent: "center", paddingHorizontal: 16 },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
+  archiveButton: { alignItems: "center", backgroundColor: "#FFF6F2", borderColor: "#F7D9D3", borderRadius: 14, borderWidth: 1, flexDirection: "row", gap: 8, justifyContent: "center", paddingHorizontal: 14 },
+  archiveButtonText: { color: palette.danger, fontSize: 13, fontWeight: "800" },
 });

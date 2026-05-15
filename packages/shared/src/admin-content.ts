@@ -85,6 +85,7 @@ export type MobileAdminContentPostInput = {
   status?: "draft" | "approved" | "published" | "archived";
   priority?: number;
   metadata?: Record<string, unknown>;
+  sourcePlatform?: string | null;
 };
 
 export type MobileAdminStorefrontProfile = {
@@ -555,6 +556,40 @@ export async function listAdminContentSnapshotForMobile(
   };
 }
 
+export async function getAdminOfferForMobile(
+  client: SharedSupabaseClient,
+  offerId: string,
+): Promise<MobileAdminOffer | null> {
+  const { orgId } = await ensureOrgContext(client);
+  const { data, error } = await client
+    .from("marketing_offers")
+    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata")
+    .eq("id", offerId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return normalizeOffer(data as UnknownRow);
+}
+
+export async function getAdminContentPostForMobile(
+  client: SharedSupabaseClient,
+  postId: string,
+): Promise<MobileAdminContentPost | null> {
+  const { orgId } = await ensureOrgContext(client);
+  const { data, error } = await client
+    .from("customer_content_posts")
+    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id")
+    .eq("id", postId)
+    .eq("org_id", orgId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+  return normalizePost(data as UnknownRow);
+}
+
 export async function createAdminOfferForMobile(
   client: SharedSupabaseClient,
   input: MobileAdminOfferInput,
@@ -637,7 +672,7 @@ export async function createAdminContentPostForMobile(
       published_at: toPublishedAt(status),
       priority: Number(input.priority ?? 100),
       metadata: input.metadata ?? {},
-      source_platform: "mobile_admin",
+      source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
     })
     .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id")
     .single();
@@ -666,6 +701,7 @@ export async function updateAdminContentPostForMobile(
       published_at: toPublishedAt(status, existingPublishedAt),
       priority: Number(input.priority ?? 100),
       metadata: input.metadata ?? {},
+      source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
     })
     .eq("id", postId)
     .eq("org_id", orgId)

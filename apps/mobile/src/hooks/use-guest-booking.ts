@@ -7,7 +7,12 @@ import {
   type PublicBookingSubmissionResult,
 } from "@nails/shared";
 import { mobileEnv } from "@/src/lib/env";
+import {
+  prewarmCustomerHistoryCache,
+  writeOptimisticBookingIntoCustomerHistoryCache,
+} from "@/src/lib/customer-history-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useSession } from "@/src/providers/session-provider";
 
 export type GuestBookingFormValues = {
   customerName: string;
@@ -75,6 +80,7 @@ function inferFieldErrors(message: string): GuestBookingFieldErrors {
 }
 
 export function useGuestBooking() {
+  const { user } = useSession();
   const dateOptions = useMemo(() => createDateOptions(), []);
   const [values, setValues] = useState<GuestBookingFormValues>({
     customerName: "",
@@ -156,6 +162,19 @@ export function useGuestBooking() {
           });
 
       setSuccessResult(result);
+
+      if (user?.id && result.bookingRequestId) {
+        await writeOptimisticBookingIntoCustomerHistoryCache(user.id, {
+          bookingRequestId: result.bookingRequestId,
+          requestedService: parsed.data.requestedService ?? "",
+          requestedStartAt: parsed.data.requestedStartAt,
+          preferredStaff: parsed.data.preferredStaff ?? null,
+        });
+
+        if (mobileSupabase) {
+          void prewarmCustomerHistoryCache(mobileSupabase, user.id).catch(() => {});
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Gui booking request that bai.";
       setFieldErrors(inferFieldErrors(message));

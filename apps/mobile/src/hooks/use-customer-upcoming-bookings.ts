@@ -50,7 +50,6 @@ export function useCustomerUpcomingBookings(limit = 8) {
 
     return () => clearTimeout(timeoutId);
   }, [refresh]);
-
   return {
     items,
     isLoading,

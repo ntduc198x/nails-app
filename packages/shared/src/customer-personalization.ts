@@ -223,6 +223,48 @@ function normalizePhone(value: string | null | undefined) {
   return value.replace(/[^\d]/g, "");
 }
 
+function buildPhoneLookupVariants(value: string | null | undefined) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const normalized = normalizePhone(raw);
+  const variants = new Set<string>();
+
+  if (raw) {
+    variants.add(raw);
+  }
+  if (normalized) {
+    variants.add(normalized);
+
+    if (normalized.startsWith("84") && normalized.length > 2) {
+      variants.add(`0${normalized.slice(2)}`);
+      variants.add(`+${normalized}`);
+    }
+
+    if (normalized.startsWith("0") && normalized.length > 1) {
+      variants.add(`84${normalized.slice(1)}`);
+      variants.add(`+84${normalized.slice(1)}`);
+    }
+  }
+
+  return Array.from(variants);
+}
+
+function dedupeRowsById<T extends { id?: unknown }>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+
+  for (const row of rows) {
+    const id = typeof row.id === "string" ? row.id : String(row.id ?? "");
+    if (!id || seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    deduped.push(row);
+  }
+
+  return deduped;
+}
+
 function getCustomerHistoryStatusLabel(status: string) {
   switch (status) {
     case "BOOKED":
@@ -875,7 +917,7 @@ export async function listCustomerMembershipSummary(
 }
 
 export async function listCustomerFavoriteServiceIds(client: SharedSupabaseClient): Promise<string[]> {
-  const context = await getCustomerAccountContext(client);
+  const context = await ensureCustomerAccountContext(client);
   if (!context) {
     return [];
   }
@@ -951,36 +993,35 @@ export async function listCustomerHistory(
   client: SharedSupabaseClient,
   options: { limit?: number } = {},
 ): Promise<CustomerHistoryItem[]> {
-  const context = await getCustomerAccountContext(client);
+  const context = await ensureCustomerAccountContext(client);
   if (!context) {
     return [];
   }
 
   const limit = Math.max(options.limit ?? 24, 48);
 
-  const [appointmentsResult, customerResult] = await Promise.all([
-    client
-      .from("appointments")
-      .select(
-        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
-      )
-      .eq("org_id", context.orgId)
-      .eq("customer_id", context.customerId)
-      .order("start_at", { ascending: false })
-      .limit(limit),
-    client
-      .from("customers")
-      .select("phone")
-      .eq("id", context.customerId)
-      .maybeSingle(),
-  ]);
-
-  if (appointmentsResult.error) {
-    throw appointmentsResult.error;
-  }
+  const customerResult = await client
+    .from("customers")
+    .select("phone")
+    .eq("id", context.customerId)
+    .maybeSingle();
 
   if (customerResult.error) {
     throw customerResult.error;
+  }
+
+  const appointmentsResult = await client
+    .from("appointments")
+    .select(
+      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
+    )
+    .eq("org_id", context.orgId)
+    .eq("customer_id", context.customerId)
+    .order("start_at", { ascending: false })
+    .limit(limit);
+
+  if (appointmentsResult.error) {
+    throw appointmentsResult.error;
   }
 
   const appointmentRows = (appointmentsResult.data ?? []) as AppointmentHistoryRow[];
@@ -1046,22 +1087,142 @@ export async function listCustomerHistory(
     });
   }
 
-  const customerPhone = normalizePhone(typeof customerResult.data?.phone === "string" ? customerResult.data.phone : null);
+  const customerPhoneRaw = typeof customerResult.data?.phone === "string" ? customerResult.data.phone : null;
+  const customerPhone = normalizePhone(customerPhoneRaw);
+  const customerPhoneVariants = buildPhoneLookupVariants(customerPhoneRaw);
 
-  const bookingRequestsResult = await client
-    .from("booking_requests")
-    .select("id,customer_id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id")
-    .eq("org_id", context.orgId)
-    .order("requested_start_at", { ascending: false })
-    .limit(limit);
+  const bookingRequestSelect =
+    "id,customer_id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id";
+  const [directBookingRequestsResult, phoneBookingRequestsResult] = await Promise.all([
+    client
+      .from("booking_requests")
+      .select(bookingRequestSelect)
+      .eq("org_id", context.orgId)
+      .eq("customer_id", context.customerId)
+      .order("requested_start_at", { ascending: false })
+      .limit(limit),
+    customerPhone
+      ? client
+          .from("booking_requests")
+          .select(bookingRequestSelect)
+          .eq("org_id", context.orgId)
+          .in("customer_phone", customerPhoneVariants)
+          .order("requested_start_at", { ascending: false })
+          .limit(limit)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  if (bookingRequestsResult.error) {
-    throw bookingRequestsResult.error;
+  if (directBookingRequestsResult.error) {
+    throw directBookingRequestsResult.error;
+  }
+  if (phoneBookingRequestsResult.error) {
+    throw phoneBookingRequestsResult.error;
   }
 
-  const bookingRows = (bookingRequestsResult.data ?? []) as Array<Record<string, unknown>>;
+  const matchingBookingRows = dedupeRowsById([
+    ...((directBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
+    ...((phoneBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
+  ]);
 
-  for (const row of bookingRows) {
+  const linkedAppointmentIds = matchingBookingRows
+    .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, source) => source.indexOf(value) === index)
+    .filter((value) => !history.some((item) => item.appointmentId === value));
+
+  const appointmentStatusMap = new Map<string, string>();
+  if (linkedAppointmentIds.length) {
+    const appointmentStatusResult = await client
+      .from("appointments")
+      .select("id,status")
+      .eq("org_id", context.orgId)
+      .in("id", linkedAppointmentIds);
+
+    if (appointmentStatusResult.error) {
+      throw appointmentStatusResult.error;
+    }
+
+    for (const appointment of appointmentStatusResult.data ?? []) {
+      if (typeof appointment.id === "string" && typeof appointment.status === "string") {
+        appointmentStatusMap.set(appointment.id, appointment.status);
+      }
+    }
+  }
+
+  if (linkedAppointmentIds.length) {
+    const legacyAppointmentsResult = await client
+      .from("appointments")
+      .select(
+        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
+      )
+      .eq("org_id", context.orgId)
+      .in("id", linkedAppointmentIds);
+
+    if (legacyAppointmentsResult.error) {
+      throw legacyAppointmentsResult.error;
+    }
+
+    for (const row of (legacyAppointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
+      const appointmentId = typeof row.id === "string" ? row.id : null;
+      const occurredAt = typeof row.start_at === "string" ? row.start_at : null;
+      const endAt = typeof row.end_at === "string" ? row.end_at : null;
+      const status = typeof row.status === "string" ? row.status : "BOOKED";
+
+      if (!appointmentId || !occurredAt) {
+        continue;
+      }
+
+      const bookingRequest = Array.isArray(row.booking_requests)
+        ? row.booking_requests[0] ?? null
+        : row.booking_requests ?? null;
+
+      const bookingRequestId = typeof bookingRequest?.id === "string" ? bookingRequest.id : null;
+      if (bookingRequestId) {
+        linkedBookingRequestIds.add(bookingRequestId);
+      }
+
+      const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
+      const primaryItem = items[0] ?? null;
+      const serviceId =
+        typeof primaryItem?.service_id === "string"
+          ? primaryItem.service_id
+          : typeof primaryItem?.services?.id === "string"
+            ? primaryItem.services.id
+            : null;
+
+      const serviceName =
+        primaryItem?.services?.name?.trim() ||
+        (typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
+          ? bookingRequest.requested_service.trim()
+          : "Lá»‹ch dá»‹ch vá»¥ Ä‘Ã£ Ä‘áº·t");
+
+      const priceValue =
+        typeof primaryItem?.unit_price === "number"
+          ? primaryItem.unit_price
+          : typeof primaryItem?.services?.base_price === "number"
+            ? primaryItem.services.base_price
+            : null;
+
+      history.push({
+        id: `appointment:${appointmentId}`,
+        appointmentId,
+        bookingRequestId,
+        serviceId,
+        serviceName,
+        serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
+        servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
+        serviceSummary: primaryItem?.services?.short_description?.trim() || null,
+        occurredAt,
+        status,
+        statusLabel: getCustomerHistoryStatusLabel(status),
+        source: "appointment",
+        preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
+        endAt,
+      });
+    }
+  }
+
+  for (const row of matchingBookingRows) {
     const bookingRequestId = typeof row.id === "string" ? row.id : null;
     const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
     const occurredAt = typeof row.requested_start_at === "string" ? row.requested_start_at : null;
@@ -1071,17 +1232,35 @@ export async function listCustomerHistory(
       continue;
     }
 
-    if (linkedBookingRequestIds.has(bookingRequestId) || appointmentId) {
+    if (linkedBookingRequestIds.has(bookingRequestId)) {
       continue;
     }
 
-    const rowCustomerId = typeof row.customer_id === "string" ? row.customer_id : null;
-    const rowPhone = normalizePhone(typeof row.customer_phone === "string" ? row.customer_phone : null);
-    const matchesCustomer = rowCustomerId
-      ? rowCustomerId === context.customerId
-      : Boolean(customerPhone) && rowPhone === customerPhone;
+    if (appointmentId) {
+      if (history.some((item) => item.appointmentId === appointmentId)) {
+        continue;
+      }
 
-    if (!matchesCustomer) {
+      const appointmentStatus = appointmentStatusMap.get(appointmentId) ?? "BOOKED";
+      history.push({
+        id: `appointment:${appointmentId}`,
+        appointmentId,
+        bookingRequestId,
+        serviceId: null,
+        serviceName:
+          typeof row.requested_service === "string" && row.requested_service.trim()
+            ? row.requested_service.trim()
+            : "Lá»‹ch dá»‹ch vá»¥ Ä‘Ã£ Ä‘áº·t",
+        serviceImageUrl: null,
+        servicePriceLabel: null,
+        serviceSummary: null,
+        occurredAt,
+        status: appointmentStatus,
+        statusLabel: getCustomerHistoryStatusLabel(appointmentStatus),
+        source: "appointment",
+        preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
+        endAt: typeof row.requested_end_at === "string" ? row.requested_end_at : null,
+      });
       continue;
     }
 
@@ -1115,48 +1294,63 @@ export async function listCustomerUpcomingBookings(
   client: SharedSupabaseClient,
   options: { limit?: number } = {},
 ): Promise<CustomerUpcomingBookingItem[]> {
-  const context = await getCustomerAccountContext(client);
+  const context = await ensureCustomerAccountContext(client);
   if (!context) {
     return [];
   }
 
-  const [customerResult, bookingRequestsResult] = await Promise.all([
+  const queryLimit = Math.max(options.limit ?? 12, 48);
+  const [customerResult] = await Promise.all([
     client
       .from("customers")
       .select("phone")
       .eq("id", context.customerId)
       .maybeSingle(),
-    client
-      .from("booking_requests")
-      .select("id,customer_id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id")
-      .eq("org_id", context.orgId)
-      .gte("requested_start_at", new Date().toISOString())
-      .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
-      .order("requested_start_at", { ascending: true })
-      .limit(Math.max(options.limit ?? 12, 48)),
   ]);
 
   if (customerResult.error) {
     throw customerResult.error;
   }
-  if (bookingRequestsResult.error) {
-    throw bookingRequestsResult.error;
+
+  const customerPhoneRaw = typeof customerResult.data?.phone === "string" ? customerResult.data.phone : null;
+  const customerPhone = normalizePhone(customerPhoneRaw);
+  const customerPhoneVariants = buildPhoneLookupVariants(customerPhoneRaw);
+  const bookingRequestSelect =
+    "id,customer_id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id";
+  const [directBookingRequestsResult, phoneBookingRequestsResult] = await Promise.all([
+    client
+      .from("booking_requests")
+      .select(bookingRequestSelect)
+      .eq("org_id", context.orgId)
+      .eq("customer_id", context.customerId)
+      .gte("requested_start_at", new Date().toISOString())
+      .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
+      .order("requested_start_at", { ascending: true })
+      .limit(queryLimit),
+    customerPhone
+      ? client
+          .from("booking_requests")
+          .select(bookingRequestSelect)
+          .eq("org_id", context.orgId)
+          .in("customer_phone", customerPhoneVariants)
+          .gte("requested_start_at", new Date().toISOString())
+          .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
+          .order("requested_start_at", { ascending: true })
+          .limit(queryLimit)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (directBookingRequestsResult.error) {
+    throw directBookingRequestsResult.error;
+  }
+  if (phoneBookingRequestsResult.error) {
+    throw phoneBookingRequestsResult.error;
   }
 
-  const customerPhone = normalizePhone(typeof customerResult.data?.phone === "string" ? customerResult.data.phone : null);
-
-  const rows = ((bookingRequestsResult.data ?? []) as Array<Record<string, unknown>>).filter((row) => {
-    const rowCustomerId = typeof row.customer_id === "string" ? row.customer_id : null;
-    if (rowCustomerId) {
-      return rowCustomerId === context.customerId;
-    }
-
-    if (!customerPhone) {
-      return false;
-    }
-
-    return normalizePhone(typeof row.customer_phone === "string" ? row.customer_phone : null) === customerPhone;
-  });
+  const rows = dedupeRowsById([
+    ...((directBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
+    ...((phoneBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
+  ]);
 
   const appointmentIds = rows
     .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))

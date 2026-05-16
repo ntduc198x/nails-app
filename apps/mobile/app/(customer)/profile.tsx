@@ -77,7 +77,7 @@ export default function ProfileScreen() {
   const { isBusy, signOut, user } = useSession();
   const { favoriteIds, refresh: refreshFavorites } = useCustomerFavorites();
   const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshHistory } =
-    useCustomerHistory(8, { revalidateOnMount: false });
+    useCustomerHistory(8);
   const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership();
   const { refresh: refreshLookbook, services } = useLookbookServices(FALLBACK_SERVICES);
   const [activeTab, setActiveTab] = useState<TabKey>("history");

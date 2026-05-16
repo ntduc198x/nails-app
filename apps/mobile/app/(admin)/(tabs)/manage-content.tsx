@@ -601,15 +601,25 @@ function ModalTextAreaField({
   );
 }
 
+function CountBadge({ value }: { value: string }) {
+  return (
+    <View style={styles.countBadge}>
+      <Text style={styles.countBadgeText}>{value}</Text>
+    </View>
+  );
+}
+
 function SectionCard({
   title,
   subtitle,
+  titleBadge,
   actionLabel,
   onActionPress,
   children,
 }: {
   title: string;
   subtitle?: string;
+  titleBadge?: string;
   actionLabel?: string;
   onActionPress?: () => void;
   children: React.ReactNode;
@@ -618,7 +628,10 @@ function SectionCard({
     <View style={styles.sectionCard}>
       <View style={styles.sectionHeader}>
         <View style={styles.sectionCopy}>
-          <Text style={styles.sectionTitle}>{title}</Text>
+          <View style={styles.sectionTitleRow}>
+            <Text style={styles.sectionTitle}>{title}</Text>
+            {titleBadge ? <CountBadge value={titleBadge} /> : null}
+          </View>
           {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
         </View>
         {actionLabel && onActionPress ? (
@@ -1297,7 +1310,8 @@ export default function AdminManageContentScreen() {
       {activeTab === "home" ? (
         <>
           <SectionCard
-            title={`Lookbook Home (${homeServices.length}/${lookbookServices.length})`}
+            title="Lookbook Home"
+            titleBadge={`${homeServices.length}/${lookbookServices.length}`}
             subtitle="Chỉ hiển thị dịch vụ có metadata lookbook."
             actionLabel={homeServicesExpanded ? "Thu gọn ˄" : "Mở rộng ˅"}
             onActionPress={() => setHomeServicesExpanded((current) => !current)}
@@ -1332,7 +1346,8 @@ export default function AdminManageContentScreen() {
           </SectionCard>
 
           <SectionCard
-            title={`Ưu đãi (${snapshot?.offers.length ?? 0})`}
+            title="Ưu đãi"
+            titleBadge={String(snapshot?.offers.length ?? 0)}
             subtitle="Ưu đãi dùng chung cho Home và Explore."
             actionLabel="Thêm ưu đãi"
             onActionPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}
@@ -1357,7 +1372,8 @@ export default function AdminManageContentScreen() {
           </SectionCard>
 
           <SectionCard
-            title={`Bài feed (${snapshot?.posts.length ?? 0})`}
+            title="Bài feed"
+            titleBadge={String(snapshot?.posts.length ?? 0)}
             subtitle="Tạo, sửa và xuất bản bài hiển thị ở Home."
             actionLabel="Thêm bài"
             onActionPress={() => void router.push("/(admin)/manage-content-post/new" as never)}
@@ -1488,7 +1504,7 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title={`Dịch vụ nổi bật (${exploreServices.length})`} subtitle="Hiển thị dịch vụ có metadata lookbook" actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng") : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
+          <SectionCard title="Dịch vụ nổi bật" titleBadge={String(exploreServices.length)} subtitle="Hiển thị dịch vụ có metadata lookbook" actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng") : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
             <View style={styles.exploreFeatureShell}>
               {visibleExploreFeaturedServices.map((service, index) => (
                 <Pressable key={service.id} style={[styles.exploreFeatureRow, index < visibleExploreFeaturedServices.length - 1 ? styles.exploreFeatureBorder : null]} onPress={() => {
@@ -1512,7 +1528,7 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title={`Sản phẩm & phụ kiện (${snapshot?.products.length ?? 0})`} subtitle="Quản lý ảnh trong landing feed" actionLabel="Thêm ảnh" onActionPress={() => setProductForm(emptyProductForm())}>
+          <SectionCard title="Sản phẩm & phụ kiện" titleBadge={String(snapshot?.products.length ?? 0)} subtitle="Quản lý ảnh trong landing feed" actionLabel="Thêm ảnh" onActionPress={() => setProductForm(emptyProductForm())}>
             <View style={styles.listColumn}>
               {visibleProducts.map((product) => (
                 <View key={product.id} style={styles.rowCard}>
@@ -1538,7 +1554,7 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title={`Thư viện ảnh (${snapshot?.gallery.length ?? 0})`} actionLabel="Thêm ảnh" onActionPress={() => setGalleryForm(emptyGalleryForm())}>
+          <SectionCard title="Thư viện ảnh" titleBadge={String(snapshot?.gallery.length ?? 0)} actionLabel="Thêm ảnh" onActionPress={() => setGalleryForm(emptyGalleryForm())}>
             <View style={styles.galleryStrip}>
               {(snapshot?.gallery ?? []).slice(0, 6).map((item) => (
                 <Pressable key={item.id} style={styles.galleryThumbWrap} onPress={() => setGalleryForm(buildGalleryForm(item))}>
@@ -1554,8 +1570,11 @@ export default function AdminManageContentScreen() {
                 <Feather name="package" size={22} color="#F2A300" />
               </View>
               <View style={styles.exploreSummaryCopy}>
-                <Text style={styles.exploreSummaryTitle}>Dịch vụ thường</Text>
-                <Text style={styles.exploreSummaryTitle}>Dự phòng ({exploreRegularServices.length})</Text>
+                <View style={styles.exploreSummaryTitleRow}>
+                  <Text style={styles.exploreSummaryTitle}>Dịch vụ thường</Text>
+                  <CountBadge value={String(exploreRegularServices.length)} />
+                </View>
+                <Text style={styles.exploreSummaryTitle}>Dự phòng</Text>
                 <Text style={styles.exploreSummarySubtitle}>Dùng khi sản phẩm & phụ kiện chưa có dữ liệu.</Text>
               </View>
               <Feather name="chevron-right" size={20} color="#A7988A" />
@@ -1566,8 +1585,11 @@ export default function AdminManageContentScreen() {
                 <Feather name="users" size={22} color="#2B7FFF" />
               </View>
               <View style={styles.exploreSummaryCopy}>
-                <Text style={styles.exploreSummaryTitle}>Nhân sự</Text>
-                <Text style={styles.exploreSummaryTitle}>tiệm ({snapshot?.team.length ?? 0})</Text>
+                <View style={styles.exploreSummaryTitleRow}>
+                  <Text style={styles.exploreSummaryTitle}>Nhân sự</Text>
+                  <CountBadge value={String(snapshot?.team.length ?? 0)} />
+                </View>
+                <Text style={styles.exploreSummaryTitle}>tiệm</Text>
                 <Text style={styles.exploreSummarySubtitle}>Quản lý thông tin nhân sự của tiệm.</Text>
               </View>
               <Feather name="chevron-right" size={20} color="#A7988A" />
@@ -2014,8 +2036,25 @@ const styles = StyleSheet.create({
   },
   sectionHeader: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   sectionCopy: { flex: 1, gap: 4 },
+  sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   sectionTitle: { fontSize: 19, lineHeight: 26, fontWeight: "800", color: palette.text },
   sectionSubtitle: { fontSize: 13, lineHeight: 20, color: palette.sub },
+  countBadge: {
+    minHeight: 24,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    backgroundColor: palette.accentSoft,
+    borderWidth: 1,
+    borderColor: "#E7D6C1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  countBadgeText: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "800",
+    color: palette.accent,
+  },
   actionButton: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
   actionButtonText: { fontSize: 12, fontWeight: "800", color: palette.accent },
   listColumn: { gap: 12 },
@@ -2257,6 +2296,12 @@ const styles = StyleSheet.create({
   exploreSummaryCopy: {
     flex: 1,
     gap: 6,
+  },
+  exploreSummaryTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
   },
   exploreSummaryTitle: {
     fontSize: 16,

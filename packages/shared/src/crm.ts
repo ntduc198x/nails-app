@@ -44,6 +44,23 @@ export type CustomerDuplicateCandidate = {
   duplicateCustomerIds: string[];
 };
 
+export type SafeCustomerDuplicateMergePreview = {
+  canonicalCustomerId: string;
+  duplicateCustomerId: string;
+  matchValue: string;
+  action: string;
+  reason: string;
+};
+
+export type SafeCustomerDuplicateCandidate = {
+  matchType: "EMAIL" | "PHONE";
+  matchValue: string;
+  canonicalCustomerId: string;
+  duplicateCustomerIds: string[];
+  duplicateCount: number;
+  reason: string;
+};
+
 export type CustomerMergeResult = {
   success: boolean;
   orgId: string;
@@ -75,6 +92,16 @@ function daysBetweenIso(iso: string | null | undefined) {
   const value = new Date(iso).getTime();
   if (Number.isNaN(value)) return null;
   return Math.max(0, Math.floor((Date.now() - value) / 86400000));
+}
+
+function toLocalDateKey(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function inferStatus(row: {
@@ -263,19 +290,25 @@ export async function mergeCustomerRecordsForMobile(
   }
 
   const row = (rpc.data ?? {}) as Record<string, unknown>;
-  return {
+  const result = {
     success: Boolean(row.success),
     orgId: String(row.org_id ?? ""),
     canonicalCustomerId: String(row.canonical_customer_id ?? input.canonicalCustomerId),
     duplicateCustomerId: String(row.duplicate_customer_id ?? input.duplicateCustomerId),
     reason: String(row.reason ?? input.reason ?? "MANUAL_CRM_MERGE"),
   };
+
+  if (!result.success) {
+    throw new Error(result.reason || "MERGE_FAILED");
+  }
+
+  return result;
 }
 
 export async function previewSafeCustomerDuplicateMergesForMobile(
   client: SharedSupabaseClient,
   input: { kind: "EMAIL" | "PHONE" },
-): Promise<Array<{ canonicalCustomerId: string; duplicateCustomerId: string; matchValue: string; action: string; reason: string }>> {
+): Promise<SafeCustomerDuplicateMergePreview[]> {
   const fn = input.kind === "EMAIL" ? "merge_safe_customer_duplicates_by_email" : "merge_safe_customer_duplicates_by_phone";
   const rpc = await client.rpc(fn, { p_org_id: null, p_dry_run: true });
   if (rpc.error) {
@@ -290,13 +323,62 @@ export async function previewSafeCustomerDuplicateMergesForMobile(
   }));
 }
 
+function groupSafeDuplicatePreviewRows(
+  kind: "EMAIL" | "PHONE",
+  rows: SafeCustomerDuplicateMergePreview[],
+): SafeCustomerDuplicateCandidate[] {
+  const grouped = new Map<string, SafeCustomerDuplicateCandidate>();
+
+  for (const row of rows) {
+    const key = `${kind}:${row.matchValue}:${row.canonicalCustomerId}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      if (!existing.duplicateCustomerIds.includes(row.duplicateCustomerId)) {
+        existing.duplicateCustomerIds.push(row.duplicateCustomerId);
+        existing.duplicateCount = existing.duplicateCustomerIds.length + 1;
+      }
+      continue;
+    }
+
+    grouped.set(key, {
+      matchType: kind,
+      matchValue: row.matchValue,
+      canonicalCustomerId: row.canonicalCustomerId,
+      duplicateCustomerIds: [row.duplicateCustomerId],
+      duplicateCount: 2,
+      reason: row.reason,
+    });
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (left.matchType !== right.matchType) {
+      return left.matchType.localeCompare(right.matchType);
+    }
+    return left.matchValue.localeCompare(right.matchValue);
+  });
+}
+
+export async function listSafeCustomerDuplicateCandidatesForMobile(
+  client: SharedSupabaseClient,
+): Promise<SafeCustomerDuplicateCandidate[]> {
+  const [emailRows, phoneRows] = await Promise.all([
+    previewSafeCustomerDuplicateMergesForMobile(client, { kind: "EMAIL" }),
+    previewSafeCustomerDuplicateMergesForMobile(client, { kind: "PHONE" }),
+  ]);
+
+  return [
+    ...groupSafeDuplicatePreviewRows("EMAIL", emailRows),
+    ...groupSafeDuplicatePreviewRows("PHONE", phoneRows),
+  ];
+}
+
 export async function getCrmDashboardMetricsForMobile(client: SharedSupabaseClient): Promise<CrmDashboardMetrics> {
   const customers = await listCustomersCrmForMobile(client);
-  const todayKey = new Date().toISOString().slice(0, 10);
+  const todayKey = toLocalDateKey(new Date());
 
-  const newToday = customers.filter((row) => row.firstVisitAt?.slice(0, 10) === todayKey).length;
+  const newToday = customers.filter((row) => toLocalDateKey(row.firstVisitAt) === todayKey).length;
   const returningToday = customers.filter(
-    (row) => row.lastVisitAt?.slice(0, 10) === todayKey && row.totalVisits > 1,
+    (row) => toLocalDateKey(row.lastVisitAt) === todayKey && row.totalVisits > 1,
   ).length;
   const atRiskCount = customers.filter(
     (row) => row.customerStatus === "AT_RISK" || row.customerStatus === "LOST",

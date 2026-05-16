@@ -12,14 +12,13 @@ import {
 } from "react-native";
 import {
   getCrmDashboardMetricsForMobile,
-  listCustomerDuplicateCandidatesForMobile,
   listCustomersCrmForMobile,
+  listSafeCustomerDuplicateCandidatesForMobile,
   mergeCustomerRecordsForMobile,
-  previewSafeCustomerDuplicateMergesForMobile,
   type CrmDashboardMetrics,
   type CustomerCrmSummary,
-  type CustomerDuplicateCandidate,
   type CustomerStatus,
+  type SafeCustomerDuplicateCandidate,
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -65,13 +64,24 @@ function formatVnd(amount: number) {
   }).format(amount || 0);
 }
 
+function formatDateLabel(value: string | null) {
+  if (!value) return "Chưa cập nhật";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("vi-VN", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 function statusLabel(status: CustomerStatus) {
-  if (status === "NEW") return "NEW";
-  if (status === "ACTIVE") return "Đang dùng";
-  if (status === "RETURNING") return "Quay lại";
+  if (status === "NEW") return "Khách mới";
+  if (status === "ACTIVE") return "Đã ghé tiệm";
+  if (status === "RETURNING") return "Thường xuyên tới";
   if (status === "VIP") return "VIP";
   if (status === "AT_RISK") return "Có nguy cơ";
-  return "Rời bỏ";
+  return "Cần chăm sóc";
 }
 
 function statusTone(status: CustomerStatus) {
@@ -222,11 +232,17 @@ function OptionSheet<T extends string | number>({
   );
 }
 
-function CustomerRow({ item }: { item: CustomerCrmSummary }) {
+function CustomerRow({
+  item,
+  onPress,
+}: {
+  item: CustomerCrmSummary;
+  onPress: () => void;
+}) {
   const tone = statusTone(item.customerStatus);
 
   return (
-    <View style={styles.customerRow}>
+    <Pressable style={styles.customerRow} onPress={onPress}>
       <View style={styles.avatar}>
         <Text style={styles.avatarText}>{initials(item.fullName)}</Text>
       </View>
@@ -253,16 +269,14 @@ function CustomerRow({ item }: { item: CustomerCrmSummary }) {
       </View>
 
       <Feather name="chevron-right" size={18} color="#B8AA9B" />
-    </View>
+    </Pressable>
   );
 }
 
 export default function AdminManageCustomersScreen() {
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
-  const [duplicateCandidates, setDuplicateCandidates] = useState<CustomerDuplicateCandidate[]>([]);
-  const [safeEmailPreviewCount, setSafeEmailPreviewCount] = useState(0);
-  const [safePhonePreviewCount, setSafePhonePreviewCount] = useState(0);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<SafeCustomerDuplicateCandidate[]>([]);
   const [mergingPairKey, setMergingPairKey] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<CrmDashboardMetrics>({
     newToday: 0,
@@ -281,6 +295,8 @@ export default function AdminManageCustomersScreen() {
   const [showStatusSheet, setShowStatusSheet] = useState(false);
   const [showSourceSheet, setShowSourceSheet] = useState(false);
   const [showDormantSheet, setShowDormantSheet] = useState(false);
+  const [customerListExpanded, setCustomerListExpanded] = useState(true);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -297,7 +313,7 @@ export default function AdminManageCustomersScreen() {
       }
       setError(null);
 
-      const [filteredRows, customers, dashboard, duplicates, safeEmailPreview, safePhonePreview] = await Promise.all([
+      const [filteredRows, customers, dashboard, duplicates] = await Promise.all([
         listCustomersCrmForMobile(mobileSupabase, {
           search,
           status,
@@ -307,17 +323,13 @@ export default function AdminManageCustomersScreen() {
         }),
         listCustomersCrmForMobile(mobileSupabase),
         getCrmDashboardMetricsForMobile(mobileSupabase),
-        listCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
-        previewSafeCustomerDuplicateMergesForMobile(mobileSupabase, { kind: "EMAIL" }).catch(() => []),
-        previewSafeCustomerDuplicateMergesForMobile(mobileSupabase, { kind: "PHONE" }).catch(() => []),
+        listSafeCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
       ]);
 
       setRows(filteredRows);
       setAllRows(customers);
       setMetrics(dashboard);
       setDuplicateCandidates(duplicates);
-      setSafeEmailPreviewCount(safeEmailPreview.length);
-      setSafePhonePreviewCount(safePhonePreview.length);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được CRM khách.");
     } finally {
@@ -360,7 +372,20 @@ export default function AdminManageCustomersScreen() {
     [dormantDays],
   );
 
-  async function handleMergeDuplicate(candidate: CustomerDuplicateCandidate, duplicateCustomerId: string) {
+  const safeEmailPreviewCount = useMemo(
+    () => duplicateCandidates.filter((candidate) => candidate.matchType === "EMAIL").length,
+    [duplicateCandidates],
+  );
+  const safePhonePreviewCount = useMemo(
+    () => duplicateCandidates.filter((candidate) => candidate.matchType === "PHONE").length,
+    [duplicateCandidates],
+  );
+  const selectedCustomer = useMemo(
+    () => allRows.find((item) => item.id === selectedCustomerId) ?? null,
+    [allRows, selectedCustomerId],
+  );
+
+  async function handleMergeDuplicate(candidate: SafeCustomerDuplicateCandidate, duplicateCustomerId: string) {
     if (!mobileSupabase) {
       return;
     }
@@ -393,15 +418,6 @@ export default function AdminManageCustomersScreen() {
       group="insights"
       showBackButton={false}
     >
-      <View style={styles.totalCard}>
-        <View style={styles.totalCardLeft}>
-          <View style={styles.totalIcon}>
-            <Feather name="user" size={16} color={palette.accent} />
-          </View>
-          <Text style={styles.totalCardText}>{allRows.length} khách</Text>
-        </View>
-        <Feather name="chevron-right" size={18} color="#B6A899" />
-      </View>
 
       <View style={styles.metricGrid}>
         <MetricCard icon="users" kind="new" label="Khách mới hôm nay" value={String(metrics.newToday)} />
@@ -449,7 +465,7 @@ export default function AdminManageCustomersScreen() {
             <View style={styles.sectionIcon}>
               <Feather name="git-merge" size={15} color={palette.accent} />
             </View>
-            <Text style={styles.sectionTitle}>Rà hồ sơ trùng</Text>
+            <Text style={styles.sectionTitle}>Rà hồ sơ trùng an toàn</Text>
           </View>
           <View style={styles.countPill}>
             <Text style={styles.countPillText}>{duplicateCandidates.length} nhóm</Text>
@@ -469,7 +485,7 @@ export default function AdminManageCustomersScreen() {
 
         {duplicateCandidates.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Hiện chưa thấy nhóm hồ sơ trùng nào cần rà.</Text>
+            <Text style={styles.emptyText}>Hiện chưa có nhóm hồ sơ nào đủ điều kiện merge an toàn.</Text>
           </View>
         ) : (
           <View style={styles.listStack}>
@@ -480,6 +496,7 @@ export default function AdminManageCustomersScreen() {
                   <Text style={styles.duplicateMeta}>{candidate.duplicateCount} hồ sơ</Text>
                 </View>
                 <Text style={styles.duplicateHint}>Bản chính: {candidate.canonicalCustomerId.slice(0, 8)}…</Text>
+                <Text style={styles.duplicateHint}>Rule: {candidate.reason}</Text>
                 <View style={styles.duplicateActions}>
                   {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId) => {
                     const pairKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
@@ -510,47 +527,73 @@ export default function AdminManageCustomersScreen() {
             </View>
             <Text style={styles.sectionTitle}>Danh sách khách</Text>
           </View>
-          <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{rows.length} khách</Text>
+          <View style={styles.headerActions}>
+            <View style={styles.countPill}>
+              <Text style={styles.countPillText}>{rows.length} khách</Text>
+            </View>
+            <Pressable
+              style={styles.collapseButton}
+              onPress={() => setCustomerListExpanded((current) => !current)}
+            >
+              <Feather
+                name={customerListExpanded ? "chevron-up" : "chevron-down"}
+                size={16}
+                color={palette.sub}
+              />
+              <Text style={styles.collapseButtonText}>
+                {customerListExpanded ? "Thu gọn" : "Mở rộng"}
+              </Text>
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.searchRow}>
-          <View style={styles.searchInputWrap}>
-            <Feather name="search" size={15} color="#A99B8D" />
-            <Input
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Tìm theo tên, số điện thoại..."
-              style={styles.searchInput}
-            />
-          </View>
-          <Pressable style={styles.filterButton} onPress={() => setShowStatusSheet(true)}>
-            <Feather name="sliders" size={15} color={palette.accent} />
-          </Pressable>
-        </View>
+        {customerListExpanded ? (
+          <>
+            <View style={styles.searchRow}>
+              <View style={styles.searchInputWrap}>
+                <Feather name="search" size={15} color="#A99B8D" />
+                <Input
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Tìm theo tên, số điện thoại..."
+                  style={styles.searchInput}
+                />
+              </View>
+              <Pressable style={styles.filterButton} onPress={() => setShowStatusSheet(true)}>
+                <Feather name="sliders" size={15} color={palette.accent} />
+              </Pressable>
+            </View>
 
-        {error ? (
-          <View style={styles.errorCard}>
-            <Feather name="alert-circle" size={16} color="#C66043" />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
+            {error ? (
+              <View style={styles.errorCard}>
+                <Feather name="alert-circle" size={16} color="#C66043" />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
 
-        {loading ? (
-          <View style={styles.emptyState}>
-            <ActivityIndicator size="small" color={palette.accent} />
-            <Text style={styles.emptyText}>Đang tải danh sách khách...</Text>
-          </View>
-        ) : rows.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Không có khách nào khớp bộ lọc hiện tại.</Text>
-          </View>
+            {loading ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator size="small" color={palette.accent} />
+                <Text style={styles.emptyText}>Đang tải danh sách khách...</Text>
+              </View>
+            ) : rows.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>Không có khách nào khớp bộ lọc hiện tại.</Text>
+              </View>
+            ) : (
+              <View style={styles.listStack}>
+                {rows.map((item) => (
+                  <CustomerRow key={item.id} item={item} onPress={() => setSelectedCustomerId(item.id)} />
+                ))}
+              </View>
+            )}
+          </>
         ) : (
-          <View style={styles.listStack}>
-            {rows.map((item) => (
-              <CustomerRow key={item.id} item={item} />
-            ))}
+          <View style={styles.collapsedSummary}>
+            <Feather name="minimize-2" size={15} color={palette.sub} />
+            <Text style={styles.collapsedSummaryText}>
+              Danh sách khách đang được thu gọn. Bấm mở rộng để xem và chọn chi tiết.
+            </Text>
           </View>
         )}
       </View>
@@ -579,6 +622,86 @@ export default function AdminManageCustomersScreen() {
         onClose={() => setShowDormantSheet(false)}
         onSelect={setDormantDays}
       />
+      <Modal
+        transparent
+        animationType="fade"
+        visible={Boolean(selectedCustomer)}
+        onRequestClose={() => setSelectedCustomerId(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setSelectedCustomerId(null)}>
+          <Pressable style={styles.detailModalCard} onPress={() => {}}>
+            {selectedCustomer ? (
+              <>
+                <View style={styles.modalHeader}>
+                  <View style={styles.detailHeaderCopy}>
+                    <Text style={styles.modalTitle}>{selectedCustomer.fullName}</Text>
+                    <Text style={styles.detailSubtitle}>
+                      {statusLabel(selectedCustomer.customerStatus)} · {sourceLabel(selectedCustomer.source)}
+                    </Text>
+                  </View>
+                  <Pressable style={styles.modalCloseButton} onPress={() => setSelectedCustomerId(null)}>
+                    <Feather name="x" size={18} color={palette.text} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.detailGrid}>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Số điện thoại</Text>
+                    <Text style={styles.detailValue}>{selectedCustomer.phone ?? "Chưa cập nhật"}</Text>
+                  </View>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Sinh nhật</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.birthday)}</Text>
+                  </View>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Lượt ghé</Text>
+                    <Text style={styles.detailValue}>{selectedCustomer.totalVisits}</Text>
+                  </View>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Tổng chi</Text>
+                    <Text style={styles.detailValue}>{formatVnd(selectedCustomer.totalSpend)} đ</Text>
+                  </View>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Lần đầu</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.firstVisitAt)}</Text>
+                  </View>
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Lần gần nhất</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.lastVisitAt)}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailBlockLabel}>Dịch vụ gần nhất</Text>
+                  <Text style={styles.detailBlockValue}>
+                    {selectedCustomer.lastServiceSummary ?? "Chưa có dữ liệu"}
+                  </Text>
+                </View>
+
+                <View style={styles.detailBlock}>
+                  <Text style={styles.detailBlockLabel}>Ghi chú / care note</Text>
+                  <Text style={styles.detailBlockValue}>
+                    {selectedCustomer.careNote ?? "Chưa có ghi chú chăm sóc"}
+                  </Text>
+                </View>
+
+                <View style={styles.detailFooterRow}>
+                  <View style={styles.detailMetaPill}>
+                    <Text style={styles.detailMetaPillText}>
+                      Follow-up: {selectedCustomer.followUpStatus}
+                    </Text>
+                  </View>
+                  <View style={styles.detailMetaPill}>
+                    <Text style={styles.detailMetaPillText}>
+                      Ngày rời xa: {selectedCustomer.dormantDays ?? 0}
+                    </Text>
+                  </View>
+                </View>
+              </>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </ManageScreenShell>
   );
 }
@@ -669,6 +792,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   sectionTitleWrap: {
     flexDirection: "row",
@@ -781,6 +909,24 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.accent,
   },
+  collapseButton: {
+    minHeight: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  collapseButtonText: {
+    fontSize: 11,
+    lineHeight: 13,
+    fontWeight: "700",
+    color: palette.sub,
+  },
   searchRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -863,6 +1009,23 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     color: palette.sub,
     textAlign: "center",
+  },
+  collapsedSummary: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.mutedSoft,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  collapsedSummaryText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: palette.sub,
   },
   listStack: {
     gap: 12,
@@ -1041,17 +1204,35 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     gap: 12,
   },
+  detailModalCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderRadius: 24,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 14,
+  },
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10,
   },
+  detailHeaderCopy: {
+    flex: 1,
+    gap: 4,
+  },
   modalTitle: {
     fontSize: 18,
     lineHeight: 22,
     fontWeight: "800",
     color: palette.text,
+  },
+  detailSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: palette.sub,
   },
   modalCloseButton: {
     width: 34,
@@ -1063,6 +1244,72 @@ const styles = StyleSheet.create({
   },
   modalList: {
     gap: 8,
+  },
+  detailGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  detailCard: {
+    width: "47%",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FCFAF8",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 4,
+  },
+  detailLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    color: palette.sub,
+  },
+  detailValue: {
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: "700",
+    color: palette.text,
+  },
+  detailBlock: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 6,
+  },
+  detailBlockLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    color: palette.sub,
+    textTransform: "uppercase",
+  },
+  detailBlockValue: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: palette.text,
+  },
+  detailFooterRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  detailMetaPill: {
+    minHeight: 30,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    backgroundColor: "#FBF2E6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailMetaPillText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "700",
+    color: palette.accent,
   },
   modalOption: {
     minHeight: 46,

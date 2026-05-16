@@ -6,6 +6,7 @@ import { useSession } from "@/src/providers/session-provider";
 
 const HISTORY_FRESH_MS = 90 * 1000;
 const HISTORY_MAX_STALE_MS = 10 * 60 * 1000;
+export const CUSTOMER_HISTORY_LIMITS_TO_PREWARM = [8, 24] as const;
 
 type UseCustomerHistoryOptions = {
   enabled?: boolean;
@@ -14,56 +15,69 @@ type UseCustomerHistoryOptions = {
 
 export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOptions = {}) {
   const { isHydrated: sessionHydrated, user } = useSession();
+  const userId = user?.id ?? null;
   const [historyItems, setHistoryItems] = useState<CustomerHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const enabled = options.enabled ?? true;
   const revalidateOnMount = options.revalidateOnMount ?? true;
 
-  const cacheKey = user?.id ? `customer-history:${user.id}:${limit}` : `customer-history:guest:${limit}`;
+  const cacheKey = userId ? `customer-history:${userId}:${limit}` : `customer-history:guest:${limit}`;
 
-  const refresh = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
-    if (!enabled) {
+  const fetchRemote = useCallback(async () => {
+    if (!mobileSupabase || !userId) {
+      return [] as CustomerHistoryItem[];
+    }
+
+    const nextItems = await listCustomerHistory(mobileSupabase, { limit });
+    await writeCachedValue(cacheKey, nextItems);
+    return nextItems;
+  }, [cacheKey, limit, userId]);
+
+  const refresh = useCallback(async (options: { force?: boolean; silent?: boolean; skipFreshCheck?: boolean } = {}) => {
+    if (!enabled || !sessionHydrated) {
       return;
     }
 
-    if (!sessionHydrated) {
-      return;
-    }
-
-    if (!mobileSupabase || !user) {
+    if (!mobileSupabase || !userId) {
       setHistoryItems([]);
       setIsHydrated(true);
+      setIsLoading(false);
       return;
     }
 
-    if (!options.force && isCacheFresh(cacheKey, HISTORY_FRESH_MS)) {
+    if (!options.force && !options.skipFreshCheck && isCacheFresh(cacheKey, HISTORY_FRESH_MS)) {
       setIsHydrated(true);
       return;
     }
 
-    setIsLoading(true);
+    if (!options.silent) {
+      setIsLoading(true);
+    }
 
     try {
-      const nextItems = await listCustomerHistory(mobileSupabase, { limit });
+      const nextItems = await fetchRemote();
       setHistoryItems(nextItems);
-      await writeCachedValue(cacheKey, nextItems);
     } catch {
       if (options.force) {
         setHistoryItems([]);
       }
     } finally {
       setIsHydrated(true);
-      setIsLoading(false);
+      if (!options.silent) {
+        setIsLoading(false);
+      }
     }
-  }, [cacheKey, enabled, limit, sessionHydrated, user]);
+  }, [cacheKey, enabled, fetchRemote, sessionHydrated, userId]);
 
   useEffect(() => {
     let cancelled = false;
 
     const boot = async () => {
-      if (!user?.id) {
+      if (!userId) {
+        setHistoryItems([]);
         setIsHydrated(true);
+        setIsLoading(false);
         return;
       }
 
@@ -75,11 +89,13 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
         setIsHydrated(true);
         setIsLoading(false);
 
-        if (revalidateOnMount && Date.now() - cached.updatedAt <= HISTORY_MAX_STALE_MS) {
-          void refresh({ silent: true });
-          return;
+        if (
+          revalidateOnMount &&
+          Date.now() - cached.updatedAt > HISTORY_FRESH_MS &&
+          Date.now() - cached.updatedAt <= HISTORY_MAX_STALE_MS
+        ) {
+          void refresh({ silent: true, skipFreshCheck: true });
         }
-
         return;
       }
 
@@ -96,7 +112,7 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, enabled, refresh, revalidateOnMount, user?.id]);
+  }, [cacheKey, enabled, refresh, revalidateOnMount, userId]);
 
   return {
     historyItems,

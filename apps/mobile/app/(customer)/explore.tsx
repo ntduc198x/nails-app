@@ -157,6 +157,8 @@ export default function ExploreScreen() {
     <CustomerScreen
       title="Khám phá"
       hideHeader
+      keyboardAware
+      keyboardVerticalOffset={12}
       contentContainerStyle={styles.content}
       onRefresh={() => void refresh()}
       refreshing={isRefreshing}

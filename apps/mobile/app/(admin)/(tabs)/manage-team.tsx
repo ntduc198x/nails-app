@@ -16,6 +16,10 @@ import {
   revokeTeamInviteCodeForMobile,
   type AppRole,
   type InviteCodeRole,
+  type ServiceSkill,
+  type ShiftType,
+  type StaffRole,
+  SERVICE_SKILL_OPTIONS,
   type TeamInviteCodeRow,
   type TeamMemberRow,
   updateTeamMemberDisplayNameForMobile,
@@ -23,8 +27,36 @@ import {
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import {
+  canManageShiftPlans,
+  createEmptyStaffShiftProfile,
+  isMissingStaffShiftProfilesSchema,
+  loadStaffShiftProfiles,
+  normalizeStaffShiftProfiles,
+  saveStaffShiftProfile,
+  type StaffShiftProfileRecord,
+} from "@/src/features/admin/shifts/data";
+import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
+import { useSession } from "@/src/providers/session-provider";
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
+const teamSortOrder: AppRole[] = ["TECH", "ACCOUNTANT", "RECEPTION", "MANAGER", "PARTNER", "OWNER"];
+const specialTeamRoles: AppRole[] = ["OWNER", "PARTNER"];
+const shiftTypeSortOrder: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
+const shiftTypeOptions: Array<{ value: ShiftType; label: string }> = [
+  { value: "MORNING", label: "Ca sáng" },
+  { value: "AFTERNOON", label: "Ca chiều" },
+  { value: "FULL_DAY", label: "Ca full" },
+];
+const weekdayOptions = [
+  { value: 1, label: "Thứ 2" },
+  { value: 2, label: "Thứ 3" },
+  { value: 3, label: "Thứ 4" },
+  { value: 4, label: "Thứ 5" },
+  { value: 5, label: "Thứ 6" },
+  { value: 6, label: "Thứ 7" },
+  { value: 0, label: "Chủ nhật" },
+] as const;
 
 const palette = {
   border: "#EADFD3",
@@ -61,10 +93,62 @@ function roleIcon(role: AppRole): keyof typeof Feather.glyphMap {
   return "scissors";
 }
 
+function compareTeamMembers(left: TeamMemberRow, right: TeamMemberRow) {
+  const leftIndex = teamSortOrder.indexOf(left.role);
+  const rightIndex = teamSortOrder.indexOf(right.role);
+  const normalizedLeftIndex = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+  const normalizedRightIndex = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+
+  if (normalizedLeftIndex !== normalizedRightIndex) {
+    return normalizedLeftIndex - normalizedRightIndex;
+  }
+
+  return left.displayName.localeCompare(right.displayName, "vi");
+}
+
+function isSpecialTeamRole(role: AppRole) {
+  return specialTeamRoles.includes(role);
+}
+
+function isShiftProfileEditableRole(role: AppRole): role is StaffRole {
+  return role === "TECH" || role === "ACCOUNTANT" || role === "RECEPTION" || role === "MANAGER";
+}
+
+function normalizeShiftTypes(shiftTypes: ShiftType[]) {
+  return [...new Set(shiftTypes)]
+    .filter((shiftType) => shiftType !== "OFF")
+    .sort((left, right) => shiftTypeSortOrder.indexOf(left) - shiftTypeSortOrder.indexOf(right));
+}
+
+function buildShiftProfileSignature(profile: StaffShiftProfileRecord) {
+  return JSON.stringify({
+    staffRole: profile.staffRole,
+    skills: [...profile.skills].sort(),
+    availability: [...profile.availability]
+      .map((rule) => ({
+        weekday: rule.weekday,
+        shiftTypes: normalizeShiftTypes(rule.shiftTypes),
+      }))
+      .sort((left, right) => left.weekday - right.weekday),
+  });
+}
+
+function replaceShiftProfile(currentProfiles: StaffShiftProfileRecord[], nextProfile: StaffShiftProfileRecord) {
+  const map = new Map(currentProfiles.map((item) => [item.userId, item]));
+  map.set(nextProfile.userId, nextProfile);
+  return Array.from(map.values());
+}
+
 function Input(props: React.ComponentProps<typeof TextInput>) {
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
   return (
     <TextInput
       {...props}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        props.onFocus?.(event);
+      }}
       placeholderTextColor="#B3A79B"
       style={[styles.input, props.style]}
     />
@@ -114,18 +198,24 @@ function RoleChip({
 }
 
 export default function AdminManageTeamScreen() {
+  const { role: currentRole } = useSession();
   const [rows, setRows] = useState<TeamMemberRow[]>([]);
   const [inviteRows, setInviteRows] = useState<TeamInviteCodeRow[]>([]);
+  const [shiftProfiles, setShiftProfiles] = useState<StaffShiftProfileRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [inviteBusy, setInviteBusy] = useState(false);
+  const [profileBusyUserId, setProfileBusyUserId] = useState<string | null>(null);
+  const [profileSchemaMissing, setProfileSchemaMissing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [inviteRole, setInviteRole] = useState<InviteCodeRole>("TECH");
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [roleDrafts, setRoleDrafts] = useState<Record<string, AppRole>>({});
+  const [profileDrafts, setProfileDrafts] = useState<Record<string, StaffShiftProfileRecord>>({});
+  const canManageProfiles = canManageShiftPlans(currentRole);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -141,13 +231,32 @@ export default function AdminManageTeamScreen() {
         setRefreshing(true);
       }
       setError(null);
+      setProfileSchemaMissing(false);
 
-      const [teamRows, invites] = await Promise.all([
+      const [teamRows, invites, profileRowsRaw] = await Promise.all([
         listTeamMembersForMobile(mobileSupabase),
         listTeamInviteCodesForMobile(mobileSupabase),
+        canManageProfiles
+          ? loadStaffShiftProfiles().catch((nextError) => {
+              if (isMissingStaffShiftProfilesSchema(nextError)) {
+                setProfileSchemaMissing(true);
+                return [];
+              }
+              throw nextError;
+            })
+          : Promise.resolve([]),
       ]);
 
+      const fallbackRoles = new Map<string, StaffRole>();
+      for (const row of teamRows) {
+        if (isShiftProfileEditableRole(row.role)) {
+          fallbackRoles.set(row.userId, row.role);
+        }
+      }
+      const normalizedProfiles = normalizeStaffShiftProfiles(profileRowsRaw as never[], fallbackRoles);
+
       setRows(teamRows);
+      setShiftProfiles(normalizedProfiles);
       setInviteRows(
         invites.filter((invite) => {
           const expired = new Date(invite.expiresAt).getTime() <= Date.now();
@@ -157,13 +266,14 @@ export default function AdminManageTeamScreen() {
         }),
       );
       setRoleDrafts({});
+      setProfileDrafts({});
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu nhân sự.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [rows.length]);
+  }, [canManageProfiles, rows.length]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -177,13 +287,13 @@ export default function AdminManageTeamScreen() {
     rows.forEach((row) => stats.set(row.role, (stats.get(row.role) ?? 0) + 1));
     return stats;
   }, [rows]);
+  const shiftProfilesByUserId = useMemo(
+    () => new Map(shiftProfiles.map((profile) => [profile.userId, profile])),
+    [shiftProfiles],
+  );
 
   const filteredRows = useMemo(() => {
-    const sorted = [...rows].sort((a, b) => {
-      if (a.role === "OWNER" && b.role !== "OWNER") return -1;
-      if (a.role !== "OWNER" && b.role === "OWNER") return 1;
-      return a.displayName.localeCompare(b.displayName, "vi");
-    });
+    const sorted = [...rows].sort(compareTeamMembers);
 
     const keyword = search.trim().toLowerCase();
     if (!keyword) return sorted;
@@ -191,6 +301,86 @@ export default function AdminManageTeamScreen() {
       `${row.displayName} ${row.email ?? ""} ${row.phone ?? ""} ${row.userId} ${row.role}`.toLowerCase().includes(keyword),
     );
   }, [rows, search]);
+
+  function getBaseShiftProfile(member: TeamMemberRow) {
+    if (!isShiftProfileEditableRole(member.role)) return null;
+    return shiftProfilesByUserId.get(member.userId) ?? createEmptyStaffShiftProfile(member.userId, member.role);
+  }
+
+  function getWorkingShiftProfile(member: TeamMemberRow) {
+    const baseProfile = getBaseShiftProfile(member);
+    if (!baseProfile) return null;
+    return profileDrafts[member.userId] ?? baseProfile;
+  }
+
+  function updateShiftProfileDraft(userId: string, nextProfile: StaffShiftProfileRecord) {
+    setProfileDrafts((current) => ({
+      ...current,
+      [userId]: nextProfile,
+    }));
+  }
+
+  function toggleSkill(member: TeamMemberRow, skill: ServiceSkill) {
+    const currentProfile = getWorkingShiftProfile(member);
+    if (!currentProfile) return;
+    const hasSkill = currentProfile.skills.includes(skill);
+    updateShiftProfileDraft(member.userId, {
+      ...currentProfile,
+      skills: hasSkill
+        ? currentProfile.skills.filter((item) => item !== skill)
+        : [...currentProfile.skills, skill].sort(),
+    });
+  }
+
+  function toggleAvailability(member: TeamMemberRow, weekday: number, shiftType: ShiftType) {
+    const currentProfile = getWorkingShiftProfile(member);
+    if (!currentProfile) return;
+
+    const currentRules = currentProfile.availability.filter((rule) => rule.weekday !== weekday);
+    const existingRule = currentProfile.availability.find((rule) => rule.weekday === weekday);
+    const currentShiftTypes = existingRule?.shiftTypes ?? [];
+    const hasShiftType = currentShiftTypes.includes(shiftType);
+
+    let nextShiftTypes: ShiftType[];
+    if (shiftType === "FULL_DAY") {
+      nextShiftTypes = hasShiftType ? [] : ["FULL_DAY"];
+    } else if (hasShiftType) {
+      nextShiftTypes = currentShiftTypes.filter((item) => item !== shiftType);
+    } else {
+      nextShiftTypes = [...currentShiftTypes.filter((item) => item !== "FULL_DAY"), shiftType];
+    }
+
+    const normalizedShiftTypes = normalizeShiftTypes(nextShiftTypes);
+    updateShiftProfileDraft(member.userId, {
+      ...currentProfile,
+      availability:
+        normalizedShiftTypes.length > 0
+          ? [...currentRules, { weekday, shiftTypes: normalizedShiftTypes }].sort((left, right) => left.weekday - right.weekday)
+          : currentRules.sort((left, right) => left.weekday - right.weekday),
+    });
+  }
+
+  async function saveShiftProfile(member: TeamMemberRow) {
+    if (!mobileSupabase || !canManageProfiles || profileSchemaMissing || profileBusyUserId) return;
+    const nextProfile = getWorkingShiftProfile(member);
+    if (!nextProfile) return;
+
+    try {
+      setProfileBusyUserId(member.userId);
+      setError(null);
+      const saved = await saveStaffShiftProfile(nextProfile);
+      setShiftProfiles((current) => replaceShiftProfile(current, saved));
+      setProfileDrafts((current) => {
+        const next = { ...current };
+        delete next[member.userId];
+        return next;
+      });
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Cập nhật kỹ năng và khung giờ thất bại.");
+    } finally {
+      setProfileBusyUserId(null);
+    }
+  }
 
   async function createInvite() {
     if (!mobileSupabase || inviteBusy) return;
@@ -266,6 +456,8 @@ export default function AdminManageTeamScreen() {
       subtitle="Quản lý vai trò, mã mời và danh sách nhân sự nội bộ."
       currentKey="team"
       group="setup"
+      showBackButton={false}
+      hiddenTabKeys={["content"]}
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>
@@ -336,6 +528,15 @@ export default function AdminManageTeamScreen() {
         </View>
       ) : null}
 
+      {profileSchemaMissing ? (
+        <View style={styles.errorCard}>
+          <Feather name="alert-triangle" size={16} color={palette.warning} />
+          <Text style={[styles.errorText, { color: palette.warning }]}>
+            Thiếu bảng `staff_shift_profiles`, hiện chưa thể cấu hình kỹ năng và khung giờ làm cho nhân sự.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.listCard}>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
@@ -365,6 +566,13 @@ export default function AdminManageTeamScreen() {
               const isEditingName = editingUserId === member.userId;
               const roleDraft = roleDrafts[member.id] ?? member.role;
               const roleChanged = roleDraft !== member.role;
+              const shiftProfile = getWorkingShiftProfile(member);
+              const baseShiftProfile = getBaseShiftProfile(member);
+              const canEditShiftProfile =
+                canManageProfiles && !profileSchemaMissing && !isSpecialTeamRole(member.role) && !!shiftProfile && !!baseShiftProfile;
+              const shiftProfileChanged =
+                canEditShiftProfile &&
+                buildShiftProfileSignature(shiftProfile) !== buildShiftProfileSignature(baseShiftProfile);
 
               return (
                 <View key={member.id} style={styles.memberCard}>
@@ -404,7 +612,7 @@ export default function AdminManageTeamScreen() {
                     )}
                   </View>
 
-                  {member.role !== "OWNER" ? (
+                  {!isSpecialTeamRole(member.role) ? (
                     <View style={styles.roleEditorRow}>
                       <View style={styles.roleDraftRow}>
                         {roleOptions.map((role) => (
@@ -430,6 +638,68 @@ export default function AdminManageTeamScreen() {
                           </Pressable>
                           <Pressable style={[styles.primaryInlineButton, submitting ? styles.primaryInlineButtonDisabled : null]} disabled={submitting} onPress={() => void saveRole(member.id)}>
                             <Feather name={submitting ? "loader" : "check"} size={15} color="#FFFFFF" />
+                          </Pressable>
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {canEditShiftProfile ? (
+                    <View style={styles.profileEditorCard}>
+                      <Text style={styles.editorSectionLabel}>Kỹ năng</Text>
+                      <View style={styles.roleDraftRow}>
+                        {SERVICE_SKILL_OPTIONS.map((skill) => (
+                          <RoleChip
+                            key={`${member.id}-${skill}`}
+                            active={shiftProfile.skills.includes(skill)}
+                            label={skill}
+                            onPress={() => toggleSkill(member, skill)}
+                          />
+                        ))}
+                      </View>
+
+                      <Text style={styles.editorSectionLabel}>Khung giờ có thể đi làm</Text>
+                      <View style={styles.availabilityList}>
+                        {weekdayOptions.map((weekday) => {
+                          const activeRule = shiftProfile.availability.find((rule) => rule.weekday === weekday.value);
+                          return (
+                            <View key={`${member.id}-${weekday.value}`} style={styles.availabilityCard}>
+                              <Text style={styles.availabilityLabel}>{weekday.label}</Text>
+                              <View style={styles.roleDraftRow}>
+                                {shiftTypeOptions.map((option) => (
+                                  <RoleChip
+                                    key={`${member.id}-${weekday.value}-${option.value}`}
+                                    active={activeRule?.shiftTypes.includes(option.value) ?? false}
+                                    label={option.label}
+                                    onPress={() => toggleAvailability(member, weekday.value, option.value)}
+                                  />
+                                ))}
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+
+                      {shiftProfileChanged ? (
+                        <View style={styles.inlineActionRow}>
+                          <Pressable
+                            style={styles.iconButton}
+                            onPress={() =>
+                              setProfileDrafts((current) => {
+                                const next = { ...current };
+                                delete next[member.userId];
+                                return next;
+                              })
+                            }
+                          >
+                            <Feather name="x" size={15} color={palette.sub} />
+                          </Pressable>
+                          <Pressable
+                            style={[styles.primaryInlineButton, profileBusyUserId === member.userId ? styles.primaryInlineButtonDisabled : null]}
+                            disabled={profileBusyUserId === member.userId}
+                            onPress={() => void saveShiftProfile(member)}
+                          >
+                            <Feather name={profileBusyUserId === member.userId ? "loader" : "check"} size={15} color="#FFFFFF" />
                           </Pressable>
                         </View>
                       ) : null}
@@ -836,6 +1106,36 @@ const styles = StyleSheet.create({
   },
   roleEditorRow: {
     gap: 10,
+  },
+  profileEditorCard: {
+    gap: 10,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    paddingTop: 12,
+  },
+  editorSectionLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  availabilityList: {
+    gap: 10,
+  },
+  availabilityCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.mutedSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  availabilityLabel: {
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "700",
+    color: palette.sub,
   },
   roleDraftRow: {
     flexDirection: "row",

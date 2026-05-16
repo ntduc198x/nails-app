@@ -1,18 +1,16 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Alert, Modal } from "react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
   Pressable,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
-import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
-import { getAdminNavHref } from "@/src/features/admin/navigation";
+import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import {
@@ -241,7 +239,6 @@ function replaceProfile(profiles: StaffShiftProfileRecord[], nextProfile: StaffS
 }
 
 export default function AdminShiftsScreen() {
-  const router = useRouter();
   const { isHydrated, role, user } = useSession();
   const canManage = canManageShiftPlans(role);
   const todayKey = useMemo(() => toDateKey(new Date()), []);
@@ -645,34 +642,15 @@ export default function AdminShiftsScreen() {
   }
 
   return (
-    <View style={styles.screen}>
-      <AdminTopSafeArea style={styles.topChrome}>
-        <View style={styles.header}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{initials(user?.email?.split("@")[0] || "AD")}</Text>
-            </View>
-            <View style={styles.headerCopy}>
-              <Text style={styles.title}>{canManage ? "Quản lý ca làm" : "Lịch làm việc"}</Text>
-              <Text style={styles.subtitle}>
-                {canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm, xin nghỉ và chấm công cá nhân."}
-              </Text>
-            </View>
-            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
-          </View>
-      </AdminTopSafeArea>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => void loadData(true)}
-            tintColor={c.primary}
-            colors={[c.primary]}
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-
+    <ManageScreenShell
+      title={canManage ? "Quản lý ca" : "Lịch làm việc"}
+      subtitle={canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm, xin nghỉ và chấm công cá nhân."}
+      currentKey="shifts"
+      group="insights"
+      showBackButton={false}
+      onRefresh={() => void loadData(true)}
+      refreshing={refreshing}
+    >
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
           {planSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `shift_plans`, đang dùng draft tạm trên mobile.</Text> : null}
           {profileSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `staff_shift_profiles`, chức năng nghỉ theo ngày sẽ bị giới hạn.</Text> : null}
@@ -934,102 +912,104 @@ export default function AdminShiftsScreen() {
             </View>
           ) : null}
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Ca của tôi</Text>
-            <Text style={styles.sectionSubtitle}>
-              {todayPublishedAssignment
-                ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
-                : "Hôm nay chưa có ca nào được xuất lịch cho bạn."}
-            </Text>
-            {visibleTodayAssignment ? (
-              <View
-                style={[
-                  styles.todayShiftCard,
-                  {
-                    backgroundColor: todayShiftColors.bg,
-                    borderColor: todayShiftColors.border,
-                  },
-                ]}
-              >
-                <View style={styles.rowBetween}>
-                  <View style={styles.todayShiftHeaderCopy}>
-                    <Text style={[styles.todayShiftTitle, { color: todayShiftColors.text }]}>
-                      {visibleTodayAssignment.shiftLabel}
-                    </Text>
-                    <Text style={styles.todayShiftHours}>
-                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
-                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
-                        : "Dang nghi"}
-                    </Text>
+          {!canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Ca của tôi</Text>
+              <Text style={styles.sectionSubtitle}>
+                {todayPublishedAssignment
+                  ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
+                  : "Hôm nay chưa có ca nào được xuất lịch cho bạn."}
+              </Text>
+              {visibleTodayAssignment ? (
+                <View
+                  style={[
+                    styles.todayShiftCard,
+                    {
+                      backgroundColor: todayShiftColors.bg,
+                      borderColor: todayShiftColors.border,
+                    },
+                  ]}
+                >
+                  <View style={styles.rowBetween}>
+                    <View style={styles.todayShiftHeaderCopy}>
+                      <Text style={[styles.todayShiftTitle, { color: todayShiftColors.text }]}>
+                        {visibleTodayAssignment.shiftLabel}
+                      </Text>
+                      <Text style={styles.todayShiftHours}>
+                        {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                          ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                          : "Dang nghi"}
+                      </Text>
+                    </View>
+                    <View style={[styles.todayShiftBadge, { borderColor: todayShiftColors.border }]}>
+                      <Text style={[styles.todayShiftBadgeText, { color: todayShiftColors.text }]}>
+                        {visibleTodayAssignment.shortCode}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={[styles.todayShiftBadge, { borderColor: todayShiftColors.border }]}>
-                    <Text style={[styles.todayShiftBadgeText, { color: todayShiftColors.text }]}>
-                      {visibleTodayAssignment.shortCode}
-                    </Text>
-                  </View>
-                </View>
 
-                <View style={styles.todayShiftMetaGrid}>
-                  <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Loai ca</Text>
-                    <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
+                  <View style={styles.todayShiftMetaGrid}>
+                    <View style={styles.todayShiftMetaItem}>
+                      <Text style={styles.todayShiftMetaLabel}>Loai ca</Text>
+                      <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
+                    </View>
+                    <View style={styles.todayShiftMetaItem}>
+                      <Text style={styles.todayShiftMetaLabel}>Trạng thái</Text>
+                      <Text
+                        style={[
+                          styles.todayShiftMetaValue,
+                          todayPublishedAssignment ? styles.todayShiftMetaValueSuccess : styles.todayShiftMetaValueWarn,
+                        ]}
+                      >
+                        {todayShiftStatus}
+                      </Text>
+                    </View>
+                    <View style={styles.todayShiftMetaItem}>
+                      <Text style={styles.todayShiftMetaLabel}>Giờ làm</Text>
+                      <Text style={styles.todayShiftMetaValue}>
+                        {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                          ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                          : "--:--"}
+                      </Text>
+                    </View>
+                    <View style={styles.todayShiftMetaItem}>
+                      <Text style={styles.todayShiftMetaLabel}>Tính công</Text>
+                      <Text style={styles.todayShiftMetaValue}>
+                        {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
+                          ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
+                          : "--:--"}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Trạng thái</Text>
-                    <Text
-                      style={[
-                        styles.todayShiftMetaValue,
-                        todayPublishedAssignment ? styles.todayShiftMetaValueSuccess : styles.todayShiftMetaValueWarn,
-                      ]}
-                    >
-                      {todayShiftStatus}
-                    </Text>
-                  </View>
-                  <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Giờ làm</Text>
-                    <Text style={styles.todayShiftMetaValue}>
-                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
-                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
-                        : "--:--"}
-                    </Text>
-                  </View>
-                  <View style={styles.todayShiftMetaItem}>
-                    <Text style={styles.todayShiftMetaLabel}>Tính công</Text>
-                    <Text style={styles.todayShiftMetaValue}>
-                      {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
-                        ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
-                        : "--:--"}
-                    </Text>
-                  </View>
+                  <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
                 </View>
-                <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
+              ) : null}
+              {todayPublishedAssignment ? (
+                <View style={styles.actionsRow}>
+                  <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
+                    <Text style={styles.primaryButtonText}>Mở ca</Text>
+                  </Pressable>
+                  <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleRequestDayOff()} disabled={saving}>
+                    <Text style={styles.secondaryButtonText}>Xin nghỉ</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+              <View style={styles.cardStack}>
+                {personalEntries.length ? (
+                  personalEntries.map((entry) => (
+                    <View key={entry.id} style={styles.reviewCard}>
+                      <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
+                      <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
+                      <Text style={styles.reviewMeta}>Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}</Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>Chưa có lịch sử chấm công nào.</Text>
+                )}
               </View>
-            ) : null}
-            {todayPublishedAssignment ? (
-              <View style={styles.actionsRow}>
-                <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
-                  <Text style={styles.primaryButtonText}>Mở ca</Text>
-                </Pressable>
-                <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleRequestDayOff()} disabled={saving}>
-                  <Text style={styles.secondaryButtonText}>Xin nghỉ</Text>
-                </Pressable>
-              </View>
-            ) : null}
-            <View style={styles.cardStack}>
-              {personalEntries.length ? (
-                personalEntries.map((entry) => (
-                  <View key={entry.id} style={styles.reviewCard}>
-                    <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
-                    <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
-                    <Text style={styles.reviewMeta}>Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}</Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={styles.emptyText}>Chưa có lịch sử chấm công nào.</Text>
-              )}
             </View>
-          </View>
-        </ScrollView>
+          ) : null}
+        
 
         <Modal visible={!!selectedCell && !!selectedEmployee && !!selectedAssignment} transparent animationType="slide" onRequestClose={() => setSelectedCell(null)}>
           <Pressable style={styles.modalBackdrop} onPress={() => setSelectedCell(null)}>
@@ -1078,8 +1058,7 @@ export default function AdminShiftsScreen() {
           </Pressable>
         </Modal>
 
-      <AdminBottomNavDock current="profile" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
-    </View>
+    </ManageScreenShell>
   );
 }
 

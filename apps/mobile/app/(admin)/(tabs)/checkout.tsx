@@ -2,7 +2,10 @@ import { Feather } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
+  Keyboard,
+  KeyboardAvoidingView,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,7 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, createCheckoutKey, formatVnd } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, createCheckoutKey, formatVnd, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileEnv } from "@/src/lib/env";
@@ -77,6 +80,7 @@ export default function AdminCheckoutScreen() {
   const [openServicePickerIndex, setOpenServicePickerIndex] = useState<number | null>(0);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
   const [lastReceiptToken, setLastReceiptToken] = useState<string | null>(null);
+  const keyboardVisible = useKeyboardVisible();
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
 
   // Removed useFocusEffect to prevent layout shift when returning to screen
@@ -168,8 +172,21 @@ export default function AdminCheckoutScreen() {
           <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
         </View>
       </AdminTopSafeArea>
-      <ScrollView
-          contentContainerStyle={styles.content}
+      <KeyboardAvoidingView
+        style={styles.scrollRegion}
+        enabled={Platform.OS === "android"}
+        behavior="height"
+      >
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            keyboardVisible ? { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+          ]}
+          onScrollBeginDrag={() => Keyboard.dismiss()}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentInsetAdjustmentBehavior="always"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={palette.brown} colors={[palette.brown]} />}
         >
@@ -258,7 +275,7 @@ export default function AdminCheckoutScreen() {
                         <View style={{ gap: 8 }}>
                           <View style={styles.searchShell}>
                             <Feather name="search" size={17} color="#A69789" />
-                            <TextInput
+                            <AdminKeyboardTextInput
                               style={styles.searchInput}
                               value={serviceQueries[index] ?? ""}
                               onChangeText={(value) => updateServiceQuery(index, value)}
@@ -297,7 +314,7 @@ export default function AdminCheckoutScreen() {
                           <View style={styles.quantityControls}>
                             <Pressable style={styles.qtyButton} onPress={() => updateCheckoutQty(index, line.qty - 1)}><Text style={styles.qtyButtonText}>-</Text></Pressable>
                             <View style={styles.qtyValueShell}>
-                              <TextInput
+                              <AdminKeyboardTextInput
                                 style={styles.qtyInput}
                                 value={String(line.qty || 1)}
                                 onChangeText={(value) => updateCheckoutQty(index, Number(value || "1"))}
@@ -368,7 +385,8 @@ export default function AdminCheckoutScreen() {
               </View>
             </View>
           ) : null}
-        </ScrollView>
+        </AdminKeyboardAwareScrollView>
+      </KeyboardAvoidingView>
 
       <AdminBottomNavDock current="checkout" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
     </View>
@@ -377,6 +395,7 @@ export default function AdminCheckoutScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.screen },
+  scrollRegion: { flex: 1 },
   topChrome: { paddingHorizontal: 22, paddingBottom: 12 },
   content: { paddingHorizontal: 22, paddingTop: ADMIN_CONTENT_TOP_GAP, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
   header: { flexDirection: "row", alignItems: "flex-start" },

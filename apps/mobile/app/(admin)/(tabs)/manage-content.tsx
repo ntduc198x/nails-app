@@ -1,4 +1,4 @@
-import Feather from "@expo/vector-icons/Feather";
+﻿import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -6,9 +6,11 @@ import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -53,7 +55,7 @@ import {
   updateAdminStorefrontTeamMemberForMobile,
   upsertAdminStorefrontProfileForMobile,
 } from "@nails/shared";
-import { getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { AdminKeyboardAwareScrollView, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminHeaderTopPadding, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -73,6 +75,12 @@ const palette = {
 const SERVICES_CACHE_KEY = "admin-services";
 const SERVICES_FRESH_MS = 2 * 60 * 1000;
 const SERVICES_MAX_STALE_MS = 10 * 60 * 1000;
+const OFFER_DETAIL_CACHE_PREFIX = "admin-offer-detail:";
+const POST_DETAIL_CACHE_PREFIX = "admin-content-post-detail:";
+const SERVICE_DETAIL_CACHE_PREFIX = "admin-merch-service-detail:";
+const TEAM_MEMBER_DETAIL_CACHE_PREFIX = "admin-team-member-detail:";
+const EXPLORE_FEATURED_PREVIEW_COUNT = 3;
+const EXPLORE_PRODUCTS_PREVIEW_COUNT = 4;
 
 type ContentTab = "home" | "explore";
 type MerchContext = "home" | "explore";
@@ -256,6 +264,18 @@ function syncMerchLookbookState(next: MerchFormState): MerchFormState {
   };
 }
 
+async function prewarmContentDetailCache(snapshot: MobileAdminContentSnapshot) {
+  await Promise.all([
+    ...snapshot.offers.map((offer) => writeCachedValue(`${OFFER_DETAIL_CACHE_PREFIX}${offer.id}`, offer)),
+    ...snapshot.posts.map((post) => writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${post.id}`, post)),
+    ...snapshot.team.map((member) => writeCachedValue(`${TEAM_MEMBER_DETAIL_CACHE_PREFIX}${member.id}`, member)),
+  ]);
+}
+
+async function prewarmServiceDetailCache(services: MobileAdminMerchService[]) {
+  await Promise.all(services.map((service) => writeCachedValue(`${SERVICE_DETAIL_CACHE_PREFIX}${service.id}`, service)));
+}
+
 function emptyOfferForm(): OfferFormState {
   return {
     title: "",
@@ -417,26 +437,68 @@ function buildGalleryForm(item: MobileAdminStorefrontGalleryItem): GalleryFormSt
 }
 
 function Input(props: React.ComponentProps<typeof TextInput>) {
-  return <TextInput {...props} placeholderTextColor="#B4A89C" style={[styles.input, props.style]} />;
+  const {
+    style,
+    onFocus,
+    ...restProps
+  } = props;
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
+  return (
+    <TextInput
+      {...restProps}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        onFocus?.(event);
+      }}
+      placeholderTextColor="#B4A89C"
+      style={[styles.input, style]}
+    />
+  );
 }
 
 function TextArea(props: React.ComponentProps<typeof TextInput>) {
-  return <Input {...props} multiline style={[styles.input, styles.textarea, props.style]} textAlignVertical="top" />;
+  return <Input {...props} multiline scrollEnabled={false} style={[styles.input, styles.textarea, props.style]} textAlignVertical="top" />;
 }
 
 function Chip({
   active,
+  icon,
   label,
   onPress,
 }: {
   active: boolean;
+  icon?: React.ComponentProps<typeof Feather>["name"];
   label: string;
   onPress: () => void;
 }) {
   return (
     <Pressable style={[styles.chip, active ? styles.chipActive : null]} onPress={onPress}>
+      {icon ? <Feather name={icon} size={16} color={active ? palette.accent : palette.sub} /> : null}
       <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function SearchInput({
+  placeholder,
+  value,
+  onChangeText,
+}: {
+  placeholder: string;
+  value: string;
+  onChangeText: (value: string) => void;
+}) {
+  return (
+    <View style={styles.searchShell}>
+      <Feather name="search" size={18} color={palette.sub} />
+      <Input
+        placeholder={placeholder}
+        value={value}
+        onChangeText={onChangeText}
+        style={styles.searchInput}
+      />
+    </View>
   );
 }
 
@@ -471,6 +533,70 @@ function ImagePreview({
     <View style={styles.previewCard}>
       <Text style={styles.previewLabel}>{label}</Text>
       <CachedAppImage source={{ uri }} style={styles.previewImage} alt={label} />
+    </View>
+  );
+}
+
+function ModalFormHeader({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.modalFormHeader}>
+      <View style={styles.modalFormHeaderIcon}>
+        <Feather name={icon} size={18} color={palette.accent} />
+      </View>
+      <View style={styles.modalFormHeaderCopy}>
+        <Text style={styles.modalFormHeaderTitle}>{title}</Text>
+        <Text style={styles.modalFormHeaderSubtitle}>{subtitle}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ModalInputField({
+  icon,
+  label,
+  ...inputProps
+}: React.ComponentProps<typeof TextInput> & {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  label: string;
+}) {
+  return (
+    <View style={styles.modalInputGroup}>
+      <View style={styles.modalInputLabelRow}>
+        <Text style={styles.modalInputLabel}>{label}</Text>
+      </View>
+      <View style={styles.modalInputShell}>
+        <Feather name={icon} size={16} color={palette.sub} />
+        <Input {...inputProps} style={styles.modalEmbeddedInput} />
+      </View>
+    </View>
+  );
+}
+
+function ModalTextAreaField({
+  icon,
+  label,
+  ...inputProps
+}: React.ComponentProps<typeof TextInput> & {
+  icon: React.ComponentProps<typeof Feather>["name"];
+  label: string;
+}) {
+  return (
+    <View style={styles.modalInputGroup}>
+      <View style={styles.modalInputLabelRow}>
+        <Feather name={icon} size={16} color={palette.accent} />
+        <Text style={styles.modalInputLabel}>{label}</Text>
+      </View>
+      <View style={styles.modalTextAreaShell}>
+        <TextArea {...inputProps} style={styles.modalTextAreaInput} />
+      </View>
     </View>
   );
 }
@@ -518,9 +644,10 @@ function ModalShell({
   children: React.ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.modalScreen} edges={["top", "bottom"]}>
+      <SafeAreaView style={styles.modalScreen} edges={["bottom"]}>
         <View style={[styles.modalHeader, { paddingTop: getAdminHeaderTopPadding(insets.top) }]}>
           <Pressable style={styles.headerIconButton} onPress={onClose}>
             <Feather name="chevron-left" size={22} color={palette.text} />
@@ -528,7 +655,26 @@ function ModalShell({
           <Text style={styles.modalTitle}>{title}</Text>
           <View style={styles.headerIconButton} />
         </View>
-        <ScrollView contentContainerStyle={styles.modalContent}>{children}</ScrollView>
+        <KeyboardAvoidingView
+          style={styles.modalBody}
+          enabled={Platform.OS === "android"}
+          behavior="height"
+        >
+          <AdminKeyboardAwareScrollView
+            contentContainerStyle={[
+              styles.modalContent,
+              keyboardVisible ? { paddingBottom: 28 + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+            ]}
+            onScrollBeginDrag={() => Keyboard.dismiss()}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            contentInsetAdjustmentBehavior="always"
+            automaticallyAdjustKeyboardInsets={false}
+            showsVerticalScrollIndicator={false}
+          >
+            {children}
+          </AdminKeyboardAwareScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
   );
@@ -551,14 +697,17 @@ export default function AdminManageContentScreen() {
   const [exploreFeaturedQuery, setExploreFeaturedQuery] = useState("");
   const [exploreRegularQuery, setExploreRegularQuery] = useState("");
   const [homeServicesExpanded, setHomeServicesExpanded] = useState(true);
-  const [exploreFeaturedExpanded, setExploreFeaturedExpanded] = useState(true);
-  const [exploreRegularExpanded, setExploreRegularExpanded] = useState(false);
+  const [exploreFeaturedExpanded, setExploreFeaturedExpanded] = useState(false);
 
   const [merchContext, setMerchContext] = useState<MerchContext>("home");
   const [merchForm, setMerchForm] = useState<MerchFormState | null>(null);
   const [offerForm, setOfferForm] = useState<OfferFormState | null>(null);
   const [postForm, setPostForm] = useState<PostFormState | null>(null);
   const [storefrontForm, setStorefrontForm] = useState<StorefrontFormState>(buildStorefrontForm(null));
+  const [storefrontEditorOpen, setStorefrontEditorOpen] = useState(false);
+  const [exploreRegularEditorOpen, setExploreRegularEditorOpen] = useState(false);
+  const [productsExpanded, setProductsExpanded] = useState(false);
+  const [teamListOpen, setTeamListOpen] = useState(false);
   const [teamForm, setTeamForm] = useState<TeamFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
   const [galleryForm, setGalleryForm] = useState<GalleryFormState | null>(null);
@@ -613,6 +762,7 @@ export default function AdminManageContentScreen() {
         includeServices: false,
         branchId: effectiveBranchId,
       });
+      await prewarmContentDetailCache(next);
       setSnapshot(next);
       setStorefrontForm(buildStorefrontForm(next));
     } catch (nextError) {
@@ -658,6 +808,7 @@ export default function AdminManageContentScreen() {
                   setServices(next);
                   setServicesLoaded(true);
                   void writeCachedValue(SERVICES_CACHE_KEY, next);
+                  void prewarmServiceDetailCache(next);
                 })
                 .catch(() => {
                   // Ignore background refresh errors
@@ -672,6 +823,7 @@ export default function AdminManageContentScreen() {
         setServices(next);
         setServicesLoaded(true);
         await writeCachedValue(SERVICES_CACHE_KEY, next);
+        await prewarmServiceDetailCache(next);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Không tải được danh sách dịch vụ.");
       } finally {
@@ -798,6 +950,19 @@ export default function AdminManageContentScreen() {
       })
       .sort((left, right) => left.name.localeCompare(right.name, "vi"));
   }, [exploreRegularQuery, regularServices]);
+
+  const visibleExploreFeaturedServices = useMemo(
+    () =>
+      exploreFeaturedExpanded
+        ? exploreFeaturedServices
+        : exploreFeaturedServices.slice(0, EXPLORE_FEATURED_PREVIEW_COUNT),
+    [exploreFeaturedExpanded, exploreFeaturedServices],
+  );
+
+  const visibleProducts = useMemo(() => {
+    const products = snapshot?.products ?? [];
+    return productsExpanded ? products : products.slice(0, EXPLORE_PRODUCTS_PREVIEW_COUNT);
+  }, [productsExpanded, snapshot?.products]);
 
   async function pickAndUploadImage(
     folder: "offers" | "posts" | "storefront" | "gallery" | "products",
@@ -1081,7 +1246,7 @@ export default function AdminManageContentScreen() {
 
   if (loading && !snapshot) {
     return (
-      <ManageScreenShell title="Landing Feed" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false} showBackButton={false}>
+      <ManageScreenShell title="Cửa tiệm" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false} showBottomDock={true} showBackButton={false}>
         <View style={styles.stateCard}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.stateTitle}>Đang đồng bộ nội dung hiển thị cho khách hàng...</Text>
@@ -1092,19 +1257,20 @@ export default function AdminManageContentScreen() {
 
   return (
     <ManageScreenShell
-      title="Landing Feed"
+      title="Cửa tiệm"
       subtitle="Quản lý nội dung Home và Explore"
       currentKey="content"
       group="setup"
       activeTab="booking"
       showTabs={false}
+      showBottomDock={true}
       showBackButton={false}
       onRefresh={() => void Promise.all([loadBranchOptions(), loadSnapshot(), loadServices(true)])}
       refreshing={loading || servicesLoading}
     >
       <View style={styles.heroRow}>
-        <Chip active={activeTab === "home"} label="Home" onPress={() => setActiveTab("home")} />
-        <Chip active={activeTab === "explore"} label="Explore" onPress={() => setActiveTab("explore")} />
+        <Chip active={activeTab === "home"} icon="home" label="Home" onPress={() => setActiveTab("home")} />
+        <Chip active={activeTab === "explore"} icon="compass" label="Explore" onPress={() => setActiveTab("explore")} />
       </View>
 
       {servicesLoading ? (
@@ -1130,10 +1296,16 @@ export default function AdminManageContentScreen() {
 
       {activeTab === "home" ? (
         <>
-          <SectionCard title={`Lookbook Home (${homeServices.length} đang bật / ${lookbookServices.length} mẫu)`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường sẽ không nằm ở khu này." actionLabel={homeServicesExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setHomeServicesExpanded((current) => !current)}>
+          <SectionCard
+            title={`Lookbook Home (${homeServices.length}/${lookbookServices.length})`}
+            subtitle="Chỉ hiển thị dịch vụ có metadata lookbook."
+            actionLabel={homeServicesExpanded ? "Thu gọn ˄" : "Mở rộng ˅"}
+            onActionPress={() => setHomeServicesExpanded((current) => !current)}
+          >
             {homeServicesExpanded ? (
               <>
-            <Input placeholder="Tìm dịch vụ lookbook cho Home..." value={homeServiceQuery} onChangeText={setHomeServiceQuery} />
+            <Text style={styles.helperText}>Dịch vụ thường sẽ không nằm ở khu này.</Text>
+            <SearchInput placeholder="Tìm dịch vụ lookbook cho Home..." value={homeServiceQuery} onChangeText={setHomeServiceQuery} />
             <View style={styles.listColumn}>
               {homeLookbookServices.map((service) => (
                 <Pressable
@@ -1148,7 +1320,7 @@ export default function AdminManageContentScreen() {
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>{service.name}</Text>
                     <Text style={styles.rowSubtitle}>
-                      Home: {service.featuredInHome ? `Bật · thứ tự ${service.displayOrderHome}` : "Tắt"} · {service.lookbookBadge || service.lookbookCategory || "Lookbook"}
+                      Home · {service.featuredInHome ? "Bật" : "Tắt"} · thứ tự {service.displayOrderHome} · {service.lookbookBadge || service.lookbookCategory || "Lookbook"}
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
@@ -1230,66 +1402,124 @@ export default function AdminManageContentScreen() {
               }
             })();
           } : undefined}>
-            <View style={styles.formColumn}>
-              <Input placeholder="Slug hiển thị" value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
-              <Input placeholder="Tên tiệm" value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
-              <Input placeholder="Nhóm tiệm" value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
-              <TextArea placeholder="Mô tả" value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
-              <Input placeholder="URL ảnh bìa" value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
-              <Input placeholder="URL logo" value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
-              <View style={styles.inlineButtons}>
-                <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text></Pressable>
-                <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải logo</Text></Pressable>
+            <View style={styles.storefrontInfoPanel}>
+              <View style={styles.storefrontInfoRow}>
+                <View style={styles.storefrontInfoCell}>
+                  <View style={styles.storefrontLabelRow}>
+                    <Feather name="shopping-bag" size={18} color={palette.accent} />
+                    <Text style={styles.storefrontInfoLabel}>Tài khoản</Text>
+                  </View>
+                  <Text style={styles.storefrontInfoValue}>{storefrontForm.slug || "cham-beauty"}</Text>
+                </View>
+                <View style={styles.storefrontDivider} />
+                <View style={styles.storefrontInfoCell}>
+                  <View style={styles.storefrontLabelRow}>
+                    <Feather name="tag" size={18} color={palette.accent} />
+                    <Text style={styles.storefrontInfoLabel}>Tên hiển thị</Text>
+                  </View>
+                  <Text style={styles.storefrontInfoValue}>{storefrontForm.name || "CHẤM BEAUTY"}</Text>
+                </View>
               </View>
-              <ImagePreview uri={storefrontForm.coverImageUrl} label="Ảnh bìa hiện tại" />
-              <ImagePreview uri={storefrontForm.logoImageUrl} label="Logo hiện tại" />
-              <Input placeholder="Điểm đánh giá" value={storefrontForm.rating} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, rating: value }))} keyboardType="decimal-pad" />
-              <Input placeholder="Nhãn đánh giá" value={storefrontForm.reviewsLabel} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabel: value }))} />
-              <Input placeholder="Địa chỉ hiển thị" value={storefrontForm.addressLine} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLine: value }))} />
-              <Input placeholder="URL bản đồ" value={storefrontForm.mapUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, mapUrl: value }))} />
-              <Input placeholder="Giờ mở cửa" value={storefrontForm.openingHours} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHours: value }))} />
-              <Input placeholder="Số điện thoại" value={storefrontForm.phone} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, phone: value }))} />
-              <Input placeholder="URL Messenger" value={storefrontForm.messengerUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: value }))} />
-              <Input placeholder="URL Instagram" value={storefrontForm.instagramUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: value }))} />
-              <TextArea placeholder="Điểm nổi bật, mỗi dòng 1 ý" value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
-              <View style={styles.inlineButtons}>
-                <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
-                <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ tiệm</Text></Pressable>
+              <Pressable style={styles.storefrontWideRow} onPress={() => setStorefrontEditorOpen(true)}>
+                <View style={styles.storefrontLabelRow}>
+                  <Feather name="file-text" size={18} color={palette.accent} />
+                  <Text style={styles.storefrontInfoLabel}>Mô tả</Text>
+                </View>
+                <View style={styles.storefrontWideContent}>
+                  <Text numberOfLines={2} style={styles.storefrontWideValue}>{storefrontForm.description || "Chấm Beauty mang đến vẻ đẹp tinh tế, giúp bạn tự tin tỏa sáng trong mọi khoảnh khắc."}</Text>
+                  <Feather name="chevron-right" size={18} color="#A7988A" />
+                </View>
+              </Pressable>
+              <View style={styles.storefrontInfoRow}>
+                <View style={styles.storefrontInfoCell}>
+                  <View style={styles.storefrontLabelRow}>
+                    <Feather name="link" size={18} color={palette.accent} />
+                    <Text style={styles.storefrontInfoLabel}>Link ảnh bìa</Text>
+                  </View>
+                  <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.coverImageUrl || "i.ibb.co/..."}</Text>
+                </View>
+                <View style={styles.storefrontDivider} />
+                <View style={styles.storefrontInfoCell}>
+                  <View style={styles.storefrontLabelRow}>
+                    <Feather name="link" size={18} color={palette.accent} />
+                    <Text style={styles.storefrontInfoLabel}>Link logo</Text>
+                  </View>
+                  <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.logoImageUrl || "i.ibb.co/..."}</Text>
+                </View>
               </View>
+            </View>
+
+            <View style={styles.storefrontActionRow}>
+              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải ảnh bìa</Text></Pressable>
+              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải logo</Text></Pressable>
+            <Pressable style={styles.storefrontSaveButton} onPress={() => setStorefrontEditorOpen(true)}><Text style={styles.storefrontSaveText}>Sửa hồ sơ tiệm</Text></Pressable>
+            </View>
+
+            <View style={styles.storefrontPreviewRow}>
+              <View style={styles.storefrontPreviewCard}>
+                <Text style={styles.previewLabel}>Ảnh bìa hiện tại</Text>
+                {storefrontForm.coverImageUrl ? <CachedAppImage source={{ uri: storefrontForm.coverImageUrl }} style={styles.storefrontCoverPreview} alt="cover" /> : null}
+              </View>
+              <View style={styles.storefrontPreviewCard}>
+                <Text style={styles.previewLabel}>Logo hiện tại</Text>
+                {storefrontForm.logoImageUrl ? <CachedAppImage source={{ uri: storefrontForm.logoImageUrl }} style={styles.storefrontLogoPreview} alt="logo" /> : null}
+              </View>
+            </View>
+
+            <View style={styles.storefrontFactsCard}>
+              {[
+                { icon: "star", label: "Đánh giá", value: storefrontForm.rating || "4.9" },
+                { icon: "message-circle", label: "Số đánh giá", value: storefrontForm.reviewsLabel || "128 đánh giá" },
+                { icon: "map-pin", label: "Địa chỉ", value: storefrontForm.addressLine || "Chưa có địa chỉ" },
+                { icon: "link", label: "Google Maps", value: storefrontForm.mapUrl || "Chưa có link map" },
+                { icon: "clock", label: "Giờ mở cửa", value: storefrontForm.openingHours || "Chưa có thông tin" },
+              ].map((item, index, source) => (
+                <View key={item.label} style={[styles.storefrontFactRow, index < source.length - 1 ? styles.storefrontFactBorder : null]}>
+                  <View style={styles.storefrontFactCopy}>
+                    <View style={styles.storefrontLabelRow}>
+                      <Feather name={item.icon as React.ComponentProps<typeof Feather>["name"]} size={18} color={palette.text} />
+                      <Text style={styles.storefrontFactLabel}>{item.label}</Text>
+                    </View>
+                    <Text numberOfLines={1} style={styles.storefrontFactValue}>{item.value}</Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color="#A7988A" />
+                </View>
+              ))}
             </View>
           </SectionCard>
 
-          <SectionCard title={`Dịch vụ nổi bật (${exploreServices.length})`} subtitle="Chỉ hiển thị dịch vụ có metadata lookbook. Dịch vụ thường nằm ở Sản phẩm & phụ kiện." actionLabel={exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreFeaturedExpanded((current) => !current)}>
-            {exploreFeaturedExpanded ? (
-              <>
-            <Input placeholder="Tìm dịch vụ lookbook cho Explore..." value={exploreFeaturedQuery} onChangeText={setExploreFeaturedQuery} />
-            <View style={styles.listColumn}>
-              {exploreFeaturedServices.map((service) => (
-                <Pressable key={service.id} style={styles.rowCard} onPress={() => {
+          <SectionCard title={`Dịch vụ nổi bật (${exploreServices.length})`} subtitle="Hiển thị dịch vụ có metadata lookbook" actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng") : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
+            <View style={styles.exploreFeatureShell}>
+              {visibleExploreFeaturedServices.map((service, index) => (
+                <Pressable key={service.id} style={[styles.exploreFeatureRow, index < visibleExploreFeaturedServices.length - 1 ? styles.exploreFeatureBorder : null]} onPress={() => {
                   setMerchContext("explore");
                   setMerchForm(buildMerchForm(service));
-                  }}>
-                    <ItemThumbnail uri={service.imageUrl} label={service.name} />
-                    <View style={styles.rowCopy}>
+                }}>
+                  <ItemThumbnail uri={service.imageUrl} label={service.name} />
+                  <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>{service.name}</Text>
-                    <Text style={styles.rowSubtitle}>Explore: {service.featuredInExplore ? `Bật · thứ tự ${service.displayOrderExplore}` : "Tắt"} · {service.lookbookBadge || "Lookbook"}</Text>
+                    <Text numberOfLines={2} style={styles.rowSubtitle}>Explore · Thứ tự {service.displayOrderExplore} · {service.lookbookBadge || "Lookbook"}</Text>
                   </View>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
                 </Pressable>
               ))}
+              {!exploreFeaturedExpanded && exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (
+                <Pressable style={styles.exploreFooterAction} onPress={() => setExploreFeaturedExpanded(true)}>
+                  <Text style={styles.exploreFooterActionText}>Xem tất cả ({exploreServices.length})</Text>
+                  <Feather name="chevron-right" size={18} color={palette.accent} />
+                </Pressable>
+              ) : null}
             </View>
-              </>
-            ) : null}
           </SectionCard>
 
-          <SectionCard title={`Sản phẩm & phụ kiện (${snapshot?.products.length ?? 0})`} subtitle="Danh sách này đồng bộ trực tiếp với Khám phá" actionLabel="Thêm sản phẩm" onActionPress={() => setProductForm(emptyProductForm())}>
+          <SectionCard title={`Sản phẩm & phụ kiện (${snapshot?.products.length ?? 0})`} subtitle="Quản lý ảnh trong landing feed" actionLabel="Thêm ảnh" onActionPress={() => setProductForm(emptyProductForm())}>
             <View style={styles.listColumn}>
-              {(snapshot?.products ?? []).map((product) => (
+              {visibleProducts.map((product) => (
                 <View key={product.id} style={styles.rowCard}>
                   <ItemThumbnail uri={product.imageUrl} label={product.name} />
                   <Pressable style={styles.rowCopy} onPress={() => setProductForm(buildProductForm(product))}>
                     <Text style={styles.rowTitle}>{product.name}</Text>
-                    <Text style={styles.rowSubtitle}>{product.productType || "Không có loại"} · {product.priceLabel || "Không có giá"} · {product.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
+                    <Text numberOfLines={2} style={styles.rowSubtitle}>{product.productType || "Không có loại"} · {product.priceLabel || "Không có giá"} · {product.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
                   </Pressable>
                   <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa sản phẩm", "Sản phẩm này sẽ bị gỡ khỏi tiệm.", async () => {
                     if (!mobileSupabase) return;
@@ -1299,80 +1529,323 @@ export default function AdminManageContentScreen() {
                   </Pressable>
                 </View>
               ))}
-            </View>
-          </SectionCard>
-
-          <SectionCard title={`Dịch vụ thường dự phòng (${exploreRegularServices.length})`} subtitle="Chỉ dùng khi sản phẩm & phụ kiện chưa có dữ liệu. Nguồn này lấy từ bảng services." actionLabel={exploreRegularExpanded ? "Thu gọn" : "Mở rộng"} onActionPress={() => setExploreRegularExpanded((current) => !current)}>
-            {exploreRegularExpanded ? (
-              <>
-            <Input placeholder="Tìm dịch vụ thường cho Khám phá..." value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
-            <View style={styles.listColumn}>
-              {exploreRegularServices.map((service) => (
-                <Pressable
-                  key={service.id}
-                  style={styles.rowCard}
-                  onPress={() => {
-                    setMerchContext("explore");
-                    setMerchForm(buildMerchForm(service));
-                  }}
-                >
-                  <ItemThumbnail uri={service.imageUrl} label={service.name} />
-                  <View style={styles.rowCopy}>
-                    <Text style={styles.rowTitle}>{service.name}</Text>
-                    <Text style={styles.rowSubtitle}>Explore card thường · {service.priceLabel} · {service.durationLabel || "Chưa có thời lượng"}</Text>
-                  </View>
-                  <Feather name="chevron-right" size={18} color="#A7988A" />
+              {(snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT ? (
+                <Pressable style={styles.exploreFooterAction} onPress={() => setProductsExpanded((current) => !current)}>
+                  <Text style={styles.exploreFooterActionText}>{productsExpanded ? "Thu gọn" : `Xem tất cả (${snapshot?.products.length ?? 0})`}</Text>
+                  <Feather name={productsExpanded ? "chevron-up" : "chevron-right"} size={18} color={palette.accent} />
                 </Pressable>
-              ))}
-            </View>
-              </>
-            ) : null}
-          </SectionCard>
-
-          <SectionCard title={`Nhân sự tiệm (${snapshot?.team.length ?? 0})`} actionLabel="Thêm nhân sự" onActionPress={() => setTeamForm(emptyTeamForm())}>
-            <View style={styles.listColumn}>
-              {(snapshot?.team ?? []).map((member) => (
-                <View key={member.id} style={styles.rowCard}>
-                  <ItemThumbnail uri={member.avatarUrl} label={member.displayName} />
-                  <Pressable style={styles.rowCopy} onPress={() => setTeamForm(buildTeamForm(member))}>
-                    <Text style={styles.rowTitle}>{member.displayName}</Text>
-                    <Text style={styles.rowSubtitle}>{member.roleLabel || "Không có vai trò"} · {member.isVisible ? "Đang hiển thị" : "Đang ẩn"}</Text>
-                  </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa nhân sự", "Nhân sự này sẽ bị gỡ khỏi tiệm.", async () => {
-                    if (!mobileSupabase) return;
-                    await deleteAdminStorefrontTeamMemberForMobile(mobileSupabase, member.id);
-                  })}>
-                    <Feather name="trash-2" size={16} color={palette.danger} />
-                  </Pressable>
-                </View>
-              ))}
+              ) : null}
             </View>
           </SectionCard>
 
           <SectionCard title={`Thư viện ảnh (${snapshot?.gallery.length ?? 0})`} actionLabel="Thêm ảnh" onActionPress={() => setGalleryForm(emptyGalleryForm())}>
-            <View style={styles.listColumn}>
-              {(snapshot?.gallery ?? []).map((item) => (
-                <View key={item.id} style={styles.rowCard}>
-                  <ItemThumbnail uri={item.imageUrl} label={item.title || item.kind || "Ảnh gallery"} />
-                  <Pressable style={styles.rowCopy} onPress={() => setGalleryForm(buildGalleryForm(item))}>
-                    <Text style={styles.rowTitle}>{item.title || item.kind || "Ảnh trong gallery"}</Text>
-                    <Text style={styles.rowSubtitle}>{item.kind || "Không có loại"} · {item.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
-                  </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa gallery", "Ảnh này sẽ bị gỡ khỏi tiệm.", async () => {
-                    if (!mobileSupabase) return;
-                    await deleteAdminStorefrontGalleryItemForMobile(mobileSupabase, item.id);
-                  })}>
-                    <Feather name="trash-2" size={16} color={palette.danger} />
-                  </Pressable>
-                </View>
+            <View style={styles.galleryStrip}>
+              {(snapshot?.gallery ?? []).slice(0, 6).map((item) => (
+                <Pressable key={item.id} style={styles.galleryThumbWrap} onPress={() => setGalleryForm(buildGalleryForm(item))}>
+                  {item.imageUrl ? <CachedAppImage source={{ uri: item.imageUrl }} style={styles.galleryThumb} alt={item.title || "gallery"} /> : null}
+                </Pressable>
               ))}
             </View>
           </SectionCard>
+
+          <View style={styles.exploreBottomGrid}>
+            <Pressable style={styles.exploreSummaryCard} onPress={() => void router.push("/(admin)/manage-content-explore-services" as never)}>
+              <View style={[styles.exploreSummaryIcon, { backgroundColor: "#FFF2D9" }]}>
+                <Feather name="package" size={22} color="#F2A300" />
+              </View>
+              <View style={styles.exploreSummaryCopy}>
+                <Text style={styles.exploreSummaryTitle}>Dịch vụ thường</Text>
+                <Text style={styles.exploreSummaryTitle}>Dự phòng ({exploreRegularServices.length})</Text>
+                <Text style={styles.exploreSummarySubtitle}>Dùng khi sản phẩm & phụ kiện chưa có dữ liệu.</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#A7988A" />
+            </Pressable>
+
+            <Pressable style={styles.exploreSummaryCard} onPress={() => void router.push("/(admin)/manage-content-team" as never)}>
+              <View style={[styles.exploreSummaryIcon, { backgroundColor: "#EAF2FF" }]}>
+                <Feather name="users" size={22} color="#2B7FFF" />
+              </View>
+              <View style={styles.exploreSummaryCopy}>
+                <Text style={styles.exploreSummaryTitle}>Nhân sự</Text>
+                <Text style={styles.exploreSummaryTitle}>tiệm ({snapshot?.team.length ?? 0})</Text>
+                <Text style={styles.exploreSummarySubtitle}>Quản lý thông tin nhân sự của tiệm.</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#A7988A" />
+            </Pressable>
+          </View>
         </>
       )}
 
-      <ModalShell title={`Thiết lập hiển thị dịch vụ · ${merchContext}`} visible={Boolean(merchForm)} onClose={() => setMerchForm(null)}>
-        {merchForm ? <View style={styles.formColumn}><Text style={styles.helperTitle}>{merchForm.name}</Text><ImagePreview uri={merchForm.imageUrl} label="Ảnh hiện tại" /><TextArea placeholder="Mô tả ngắn" value={merchForm.shortDescription} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))} /><Input placeholder="URL ảnh" value={merchForm.imageUrl} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", merchForm.name, (publicUrl) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn thời lượng" value={merchForm.durationLabel} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))} /><View style={styles.inlineButtons}><Chip active={merchForm.featuredInHome} label="Nổi bật ở Home" onPress={() => setMerchForm((prev) => (prev ? syncMerchLookbookState({ ...prev, featuredInHome: !prev.featuredInHome }) : prev))} /><Chip active={merchForm.featuredInExplore} label="Nổi bật ở Explore" onPress={() => setMerchForm((prev) => (prev ? syncMerchLookbookState({ ...prev, featuredInExplore: !prev.featuredInExplore }) : prev))} /></View><Text style={styles.helperText}>Bật Home hoặc Explore sẽ tự đồng bộ dịch vụ này vào lookbook để customer feed không bị rỗng sai logic.</Text><Input placeholder="Thứ tự ở Home" keyboardType="number-pad" value={merchForm.displayOrderHome} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderHome: value } : prev))} /><Input placeholder="Thứ tự ở Explore" keyboardType="number-pad" value={merchForm.displayOrderExplore} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderExplore: value } : prev))} /><Input placeholder="Nhóm lookbook" value={merchForm.lookbookCategory} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookCategory: value } : prev))} /><Input placeholder="Nhãn lookbook" value={merchForm.lookbookBadge} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadge: value } : prev))} /><Input placeholder="Tone lookbook" value={merchForm.lookbookTone} onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveMerchService()}><Text style={styles.primaryButtonText}>Lưu hiển thị dịch vụ</Text></Pressable></View> : null}
+      <ModalShell title="Sửa hồ sơ tiệm" visible={storefrontEditorOpen} onClose={() => setStorefrontEditorOpen(false)}>
+        <View style={styles.formColumn}>
+          <ModalFormHeader icon="home" title="Sửa hồ sơ tiệm" subtitle="Cập nhật thông tin hiển thị của cửa tiệm trên landing và explore." />
+          <ModalInputField icon="at-sign" label="Slug hiển thị" placeholder="cham-beauty" value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
+          <ModalInputField icon="home" label="Tên tiệm" placeholder="CHẠM BEAUTY" value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
+          <ModalInputField icon="grid" label="Nhóm tiệm" placeholder="Nail studio" value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
+          <ModalTextAreaField icon="file-text" label="Mô tả" placeholder="Mô tả ngắn về cửa tiệm" value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
+          <ModalInputField icon="image" label="URL ảnh bìa" placeholder="https://..." value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
+          <ModalInputField icon="aperture" label="URL logo" placeholder="https://..." value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
+          <View style={styles.inlineButtons}>
+            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải logo</Text></Pressable>
+          </View>
+          <ImagePreview uri={storefrontForm.coverImageUrl} label="Ảnh bìa hiện tại" />
+          <ImagePreview uri={storefrontForm.logoImageUrl} label="Logo hiện tại" />
+          <ModalInputField icon="star" label="Điểm đánh giá" placeholder="4.9" value={storefrontForm.rating} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, rating: value }))} keyboardType="decimal-pad" />
+          <ModalInputField icon="message-circle" label="Nhãn đánh giá" placeholder="128 đánh giá" value={storefrontForm.reviewsLabel} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabel: value }))} />
+          <ModalInputField icon="map-pin" label="Địa chỉ hiển thị" placeholder="38A Bài Xương Trạch..." value={storefrontForm.addressLine} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLine: value }))} />
+          <ModalInputField icon="navigation" label="URL bản đồ" placeholder="https://maps..." value={storefrontForm.mapUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, mapUrl: value }))} />
+          <ModalInputField icon="clock" label="Giờ mở cửa" placeholder="09:00 - 21:00" value={storefrontForm.openingHours} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHours: value }))} />
+          <ModalInputField icon="phone" label="Số điện thoại" placeholder="09xxxxxxxx" value={storefrontForm.phone} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, phone: value }))} />
+          <ModalInputField icon="message-square" label="URL Messenger" placeholder="https://m.me/..." value={storefrontForm.messengerUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: value }))} />
+          <ModalInputField icon="instagram" label="URL Instagram" placeholder="https://instagram.com/..." value={storefrontForm.instagramUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: value }))} />
+          <ModalTextAreaField icon="award" label="Điểm nổi bật" placeholder="Mỗi dòng 1 ý nổi bật" value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
+          <View style={styles.inlineButtons}>
+            <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
+            <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ tiệm</Text></Pressable>
+          </View>
+        </View>
+      </ModalShell>
+
+      <ModalShell title="Dịch vụ thường dự phòng" visible={exploreRegularEditorOpen} onClose={() => setExploreRegularEditorOpen(false)}>
+        <View style={styles.formColumn}>
+          <Input placeholder="Tìm dịch vụ thường cho Khám phá..." value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
+          <View style={styles.listColumn}>
+            {exploreRegularServices.map((service) => (
+              <Pressable
+                key={service.id}
+                style={styles.rowCard}
+                onPress={() => {
+                  setExploreRegularEditorOpen(false);
+                  setMerchContext("explore");
+                  setMerchForm(buildMerchForm(service));
+                }}
+              >
+                <ItemThumbnail uri={service.imageUrl} label={service.name} />
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>{service.name}</Text>
+                  <Text numberOfLines={2} style={styles.rowSubtitle}>{service.priceLabel} · {service.durationLabel || "Chưa có thời lượng"}</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#A7988A" />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+      </ModalShell>
+
+      <ModalShell title="Nhân sự tiệm" visible={teamListOpen} onClose={() => setTeamListOpen(false)}>
+        <View style={styles.formColumn}>
+          <Pressable
+            style={styles.primaryButton}
+            onPress={() => {
+              setTeamListOpen(false);
+              setTeamForm(emptyTeamForm());
+            }}
+          >
+            <Text style={styles.primaryButtonText}>Thêm nhân sự</Text>
+          </Pressable>
+          <View style={styles.listColumn}>
+            {(snapshot?.team ?? []).map((member) => (
+              <Pressable
+                key={member.id}
+                style={styles.rowCard}
+                onPress={() => {
+                  setTeamListOpen(false);
+                  setTeamForm(buildTeamForm(member));
+                }}
+              >
+                <ItemThumbnail uri={member.avatarUrl} label={member.displayName} />
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>{member.displayName}</Text>
+                  <Text numberOfLines={2} style={styles.rowSubtitle}>
+                    {member.roleLabel || "Chưa có chức danh"} · Thứ tự {member.displayOrder} · {member.isVisible ? "Đang hiển thị" : "Đang ẩn"}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#A7988A" />
+              </Pressable>
+            ))}
+            {(snapshot?.team.length ?? 0) === 0 ? <Text style={styles.helperText}>Chưa có nhân sự nào. Hãy thêm nhân sự mới cho tiệm.</Text> : null}
+          </View>
+        </View>
+      </ModalShell>
+
+
+      <ModalShell title={`Thiết lập hiển thị dịch vụ · ${merchContext === "home" ? "Home" : "Explore"}`} visible={Boolean(merchForm)} onClose={() => setMerchForm(null)}>
+        {merchForm ? (
+          <View style={styles.formColumn}>
+            <View style={styles.detailPanel}>
+              <View style={styles.detailHeader}>
+                <Text style={styles.detailEyebrow}>Mẫu dịch vụ</Text>
+                <Text style={styles.detailTitle}>{merchForm.name}</Text>
+              </View>
+
+              <View style={styles.detailImageCard}>
+                <Text style={styles.previewLabel}>Ảnh hiện tại</Text>
+                {merchForm.imageUrl ? (
+                  <CachedAppImage source={{ uri: merchForm.imageUrl }} style={styles.detailHeroImage} alt={merchForm.name} />
+                ) : (
+                  <View style={styles.detailHeroPlaceholder}>
+                    <Text style={styles.thumbPlaceholderText}>{merchForm.name.slice(0, 1).toUpperCase()}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.detailFieldBlock}>
+                <Text style={styles.detailFieldLabel}>Mô tả dịch vụ</Text>
+                <TextArea
+                  placeholder="Thiết kế đính charm nhỏ gọn, hợp chụp ảnh và đi tiệc."
+                  value={merchForm.shortDescription}
+                  onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))}
+                  style={styles.detailTextarea}
+                />
+              </View>
+
+              <View style={styles.detailFieldBlock}>
+                <View style={styles.detailLabelRow}>
+                  <Feather name="link-2" size={18} color={palette.accent} />
+                  <Text style={styles.detailFieldLabel}>Link ảnh (URL)</Text>
+                </View>
+                <View style={styles.linkInputShell}>
+                  <Feather name="link-2" size={18} color={palette.sub} />
+                  <Input
+                    placeholder="https://..."
+                    value={merchForm.imageUrl}
+                    onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))}
+                    style={styles.linkInput}
+                  />
+                  <Feather name="copy" size={18} color={palette.sub} />
+                </View>
+              </View>
+
+              <View style={styles.detailSplitRow}>
+                <View style={styles.detailSplitItem}>
+                  <Pressable
+                    style={styles.uploadButton}
+                    onPress={() =>
+                      void pickAndUploadImage("storefront", merchForm.name, (publicUrl) =>
+                        setMerchForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)),
+                      )
+                    }
+                  >
+                    <Feather name="upload" size={18} color={palette.text} />
+                    <Text style={styles.uploadButtonText}>Tải ảnh khác</Text>
+                  </Pressable>
+                </View>
+                <View style={styles.detailSplitItem}>
+                  <Text style={styles.detailFieldLabel}>Thời gian thực hiện</Text>
+                  <View style={styles.durationShell}>
+                    <Feather name="clock" size={18} color={palette.sub} />
+                    <Input
+                      placeholder="95 phút"
+                      value={merchForm.durationLabel}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))}
+                      style={styles.durationInput}
+                    />
+                    <Feather name="chevron-down" size={18} color={palette.sub} />
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.detailFieldBlock}>
+                <Text style={styles.detailFieldLabel}>Nổi bật tại</Text>
+                <View style={styles.inlineButtons}>
+                  <Chip
+                    active={merchForm.featuredInHome}
+                    icon="home"
+                    label="Home"
+                    onPress={() =>
+                      setMerchForm((prev) =>
+                        prev ? syncMerchLookbookState({ ...prev, featuredInHome: !prev.featuredInHome }) : prev,
+                      )
+                    }
+                  />
+                  <Chip
+                    active={merchForm.featuredInExplore}
+                    icon="compass"
+                    label="Explore"
+                    onPress={() =>
+                      setMerchForm((prev) =>
+                        prev ? syncMerchLookbookState({ ...prev, featuredInExplore: !prev.featuredInExplore }) : prev,
+                      )
+                    }
+                  />
+                </View>
+              </View>
+
+              <View style={styles.merchNotice}>
+                <Feather name="alert-circle" size={18} color={palette.accent} />
+                <Text style={styles.merchNoticeText}>
+                  Bật Home hoặc Explore sẽ tự đồng bộ dịch vụ này vào lookbook để customer feed không bị rỗng sai logic.
+                </Text>
+              </View>
+
+              <View style={styles.detailSplitRow}>
+                <View style={styles.detailSplitItem}>
+                  <View style={styles.detailLabelRow}>
+                    <Feather name="home" size={18} color={palette.accent} />
+                    <Text style={styles.detailFieldLabel}>Thứ tự tại Home</Text>
+                  </View>
+                  <Input
+                    placeholder="0"
+                    keyboardType="number-pad"
+                    value={merchForm.displayOrderHome}
+                    onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderHome: value } : prev))}
+                  />
+                </View>
+                <View style={styles.detailSplitItem}>
+                  <View style={styles.detailLabelRow}>
+                    <Feather name="compass" size={18} color={palette.accent} />
+                    <Text style={styles.detailFieldLabel}>Thứ tự tại Explore</Text>
+                  </View>
+                  <Input
+                    placeholder="0"
+                    keyboardType="number-pad"
+                    value={merchForm.displayOrderExplore}
+                    onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, displayOrderExplore: value } : prev))}
+                  />
+                </View>
+              </View>
+
+              <View style={styles.detailFieldBlock}>
+                <Text style={styles.detailFieldLabel}>Metadata lookbook</Text>
+                <View style={styles.formColumn}>
+                  <View style={styles.metadataInputShell}>
+                    <Feather name="tag" size={18} color={palette.accent} />
+                    <Input
+                      placeholder="Nhóm lookbook"
+                      value={merchForm.lookbookCategory}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookCategory: value } : prev))}
+                      style={styles.metadataInput}
+                    />
+                  </View>
+                  <View style={styles.metadataInputShell}>
+                    <Feather name="bookmark" size={18} color={palette.accent} />
+                    <Input
+                      placeholder="Nhãn lookbook"
+                      value={merchForm.lookbookBadge}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadge: value } : prev))}
+                      style={styles.metadataInput}
+                    />
+                  </View>
+                  <View style={styles.metadataInputShell}>
+                    <Feather name="star" size={18} color={palette.accent} />
+                    <Input
+                      placeholder="Tone lookbook"
+                      value={merchForm.lookbookTone}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))}
+                      style={styles.metadataInput}
+                    />
+                  </View>
+                </View>
+              </View>
+
+              <Pressable style={styles.detailSaveButton} onPress={() => void saveMerchService()}>
+                <Feather name="save" size={18} color="#FFFFFF" />
+                <Text style={styles.detailSaveButtonText}>Lưu thay đổi</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </ModalShell>
 
       <ModalShell title={offerForm?.id ? "Sửa ưu đãi" : "Thêm ưu đãi"} visible={Boolean(offerForm)} onClose={() => setOfferForm(null)}>
@@ -1388,24 +1861,106 @@ export default function AdminManageContentScreen() {
       </ModalShell>
 
       <ModalShell title={productForm?.id ? "Sửa sản phẩm" : "Thêm sản phẩm"} visible={Boolean(productForm)} onClose={() => setProductForm(null)}>
-        {productForm ? <View style={styles.formColumn}><ImagePreview uri={productForm.imageUrl} label="Ảnh sản phẩm hiện tại" /><Input placeholder="Tên sản phẩm" value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><Input placeholder="Dòng mô tả ngắn" value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><Input placeholder="Nhãn giá" value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><Input placeholder="URL ảnh" value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Loại sản phẩm" value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><Input placeholder="Thứ tự hiển thị" keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? "Nổi bật" : "Thường"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>Lưu sản phẩm</Text></Pressable></View> : null}
+        {productForm ? <View style={styles.formColumn}><ModalFormHeader icon="shopping-bag" title={productForm.id ? "Sửa sản phẩm" : "Thêm sản phẩm"} subtitle="Điều chỉnh ảnh, giá, loại và trạng thái hiển thị của sản phẩm." /><ImagePreview uri={productForm.imageUrl} label="Ảnh sản phẩm hiện tại" /><ModalInputField icon="shopping-bag" label="Tên sản phẩm" placeholder="Combo dưỡng móng" value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><ModalInputField icon="align-left" label="Dòng mô tả ngắn" placeholder="Mô tả ngắn cho sản phẩm" value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><ModalInputField icon="tag" label="Nhãn giá" placeholder="299.000đ" value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><ModalInputField icon="image" label="URL ảnh" placeholder="https://..." value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><ModalInputField icon="layers" label="Loại sản phẩm" placeholder="Dưỡng móng / phụ kiện" value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><ModalInputField icon="list" label="Thứ tự hiển thị" placeholder="0" keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? "Nổi bật" : "Thường"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>Lưu sản phẩm</Text></Pressable></View> : null}
       </ModalShell>
 
       <ModalShell title={galleryForm?.id ? "Sửa gallery" : "Thêm gallery"} visible={Boolean(galleryForm)} onClose={() => setGalleryForm(null)}>
-        {galleryForm ? <View style={styles.formColumn}><ImagePreview uri={galleryForm.imageUrl} label="Ảnh gallery hiện tại" /><Input placeholder="Tiêu đề" value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><Input placeholder="URL ảnh" value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Loại ảnh" value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><Input placeholder="Thứ tự hiển thị" keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>Lưu ảnh gallery</Text></Pressable></View> : null}
+        {galleryForm ? <View style={styles.formColumn}><ModalFormHeader icon="image" title={galleryForm.id ? "Sửa gallery" : "Thêm gallery"} subtitle="Cập nhật ảnh, loại ảnh và thứ tự hiển thị của gallery cửa tiệm." /><ImagePreview uri={galleryForm.imageUrl} label="Ảnh gallery hiện tại" /><ModalInputField icon="type" label="Tiêu đề" placeholder="Không gian nail studio" value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><ModalInputField icon="image" label="URL ảnh" placeholder="https://..." value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><ModalInputField icon="grid" label="Loại ảnh" placeholder="Không gian / tác phẩm / khách" value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><ModalInputField icon="list" label="Thứ tự hiển thị" placeholder="0" keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>Lưu ảnh gallery</Text></Pressable></View> : null}
       </ModalShell>
     </ManageScreenShell>
   );
 }
 
 const styles = StyleSheet.create({
-  heroRow: {
+  modalFormHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 2,
+    marginBottom: 2,
+  },
+  modalFormHeaderIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FFF4E7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalFormHeaderCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  modalFormHeaderTitle: {
+    color: palette.text,
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: "800",
+  },
+  modalFormHeaderSubtitle: {
+    color: palette.sub,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  modalInputGroup: {
+    gap: 8,
+  },
+  modalInputLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 2,
+  },
+  modalInputLabel: {
+    color: palette.text,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+  },
+  modalInputShell: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    minHeight: 52,
+  },
+  modalEmbeddedInput: {
+    flex: 1,
+    minHeight: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  modalTextAreaShell: {
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  modalTextAreaInput: {
+    minHeight: 104,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  heroRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
     flexWrap: "wrap",
-    marginTop: -8,
-    marginBottom: 4,
+    marginTop: -2,
+    marginBottom: 2,
+  },
+  exploreStack: {
+    gap: 16,
   },
   branchCard: {
     borderRadius: 28,
@@ -1426,14 +1981,17 @@ const styles = StyleSheet.create({
   branchTitle: { fontSize: 17, lineHeight: 24, fontWeight: "800", color: palette.text },
   branchSubtitle: { fontSize: 14, lineHeight: 22, color: palette.sub },
   chip: {
-    minHeight: 46,
-    paddingHorizontal: 20,
-    borderRadius: 23,
+    minHeight: 44,
+    minWidth: 132,
+    paddingHorizontal: 18,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.card,
     justifyContent: "center",
     alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
   },
   chipActive: { borderColor: palette.accent, backgroundColor: palette.accentSoft },
   chipText: { fontSize: 13, fontWeight: "700", color: palette.sub },
@@ -1441,43 +1999,494 @@ const styles = StyleSheet.create({
   inlineNotice: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: palette.mutedSoft, borderWidth: 1, borderColor: palette.border },
   inlineNoticeText: { flex: 1, color: palette.sub, fontSize: 12, lineHeight: 17 },
   sectionCard: {
-    borderRadius: 28,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: palette.border,
     backgroundColor: palette.card,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    gap: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 14,
     shadowColor: "#2A1E14",
-    shadowOpacity: 0.05,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.045,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
     elevation: 2,
   },
   sectionHeader: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   sectionCopy: { flex: 1, gap: 4 },
-  sectionTitle: { fontSize: 20, lineHeight: 28, fontWeight: "800", color: palette.text },
-  sectionSubtitle: { fontSize: 14, lineHeight: 22, color: palette.sub },
-  actionButton: { minHeight: 40, paddingHorizontal: 16, borderRadius: 20, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
+  sectionTitle: { fontSize: 19, lineHeight: 26, fontWeight: "800", color: palette.text },
+  sectionSubtitle: { fontSize: 13, lineHeight: 20, color: palette.sub },
+  actionButton: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
   actionButtonText: { fontSize: 12, fontWeight: "800", color: palette.accent },
-  listColumn: { gap: 10 },
-  rowCard: { borderRadius: 22, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 18, paddingVertical: 16, flexDirection: "row", alignItems: "center", gap: 14 },
+  listColumn: { gap: 12 },
+  rowCard: { borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "flex-start", gap: 14 },
   thumbPlaceholder: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: palette.accentSoft, borderWidth: 1, borderColor: "#E7D6C1", overflow: "hidden" },
   thumbPlaceholderText: { fontSize: 18, fontWeight: "800", color: palette.accent },
   thumbImage: { width: 58, height: 58, borderRadius: 18, backgroundColor: "#F4ECE2" },
-  rowCopy: { flex: 1, gap: 4 },
-  rowTitle: { fontSize: 16, lineHeight: 22, fontWeight: "800", color: palette.text },
-  rowSubtitle: { fontSize: 13, lineHeight: 19, color: palette.sub },
-  iconButton: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: "#FFF6F2", borderWidth: 1, borderColor: "#F3DFD7" },
+  rowCopy: { flex: 1, minWidth: 0, gap: 4 },
+  rowTitle: { fontSize: 15, lineHeight: 21, fontWeight: "800", color: palette.text },
+  rowSubtitle: { flexShrink: 1, fontSize: 12, lineHeight: 18, color: palette.sub },
+  storefrontInfoPanel: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFCF9",
+    overflow: "hidden",
+  },
+  storefrontInfoRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  storefrontInfoCell: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 8,
+  },
+  storefrontDivider: {
+    width: 1,
+    backgroundColor: palette.border,
+  },
+  storefrontLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  storefrontInfoLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: palette.sub,
+  },
+  storefrontInfoValue: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  storefrontWideRow: {
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  storefrontWideContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  storefrontWideValue: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 22,
+    color: palette.text,
+  },
+  storefrontLinkValue: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: palette.text,
+  },
+  storefrontActionRow: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "center",
+  },
+  storefrontGhostButton: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFDFB",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  storefrontGhostText: {
+    color: palette.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  storefrontSaveButton: {
+    flex: 1,
+    minHeight: 48,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    backgroundColor: palette.accent,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  storefrontSaveText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  storefrontPreviewRow: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  storefrontPreviewCard: {
+    flex: 1,
+    gap: 8,
+  },
+  storefrontCoverPreview: {
+    width: "100%",
+    aspectRatio: 16 / 8,
+    borderRadius: 18,
+    backgroundColor: "#F4ECE2",
+  },
+  storefrontLogoPreview: {
+    width: "100%",
+    aspectRatio: 1.45,
+    borderRadius: 18,
+    backgroundColor: "#F4ECE2",
+  },
+  storefrontFactsCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    overflow: "hidden",
+  },
+  storefrontFactRow: {
+    minHeight: 58,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  storefrontFactBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  storefrontFactCopy: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  storefrontFactLabel: {
+    width: 86,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  storefrontFactValue: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: palette.text,
+  },
+  exploreFeatureShell: {
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFCF9",
+    overflow: "hidden",
+  },
+  exploreFeatureRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  exploreFeatureBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  exploreFooterAction: {
+    minHeight: 54,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  exploreFooterActionText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: palette.accent,
+  },
+  galleryStrip: {
+    flexDirection: "row",
+    gap: 10,
+    flexWrap: "wrap",
+  },
+  galleryThumbWrap: {
+    width: 92,
+    height: 92,
+    borderRadius: 18,
+    overflow: "hidden",
+    backgroundColor: "#F4ECE2",
+  },
+  galleryThumb: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#F4ECE2",
+  },
+  exploreBottomGrid: {
+    flexDirection: "column",
+    gap: 12,
+  },
+  exploreSummaryCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    shadowColor: "#2A1E14",
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
+  },
+  exploreSummaryIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  exploreSummaryCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  exploreSummaryTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  exploreSummarySubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: palette.sub,
+  },
+  iconButton: { width: 34, height: 34, borderRadius: 17, alignSelf: "center", alignItems: "center", justifyContent: "center", backgroundColor: "#FFF6F2", borderWidth: 1, borderColor: "#F3DFD7" },
   stateCard: { borderRadius: 18, paddingVertical: 20, paddingHorizontal: 16, alignItems: "center", gap: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card },
   stateTitle: { color: palette.sub, fontSize: 13, lineHeight: 18, textAlign: "center" },
   modalScreen: { flex: 1, backgroundColor: "#FCFAF8" },
+  modalBody: { flex: 1 },
   modalHeader: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: palette.border },
   headerIconButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   modalTitle: { flex: 1, textAlign: "center", fontSize: 18, lineHeight: 22, fontWeight: "800", color: palette.text },
   modalContent: { padding: 16, gap: 12 },
   formColumn: { gap: 12 },
   input: { minHeight: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFFFF", paddingHorizontal: 16, paddingVertical: 13, color: palette.text, fontSize: 14 },
+  detailPanel: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFCFA",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 16,
+  },
+  detailHeader: {
+    gap: 2,
+  },
+  detailEyebrow: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: palette.sub,
+    fontWeight: "600",
+  },
+  detailTitle: {
+    fontSize: 17,
+    lineHeight: 24,
+    color: palette.text,
+    fontWeight: "800",
+  },
+  detailImageCard: {
+    gap: 10,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    padding: 12,
+  },
+  detailHeroImage: {
+    width: "100%",
+    aspectRatio: 1.58,
+    borderRadius: 18,
+    backgroundColor: "#F4ECE2",
+  },
+  detailHeroPlaceholder: {
+    width: "100%",
+    aspectRatio: 1.58,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: palette.accentSoft,
+    borderWidth: 1,
+    borderColor: "#E7D6C1",
+  },
+  detailFieldBlock: {
+    gap: 8,
+  },
+  detailLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  detailFieldLabel: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: palette.text,
+    fontWeight: "600",
+  },
+  detailTextarea: {
+    minHeight: 76,
+  },
+  linkInputShell: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingLeft: 14,
+    paddingRight: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  linkInput: {
+    flex: 1,
+    minHeight: 50,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+  },
+  metadataInputShell: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingLeft: 14,
+    paddingRight: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  metadataInput: {
+    flex: 1,
+    minHeight: 50,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+  },
+  detailSplitRow: {
+    flexDirection: "row",
+    gap: 12,
+    alignItems: "flex-end",
+  },
+  detailSplitItem: {
+    flex: 1,
+    gap: 8,
+  },
+  uploadButton: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  uploadButtonText: {
+    color: palette.text,
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  durationShell: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingLeft: 14,
+    paddingRight: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  durationInput: {
+    flex: 1,
+    minHeight: 50,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+  },
+  merchNotice: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.mutedSoft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  merchNoticeText: {
+    flex: 1,
+    color: palette.text,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  detailSaveButton: {
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: palette.accent,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 18,
+  },
+  detailSaveButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  searchShell: {
+    minHeight: 52,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFFFF",
+    paddingLeft: 16,
+    paddingRight: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 50,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 0,
+  },
   textarea: { minHeight: 104 },
   inlineButtons: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
   previewCard: { gap: 8, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", padding: 12 },
@@ -1490,3 +2499,4 @@ const styles = StyleSheet.create({
   helperTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", color: palette.text },
   helperText: { fontSize: 12, lineHeight: 18, color: palette.sub },
 });
+

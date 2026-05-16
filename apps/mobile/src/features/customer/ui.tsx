@@ -1,7 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router, usePathname } from "expo-router";
-import { type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode } from "react";
 import {
+  findNodeHandle,
   Keyboard,
   KeyboardAvoidingView,
   Pressable,
@@ -15,7 +16,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
@@ -60,6 +61,41 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 type IconKind = "home" | "explore" | "booking" | "profile" | "plus" | "bell";
+
+function useKeyboardState(enabled: boolean) {
+  const [state, setState] = useState({ visible: false, height: 0 });
+
+  useEffect(() => {
+    if (!enabled) return;
+
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, (event) =>
+      setState({
+        visible: true,
+        height: event.endCoordinates?.height ?? 0,
+      }),
+    );
+    const hideSubscription = Keyboard.addListener(hideEvent, () =>
+      setState({
+        visible: false,
+        height: 0,
+      }),
+    );
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [enabled]);
+
+  useEffect(() => {
+    if (enabled) return;
+    setState({ visible: false, height: 0 });
+  }, [enabled]);
+
+  return state;
+}
 
 function useStaticStyles() {
   const theme = useCustomerTheme();
@@ -132,6 +168,7 @@ function useStaticStyles() {
       flex: 1,
     },
     bodyContent: {
+      flexGrow: 1,
       gap: spacing.lg,
       paddingBottom: 140,
       paddingHorizontal: 18,
@@ -143,10 +180,12 @@ function useStaticStyles() {
       paddingBottom: 176,
     },
     navWrap: {
-      bottom: 10,
+      bottom: 0,
       left: 0,
       position: "absolute",
       right: 0,
+      paddingBottom: 10,
+      backgroundColor: colors.background,
     },
     navBar: {
       ...shadow.floating,
@@ -458,21 +497,42 @@ export function CustomerScreen({
 }: CustomerScreenProps) {
   const styles = useStaticStyles();
   const theme = useCustomerTheme();
-  const Body = scroll ? ScrollView : View;
   const resolvedHeaderSlot = headerSlot ?? <CustomerTopActions />;
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const keyboard = useKeyboardState(keyboardAware);
+  const isKeyboardVisible = keyboard.visible;
+  const keyboardInsetPadding =
+    keyboardAware && keyboard.visible
+      ? Math.max(120, keyboard.height + 24)
+      : 0;
+  const scrollRef = useRef<ScrollView | null>(null);
+
+  const scrollFocusedInputIntoView = useCallback(() => {
+    if (!scroll || !keyboardAware) return;
+
+    const focusedInput = TextInput.State.currentlyFocusedInput?.();
+    const responder = scrollRef.current as ScrollView & {
+      scrollResponderScrollNativeHandleToKeyboard?: (
+        nodeHandle: number,
+        additionalOffset?: number,
+        preventNegativeScrollOffset?: boolean,
+      ) => void;
+    };
+    const focusedHandle =
+      typeof focusedInput === "number" ? focusedInput : focusedInput ? findNodeHandle(focusedInput as any) : null;
+
+    if (!focusedHandle || !responder?.scrollResponderScrollNativeHandleToKeyboard) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      responder.scrollResponderScrollNativeHandleToKeyboard?.(focusedHandle, 96, true);
+    });
+  }, [keyboardAware, scroll]);
 
   useEffect(() => {
-    if (!keyboardAware) return;
-
-    const showSubscription = Keyboard.addListener("keyboardDidShow", () => setIsKeyboardVisible(true));
-    const hideSubscription = Keyboard.addListener("keyboardDidHide", () => setIsKeyboardVisible(false));
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, [keyboardAware]);
+    if (!keyboardAware || !scroll || !keyboard.visible) return;
+    scrollFocusedInputIntoView();
+  }, [keyboard.visible, keyboardAware, scroll, scrollFocusedInputIntoView]);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
@@ -488,40 +548,47 @@ export function CustomerScreen({
         ) : null}
 
         <KeyboardAvoidingView
-          enabled={keyboardAware}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          enabled={keyboardAware && Platform.OS === "android"}
+          behavior="height"
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.body}
         >
-          <Body
-            style={styles.body}
-            refreshControl={
-              scroll && onRefresh ? (
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={onRefresh}
-                  tintColor={theme.colors.accent}
-                  colors={[theme.colors.accent]}
-                />
-              ) : undefined
-            }
-            keyboardDismissMode={scroll ? "on-drag" : undefined}
-            keyboardShouldPersistTaps={scroll ? "handled" : undefined}
-            contentInsetAdjustmentBehavior={scroll ? "always" : undefined}
-            contentContainerStyle={
-              scroll
-                ? [
-                    styles.bodyContent,
-                    keyboardAware && isKeyboardVisible ? { paddingBottom: 48 } : null,
-                    hideHeader ? styles.bodyContentWithoutHeader : null,
-                    floatingActionButton ? styles.bodyContentWithFab : null,
-                    contentContainerStyle,
-                  ]
-                : undefined
-            }
-          >
-            {scroll ? children : <View style={contentContainerStyle}>{children}</View>}
-          </Body>
+          {scroll ? (
+            <ScrollView
+              ref={scrollRef}
+              style={styles.body}
+              refreshControl={
+                onRefresh ? (
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    tintColor={theme.colors.accent}
+                    colors={[theme.colors.accent]}
+                  />
+                ) : undefined
+              }
+              onScrollBeginDrag={() => {
+                if (keyboardAware) {
+                  Keyboard.dismiss();
+                }
+              }}
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardShouldPersistTaps="handled"
+              contentInsetAdjustmentBehavior="always"
+              automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+              contentContainerStyle={[
+                styles.bodyContent,
+                keyboardAware && isKeyboardVisible ? { paddingBottom: keyboardInsetPadding } : null,
+                hideHeader ? styles.bodyContentWithoutHeader : null,
+                floatingActionButton ? styles.bodyContentWithFab : null,
+                contentContainerStyle,
+              ]}
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={[styles.body, contentContainerStyle]}>{children}</View>
+          )}
         </KeyboardAvoidingView>
 
         {!(keyboardAware && isKeyboardVisible) ? <CustomerBottomNav /> : null}
@@ -568,6 +635,7 @@ export function CustomerBottomNav() {
   const styles = useStaticStyles();
   const theme = useCustomerTheme();
   const strings = useCustomerStrings();
+  const insets = useSafeAreaInsets();
   const pathname = usePathname() || "/";
   const leftItems = NAV_ITEMS.slice(0, 2);
   const rightItems = NAV_ITEMS.slice(2);
@@ -579,7 +647,7 @@ export function CustomerBottomNav() {
   }
 
   return (
-    <View pointerEvents="box-none" style={styles.navWrap}>
+    <View pointerEvents="box-none" style={[styles.navWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       <View style={styles.navBar}>
         <View style={styles.navGroup}>
           {leftItems.map((item) => {

@@ -13,6 +13,7 @@ import {
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { dismissToHref } from "@/src/features/admin/navigation";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -132,6 +133,10 @@ export default function AdminManageContentPostDetailScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
+  function closeDetail() {
+    dismissToHref(router, "/(admin)/manage-content");
+  }
+
   const loadPost = useCallback(async () => {
     const client = mobileSupabase;
     if (!client) {
@@ -223,7 +228,7 @@ export default function AdminManageContentPostDetailScreen() {
         const next = await createAdminContentPostForMobile(client, payload);
         await writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${next.id}`, next);
       }
-      void router.replace("/(admin)/manage-content" as never);
+      closeDetail();
     } catch (error) {
       Alert.alert("Không lưu bài viết", error instanceof Error ? error.message : "Thử lại sau.");
     } finally {
@@ -245,7 +250,7 @@ export default function AdminManageContentPostDetailScreen() {
             setIsSaving(true);
             try {
               await archiveAdminContentPostForMobile(client, form.id!);
-              void router.replace("/(admin)/manage-content" as never);
+              closeDetail();
             } catch (error) {
               Alert.alert("Không ẩn được bài viết", error instanceof Error ? error.message : "Thử lại sau.");
             } finally {
@@ -265,6 +270,7 @@ export default function AdminManageContentPostDetailScreen() {
       group="setup"
       backHref="/(admin)/manage-content"
       showTabs={false}
+      showBottomDock={false}
     >
       <View style={styles.sectionCard}>
         {isLoading ? (

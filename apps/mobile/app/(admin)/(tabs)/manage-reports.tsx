@@ -297,7 +297,7 @@ export default function AdminManageReportsScreen() {
   }
 
   return (
-    <ManageScreenShell title="Báo cáo" subtitle="Tổng hợp bill, doanh thu, thanh toán và hiệu suất nhân viên theo kỳ." currentKey="reports" group="insights">
+    <ManageScreenShell title="Báo cáo" subtitle="Tổng hợp bill, doanh thu, thanh toán và hiệu suất nhân viên theo kỳ." currentKey="reports" group="insights" showBackButton={false}>
       <View style={styles.totalCard}>
         <Text style={styles.totalCardText}>{filteredTickets.length} bill</Text>
       </View>

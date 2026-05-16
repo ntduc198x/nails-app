@@ -1,10 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { AdminBottomNavDock, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
-import { getAdminNavHref } from "@/src/features/admin/navigation";
+import { AdminBottomNavDock, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
+import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
 
 const palette = {
   bg: "#FCFAF8",
@@ -106,6 +106,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
   const [staffUserId, setStaffUserId] = useState(appointment.staffUserId ?? (role === "TECH" ? user?.id ?? "" : ""));
   const [resourceId, setResourceId] = useState(appointment.resourceId ?? "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
 
   // Picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -115,6 +116,10 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
   const [pickerDay, setPickerDay] = useState(() => new Date().getDate());
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
+
+  function goBackToScheduling() {
+    dismissToHref(router, "/(admin)/scheduling");
+  }
 
   function openDatePicker() {
     const parsed = fromLocalDateInput(dateInput);
@@ -165,12 +170,12 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       staffUserId: staffUserId || null,
       resourceId: resourceId || null,
     });
-    router.replace("/(admin)/scheduling");
+    goBackToScheduling();
   }
 
   async function handleDelete() {
     await deleteAppointment(appointment.id);
-    router.replace("/(admin)/scheduling");
+    goBackToScheduling();
   }
 
   return (
@@ -217,6 +222,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
           <View style={styles.inputWrapper}>
             <Feather name="user" size={14} color={palette.textMuted} />
             <TextInput
+              onFocus={handleFieldFocus}
               style={styles.inputText}
               value={customerName}
               onChangeText={setCustomerName}
@@ -230,6 +236,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
           <View style={styles.inputWrapper}>
             <Feather name="phone" size={14} color={palette.textMuted} />
             <TextInput
+              onFocus={handleFieldFocus}
               style={styles.inputText}
               value={customerPhone}
               onChangeText={setCustomerPhone}
@@ -264,6 +271,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
           <View style={styles.inputWrapper}>
             <Feather name="watch" size={14} color={palette.textMuted} />
             <TextInput
+              onFocus={handleFieldFocus}
               style={styles.inputText}
               value={durationMinutes}
               onChangeText={setDurationMinutes}
@@ -448,8 +456,12 @@ export default function AdminAppointmentDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   const appointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
-
+  const keyboardVisible = useKeyboardVisible();
   const { appointments, bookingRequests, role } = useAdminOperations();
+
+  function goBackToScheduling() {
+    dismissToHref(router, "/(admin)/scheduling");
+  }
 
   const appointment = useMemo(
     () => appointments.find((item) => item.id === appointmentId) ?? null,
@@ -465,7 +477,7 @@ export default function AdminAppointmentDetailScreen() {
     return (
       <View style={styles.screen}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={() => router.back()}>
+          <Pressable style={styles.headerButton} onPress={goBackToScheduling}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Không tìm thấy lịch</Text>
@@ -480,7 +492,7 @@ export default function AdminAppointmentDetailScreen() {
     <View style={styles.screen}>
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={() => router.replace("/(admin)/scheduling")}>
+          <Pressable style={styles.headerButton} onPress={goBackToScheduling}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <View style={styles.headerCenter}>
@@ -500,12 +512,26 @@ export default function AdminAppointmentDetailScreen() {
           </View>
         </View>
       </AdminTopSafeArea>
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={styles.scrollRegion}
+        enabled={Platform.OS === "android"}
+        behavior="height"
       >
-        <AppointmentEditor appointment={appointment} />
-      </ScrollView>
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            keyboardVisible ? { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+          ]}
+          showsVerticalScrollIndicator={false}
+          onScrollBeginDrag={() => Keyboard.dismiss()}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentInsetAdjustmentBehavior="always"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          <AppointmentEditor appointment={appointment} />
+        </AdminKeyboardAwareScrollView>
+      </KeyboardAvoidingView>
 
       {/* Bottom Navigation */}
       <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
@@ -515,6 +541,7 @@ export default function AdminAppointmentDetailScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.bg },
+  scrollRegion: { flex: 1 },
   topChrome: { paddingHorizontal: 20, paddingBottom: 12 },
   content: { paddingHorizontal: 20, paddingTop: 0, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingBottom: 0 },

@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
+import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -124,6 +125,18 @@ function buildNativeAppRedirectUrl() {
   return Linking.createURL(OAUTH_CALLBACK_PATH, { scheme: "nails-app" });
 }
 
+function shouldUseNativeOAuthRedirect() {
+  return Constants.executionEnvironment !== "storeClient";
+}
+
+function buildGoogleOAuthRedirectUrl() {
+  return shouldUseNativeOAuthRedirect() ? buildNativeAppRedirectUrl() : buildAuthRedirectUrl();
+}
+
+function getGoogleOAuthModeLabel() {
+  return shouldUseNativeOAuthRedirect() ? "native-dev-build" : "expo-go";
+}
+
 function buildSupabaseCallbackUrl() {
   if (mobileEnv.supabaseUrl) {
     const baseUrl = mobileEnv.supabaseUrl.replace(/\/$/, "");
@@ -133,29 +146,39 @@ function buildSupabaseCallbackUrl() {
 }
 
 function readAuthParams(url: string) {
+  const queryStart = url.indexOf("?");
   const hashStart = url.indexOf("#");
-  if (hashStart === -1) {
-    return { code: null, accessToken: null, refreshToken: null };
-  }
+  const query = queryStart === -1 ? "" : url.substring(queryStart + 1, hashStart === -1 ? undefined : hashStart);
+  const hash = hashStart === -1 ? "" : url.substring(hashStart + 1);
+  const queryParams = new URLSearchParams(query);
+  const hashParams = new URLSearchParams(hash);
 
-  const hash = url.substring(hashStart + 1);
-  const params = new URLSearchParams(hash);
   return {
-    code: null,
-    accessToken: params.get("access_token"),
-    refreshToken: params.get("refresh_token"),
-    expiresIn: params.get("expires_in"),
-    expiresAt: params.get("expires_at"),
-    providerToken: params.get("provider_token"),
-    providerRefreshToken: params.get("provider_refresh_token"),
+    code: queryParams.get("code"),
+    accessToken: hashParams.get("access_token") ?? queryParams.get("access_token"),
+    refreshToken: hashParams.get("refresh_token") ?? queryParams.get("refresh_token"),
+    expiresIn: hashParams.get("expires_in") ?? queryParams.get("expires_in"),
+    expiresAt: hashParams.get("expires_at") ?? queryParams.get("expires_at"),
+    providerToken: hashParams.get("provider_token") ?? queryParams.get("provider_token"),
+    providerRefreshToken: hashParams.get("provider_refresh_token") ?? queryParams.get("provider_refresh_token"),
   };
+}
+
+function isWebOAuthFallbackUrl(url: string | null | undefined) {
+  return typeof url === "string" && /^https?:\/\//i.test(url);
 }
 
 function isOAuthCallbackUrl(url: string | null | undefined) {
   if (!url) return false;
-  const appCallbackUrl = buildAuthRedirectUrl();
-  const redirectPrefix = appCallbackUrl.split(OAUTH_CALLBACK_PATH)[0];
-  if (url.includes(OAUTH_CALLBACK_PATH) && url.startsWith(redirectPrefix)) {
+  if (isWebOAuthFallbackUrl(url)) {
+    return false;
+  }
+  const redirectCandidates = [buildAuthRedirectUrl(), buildNativeAppRedirectUrl()];
+  if (
+    redirectCandidates.some(
+      (candidate) => url.startsWith(candidate.split(OAUTH_CALLBACK_PATH)[0]) && url.includes(OAUTH_CALLBACK_PATH),
+    )
+  ) {
     return true;
   }
   const hasAccessToken = url.includes("access_token=");
@@ -454,8 +477,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const completeOAuthUrl = useCallback(
     async (url: string) => {
+      console.log("[Auth] completeOAuthUrl received:", url);
 
       if (handledOAuthUrlsRef.current.has(url)) {
+        console.log("[Auth] completeOAuthUrl skipped duplicate callback");
         return true;
       }
 
@@ -463,14 +488,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return false;
       }
 
+      if (isWebOAuthFallbackUrl(url)) {
+        console.warn("[Auth] OAuth callback fell back to web URL:", url);
+        throw new Error(
+          "Google dang tra callback ve web URL thay vi mobile app. Kiem tra Supabase Redirect URLs cho mode Expo hien tai.",
+        );
+      }
+
       if (!isOAuthCallbackUrl(url)) {
+        console.warn("[Auth] URL is not recognized as a mobile OAuth callback");
         return false;
       }
 
       const { code, accessToken, refreshToken } = readAuthParams(url);
+      console.log("[Auth] OAuth params detected:", {
+        hasCode: Boolean(code),
+        hasAccessToken: Boolean(accessToken),
+        hasRefreshToken: Boolean(refreshToken),
+      });
 
       if (code) {
-        const { data: sessionData, error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(code);
+        const { error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(code);
         if (exchangeError) {
           throw exchangeError;
         }
@@ -490,8 +528,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      const summary = await finalizePostAuthRedirect("USER");
+      await finalizePostAuthRedirect("USER");
       handledOAuthUrlsRef.current.add(url);
+      console.log("[Auth] OAuth callback finalized successfully");
       return true;
     },
     [finalizePostAuthRedirect],
@@ -667,7 +706,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      const appCallbackUrl = buildAuthRedirectUrl();
+      const appCallbackUrl = buildGoogleOAuthRedirectUrl();
+      console.log("[Auth] Google OAuth mode:", getGoogleOAuthModeLabel());
+      console.log("[Auth] Google OAuth redirectTo:", appCallbackUrl);
 
       const { data, error: oauthError } = await mobileSupabase.auth.signInWithOAuth({
         provider: "google",
@@ -689,18 +730,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         throw new Error("Khong tao duoc duong dan dang nhap Google.");
       }
 
+      console.log("[Auth] Google OAuth authorize URL:", data.url);
       const result = await WebBrowser.openAuthSessionAsync(data.url, appCallbackUrl);
+      console.log("[Auth] Google OAuth browser result:", result.type);
 
       if (result.type === "cancel" || result.type === "dismiss") {
+        console.warn("[Auth] Google OAuth was cancelled or dismissed by the user");
         return;
       }
-
 
       if (result.type !== "success" || !result.url) {
         throw new Error("Khong hoan tat duoc dang nhap Google.");
       }
 
       const resultUrl = (result as { url: string }).url;
+      console.log("[Auth] Google OAuth callback URL:", resultUrl);
+
+      if (isWebOAuthFallbackUrl(resultUrl)) {
+        throw new Error(
+          "Google dang quay ve web URL thay vi mobile callback. Kiem tra Supabase Redirect URLs cho Expo Go va dev build.",
+        );
+      }
 
       if (resultUrl.includes("#access_token=")) {
         const params = readAuthParams(resultUrl);
@@ -712,14 +762,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (setError) {
             throw setError;
           }
-          const summary = await finalizePostAuthRedirect("USER");
+          await finalizePostAuthRedirect("USER");
         }
       } else {
         const completed = await completeOAuthUrl(resultUrl);
         if (!completed) {
           const { data: sessionData } = await mobileSupabase.auth.getSession();
           if (sessionData?.session) {
-            const summary = await finalizePostAuthRedirect("USER");
+            await finalizePostAuthRedirect("USER");
           } else {
             throw new Error("Google da xac thuc nhung app chua nhan duoc callback hop le.");
           }

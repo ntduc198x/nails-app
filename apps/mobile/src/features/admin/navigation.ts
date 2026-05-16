@@ -1,4 +1,4 @@
-import type { Href } from "expo-router";
+import type { Href, Router } from "expo-router";
 import type { AppRole } from "@nails/shared";
 
 export type AdminNavTarget = "booking" | "scheduling" | "checkout" | "profile";
@@ -12,7 +12,7 @@ export function canSelectAdminBranch(role: AppRole | null | undefined) {
 }
 
 export function canAccessManage(role: AppRole | null | undefined) {
-  return role === "OWNER";
+  return isOwnerRole(role);
 }
 
 export function canAccessLandingFeed(role: AppRole | null | undefined) {
@@ -35,5 +35,16 @@ export function getAdminNavHref(target: AdminNavTarget, role: AppRole | null | u
       return isOwnerRole(role) ? "/(admin)/manage" : "/(admin)/shifts";
     default:
       return canAccessLandingFeed(role) ? "/(admin)/booking" : "/(admin)/shifts";
+  }
+}
+
+export function dismissToHref(
+  router: Pick<Router, "dismissTo" | "replace">,
+  href: Href,
+) {
+  try {
+    router.dismissTo(href);
+  } catch {
+    router.replace(href);
   }
 }

@@ -1,11 +1,12 @@
 import Feather from "@expo/vector-icons/Feather";
+import type { Href } from "expo-router";
 import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { MANAGE_SCREEN_ITEMS, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
-import { getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
+import { dismissToHref, getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
@@ -61,12 +62,14 @@ function getGroupTabs(group: ManageScreenItem["group"]) {
 export function ManageModuleTabs({
   currentKey,
   group,
+  hiddenTabKeys = [],
 }: {
   currentKey: ManageScreenKey;
   group: ManageScreenItem["group"];
+  hiddenTabKeys?: ManageScreenKey[];
 }) {
   const router = useRouter();
-  const tabs = getGroupTabs(group);
+  const tabs = getGroupTabs(group).filter((item) => !hiddenTabKeys.includes(item.key));
 
   return (
     <View style={styles.tabsRow}>
@@ -126,67 +129,92 @@ export function ManageScreenShell({
   onRefresh,
   refreshing,
   showTabs = true,
+  showBottomDock = true,
   showBackButton = true,
+  hiddenTabKeys = [],
   children,
 }: {
   title: string;
   subtitle: string;
   currentKey: ManageScreenKey;
   group: ManageScreenItem["group"];
-  backHref?: string;
+  backHref?: Href;
   activeTab?: "booking" | "scheduling" | "checkout" | "profile";
   onRefresh?: (() => void) | null;
   refreshing?: boolean;
   showTabs?: boolean;
+  showBottomDock?: boolean;
   showBackButton?: boolean;
+  hiddenTabKeys?: ManageScreenKey[];
   children: ReactNode;
 }) {
   const router = useRouter();
   const { role } = useSession();
+  const keyboardVisible = useKeyboardVisible();
 
   return (
     <View style={styles.screen}>
       <AdminTopSafeArea style={styles.topChrome}>
-        <View style={styles.header}>
+        <View style={[styles.header, !showBackButton ? styles.headerNoBack : null]}>
           {showBackButton ? (
-            <Pressable style={styles.headerButton} onPress={() => void router.replace((backHref ?? "/(admin)/manage") as never)}>
+            <Pressable
+              style={styles.headerButton}
+              onPress={() => {
+                dismissToHref(router, backHref ?? "/(admin)/manage");
+              }}
+            >
               <Feather name="chevron-left" size={22} color={palette.text} />
             </Pressable>
-          ) : (
-            <View style={styles.headerButtonPlaceholder} />
-          )}
-          <View style={styles.headerCopy}>
+          ) : null}
+          <View style={[styles.headerCopy, !showBackButton ? styles.headerCopyNoBack : null]}>
             <Text style={styles.headerTitle}>{title}</Text>
             <Text style={styles.headerSubtitle}>{subtitle}</Text>
           </View>
-          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          <View style={!showBackButton ? styles.headerActionsFloating : null}>
+            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          </View>
         </View>
 
-        {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} /> : null}
+        {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} hiddenTabKeys={hiddenTabKeys} /> : null}
       </AdminTopSafeArea>
 
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={Boolean(refreshing)}
-              onRefresh={onRefresh}
-              tintColor={palette.accent}
-              colors={[palette.accent]}
-            />
-          ) : undefined
-        }
+      <KeyboardAvoidingView
+        style={styles.scrollRegion}
+        enabled={Platform.OS === "android"}
+        behavior="height"
       >
-        {children}
-      </ScrollView>
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            keyboardVisible ? { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentInsetAdjustmentBehavior="always"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                refreshing={Boolean(refreshing)}
+                onRefresh={onRefresh}
+                tintColor={palette.accent}
+                colors={[palette.accent]}
+              />
+            ) : undefined
+          }
+        >
+          {children}
+        </AdminKeyboardAwareScrollView>
+      </KeyboardAvoidingView>
 
-      <AdminBottomNavDock
-        current={activeTab}
-        role={role}
-        onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
-      />
+      {showBottomDock ? (
+        <AdminBottomNavDock
+          current={activeTab}
+          role={role}
+          onNavigate={(target: AdminNavTarget) => void router.replace(getAdminNavHref(target, role))}
+        />
+      ) : null}
     </View>
   );
 }
@@ -195,6 +223,9 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: palette.bg,
+  },
+  scrollRegion: {
+    flex: 1,
   },
   content: {
     paddingHorizontal: 14,
@@ -212,6 +243,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
+  headerNoBack: {
+    alignItems: "flex-start",
+    paddingRight: 84,
+  },
   headerButton: {
     width: 42,
     height: 42,
@@ -222,13 +257,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerButtonPlaceholder: {
-    width: 42,
-    height: 42,
-  },
   headerCopy: {
     flex: 1,
     gap: 4,
+  },
+  headerCopyNoBack: {
+    flex: 0,
+    width: "100%",
+  },
+  headerActionsFloating: {
+    position: "absolute",
+    right: 0,
+    top: 0,
   },
   headerTitle: {
     fontSize: 24,

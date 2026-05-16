@@ -1,0 +1,23 @@
+
+> nails-app@0.1.0 mobile:start
+> npm run start --workspace @nails/mobile
+
+
+> @nails/mobile@0.1.0 start
+> node ../../scripts/run-mobile-expo.mjs start
+
+Starting project at D:\Code\nails-app\apps\mobile
+Starting Metro Bundler
+Waiting on http://localhost:8081
+Logs for your project will appear below.
+iOS apps\mobile\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+iOS apps\mobile\index.js ▓▓▓░░░░░░░░░░░░░ 20.3% (167/438)
+iOS apps\mobile\index.js ▓▓▓▓░░░░░░░░░░░░ 29.7% (322/591)
+iOS apps\mobile\index.js ▓▓▓▓▓░░░░░░░░░░░ 34.9% (441/748)
+iOS apps\mobile\index.js ▓▓▓▓▓▓▓▓░░░░░░░░ 53.0% (689/946)
+iOS apps\mobile\index.js ▓▓▓▓▓▓▓▓▓░░░░░░░ 59.2% ( 771/1003)
+iOS apps\mobile\index.js ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 79.5% (1047/1174)
+iOS apps\mobile\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓░░░ 86.8% (1230/1368)
+iOS Bundled 28131ms apps\mobile\index.js (1438 modules)
+iOS apps\mobile\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+iOS Bundled 122ms apps\mobile\index.js (1 module)

@@ -1,8 +1,8 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 
@@ -25,16 +25,22 @@ type SchedulingTab = "appointments" | "bookings";
 type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE";
 
 const FILTER_OPTIONS = [
-  { value: "ALL" as const, label: "Tất cả" },
-  { value: "BOOKED" as const, label: "Chờ check-in" },
-  { value: "CHECKED_IN" as const, label: "Đang phục vụ" },
-  { value: "DONE" as const, label: "Hoàn tất" },
-  { value: "OTHER" as const, label: "Khác" },
+  { value: "ALL" as const, label: "Tất cả", icon: "grid" as const, accent: "#8a6346", accentSoft: "#f7ece2" },
+  { value: "BOOKED" as const, label: "Chờ check-in", icon: "clock" as const, accent: "#d6a243", accentSoft: "#fff4de" },
+  { value: "CHECKED_IN" as const, label: "Đang phục vụ", icon: "users" as const, accent: "#55a973", accentSoft: "#e8f8ee" },
+  { value: "DONE" as const, label: "Hoàn tất", icon: "check-circle" as const, accent: "#55a973", accentSoft: "#eaf7ed" },
+  { value: "OTHER" as const, label: "Khác", icon: "more-horizontal" as const, accent: "#8b97ad", accentSoft: "#eff3fa" },
 ];
 
-const TAB_OPTIONS: Array<{ key: SchedulingTab; label: string }> = [
-  { key: "appointments", label: "Lịch hẹn" },
-  { key: "bookings", label: "Booking web" },
+const TAB_OPTIONS: Array<{
+  key: SchedulingTab;
+  label: string;
+  icon: React.ComponentProps<typeof Feather>["name"];
+  accent: string;
+  accentSoft: string;
+}> = [
+  { key: "appointments", label: "Lịch hẹn", icon: "calendar", accent: "#936347", accentSoft: "#f7f3ef" },
+  { key: "bookings", label: "Booking web", icon: "globe", accent: "#6f98dc", accentSoft: "#eef4ff" },
 ];
 
 const STATUS_META = {
@@ -42,7 +48,7 @@ const STATUS_META = {
   CHECKED_IN: { label: "Đang phục vụ", bg: "#e9f4ff", fg: "#2d95df" },
   DONE: { label: "Hoàn tất", bg: "#eef6e8", fg: "#729952" },
   CANCELLED: { label: "Đã hủy", bg: "#ffeceb", fg: "#df6f61" },
-  NO_SHOW: { label: "Khác", bg: "#f4efea", fg: "#8b7c71" },
+  NO_SHOW: { label: "Không đến", bg: "#f4efea", fg: "#8b7c71" },
 } as const;
 
 const STATUS_WEIGHT: Record<string, number> = {
@@ -125,6 +131,26 @@ function normalizePhone(raw: string | null | undefined) {
   return digits;
 }
 
+function getStaffAccent(index: number) {
+  const accents = [
+    { bg: "#ffe9de", fg: "#d98962" },
+    { bg: "#e6f0ff", fg: "#6d95d6" },
+    { bg: "#f2e9ff", fg: "#9a78d6" },
+    { bg: "#e5f6ea", fg: "#69ae83" },
+  ];
+  return accents[index % accents.length];
+}
+
+function getResourceAccent(index: number) {
+  const accents = [
+    { bg: "#edf8f1", fg: "#69ae83" },
+    { bg: "#fff3ea", fg: "#dc9362" },
+    { bg: "#f4edff", fg: "#9a78d6" },
+    { bg: "#edf3ff", fg: "#6d95d6" },
+  ];
+  return accents[index % accents.length];
+}
+
 export default function AdminSchedulingScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string; tab?: string }>();
@@ -160,7 +186,7 @@ export default function AdminSchedulingScreen() {
   const [pickerDay, setPickerDay] = useState(() => new Date().getDate());
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
-
+  const keyboardVisible = useKeyboardVisible();
   // Parse date input (dd/mm/yyyy)
   function parseDateInput(value: string) {
     const [dd, mm, yyyy] = value.split("/");
@@ -285,10 +311,21 @@ export default function AdminSchedulingScreen() {
         </View>
       </AdminTopSafeArea>
 
-<ScrollView
-        contentContainerStyle={styles.content}
-        keyboardDismissMode="on-drag"
+      <KeyboardAvoidingView
+        style={styles.scrollRegion}
+        enabled={Platform.OS === "android"}
+        behavior="height"
+      >
+      <AdminKeyboardAwareScrollView
+        contentContainerStyle={[
+          styles.content,
+          keyboardVisible ? { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+        ]}
+        onScrollBeginDrag={() => Keyboard.dismiss()}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
+        contentInsetAdjustmentBehavior="always"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -312,6 +349,7 @@ export default function AdminSchedulingScreen() {
         <View style={styles.card}>
           <Field
             icon="user"
+            iconColor="#6f98dc"
             placeholder="Nhập tên khách hàng"
             shellStyle={styles.fieldFull}
             value={customerName}
@@ -320,12 +358,16 @@ export default function AdminSchedulingScreen() {
 
           <View style={styles.formGrid}>
             <Pressable style={[styles.field, styles.fieldWide]} onPress={openDatePicker}>
-              <Feather color="#7d6e63" name="calendar" size={15} />
+              <View style={[styles.leadingIconBadge, styles.blueIconBadge]}>
+                <Feather color="#6f98dc" name="calendar" size={16} />
+              </View>
               <Text style={styles.fieldText}>{dateInput}</Text>
               <Feather color="#A6988B" name="chevron-down" size={14} />
             </Pressable>
             <Pressable style={[styles.field, styles.fieldHalf]} onPress={openTimePicker}>
-              <Feather color="#7d6e63" name="clock" size={15} />
+              <View style={[styles.leadingIconBadge, styles.greenIconBadge]}>
+                <Feather color="#69ae83" name="clock" size={16} />
+              </View>
               <Text style={styles.fieldText}>{timeInput}</Text>
               <Feather color="#A6988B" name="chevron-down" size={14} />
             </Pressable>
@@ -333,7 +375,8 @@ export default function AdminSchedulingScreen() {
 
           <Field
             chevron
-            icon="watch"
+            icon="users"
+            iconColor="#9a78d6"
             keyboardType="number-pad"
             placeholder="60 phút"
             shellStyle={styles.fieldDuration}
@@ -344,16 +387,17 @@ export default function AdminSchedulingScreen() {
           <View style={styles.sectionBlock}>
             <Text style={styles.blockLabel}>Chọn thợ</Text>
             <View style={styles.optionWrap}>
-              {staffOptions.map((staff) => {
+              {staffOptions.map((staff, index) => {
                 const active = staffUserId === staff.userId;
+                const accent = getStaffAccent(index);
                 return (
                   <Pressable
                     key={staff.userId}
                     onPress={() => setStaffUserId(staff.userId)}
                     style={[styles.personChip, active ? styles.personChipActive : null]}
                   >
-                    <View style={styles.avatarPlaceholder}>
-                      <Text style={styles.avatarText}>{staff.name.slice(0, 1)}</Text>
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: accent.bg }]}>
+                      <Text style={[styles.avatarText, { color: accent.fg }]}>{staff.name.slice(0, 1)}</Text>
                     </View>
                     <Text style={[styles.personChipText, active ? styles.personChipTextActive : null]}>
                       {staff.name}
@@ -367,15 +411,18 @@ export default function AdminSchedulingScreen() {
           <View style={styles.sectionBlock}>
             <Text style={styles.blockLabel}>Chọn tài nguyên</Text>
             <View style={styles.optionWrap}>
-              {resourceOptions.map((resource) => {
+              {resourceOptions.map((resource, index) => {
                 const active = resourceId === resource.id;
+                const accent = getResourceAccent(index);
                 return (
                   <Pressable
                     key={resource.id}
                     onPress={() => setResourceId(resource.id)}
                     style={[styles.resourceChip, active ? styles.resourceChipActive : null]}
                   >
-                    <Feather color={active ? "#2b241f" : "#7f7064"} name="briefcase" size={14} />
+                    <View style={[styles.resourceIconBadge, { backgroundColor: accent.bg }]}>
+                      <Feather color={accent.fg} name="briefcase" size={14} />
+                    </View>
                     <Text style={[styles.resourceChipText, active ? styles.resourceChipTextActive : null]}>
                       {resource.name}
                     </Text>
@@ -405,6 +452,14 @@ export default function AdminSchedulingScreen() {
                   }
                   style={[styles.tabChip, active ? styles.tabChipActive : null]}
                 >
+                  <View
+                    style={[
+                      styles.tabIconBadge,
+                      active ? styles.tabIconBadgeActive : { backgroundColor: option.accentSoft },
+                    ]}
+                  >
+                    <Feather color={active ? "#ffffff" : option.accent} name={option.icon} size={15} />
+                  </View>
                   <Text style={[styles.tabChipText, active ? styles.tabChipTextActive : null]}>{option.label}</Text>
                 </Pressable>
               );
@@ -418,16 +473,24 @@ export default function AdminSchedulingScreen() {
               {FILTER_OPTIONS.map((option) => {
                 const active = activeFilter === option.value;
                 return (
-                  <Pressable
-                    key={option.value}
-                    onPress={() => setFilterOverride(option.value)}
-                    style={[styles.filterChip, active ? styles.filterChipActive : null]}
+                <Pressable
+                  key={option.value}
+                  onPress={() => setFilterOverride(option.value)}
+                  style={[styles.filterChip, active ? styles.filterChipActive : null]}
+                >
+                  <View
+                    style={[
+                      styles.filterIconBadge,
+                      active ? styles.filterIconBadgeActive : { backgroundColor: option.accentSoft },
+                    ]}
                   >
-                    <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                );
+                    <Feather color={active ? "#ffffff" : option.accent} name={option.icon} size={14} />
+                  </View>
+                  <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : null]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
               })}
             </View>
           </View>
@@ -574,7 +637,8 @@ export default function AdminSchedulingScreen() {
                 })}
           </View>
         </View>
-      </ScrollView>
+      </AdminKeyboardAwareScrollView>
+      </KeyboardAvoidingView>
 
       {/* Date Picker Modal */}
       <Modal visible={showDatePicker} transparent animationType="fade">
@@ -662,6 +726,7 @@ export default function AdminSchedulingScreen() {
 function Field({
   chevron = false,
   icon,
+  iconColor = "#7d6e63",
   keyboardType,
   onChangeText,
   placeholder,
@@ -670,6 +735,7 @@ function Field({
 }: {
   chevron?: boolean;
   icon: React.ComponentProps<typeof Feather>["name"];
+  iconColor?: string;
   keyboardType?: "default" | "number-pad";
   onChangeText: (value: string) => void;
   placeholder: string;
@@ -678,8 +744,10 @@ function Field({
 }) {
   return (
     <View style={[styles.fieldShell, shellStyle]}>
-      <Feather color="#7d6e63" name={icon} size={15} />
-      <TextInput
+      <View style={styles.leadingIconBadge}>
+        <Feather color={iconColor} name={icon} size={16} />
+      </View>
+      <AdminKeyboardTextInput
         keyboardType={keyboardType}
         onChangeText={onChangeText}
         placeholder={placeholder}
@@ -694,6 +762,7 @@ function Field({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f7f2ec" },
+  scrollRegion: { flex: 1 },
   topChrome: { paddingHorizontal: 16, paddingBottom: 12 },
   content: {
     gap: 12,
@@ -760,6 +829,20 @@ const styles = StyleSheet.create({
     gap: 10,
     minHeight: 48,
     paddingHorizontal: 14,
+  },
+  leadingIconBadge: {
+    alignItems: "center",
+    backgroundColor: "#f4f7ff",
+    borderRadius: 999,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
+  },
+  blueIconBadge: {
+    backgroundColor: "#eef4ff",
+  },
+  greenIconBadge: {
+    backgroundColor: "#eaf8ef",
   },
   fieldFull: {
     width: "100%",
@@ -847,6 +930,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
   },
+  resourceIconBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
   resourceChipActive: {
     backgroundColor: "#f4ece2",
     borderColor: "#d9c3ae",
@@ -883,6 +973,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     flex: 1,
+    flexDirection: "row",
+    gap: 10,
     justifyContent: "center",
     minHeight: 40,
     paddingHorizontal: 14,
@@ -899,6 +991,16 @@ const styles = StyleSheet.create({
   tabChipTextActive: {
     color: "#fff",
   },
+  tabIconBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 24,
+    justifyContent: "center",
+    width: 24,
+  },
+  tabIconBadgeActive: {
+    backgroundColor: "rgba(255,255,255,0.16)",
+  },
   filterWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -910,6 +1012,8 @@ const styles = StyleSheet.create({
     borderColor: "#ece0d5",
     borderRadius: 999,
     borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
     justifyContent: "center",
     minHeight: 36,
     paddingHorizontal: 16,
@@ -925,6 +1029,16 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: "#fff",
+  },
+  filterIconBadge: {
+    alignItems: "center",
+    borderRadius: 999,
+    height: 22,
+    justifyContent: "center",
+    width: 22,
+  },
+  filterIconBadgeActive: {
+    backgroundColor: "rgba(255,255,255,0.16)",
   },
   listWrap: {
     gap: 10,

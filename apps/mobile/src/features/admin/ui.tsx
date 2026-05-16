@@ -1,7 +1,36 @@
-import { useEffect, useState, type ReactNode } from "react";
+﻿import {
+  createContext,
+  type ComponentProps,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import Feather from "@expo/vector-icons/Feather";
 import { formatViDate, formatVnd, type AppRole } from "@nails/shared";
-import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import {
+  Dimensions,
+  Keyboard,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  UIManager,
+  View,
+  type ScrollViewProps,
+  type ViewStyle,
+  findNodeHandle,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
@@ -10,12 +39,18 @@ import { getAdminNavHref, isOwnerRole, canAccessLandingFeed, type AdminNavTarget
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 export const ADMIN_HEADER_TOP_OFFSET = 4;
-export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 2;
+export const ADMIN_BOTTOM_BAR_BOTTOM_OFFSET = 0;
 export const ADMIN_CONTENT_TOP_GAP = 12;
-export const ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE = 112;
+export const ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE = 102;
+export const ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE = 220;
+export const ADMIN_KEYBOARD_VISUAL_CLEARANCE = 140;
+
+const AdminKeyboardFieldFocusContext = createContext<
+  ((event: Parameters<NonNullable<ComponentProps<typeof TextInput>["onFocus"]>>[0]) => void) | null
+>(null);
 
 export function getAdminBottomBarPadding(insetBottom: number) {
-  return ADMIN_BOTTOM_BAR_BOTTOM_OFFSET + Math.max(insetBottom, 6);
+  return ADMIN_BOTTOM_BAR_BOTTOM_OFFSET + Math.max(insetBottom, 0);
 }
 
 export function getAdminHeaderTopPadding(insetTop: number) {
@@ -27,7 +62,176 @@ export function getAdminHeaderSafeAreaPadding(insetTop: number) {
 }
 
 export function getAdminBottomDockSafeAreaPadding(insetBottom: number) {
-  return Math.max(getAdminBottomBarPadding(insetBottom) - insetBottom, ADMIN_BOTTOM_BAR_BOTTOM_OFFSET);
+  return Math.max(getAdminBottomBarPadding(insetBottom) - insetBottom - 15, 0);
+}
+
+export function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showSubscription = Keyboard.addListener(showEvent, () => setVisible(true));
+    const hideSubscription = Keyboard.addListener(hideEvent, () => setVisible(false));
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
+  return visible;
+}
+
+function useAdminKeyboardController(keyboardLiftClearance = ADMIN_KEYBOARD_VISUAL_CLEARANCE) {
+  const scrollRef = useRef<ScrollView | null>(null);
+  const scrollYRef = useRef(0);
+  const pendingFocusTargetRef = useRef<number | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const resolveTargetHandle = useCallback((target: unknown) => {
+    if (typeof target === "number") {
+      return target;
+    }
+
+    if (!target) {
+      return null;
+    }
+
+    return findNodeHandle(target as never);
+  }, []);
+
+  const measureAndScrollToField = useCallback(
+    (target: number) => {
+      UIManager.measure(target, (_x, _y, _width, height, _pageX, pageY) => {
+        if (!height || !pageY || keyboardHeight <= 0) {
+          return;
+        }
+
+        const windowHeight = Dimensions.get("window").height;
+        const desiredBottom = windowHeight - keyboardHeight - keyboardLiftClearance;
+        const fieldBottom = pageY + height;
+        const requiredDelta = fieldBottom - desiredBottom;
+
+        if (requiredDelta <= 1) {
+          return;
+        }
+
+        scrollRef.current?.scrollTo({
+          y: Math.max(scrollYRef.current + requiredDelta, 0),
+          animated: true,
+        });
+      });
+    },
+    [keyboardHeight, keyboardLiftClearance],
+  );
+
+  const scheduleFieldLift = useCallback(
+    (target: number) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          measureAndScrollToField(target);
+        });
+      });
+    },
+    [measureAndScrollToField],
+  );
+
+  const handleFieldFocus = useCallback(
+    (event: Parameters<NonNullable<ComponentProps<typeof TextInput>["onFocus"]>>[0]) => {
+      const targetHandle = resolveTargetHandle(event.target);
+      pendingFocusTargetRef.current = targetHandle;
+      if (targetHandle && keyboardHeight > 0) {
+        scheduleFieldLift(targetHandle);
+      }
+    },
+    [keyboardHeight, resolveTargetHandle, scheduleFieldLift],
+  );
+
+  const handleScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollYRef.current = event.nativeEvent.contentOffset.y;
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      const nextHeight = event.endCoordinates?.height ?? 0;
+      setKeyboardHeight(nextHeight);
+
+      const target = pendingFocusTargetRef.current;
+      if (target && nextHeight > 0) {
+        scheduleFieldLift(target);
+      }
+    });
+
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      pendingFocusTargetRef.current = null;
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [scheduleFieldLift]);
+
+  return {
+    handleFieldFocus,
+    handleScroll,
+    scrollRef,
+  };
+}
+
+export function useAdminKeyboardFieldFocus() {
+  return useContext(AdminKeyboardFieldFocusContext) ?? (() => undefined);
+}
+
+export function AdminKeyboardTextInput(props: React.ComponentProps<typeof TextInput>) {
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
+  return (
+    <TextInput
+      {...props}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        props.onFocus?.(event);
+      }}
+    />
+  );
+}
+
+export function AdminKeyboardAwareScrollView({
+  children,
+  keyboardLiftClearance = ADMIN_KEYBOARD_VISUAL_CLEARANCE,
+  onScroll,
+  ...props
+}: ScrollViewProps & { keyboardLiftClearance?: number }) {
+  const { handleFieldFocus, handleScroll, scrollRef } = useAdminKeyboardController(keyboardLiftClearance);
+
+  const handleScrollEvent = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      handleScroll(event);
+      onScroll?.(event);
+    },
+    [handleScroll, onScroll],
+  );
+
+  const providerValue = useMemo(() => handleFieldFocus, [handleFieldFocus]);
+
+  return (
+    <AdminKeyboardFieldFocusContext.Provider value={providerValue}>
+      <ScrollView
+        {...props}
+        ref={scrollRef}
+        onScroll={handleScrollEvent}
+        scrollEventThrottle={16}
+      >
+        {children}
+      </ScrollView>
+    </AdminKeyboardFieldFocusContext.Provider>
+  );
 }
 
 const ADMIN_NAV_ITEMS: Array<{
@@ -35,7 +239,7 @@ const ADMIN_NAV_ITEMS: Array<{
   label: string;
   icon: React.ComponentProps<typeof Feather>["name"];
 }> = [
-  { key: "booking", label: "Landing", icon: "layout" },
+  { key: "booking", label: "Cửa tiệm", icon: "layout" },
   { key: "scheduling", label: "\u0110i\u1ec1u ph\u1ed1i", icon: "users" },
   { key: "checkout", label: "Thu ti\u1ec1n", icon: "briefcase" },
   { key: "profile", label: "C\u00e1 nh\u00e2n", icon: "user" },
@@ -101,6 +305,7 @@ export function AdminScreen({
   children: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardVisible();
 
   return (
     <View style={styles.container}>
@@ -111,37 +316,51 @@ export function AdminScreen({
             <>
               <Text style={styles.eyebrow}>Week 4 Admin Core Flows</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
-              <Text style={styles.date}>Hôm nay: {formatViDate(new Date())}</Text>
+              <Text style={styles.date}>HÃ´m nay: {formatViDate(new Date())}</Text>
               <Text style={styles.date}>Role: {role ?? "-"}</Text>
               <Text style={styles.date}>User: {userEmail ?? "-"}</Text>
             </>
           ) : null}
         </View>
       </AdminTopSafeArea>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          {
-            paddingTop: ADMIN_CONTENT_TOP_GAP,
-            paddingBottom: footer ? 24 : ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE,
-          },
-        ]}
-        refreshControl={
-          onRefresh ? (
-            <RefreshControl
-              refreshing={Boolean(refreshing)}
-              onRefresh={onRefresh}
-              tintColor="#2b241f"
-              colors={["#2b241f"]}
-            />
-          ) : undefined
-        }
+      <KeyboardAvoidingView
+        style={styles.scrollRegion}
+        enabled={Platform.OS === "android"}
+        behavior="height"
       >
-        {children}
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingTop: ADMIN_CONTENT_TOP_GAP,
+              paddingBottom:
+                footer && !keyboardVisible
+                  ? 24
+                  : ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE +
+                    (keyboardVisible ? ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE : 0),
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          contentInsetAdjustmentBehavior="always"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          refreshControl={
+            onRefresh ? (
+              <RefreshControl
+                refreshing={Boolean(refreshing)}
+                onRefresh={onRefresh}
+                tintColor="#2b241f"
+                colors={["#2b241f"]}
+              />
+            ) : undefined
+          }
+        >
+          {children}
 
-        <SessionActions />
-      </ScrollView>
-      {footer ? (
+          <SessionActions />
+        </AdminKeyboardAwareScrollView>
+      </KeyboardAvoidingView>
+      {footer && !keyboardVisible ? (
         <SafeAreaView style={styles.footerSafeArea} edges={["bottom"]}>
           <View
             style={[
@@ -238,7 +457,7 @@ export function AdminNavLinks({
       <View style={styles.inlineWrap}>
         {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
           const isProfile = key === "profile";
-          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Manage" : label;
+          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quáº£n lÃ½" : label;
           const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
 
           return (
@@ -287,7 +506,7 @@ export function AdminBottomNav({
       {visibleItems.map(({ key, label, icon }) => {
         const isProfile = key === "profile";
         const active = current === key;
-        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Manage" : label;
+        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quáº£n lÃ½" : label;
         const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
         const targetHref = isProfile ? (isOwnerRole(role as AppRole | null | undefined) ? "/(admin)/manage" : "/(admin)/shifts") : null;
         return (
@@ -321,6 +540,11 @@ export function AdminBottomNavDock({
 }) {
   const insets = useSafeAreaInsets();
   const resolvedInsetBottom = insetBottom ?? insets.bottom;
+  const keyboardVisible = useKeyboardVisible();
+
+  if (keyboardVisible) {
+    return null;
+  }
 
   return (
     <SafeAreaView style={styles.bottomNavSafeArea} edges={["bottom"]}>
@@ -395,9 +619,9 @@ export function AdminHeaderActions({
           <Pressable style={styles.notificationsSheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.notificationsHeader}>
               <View style={styles.notificationsHeaderCopy}>
-                <Text style={styles.notificationsTitle}>Thông báo</Text>
+                <Text style={styles.notificationsTitle}>ThÃ´ng bÃ¡o</Text>
                 <Text style={styles.notificationsSubtitle}>
-                  {unreadCount > 0 ? `${unreadCount} mục cần chú ý` : "Chưa có mục mới"}
+                  {unreadCount > 0 ? `${unreadCount} má»¥c cáº§n chÃº Ã½` : "ChÆ°a cÃ³ má»¥c má»›i"}
                 </Text>
               </View>
               <Pressable style={styles.notificationsClose} onPress={() => setNotificationsOpen(false)}>
@@ -411,7 +635,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("action")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "action" ? styles.notificationsTabTextActive : null]}>
-                  Cần xử lý{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
+                  Cáº§n xá»­ lÃ½{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
                 </Text>
               </Pressable>
               <Pressable
@@ -419,7 +643,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("feed")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "feed" ? styles.notificationsTabTextActive : null]}>
-                  Dòng sự kiện{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
+                  DÃ²ng sá»± kiá»‡n{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
                 </Text>
               </Pressable>
             </View>
@@ -442,7 +666,7 @@ export function AdminHeaderActions({
                       </View>
                       {item.actionRequired ? (
                         <View style={styles.notificationActionBadge}>
-                          <Text style={styles.notificationActionBadgeText}>Cần xử lý</Text>
+                          <Text style={styles.notificationActionBadgeText}>Cáº§n xá»­ lÃ½</Text>
                         </View>
                       ) : null}
                     </View>
@@ -460,8 +684,8 @@ export function AdminHeaderActions({
                 <View style={styles.notificationsEmpty}>
                   <Text style={styles.notificationsEmptyText}>
                     {notificationTab === "action"
-                      ? "Hiện không có mục nào cần xử lý."
-                      : "Chưa có sự kiện nào gần đây."}
+                      ? "Hiá»‡n khÃ´ng cÃ³ má»¥c nÃ o cáº§n xá»­ lÃ½."
+                      : "ChÆ°a cÃ³ sá»± kiá»‡n nÃ o gáº§n Ä‘Ã¢y."}
                   </Text>
                 </View>
               )}
@@ -522,6 +746,9 @@ export const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f1ea",
+  },
+  scrollRegion: {
+    flex: 1,
   },
   topSafeArea: {
     backgroundColor: "transparent",
@@ -855,12 +1082,12 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
   footerSafeArea: {
-    backgroundColor: "transparent",
+    backgroundColor: "#FCFAF8",
   },
   footerShell: {
-    backgroundColor: "transparent",
+    backgroundColor: "#FCFAF8",
     paddingHorizontal: 12,
-    paddingTop: 2,
+    paddingTop: 0,
     paddingBottom: 0,
   },
   bottomNavSafeArea: {
@@ -868,12 +1095,13 @@ export const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: -25,
-    backgroundColor: "transparent",
+    backgroundColor: "#FCFAF8",
   },
   bottomNavDock: {
+    backgroundColor: "#FCFAF8",
     paddingHorizontal: 14,
     paddingBottom: 0,
-    paddingTop: 4,
+    paddingTop: 0,
   },
   bottomNav: {
     width: "100%",
@@ -884,9 +1112,9 @@ export const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     borderColor: "#ead7c6",
-    backgroundColor: "rgba(255,248,241,0.995)",
+    backgroundColor: "#FFF9F4",
     paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingVertical: 7,
     shadowColor: "#2a1e14",
     shadowOpacity: 0.1,
     shadowRadius: 18,
@@ -1155,3 +1383,4 @@ export const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
+

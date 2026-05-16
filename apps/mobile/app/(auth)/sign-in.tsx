@@ -1,9 +1,11 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Redirect } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   Alert,
+  findNodeHandle,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -47,6 +49,7 @@ export default function SignInScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailFallback, setShowEmailFallback] = useState(false);
+  const scrollRef = useRef<ScrollView | null>(null);
 
   const isSignup = mode === "signup";
   const isRegisterAdmin = isSignup && registrationMode === "ADMIN";
@@ -74,6 +77,38 @@ export default function SignInScreen() {
     if (isRegisterAdmin) return "Tạo tài khoản quản trị";
     return "Tạo tài khoản";
   }, [isBusy, isRegisterAdmin, mode]);
+
+  const scrollFocusedInputIntoView = useCallback(() => {
+    const focusedInput = TextInput.State.currentlyFocusedInput?.();
+    const responder = scrollRef.current as ScrollView & {
+      scrollResponderScrollNativeHandleToKeyboard?: (
+        nodeHandle: number,
+        additionalOffset?: number,
+        preventNegativeScrollOffset?: boolean,
+      ) => void;
+    };
+    const focusedHandle =
+      typeof focusedInput === "number" ? focusedInput : focusedInput ? findNodeHandle(focusedInput as any) : null;
+
+    if (!focusedHandle || !responder?.scrollResponderScrollNativeHandleToKeyboard) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      responder.scrollResponderScrollNativeHandleToKeyboard?.(focusedHandle, 104, true);
+    });
+  }, []);
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const showSubscription = Keyboard.addListener(showEvent, () => {
+      scrollFocusedInputIntoView();
+    });
+
+    return () => {
+      showSubscription.remove();
+    };
+  }, [scrollFocusedInputIntoView]);
 
   if (isHydrated && role) {
     return <Redirect href="/" />;
@@ -155,6 +190,7 @@ export default function SignInScreen() {
         style={styles.keyboardShell}
       >
         <ScrollView
+          ref={scrollRef}
           automaticallyAdjustKeyboardInsets
           contentContainerStyle={styles.scrollContent}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}

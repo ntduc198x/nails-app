@@ -7,15 +7,26 @@ import { useSession } from "@/src/providers/session-provider";
 const HISTORY_FRESH_MS = 90 * 1000;
 const HISTORY_MAX_STALE_MS = 10 * 60 * 1000;
 
-export function useCustomerHistory(limit = 24) {
+type UseCustomerHistoryOptions = {
+  enabled?: boolean;
+  revalidateOnMount?: boolean;
+};
+
+export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOptions = {}) {
   const { isHydrated: sessionHydrated, user } = useSession();
   const [historyItems, setHistoryItems] = useState<CustomerHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const enabled = options.enabled ?? true;
+  const revalidateOnMount = options.revalidateOnMount ?? true;
 
   const cacheKey = user?.id ? `customer-history:${user.id}:${limit}` : `customer-history:guest:${limit}`;
 
   const refresh = useCallback(async (options: { force?: boolean; silent?: boolean } = {}) => {
+    if (!enabled) {
+      return;
+    }
+
     if (!sessionHydrated) {
       return;
     }
@@ -45,7 +56,7 @@ export function useCustomerHistory(limit = 24) {
       setIsHydrated(true);
       setIsLoading(false);
     }
-  }, [cacheKey, limit, sessionHydrated, user]);
+  }, [cacheKey, enabled, limit, sessionHydrated, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,21 +75,28 @@ export function useCustomerHistory(limit = 24) {
         setIsHydrated(true);
         setIsLoading(false);
 
-        if (Date.now() - cached.updatedAt <= HISTORY_MAX_STALE_MS) {
+        if (revalidateOnMount && Date.now() - cached.updatedAt <= HISTORY_MAX_STALE_MS) {
           void refresh({ silent: true });
           return;
         }
+
+        return;
       }
 
       void refresh();
     };
+
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
 
     void boot();
 
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, refresh, user?.id]);
+  }, [cacheKey, enabled, refresh, revalidateOnMount, user?.id]);
 
   return {
     historyItems,

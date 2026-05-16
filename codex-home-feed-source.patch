@@ -1,0 +1,115 @@
+diff --git a/apps/mobile/app/(admin)/manage-content-post/[postId].tsx b/apps/mobile/app/(admin)/manage-content-post/[postId].tsx
+index 25b0cf7..dae0a72 100644
+--- a/apps/mobile/app/(admin)/manage-content-post/[postId].tsx
++++ b/apps/mobile/app/(admin)/manage-content-post/[postId].tsx
+@@ -32,6 +32,7 @@ const CONTENT_TYPES = ["trend", "care", "news", "offer_hint"] as const;
+ const POST_STATUSES = ["draft", "approved", "published", "archived"] as const;
++const SOURCE_PLATFORMS = ["Cham Beauty", "mobile_admin", "telegram", "dummy_seed"] as const;
+ 
+ type PostFormState = {
+   id?: string;
+@@ -102,6 +103,7 @@ function toPostInput(form: PostFormState): MobileAdminContentPostInput {
+     status: form.status,
+     priority: parseNumberInput(form.priority),
+     metadata: parseMetadata(form.metadataText),
++    sourcePlatform: form.sourcePlatform?.trim() || "mobile_admin",
+   };
+ }
+ 
+@@ -342,12 +344,23 @@ export default function AdminManageContentPostDetailScreen() {
+               ))}
+             </View>
+ 
+-            {form.id ? (
+-              <Text style={styles.metaText}>
+-                Nguon: {form.sourcePlatform || "mobile_admin"}
+-                {form.sourceMessageId ? ` · msg ${form.sourceMessageId}` : ""}
+-              </Text>
+-            ) : null}
++            <View style={[styles.fieldBlock, styles.sourceColumn]}>
++              <DetailFieldLabel icon="user">Nguồn</DetailFieldLabel>
++              <AdminKeyboardTextInput
++                placeholder="Nhập nguồn bài feed"
++                placeholderTextColor="#B4A89C"
++                style={styles.input}
++                value={form.sourcePlatform || ""}
++                onChangeText={(value) => setForm((current) => ({ ...current, sourcePlatform: value }))}
++              />
++              <View style={styles.sourceChipRow}>
++                {SOURCE_PLATFORMS.map((item) => (
++                  <Pressable key={item} style={[styles.sourceChip, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipActive : null]} onPress={() => setForm((current) => ({ ...current, sourcePlatform: item }))}>
++                    <Text style={[styles.sourceChipText, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipTextActive : null]}>{item}</Text>
++                  </Pressable>
++                ))}
++              </View>
++            </View>
+ 
+             <Text style={styles.label}>Metadata JSON</Text>
+             <TextInput
+@@ -455,13 +468,28 @@ const styles = StyleSheet.create({
+     fontWeight: "700",
+   },
+   chipTextActive: {
+     color: palette.accent,
+   },
+-  metaText: {
+-    color: palette.sub,
+-    fontSize: 12,
+-    lineHeight: 18,
++  sourceChipRow: {
++    flexDirection: "row",
++    flexWrap: "wrap",
++    gap: 8,
++  },
++  sourceChip: {
++    backgroundColor: "#FFFFFF",
++    borderColor: palette.border,
++    borderRadius: 999,
++    borderWidth: 1,
++    minHeight: 34,
++    paddingHorizontal: 12,
++    paddingVertical: 7,
++  },
++  sourceChipActive: {
++    backgroundColor: palette.accentSoft,
++    borderColor: palette.accent,
++  },
++  sourceChipText: {
++    color: palette.sub,
++    fontSize: 12,
++    fontWeight: "700",
++  },
++  sourceChipTextActive: {
++    color: palette.accent,
+   },
+   primaryButton: {
+     alignItems: "center",
+     backgroundColor: palette.accent,
+diff --git a/packages/shared/src/admin-content.ts b/packages/shared/src/admin-content.ts
+index 351949c..b90c5ad 100644
+--- a/packages/shared/src/admin-content.ts
++++ b/packages/shared/src/admin-content.ts
+@@ -86,6 +86,7 @@ export type MobileAdminContentPostInput = {
+   priority?: number;
+   metadata?: Record<string, unknown>;
++  sourcePlatform?: string | null;
+ };
+ 
+ export type MobileAdminStorefrontProfile = {
+@@ -637,7 +638,7 @@ export async function createAdminContentPostForMobile(
+       published_at: toPublishedAt(status),
+       priority: Number(input.priority ?? 100),
+       metadata: input.metadata ?? {},
+-      source_platform: "mobile_admin",
++      source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
+     })
+     .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id")
+     .single();
+@@ -665,6 +666,7 @@ export async function updateAdminContentPostForMobile(
+       published_at: toPublishedAt(status, existingPublishedAt),
+       priority: Number(input.priority ?? 100),
+       metadata: input.metadata ?? {},
++      source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
+     })
+     .eq("id", postId)
+     .eq("org_id", orgId)

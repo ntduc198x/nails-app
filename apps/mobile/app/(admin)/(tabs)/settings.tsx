@@ -1,11 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { ensureOrgContext } from "@nails/shared";
 import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
-import { upsertAndVerifyProfile } from "@/src/lib/profile-upsert";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
+import { upsertAndVerifyAdminProfile } from "@/src/lib/admin-profile";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -33,6 +33,7 @@ type ProfileData = {
 
 export default function AdminSettingsScreen() {
   const { user, signOut, role, refreshSession } = useSession();
+  const keyboardVisible = useKeyboardVisible();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
   const [saving, setSaving] = useState(false);
@@ -108,7 +109,7 @@ export default function AdminSettingsScreen() {
             ? { displayName: profileData?.fullName, phone: editValue, address: profileData?.address }
             : { displayName: profileData?.fullName, phone: profileData?.phone, address: editValue };
 
-      const verifiedProfile = await upsertAndVerifyProfile({
+      const verifiedProfile = await upsertAndVerifyAdminProfile({
         userId: user.id,
         displayName: nextPayload.displayName ?? "",
         phone: nextPayload.phone ?? "",
@@ -147,7 +148,7 @@ export default function AdminSettingsScreen() {
 
     setSaving(true);
     try {
-      const verifiedProfile = await upsertAndVerifyProfile({
+      const verifiedProfile = await upsertAndVerifyAdminProfile({
         userId: user.id,
         displayName: profileData?.fullName ?? "",
         phone: profileData?.phone ?? "",
@@ -205,14 +206,20 @@ export default function AdminSettingsScreen() {
         </View>
       </AdminTopSafeArea>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS === "android"}
+        behavior="height"
         keyboardVerticalOffset={8}
         style={styles.screen}
       >
-        <ScrollView
-          contentContainerStyle={styles.content}
-          keyboardDismissMode="on-drag"
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            keyboardVisible ? { paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE + ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE } : null,
+          ]}
+          onScrollBeginDrag={() => Keyboard.dismiss()}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
         >
           
@@ -242,7 +249,7 @@ export default function AdminSettingsScreen() {
             <Feather name="log-out" size={18} color={palette.danger} />
             <Text style={styles.logoutButtonText}>Đăng xuất</Text>
           </Pressable>
-        </ScrollView>
+        </AdminKeyboardAwareScrollView>
       </KeyboardAvoidingView>
 
         <Modal visible={editingField !== null} transparent animationType="fade">
@@ -250,7 +257,7 @@ export default function AdminSettingsScreen() {
             <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
               <Text style={styles.modalTitle}>Chỉnh sửa {getEditLabel(editingField)}</Text>
               <View style={styles.modalInputWrapper}>
-                <TextInput
+                <AdminKeyboardTextInput
                   style={styles.modalInput}
                   value={editValue}
                   onChangeText={setEditValue}
@@ -363,28 +370,28 @@ function SecurityRow({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.bg },
-  topChrome: { paddingHorizontal: 20, paddingBottom: 12 },
-  content: { paddingHorizontal: 20, paddingTop: ADMIN_CONTENT_TOP_GAP, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingVertical: 8, marginBottom: 8 },
+  topChrome: { paddingHorizontal: 18, paddingBottom: 8 },
+  content: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 12 },
+  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 2, paddingVertical: 4, marginBottom: 4 },
   hiddenHeader: { display: "none" },
-  headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, fontSize: 22, fontWeight: "800", color: palette.textPrimary, textAlign: "center", letterSpacing: -0.4 },
-  card: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 20, gap: 0 },
-  cardTitle: { fontSize: 16, fontWeight: "700", color: palette.textPrimary, marginBottom: 16 },
-  infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 14 },
+  card: { backgroundColor: palette.card, borderRadius: 18, borderWidth: 1, borderColor: palette.border, padding: 16, gap: 0 },
+  cardTitle: { fontSize: 15, fontWeight: "700", color: palette.textPrimary, marginBottom: 12 },
+  infoRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
   infoRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  infoIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.beige, alignItems: "center", justifyContent: "center" },
+  infoIconCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: palette.beige, alignItems: "center", justifyContent: "center" },
   infoContent: { flex: 1, gap: 2 },
   infoLabel: { fontSize: 12, color: palette.textMuted, fontWeight: "500" },
-  infoValue: { fontSize: 15, color: palette.textPrimary, fontWeight: "600" },
-  securityRow: { flexDirection: "row", alignItems: "center", paddingVertical: 16, gap: 14 },
+  infoValue: { fontSize: 14, color: palette.textPrimary, fontWeight: "600" },
+  securityRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
   securityRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
-  securityIconCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: palette.beige, alignItems: "center", justifyContent: "center" },
-  securityContent: { flex: 1, gap: 4 },
-  securityTitle: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
-  securitySubtitle: { fontSize: 13, color: palette.textMuted },
-  logoutButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, height: 52, borderRadius: 16, borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.card },
-  logoutButtonText: { fontSize: 15, fontWeight: "700", color: palette.danger },
+  securityIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.beige, alignItems: "center", justifyContent: "center" },
+  securityContent: { flex: 1, gap: 2 },
+  securityTitle: { fontSize: 14, fontWeight: "700", color: palette.textPrimary },
+  securitySubtitle: { fontSize: 12, color: palette.textMuted },
+  logoutButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, height: 48, borderRadius: 14, borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.card },
+  logoutButtonText: { fontSize: 14, fontWeight: "700", color: palette.danger },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalCard: { backgroundColor: palette.card, borderRadius: 24, padding: 24, width: "85%", maxWidth: 420 },
   modalTitle: { fontSize: 18, fontWeight: "800", color: palette.textPrimary, textAlign: "center", marginBottom: 20 },
@@ -395,10 +402,10 @@ const styles = StyleSheet.create({
   modalCancelText: { fontSize: 15, fontWeight: "600", color: palette.textSecondary },
   modalSaveButton: { flex: 1, height: 48, borderRadius: 14, backgroundColor: palette.primary, alignItems: "center", justifyContent: "center" },
   modalSaveText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
-  branchOptionList: { gap: 10 },
-  branchOptionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 14, backgroundColor: palette.beigeLight },
+  branchOptionList: { gap: 8 },
+  branchOptionRow: { flexDirection: "row", alignItems: "center", gap: 12, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 12, backgroundColor: palette.beigeLight },
   branchOptionRowActive: { borderColor: palette.primary, backgroundColor: palette.beige },
   branchOptionCopy: { flex: 1, gap: 3 },
-  branchOptionTitle: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
+  branchOptionTitle: { fontSize: 14, fontWeight: "700", color: palette.textPrimary },
   branchOptionSubtitle: { fontSize: 12, color: palette.textSecondary },
 });

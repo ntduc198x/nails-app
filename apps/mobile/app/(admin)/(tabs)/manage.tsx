@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
@@ -36,7 +36,7 @@ export default function AdminManageHubScreen() {
               <Feather name="shield" size={14} color={palette.accent} />
               <Text style={styles.heroBadgeText}>Admin only</Text>
             </View>
-            <Text style={styles.headerTitle}>Manage</Text>
+            <Text style={styles.headerTitle}>Quản lý</Text>
           </View>
           <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
         </View>
@@ -56,26 +56,13 @@ export default function AdminManageHubScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Khách hàng và báo cáo</Text>
-            <Text style={styles.sectionSubtitle}>Nhóm màn hình theo bộ ảnh mẫu CRM khách, Báo cáo và Sổ thuế.</Text>
+            <Text style={styles.sectionSubtitle}>Nhóm màn hình CRM khách, Báo cáo, Sổ thuế và Quản lý ca.</Text>
             <View style={styles.cardColumn}>
               {insightItems.map((item) => (
                 <ManageHubCard key={item.key} item={item} />
               ))}
             </View>
           </View>
-
-          <Pressable style={styles.secondaryCard} onPress={() => void router.push("/(admin)/shifts")}>
-            <View style={styles.secondaryIcon}>
-              <Feather name="clock" size={18} color={palette.accent} />
-            </View>
-            <View style={styles.secondaryCopy}>
-              <Text style={styles.secondaryTitle}>Quản lý ca làm</Text>
-              <Text style={styles.secondarySubtitle}>
-                OWNER có thể mở nhanh màn quản lý ca làm để kiểm tra lịch tuần và chấm công.
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={18} color="#A7988A" />
-          </Pressable>
         </ScrollView>
 
       <AdminBottomNavDock
@@ -148,46 +135,5 @@ const styles = StyleSheet.create({
   },
   cardColumn: {
     gap: 10,
-  },
-  secondaryCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: palette.border,
-    backgroundColor: palette.card,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    shadowColor: "#2A1E14",
-    shadowOpacity: 0.04,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 1,
-  },
-  secondaryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFF7F0",
-    borderWidth: 1,
-    borderColor: "#F1E7DC",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryCopy: {
-    flex: 1,
-    gap: 4,
-  },
-  secondaryTitle: {
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "800",
-    color: palette.text,
-  },
-  secondarySubtitle: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: palette.sub,
   },
 });

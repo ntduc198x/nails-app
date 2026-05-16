@@ -3,6 +3,7 @@ export type ManageScreenKey =
   | "customers"
   | "reports"
   | "tax-books"
+  | "shifts"
   | "services"
   | "resources"
   | "team";
@@ -13,18 +14,10 @@ export type ManageScreenItem = {
   subtitle: string;
   route: string;
   group: "insights" | "setup";
-  icon: "layout" | "user-plus" | "bar-chart-2" | "book-open" | "package" | "grid" | "users";
+  icon: "layout" | "user-plus" | "bar-chart-2" | "book-open" | "clock" | "package" | "grid" | "users";
 };
 
 export const MANAGE_SCREEN_ITEMS: ManageScreenItem[] = [
-  {
-    key: "content",
-    title: "Landing Feed",
-    subtitle: "Home-feed, explore và nội dung đang hiển thị cho customer.",
-    route: "/(admin)/booking",
-    group: "setup",
-    icon: "layout",
-  },
   {
     key: "customers",
     title: "CRM khách",
@@ -48,6 +41,14 @@ export const MANAGE_SCREEN_ITEMS: ManageScreenItem[] = [
     route: "/(admin)/manage-tax-books",
     group: "insights",
     icon: "book-open",
+  },
+  {
+    key: "shifts",
+    title: "Quản lý ca",
+    subtitle: "Lịch tuần, chấm công và điều chỉnh ca làm cho nhân sự.",
+    route: "/(admin)/shifts",
+    group: "insights",
+    icon: "clock",
   },
   {
     key: "services",

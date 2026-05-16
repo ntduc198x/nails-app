@@ -17,6 +17,7 @@ import {
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
 const palette = {
   border: "#EADFD3",
@@ -56,9 +57,15 @@ function typeColor(type: MobileAdminResourceType) {
 }
 
 function Input(props: React.ComponentProps<typeof TextInput>) {
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
   return (
     <TextInput
       {...props}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        props.onFocus?.(event);
+      }}
       placeholderTextColor="#B3A79B"
       style={[styles.input, props.style]}
     />
@@ -335,6 +342,8 @@ export default function AdminManageResourcesScreen() {
       subtitle="Quản lý ghế, bàn và tài nguyên trong cửa hàng."
       currentKey="resources"
       group="setup"
+      showBackButton={false}
+      hiddenTabKeys={["content"]}
     >
       <View style={styles.infoCard}>
         <View style={styles.infoHeader}>

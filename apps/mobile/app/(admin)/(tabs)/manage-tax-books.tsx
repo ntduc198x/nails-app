@@ -177,6 +177,7 @@ export default function AdminManageTaxBooksScreen() {
       subtitle="Mẫu S1a-HKD, kỳ kê khai và xuất file phục vụ in hoặc nộp thuế."
       currentKey="tax-books"
       group="insights"
+      showBackButton={false}
     >
       <View style={styles.bookPill}>
         <Text style={styles.bookPillText}>{selectedBookLabel}</Text>

@@ -21,6 +21,7 @@ import {
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { uploadPickedServiceImage } from "@/src/features/admin/services-data";
 
 type ServiceFormState = {
@@ -87,10 +88,18 @@ function Input({
   multiline = false,
   ...props
 }: React.ComponentProps<typeof TextInput> & { multiline?: boolean }) {
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
   return (
     <TextInput
       {...props}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        props.onFocus?.(event);
+      }}
       multiline={multiline}
+      scrollEnabled={multiline ? false : undefined}
+      textAlignVertical={multiline ? "top" : "center"}
       placeholderTextColor="#B3A79B"
       style={[styles.input, multiline ? styles.textarea : null, props.style]}
     />
@@ -610,6 +619,8 @@ export default function AdminManageServicesScreen() {
       subtitle="Chuẩn hóa danh mục dịch vụ, lookbook và thùng rác theo module web."
       currentKey="services"
       group="setup"
+      showBackButton={false}
+      hiddenTabKeys={["content"]}
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>

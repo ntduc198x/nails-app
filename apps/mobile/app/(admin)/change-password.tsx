@@ -1,10 +1,11 @@
-import Feather from "@expo/vector-icons/Feather";
+﻿import Feather from "@expo/vector-icons/Feather";
+import { useRouter } from "expo-router";
 import { useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { router } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { AdminHeaderActions, getAdminBottomBarPadding, getAdminHeaderTopPadding } from "@/src/features/admin/ui";
+import { dismissToHref } from "@/src/features/admin/navigation";
+import { AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminBottomBarPadding, useKeyboardVisible } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const TOKENS = {
@@ -26,14 +27,19 @@ type PasswordFormState = {
 };
 
 export default function AdminChangePasswordScreen() {
-  const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { user } = useSession();
+  const keyboardVisible = useKeyboardVisible();
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>({
     currentPassword: "",
     nextPassword: "",
     confirmPassword: "",
   });
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  function goBackToSettings() {
+    dismissToHref(router, "/(admin)/settings");
+  }
 
   async function handlePasswordSubmit() {
     if (!mobileSupabase) {
@@ -90,7 +96,7 @@ export default function AdminChangePasswordScreen() {
 Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đổi thành công.", [
           {
             text: "OK",
-            onPress: () => router.replace("/(admin)/settings"),
+            onPress: goBackToSettings,
           },
         ]);
     } catch (error) {
@@ -106,27 +112,42 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        enabled={Platform.OS === "android"}
+        behavior="height"
         keyboardVerticalOffset={8}
         style={styles.screen}
       >
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingTop: getAdminHeaderTopPadding(insets.top), paddingBottom: 36 + getAdminBottomBarPadding(insets.bottom) }]}
+        <AdminKeyboardAwareScrollView
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingTop: 8,
+              paddingBottom:
+                36 +
+                getAdminBottomBarPadding(0) +
+                (keyboardVisible ? ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE : 0),
+            },
+          ]}
           contentInsetAdjustmentBehavior="always"
-          keyboardDismissMode="on-drag"
+          onScrollBeginDrag={() => Keyboard.dismiss()}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
         >
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
-            <Pressable hitSlop={10} onPress={() => router.replace("/(admin)/settings")} style={styles.headerBackButton}>
-              <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
-            </Pressable>
-            <AdminHeaderActions onSettingsPress={() => void router.replace("/(admin)/settings")} />
+            <View style={styles.headerTitleRow}>
+              <Pressable hitSlop={10} onPress={goBackToSettings} style={styles.headerBackButton}>
+                <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
+              </Pressable>
+              <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
+            </View>
+            <AdminHeaderActions onSettingsPress={goBackToSettings} />
           </View>
 
           <View style={styles.headerCopy}>
-            <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
+            
             <Text style={styles.headerSubtitle}>
               Nhập mật khẩu cũ và mật khẩu mới để cập nhật trực tiếp trong ứng dụng.
             </Text>
@@ -156,7 +177,7 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
           />
 
           <View style={styles.passwordActions}>
-            <Pressable onPress={() => router.replace("/(admin)/settings")} style={styles.secondaryButton}>
+            <Pressable onPress={goBackToSettings} style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>Hủy</Text>
             </Pressable>
 
@@ -167,7 +188,7 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
             </Pressable>
           </View>
         </View>
-        </ScrollView>
+        </AdminKeyboardAwareScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -189,7 +210,7 @@ function PasswordInputField({
       <Text style={styles.passwordFieldLabel}>{label}</Text>
       <View style={styles.passwordInputShell}>
         <Feather color={TOKENS.iconMuted} name={icon} size={18} />
-        <TextInput
+        <AdminKeyboardTextInput
           onChangeText={onChangeText}
           placeholderTextColor={TOKENS.textMuted}
           secureTextEntry
@@ -211,17 +232,23 @@ const styles = StyleSheet.create({
     backgroundColor: TOKENS.screen,
   },
   content: {
-    gap: 22,
-    paddingHorizontal: 24,
+    gap: 16,
+    paddingHorizontal: 20,
   },
   header: {
-    gap: 14,
+    gap: 10,
   },
   headerTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
+  },
+  headerTitleRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   headerBackButton: {
     width: 28,
@@ -231,28 +258,28 @@ const styles = StyleSheet.create({
     marginLeft: -2,
   },
   headerCopy: {
-    gap: 10,
+    gap: 6,
   },
   headerTitle: {
     color: TOKENS.textPrimary,
-    fontSize: 36,
-    lineHeight: 40,
+    fontSize: 24,
+    lineHeight: 28,
     fontWeight: "800",
-    letterSpacing: -0.9,
+    letterSpacing: -0.4,
   },
   headerSubtitle: {
     color: TOKENS.textSecondary,
-    fontSize: 15,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 21,
     maxWidth: "96%",
   },
   card: {
     backgroundColor: TOKENS.card,
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: TOKENS.border,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     shadowColor: TOKENS.shadow,
     shadowOpacity: 1,
     shadowRadius: 16,
@@ -261,38 +288,38 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     color: TOKENS.textPrimary,
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: "800",
-    marginBottom: 18,
+    marginBottom: 14,
     letterSpacing: -0.4,
   },
   passwordFieldGroup: {
-    gap: 8,
-    marginBottom: 18,
+    gap: 6,
+    marginBottom: 14,
   },
   passwordFieldLabel: {
     color: TOKENS.textPrimary,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
   },
   passwordInputShell: {
-    minHeight: 58,
-    borderRadius: 16,
+    minHeight: 52,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: TOKENS.border,
     backgroundColor: TOKENS.card,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 10,
   },
   passwordInput: {
     flex: 1,
     color: TOKENS.textPrimary,
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
     paddingVertical: 0,
   },
   passwordActions: {
@@ -302,8 +329,8 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     flex: 1,
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 50,
+    borderRadius: 14,
     backgroundColor: TOKENS.primaryBrown,
     alignItems: "center",
     justifyContent: "center",
@@ -311,13 +338,13 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: {
     color: "#FFFFFF",
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "800",
   },
   secondaryButton: {
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 50,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: TOKENS.border,
     backgroundColor: TOKENS.card,
@@ -327,8 +354,9 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: TOKENS.textPrimary,
-    fontSize: 16,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: "700",
   },
 });
+

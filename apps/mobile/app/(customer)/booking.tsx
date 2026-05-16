@@ -194,6 +194,7 @@ export default function BookingScreen() {
           <TextInput
             multiline
             numberOfLines={4}
+            scrollEnabled={false}
             placeholder="Màu sắc, nail art, lưu ý đặc biệt..."
             placeholderTextColor={colors.textMuted}
             style={[styles.input, styles.noteInput]}

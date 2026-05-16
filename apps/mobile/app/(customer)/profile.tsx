@@ -18,8 +18,8 @@ import { useCustomerHistory } from "@/src/hooks/use-customer-history";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
 import { useLookbookServices } from "@/src/hooks/use-lookbook-services";
 import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
-import { upsertAndVerifyProfile } from "@/src/lib/profile-upsert";
-import { readProfileCache, writeProfileCache } from "@/src/lib/profile-cache";
+import { upsertAndVerifyCustomerProfile } from "@/src/lib/customer-profile";
+import { readCustomerProfileCache, writeCustomerProfileCache } from "@/src/lib/customer-profile-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
@@ -77,7 +77,7 @@ export default function ProfileScreen() {
   const { isBusy, signOut, user } = useSession();
   const { favoriteIds, refresh: refreshFavorites } = useCustomerFavorites();
   const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshHistory } =
-    useCustomerHistory(8);
+    useCustomerHistory(8, { revalidateOnMount: false });
   const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership();
   const { refresh: refreshLookbook, services } = useLookbookServices(FALLBACK_SERVICES);
   const [activeTab, setActiveTab] = useState<TabKey>("history");
@@ -163,7 +163,7 @@ export default function ProfileScreen() {
   }, [eligibleVisitsMinSpend, historyItems, offers.length]);
 
   const loadProfile = useCallback(async () => {
-    const cached = user?.id ? await readProfileCache(user.id) : null;
+    const cached = user?.id ? await readCustomerProfileCache(user.id) : null;
     if (cached?.avatarUrl) {
       setAvatarUri(cached.avatarUrl);
       void prefetchCustomerImagesForIntent([cached.avatarUrl], "avatar");
@@ -239,7 +239,7 @@ export default function ProfileScreen() {
 
       setForm(newForm);
 
-      await writeProfileCache(user.id, {
+      await writeCustomerProfileCache(user.id, {
         displayName: newForm.name,
         birthDate: newForm.birthDate,
         phone: newForm.phone,
@@ -319,7 +319,7 @@ export default function ProfileScreen() {
         address: form.address.trim(),
       };
 
-      const verifiedProfile = await upsertAndVerifyProfile({
+      const verifiedProfile = await upsertAndVerifyCustomerProfile({
         userId: user.id,
         displayName: trimmedForm.name,
         email: trimmedForm.email,
@@ -351,7 +351,7 @@ export default function ProfileScreen() {
 
       setForm(newForm);
 
-      await writeProfileCache(user.id, {
+      await writeCustomerProfileCache(user.id, {
         displayName: newForm.name,
         birthDate: newForm.birthDate,
         phone: newForm.phone,
@@ -456,7 +456,7 @@ export default function ProfileScreen() {
       void prefetchCustomerImagesForIntent([nextAvatarUrl], "avatar");
 
       if (user?.id) {
-        await writeProfileCache(user.id, {
+        await writeCustomerProfileCache(user.id, {
           displayName: form.name,
           birthDate: form.birthDate,
           phone: form.phone,
@@ -751,6 +751,7 @@ function EditableField({
         editable={editable}
         keyboardType={keyboardType}
         multiline={multiline}
+        scrollEnabled={multiline ? false : undefined}
         onChangeText={onChangeText}
         placeholder={label}
         placeholderTextColor="#9c8f84"

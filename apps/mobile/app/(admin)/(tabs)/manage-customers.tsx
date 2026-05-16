@@ -23,6 +23,7 @@ import {
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
 const palette = {
   border: "#EADFD3",
@@ -111,9 +112,15 @@ function sourceLabel(source: string | null) {
 }
 
 function Input(props: React.ComponentProps<typeof TextInput>) {
+  const handleFieldFocus = useAdminKeyboardFieldFocus();
+
   return (
     <TextInput
       {...props}
+      onFocus={(event) => {
+        handleFieldFocus(event);
+        props.onFocus?.(event);
+      }}
       placeholderTextColor="#B5A99D"
       style={[styles.input, props.style]}
     />
@@ -384,6 +391,7 @@ export default function AdminManageCustomersScreen() {
       subtitle="Theo dõi khách mới, khách quay lại, tệp có nguy cơ rời bỏ và khách VIP."
       currentKey="customers"
       group="insights"
+      showBackButton={false}
     >
       <View style={styles.totalCard}>
         <View style={styles.totalCardLeft}>

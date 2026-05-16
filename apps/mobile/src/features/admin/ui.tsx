@@ -316,7 +316,7 @@ export function AdminScreen({
             <>
               <Text style={styles.eyebrow}>Week 4 Admin Core Flows</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
-              <Text style={styles.date}>HÃ´m nay: {formatViDate(new Date())}</Text>
+              <Text style={styles.date}>Hôm nay: {formatViDate(new Date())}</Text>
               <Text style={styles.date}>Role: {role ?? "-"}</Text>
               <Text style={styles.date}>User: {userEmail ?? "-"}</Text>
             </>
@@ -457,7 +457,7 @@ export function AdminNavLinks({
       <View style={styles.inlineWrap}>
         {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
           const isProfile = key === "profile";
-          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quáº£n lÃ½" : label;
+          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quản lý" : label;
           const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
 
           return (
@@ -506,7 +506,7 @@ export function AdminBottomNav({
       {visibleItems.map(({ key, label, icon }) => {
         const isProfile = key === "profile";
         const active = current === key;
-        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quáº£n lÃ½" : label;
+        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quản lý" : label;
         const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
         const targetHref = isProfile ? (isOwnerRole(role as AppRole | null | undefined) ? "/(admin)/manage" : "/(admin)/shifts") : null;
         return (
@@ -619,9 +619,9 @@ export function AdminHeaderActions({
           <Pressable style={styles.notificationsSheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.notificationsHeader}>
               <View style={styles.notificationsHeaderCopy}>
-                <Text style={styles.notificationsTitle}>ThÃ´ng bÃ¡o</Text>
+                <Text style={styles.notificationsTitle}>Thông báo</Text>
                 <Text style={styles.notificationsSubtitle}>
-                  {unreadCount > 0 ? `${unreadCount} má»¥c cáº§n chÃº Ã½` : "ChÆ°a cÃ³ má»¥c má»›i"}
+                  {unreadCount > 0 ? `${unreadCount} mục cần chú ý` : "Chưa có mục mới"}
                 </Text>
               </View>
               <Pressable style={styles.notificationsClose} onPress={() => setNotificationsOpen(false)}>
@@ -635,7 +635,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("action")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "action" ? styles.notificationsTabTextActive : null]}>
-                  Cáº§n xá»­ lÃ½{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
+                  Cần xử lý{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
                 </Text>
               </Pressable>
               <Pressable
@@ -643,7 +643,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("feed")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "feed" ? styles.notificationsTabTextActive : null]}>
-                  DÃ²ng sá»± kiá»‡n{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
+                  Dòng sự kiện{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
                 </Text>
               </Pressable>
             </View>
@@ -666,7 +666,7 @@ export function AdminHeaderActions({
                       </View>
                       {item.actionRequired ? (
                         <View style={styles.notificationActionBadge}>
-                          <Text style={styles.notificationActionBadgeText}>Cáº§n xá»­ lÃ½</Text>
+                          <Text style={styles.notificationActionBadgeText}>Cần xử lý</Text>
                         </View>
                       ) : null}
                     </View>
@@ -684,8 +684,8 @@ export function AdminHeaderActions({
                 <View style={styles.notificationsEmpty}>
                   <Text style={styles.notificationsEmptyText}>
                     {notificationTab === "action"
-                      ? "Hiá»‡n khÃ´ng cÃ³ má»¥c nÃ o cáº§n xá»­ lÃ½."
-                      : "ChÆ°a cÃ³ sá»± kiá»‡n nÃ o gáº§n Ä‘Ã¢y."}
+                      ? "Hiện không có mục nào cần xử lý."
+                      : "Chưa có sự kiện nào gần đây."}
                   </Text>
                 </View>
               )}

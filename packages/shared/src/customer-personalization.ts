@@ -1116,8 +1116,8 @@ export async function listCustomerHistory(
     }
   }
 
-  return bookingRows
-    .map((row) => {
+  const historyItems = bookingRows
+    .map((row): CustomerHistoryItem | null => {
       const bookingRequestId = typeof row.id === "string" ? row.id : null;
       const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
       const occurredAt = typeof row.requested_start_at === "string" ? row.requested_start_at : null;
@@ -1164,7 +1164,9 @@ export async function listCustomerHistory(
         endAt: typeof appointment?.end_at === "string" ? appointment.end_at : requestedEndAt,
       } satisfies CustomerHistoryItem;
     })
-    .filter((item): item is CustomerHistoryItem => Boolean(item))
+    .filter((item): item is CustomerHistoryItem => item !== null);
+
+  return historyItems
     .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
     .slice(0, options.limit ?? 24);
 }

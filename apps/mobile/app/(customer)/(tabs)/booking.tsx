@@ -8,6 +8,7 @@ import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
 import { useGuestBooking } from "@/src/hooks/use-guest-booking";
+import { readCustomerProfileCache } from "@/src/lib/customer-profile-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -42,7 +43,16 @@ export default function BookingScreen() {
     let active = true;
 
     async function hydratePhoneFromProfile() {
-      if (!mobileSupabase || !user?.id) return;
+      if (!user?.id) return;
+
+      const cachedProfile = await readCustomerProfileCache(user.id);
+      const cachedPhone = typeof cachedProfile?.phone === "string" ? cachedProfile.phone.trim() : "";
+      if (active && cachedPhone) {
+        updateValue("customerPhone", cachedPhone);
+        return;
+      }
+
+      if (!mobileSupabase) return;
 
       const {
         data: { user: authUser },

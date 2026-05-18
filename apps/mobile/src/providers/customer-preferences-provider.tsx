@@ -74,7 +74,6 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
               .eq("id", existingPrefRes.data.id);
           } else {
             await mobileSupabase.from("customer_notification_preferences").insert({
-              user_id: user.id,
               customer_id: accountRes.data.customer_id,
               org_id: accountRes.data.org_id,
               dark_mode_enabled: next.colorScheme === "dark",
@@ -107,7 +106,6 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
               .eq("id", existingLocalePref.data.id);
           } else {
             await mobileSupabase.from("customer_notification_preferences").insert({
-              user_id: user.id,
               customer_id: accountRes.data.customer_id,
               org_id: accountRes.data.org_id,
               language: next.locale,

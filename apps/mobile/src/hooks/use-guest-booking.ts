@@ -15,6 +15,7 @@ import {
   prewarmCustomerUpcomingBookingsCache,
   writeOptimisticBookingIntoUpcomingBookingsCache,
 } from "@/src/lib/customer-upcoming-bookings-cache";
+import { refreshCustomerBookingTimeline } from "@/src/lib/customer-booking-timeline-store";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -26,6 +27,9 @@ export type GuestBookingFormValues = {
   note: string;
   selectedDate: string;
   selectedTime: string;
+  appliedOfferId: string;
+  appliedOfferClaimId: string;
+  appliedOfferCode: string;
 };
 
 type GuestBookingFieldErrors = Partial<Record<keyof GuestBookingFormValues, string>>;
@@ -71,6 +75,45 @@ function toIsoDateTime(dateValue: string, timeValue: string) {
   const [year, month, day] = dateValue.split("-").map(Number);
   const [hours, minutes] = timeValue.split(":").map(Number);
   return new Date(year, (month ?? 1) - 1, day ?? 1, hours ?? 0, minutes ?? 0, 0, 0).toISOString();
+}
+
+function normalizeBookingErrorMessage(message: string) {
+  const normalized = message.trim();
+  const lower = normalized.toLowerCase();
+
+  if (
+    lower.includes("customer_offer_claims") ||
+    lower.includes("profiles") ||
+    lower.includes("user_id_fkey")
+  ) {
+    return "Ưu đãi này chưa sẵn sàng để dùng trên tài khoản của bạn. Anh/chị vui lòng mở Hồ sơ kiểm tra lại số điện thoại hoặc chọn ưu đãi khác, bên em sẽ hỗ trợ ngay nếu cần.";
+  }
+
+  if (lower.includes("offer_already_used_or_reserved")) {
+    return "Ưu đãi này vừa được giữ chỗ hoặc đã được sử dụng rồi. Anh/chị vui lòng chọn ưu đãi khác giúp em nhé.";
+  }
+
+  if (lower.includes("offer_not_available")) {
+    return "Ưu đãi này hiện không còn khả dụng nữa. Anh/chị vui lòng chọn ưu đãi khác giúp em nhé.";
+  }
+
+  if (lower.includes("offer_requires_linked_customer")) {
+    return "Tài khoản của anh/chị chưa liên kết đủ thông tin thành viên để dùng ưu đãi này. Vui lòng kiểm tra lại hồ sơ trước khi đặt lịch.";
+  }
+
+  if (lower.includes("customer_name_required")) {
+    return "Vui lòng nhập tên khách hàng.";
+  }
+
+  if (lower.includes("customer_phone_required")) {
+    return "Vui lòng nhập số điện thoại.";
+  }
+
+  if (lower.includes("requested_start_required") || lower.includes("invalid_time_range")) {
+    return "Vui lòng chọn lại ngày giờ đặt lịch hợp lệ.";
+  }
+
+  return normalized || "Không thể gửi yêu cầu đặt lịch lúc này. Anh/chị vui lòng thử lại sau ít phút.";
 }
 
 function inferFieldErrors(message: string): GuestBookingFieldErrors {
@@ -144,6 +187,9 @@ export function useGuestBooking() {
     note: "",
     selectedDate: dateOptions[0]?.value ?? "",
     selectedTime: DEFAULT_TIME_SLOTS[0] ?? "",
+    appliedOfferId: "",
+    appliedOfferClaimId: "",
+    appliedOfferCode: "",
   });
   const [fieldErrors, setFieldErrors] = useState<GuestBookingFieldErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -165,6 +211,9 @@ export function useGuestBooking() {
       note: "",
       selectedDate: dateOptions[0]?.value ?? "",
       selectedTime: DEFAULT_TIME_SLOTS[0] ?? "",
+      appliedOfferId: "",
+      appliedOfferClaimId: "",
+      appliedOfferCode: "",
     });
     setFieldErrors({});
     setSubmitError(null);
@@ -274,6 +323,9 @@ export function useGuestBooking() {
         note: values.note || undefined,
         requestedStartAt: requestedStartAtIso,
         source: "mobile_guest",
+        appliedOfferId: values.appliedOfferId || undefined,
+        appliedOfferClaimId: values.appliedOfferClaimId || undefined,
+        appliedOfferCode: values.appliedOfferCode || undefined,
       };
 
       const parsed = publicBookingInputSchema.safeParse(payload);
@@ -300,6 +352,8 @@ export function useGuestBooking() {
           });
 
       if (user?.id && result.bookingRequestId) {
+        const hasAppliedOffer = Boolean(parsed.data.appliedOfferId || parsed.data.appliedOfferClaimId || parsed.data.appliedOfferCode);
+
         await writeOptimisticBookingIntoCustomerHistoryCache(user.id, {
           bookingRequestId: result.bookingRequestId,
           requestedService: parsed.data.requestedService ?? "",
@@ -313,19 +367,42 @@ export function useGuestBooking() {
           preferredStaff: parsed.data.preferredStaff ?? null,
         });
 
+        await refreshCustomerBookingTimeline(
+          {
+            userId: user.id,
+            historyLimit: 8,
+            upcomingLimit: 6,
+          },
+          { silent: true },
+        ).catch(() => {});
+
         if (mobileSupabase) {
           setTimeout(() => {
-            void prewarmCustomerHistoryCache(mobileSupabase, user.id).catch(() => {});
-            void prewarmCustomerUpcomingBookingsCache(mobileSupabase, user.id).catch(() => {});
-          }, 350);
+            void (async () => {
+              await Promise.all([
+                prewarmCustomerHistoryCache(mobileSupabase, user.id),
+                prewarmCustomerUpcomingBookingsCache(mobileSupabase, user.id),
+              ]).catch(() => {});
+
+              await refreshCustomerBookingTimeline(
+                {
+                  userId: user.id,
+                  historyLimit: 8,
+                  upcomingLimit: 6,
+                },
+                { silent: true },
+              ).catch(() => {});
+            })();
+          }, hasAppliedOffer ? 0 : 350);
         }
       }
 
       setSuccessResult(result);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Gui booking request that bai.";
-      setFieldErrors(inferFieldErrors(message));
-      setSubmitError(message);
+      const rawMessage = error instanceof Error ? error.message : "Gui booking request that bai.";
+      const friendlyMessage = normalizeBookingErrorMessage(rawMessage);
+      setFieldErrors(inferFieldErrors(friendlyMessage));
+      setSubmitError(friendlyMessage);
     } finally {
       setIsSubmitting(false);
     }

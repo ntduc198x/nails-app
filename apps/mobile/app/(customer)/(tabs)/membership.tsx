@@ -230,6 +230,25 @@ function getOfferRedeemLabel(offer: { metadata?: Record<string, unknown> }) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function isOfferDisabled(offer: { claimStatus?: string | null }) {
+  return offer.claimStatus === "RESERVED" || offer.claimStatus === "REDEEMED" || offer.claimStatus === "EXPIRED";
+}
+
+function getOfferStatusLabel(offer: { claimStatus?: string | null }) {
+  switch (offer.claimStatus) {
+    case "RESERVED":
+      return "Đang giữ chỗ";
+    case "REDEEMED":
+      return "Đã dùng";
+    case "EXPIRED":
+      return "Hết hạn";
+    case "CANCELLED":
+      return "Đã hủy";
+    default:
+      return "Sẵn sàng dùng";
+  }
+}
+
 function getOfferBookingCtaLabel(offer: { metadata?: Record<string, unknown> }) {
   const value = offer.metadata?.bookingCtaLabel;
   return typeof value === "string" && value.trim() ? value.trim() : "Dùng khi đặt lịch";
@@ -477,20 +496,26 @@ export default function MembershipScreen() {
               const offerCode = getOfferCode(offer);
               const offerUsageHint = getOfferUsageHint(offer);
               const redeemLabel = getOfferRedeemLabel(offer);
+              const disabled = isOfferDisabled(offer);
+              const offerStatusLabel = getOfferStatusLabel(offer);
 
               return (
                 <Pressable
                   key={offer.id}
                   onPress={() =>
-                    offerCode
-                      ? router.push({
-                          pathname: "/(customer)/booking",
-                          params: {
-                            offerCode,
-                            offerTitle: offer.title,
-                          },
-                        })
-                      : setShowUsageModal(true)
+                    disabled
+                      ? undefined
+                      : offerCode
+                        ? router.push({
+                            pathname: "/(customer)/booking",
+                            params: {
+                              offerId: offer.id,
+                              offerClaimId: offer.claimId ?? undefined,
+                              offerCode,
+                              offerTitle: offer.title,
+                            },
+                          })
+                        : setShowUsageModal(true)
                   }
                 >
                   <SurfaceCard style={styles.offerCard}>
@@ -506,6 +531,10 @@ export default function MembershipScreen() {
                           <Feather color={colors.accentWarm} name="award" size={12} />
                           <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer)}</Text>
                         </View>
+                        <View style={styles.offerTierChip}>
+                          <Feather color={disabled ? colors.textSoft : colors.text} name={disabled ? "lock" : "check-circle"} size={12} />
+                          <Text style={styles.offerTierChipText}>{offerStatusLabel}</Text>
+                        </View>
                       </View>
 
                       <Feather color={colors.textSoft} name="chevron-right" size={18} />
@@ -515,14 +544,19 @@ export default function MembershipScreen() {
                       {offerCode ? (
                         <Pressable
                           style={styles.offerCodeBox}
+                          disabled={disabled}
                           onPress={() =>
-                            router.push({
-                              pathname: "/(customer)/booking",
-                              params: {
-                                offerCode,
-                                offerTitle: offer.title,
-                              },
-                            })
+                            disabled
+                              ? undefined
+                              : router.push({
+                                  pathname: "/(customer)/booking",
+                                  params: {
+                                    offerId: offer.id,
+                                    offerClaimId: offer.claimId ?? undefined,
+                                    offerCode,
+                                    offerTitle: offer.title,
+                                  },
+                                })
                           }
                         >
                           <Text style={styles.offerMetaLabel}>Mã ưu đãi</Text>

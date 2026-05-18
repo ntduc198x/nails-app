@@ -9,6 +9,9 @@ export const publicBookingInputSchema = z.object({
   requestedStartAt: z.string().trim().min(1, "Vui lòng chọn thời gian bắt đầu."),
   requestedEndAt: z.string().trim().optional(),
   source: z.string().trim().optional(),
+  appliedOfferId: z.string().uuid().optional(),
+  appliedOfferClaimId: z.string().uuid().optional(),
+  appliedOfferCode: z.string().trim().optional(),
 });
 
 export type PublicBookingInput = z.infer<typeof publicBookingInputSchema>;

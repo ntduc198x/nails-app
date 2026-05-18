@@ -15,7 +15,7 @@ import { useSession } from "@/src/providers/session-provider";
 const { colors, radius, spacing } = premiumTheme;
 
 export default function BookingScreen() {
-  const params = useLocalSearchParams<{ service?: string; offerCode?: string; offerTitle?: string }>();
+  const params = useLocalSearchParams<{ service?: string; offerId?: string; offerClaimId?: string; offerCode?: string; offerTitle?: string }>();
   const strings = useCustomerStrings();
   const { user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
@@ -106,6 +106,16 @@ export default function BookingScreen() {
   }, [successResult?.bookingRequestId, syncTimelineFromCache]);
 
   useEffect(() => {
+    if (typeof params.offerId === "string" && params.offerId && values.appliedOfferId !== params.offerId) {
+      updateValue("appliedOfferId", params.offerId);
+    }
+    if (typeof params.offerClaimId === "string" && params.offerClaimId && values.appliedOfferClaimId !== params.offerClaimId) {
+      updateValue("appliedOfferClaimId", params.offerClaimId);
+    }
+    if (typeof params.offerCode === "string" && params.offerCode && values.appliedOfferCode !== params.offerCode) {
+      updateValue("appliedOfferCode", params.offerCode);
+    }
+
     if (!params.offerCode || typeof params.offerCode !== "string") return;
     if (values.note.includes(params.offerCode)) return;
 
@@ -117,7 +127,7 @@ export default function BookingScreen() {
       .join("\n");
 
     updateValue("note", nextOfferNote);
-  }, [params.offerCode, params.offerTitle, updateValue, values.note]);
+  }, [params.offerClaimId, params.offerCode, params.offerId, params.offerTitle, updateValue, values.appliedOfferClaimId, values.appliedOfferCode, values.appliedOfferId, values.note]);
 
   return (
     <CustomerScreen

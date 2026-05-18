@@ -143,6 +143,9 @@ export async function createPublicBookingRequestForMobile(
     p_requested_start_at: payload.requestedStartAt,
     p_requested_end_at: payload.requestedEndAt ?? null,
     p_source: payload.source ?? "mobile_guest",
+    p_applied_offer_id: payload.appliedOfferId ?? null,
+    p_applied_offer_claim_id: payload.appliedOfferClaimId ?? null,
+    p_applied_offer_code: payload.appliedOfferCode ?? null,
   });
 
   if (error) {

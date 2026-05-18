@@ -111,7 +111,15 @@ export type CustomerMembershipTier = {
   isActive: boolean;
 };
 
-export type CustomerMembershipOffer = MarketingOfferCard;
+export type CustomerMembershipOfferClaimStatus = "AVAILABLE" | "RESERVED" | "REDEEMED" | "EXPIRED" | "CANCELLED";
+
+export type CustomerMembershipOffer = MarketingOfferCard & {
+  claimId: string | null;
+  claimStatus: CustomerMembershipOfferClaimStatus;
+  claimedAt: string | null;
+  usedAt: string | null;
+  linkedBookingRequestId: string | null;
+};
 
 export type CustomerFavoriteService = {
   id: string;
@@ -384,7 +392,23 @@ function normalizeContentPosts(rows: Array<Record<string, unknown>>): CustomerCo
   }));
 }
 
-function normalizeOffers(rows: OfferRow[]): MarketingOfferCard[] {
+function normalizeOfferClaimStatus(value: string | null | undefined): CustomerMembershipOfferClaimStatus {
+  switch ((value || "").trim().toUpperCase()) {
+    case "CLAIMED":
+      return "RESERVED";
+    case "USED":
+      return "REDEEMED";
+    case "EXPIRED":
+      return "EXPIRED";
+    case "CANCELLED":
+      return "CANCELLED";
+    case "SAVED":
+    default:
+      return "AVAILABLE";
+  }
+}
+
+function normalizeOffers(rows: OfferRow[]): CustomerMembershipOffer[] {
   return rows.map((row, index) => ({
     id: String(row.id ?? `offer-${index}`),
     title: String(row.title ?? "Uu dai moi"),
@@ -394,6 +418,11 @@ function normalizeOffers(rows: OfferRow[]): MarketingOfferCard[] {
     startsAt: typeof row.starts_at === "string" ? row.starts_at : null,
     endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
     metadata: asRecord(row.offer_metadata),
+    claimId: null,
+    claimStatus: "AVAILABLE",
+    claimedAt: null,
+    usedAt: null,
+    linkedBookingRequestId: null,
   }));
 }
 
@@ -421,8 +450,38 @@ function getActiveOfferPackageTier(currentTierCode?: string | null) {
   return (MEMBERSHIP_OFFER_PACKAGE_ORDER as readonly string[]).includes(normalizedTierCode) ? normalizedTierCode : "REGULAR";
 }
 
+function mergeOfferClaims(
+  offers: CustomerMembershipOffer[],
+  claimRows: Array<Record<string, unknown>>,
+  nowMs: number,
+): CustomerMembershipOffer[] {
+  const claimMap = new Map<string, Record<string, unknown>>();
+  for (const row of claimRows) {
+    const offerId = typeof row.offer_id === "string" ? row.offer_id : "";
+    if (!offerId || claimMap.has(offerId)) continue;
+    claimMap.set(offerId, row);
+  }
+
+  return offers.map((offer) => {
+    const claim = claimMap.get(offer.id);
+    const endsAtMs = offer.endsAt ? Date.parse(offer.endsAt) : Number.NaN;
+    const isExpiredByTime = Number.isFinite(endsAtMs) && endsAtMs < nowMs;
+    const rawStatus = typeof claim?.status === "string" ? claim.status : null;
+    const normalizedStatus = isExpiredByTime ? "EXPIRED" : normalizeOfferClaimStatus(rawStatus);
+
+    return {
+      ...offer,
+      claimId: typeof claim?.id === "string" ? claim.id : null,
+      claimStatus: normalizedStatus,
+      claimedAt: typeof claim?.claimed_at === "string" ? claim.claimed_at : null,
+      usedAt: typeof claim?.used_at === "string" ? claim.used_at : null,
+      linkedBookingRequestId: typeof claim?.booking_request_id === "string" ? claim.booking_request_id : null,
+    };
+  });
+}
+
 function filterOffersForTier(
-  offers: MarketingOfferCard[],
+  offers: CustomerMembershipOffer[],
   nowMs: number,
   currentTierCode?: string | null,
   limit?: number,
@@ -824,7 +883,7 @@ export async function listCustomerMembershipSummary(
   }
 
   const nowMs = Date.now();
-  const [membershipResult, tiersResult, offersResult, ticketsResult] = await Promise.all([
+  const [membershipResult, tiersResult, offersResult, ticketsResult, offerClaimsResult] = await Promise.all([
     client
       .from("customer_memberships")
       .select(
@@ -856,6 +915,13 @@ export async function listCustomerMembershipSummary(
       .eq("status", "CLOSED")
       .order("created_at", { ascending: false })
       .limit(250),
+    client
+      .from("customer_offer_claims")
+      .select("id,offer_id,status,claimed_at,used_at,booking_request_id")
+      .eq("org_id", context.orgId)
+      .eq("customer_id", context.customerId)
+      .order("created_at", { ascending: false })
+      .limit(50),
   ]);
 
   if (membershipResult.error) {
@@ -872,6 +938,10 @@ export async function listCustomerMembershipSummary(
 
   if (ticketsResult.error) {
     throw ticketsResult.error;
+  }
+
+  if (offerClaimsResult.error) {
+    throw offerClaimsResult.error;
   }
 
   const tiers = ((tiersResult.data ?? []) as Array<Record<string, unknown>>).map(normalizeTier);
@@ -928,7 +998,11 @@ export async function listCustomerMembershipSummary(
     isTopTier: progressMetrics.isTopTier,
     perks: currentTier?.perks ?? [],
     offers: filterOffersForTier(
-      normalizeOffers((offersResult.data ?? []) as OfferRow[]),
+      mergeOfferClaims(
+        normalizeOffers((offersResult.data ?? []) as OfferRow[]),
+        (offerClaimsResult.data ?? []) as Array<Record<string, unknown>>,
+        nowMs,
+      ),
       nowMs,
       currentTier?.code ?? null,
       6,
@@ -1093,20 +1167,46 @@ export async function listCustomerHistory(
     ...((phoneBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
   ]);
 
-  const appointmentIds = bookingRows
-    .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
-    .filter((value): value is string => Boolean(value))
-    .filter((value, index, source) => source.indexOf(value) === index);
+  const directAppointmentsResult = await client
+    .from("appointments")
+    .select(
+      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
+    )
+    .eq("org_id", context.orgId)
+    .eq("customer_id", context.customerId)
+    .order("start_at", { ascending: false })
+    .limit(limit);
+
+  if (directAppointmentsResult.error) throw directAppointmentsResult.error;
+
+  const directAppointmentRows = (directAppointmentsResult.data ?? []) as AppointmentHistoryRow[];
+  const appointmentIds = Array.from(
+    new Set([
+      ...bookingRows
+        .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
+        .filter((value): value is string => Boolean(value)),
+      ...directAppointmentRows
+        .map((row) => (typeof row.id === "string" ? row.id : null))
+        .filter((value): value is string => Boolean(value)),
+    ]),
+  );
 
   const appointmentDetailsMap = new Map<string, AppointmentHistoryRow>();
-  if (appointmentIds.length) {
+  for (const row of directAppointmentRows) {
+    if (typeof row.id === "string") {
+      appointmentDetailsMap.set(row.id, row);
+    }
+  }
+
+  const missingAppointmentIds = appointmentIds.filter((id) => !appointmentDetailsMap.has(id));
+  if (missingAppointmentIds.length) {
     const appointmentsResult = await client
       .from("appointments")
       .select(
         "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
       )
       .eq("org_id", context.orgId)
-      .in("id", appointmentIds);
+      .in("id", missingAppointmentIds);
 
     if (appointmentsResult.error) throw appointmentsResult.error;
     for (const row of (appointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
@@ -1166,7 +1266,56 @@ export async function listCustomerHistory(
     })
     .filter((item): item is CustomerHistoryItem => item !== null);
 
-  return historyItems
+  const appointmentOnlyItems = directAppointmentRows
+    .filter((appointment) => {
+      if (typeof appointment.id !== "string") return false;
+      return !bookingRows.some((row) => row.appointment_id === appointment.id);
+    })
+    .map((appointment): CustomerHistoryItem | null => {
+      const appointmentId = typeof appointment.id === "string" ? appointment.id : null;
+      const occurredAt = typeof appointment.start_at === "string" ? appointment.start_at : null;
+      if (!appointmentId || !occurredAt) return null;
+
+      const items = Array.isArray(appointment.ticket_items) ? appointment.ticket_items : [];
+      const primaryItem = items[0] ?? null;
+      const bookingRequest = Array.isArray(appointment.booking_requests) ? appointment.booking_requests[0] : null;
+      const serviceId =
+        typeof primaryItem?.service_id === "string"
+          ? primaryItem.service_id
+          : typeof primaryItem?.services?.id === "string"
+            ? primaryItem.services.id
+            : null;
+      const serviceName =
+        primaryItem?.services?.name?.trim() ||
+        bookingRequest?.requested_service?.trim() ||
+        "Lịch hẹn tại salon";
+      const priceValue =
+        typeof primaryItem?.unit_price === "number"
+          ? primaryItem.unit_price
+          : typeof primaryItem?.services?.base_price === "number"
+            ? primaryItem.services.base_price
+            : null;
+
+      return {
+        id: `appointment:${appointmentId}`,
+        appointmentId,
+        bookingRequestId: typeof bookingRequest?.id === "string" ? bookingRequest.id : null,
+        serviceId,
+        serviceName,
+        serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
+        servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
+        serviceSummary: primaryItem?.services?.short_description?.trim() || null,
+        occurredAt,
+        status: typeof appointment.status === "string" ? appointment.status : "BOOKED",
+        statusLabel: getCustomerHistoryStatusLabel(typeof appointment.status === "string" ? appointment.status : "BOOKED"),
+        source: "appointment",
+        preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
+        endAt: typeof appointment.end_at === "string" ? appointment.end_at : null,
+      } satisfies CustomerHistoryItem;
+    })
+    .filter((item): item is CustomerHistoryItem => item !== null);
+
+  return [...historyItems, ...appointmentOnlyItems]
     .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
     .slice(0, options.limit ?? 24);
 }
@@ -1223,20 +1372,46 @@ export async function listCustomerUpcomingBookings(
     ...((phoneBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
   ]);
 
-  const appointmentIds = rows
-    .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
-    .filter((value): value is string => Boolean(value))
-    .filter((value, index, source) => source.indexOf(value) === index);
+  const directAppointmentsResult = await client
+    .from("appointments")
+    .select(
+      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
+    )
+    .eq("org_id", context.orgId)
+    .eq("customer_id", context.customerId)
+    .order("start_at", { ascending: true })
+    .limit(queryLimit);
+
+  if (directAppointmentsResult.error) throw directAppointmentsResult.error;
+
+  const directAppointmentRows = (directAppointmentsResult.data ?? []) as AppointmentHistoryRow[];
+  const appointmentIds = Array.from(
+    new Set([
+      ...rows
+        .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
+        .filter((value): value is string => Boolean(value)),
+      ...directAppointmentRows
+        .map((row) => (typeof row.id === "string" ? row.id : null))
+        .filter((value): value is string => Boolean(value)),
+    ]),
+  );
 
   const appointmentDetailsMap = new Map<string, AppointmentHistoryRow>();
-  if (appointmentIds.length) {
+  for (const row of directAppointmentRows) {
+    if (typeof row.id === "string") {
+      appointmentDetailsMap.set(row.id, row);
+    }
+  }
+
+  const missingAppointmentIds = appointmentIds.filter((id) => !appointmentDetailsMap.has(id));
+  if (missingAppointmentIds.length) {
     const appointmentsResult = await client
       .from("appointments")
       .select(
         "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
       )
       .eq("org_id", context.orgId)
-      .in("id", appointmentIds);
+      .in("id", missingAppointmentIds);
 
     if (appointmentsResult.error) throw appointmentsResult.error;
     for (const row of (appointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
@@ -1247,7 +1422,7 @@ export async function listCustomerUpcomingBookings(
   }
 
   const nowMs = Date.now();
-  return rows
+  const bookingBasedUpcomingItems = rows
     .map((row) => {
       const bookingRequestId = typeof row.id === "string" ? row.id : null;
       if (!bookingRequestId) return null;
@@ -1288,7 +1463,41 @@ export async function listCustomerUpcomingBookings(
         appointmentId,
       } satisfies CustomerUpcomingBookingItem;
     })
-    .filter((item): item is CustomerUpcomingBookingItem => Boolean(item))
+    .filter((item): item is CustomerUpcomingBookingItem => Boolean(item));
+
+  const appointmentOnlyUpcomingItems = directAppointmentRows
+    .filter((appointment) => {
+      if (typeof appointment.id !== "string") return false;
+      return !rows.some((row) => row.appointment_id === appointment.id);
+    })
+    .map((appointment): CustomerUpcomingBookingItem | null => {
+      const appointmentId = typeof appointment.id === "string" ? appointment.id : null;
+      const effectiveStartAt = typeof appointment.start_at === "string" ? appointment.start_at : null;
+      const effectiveEndAt = typeof appointment.end_at === "string" ? appointment.end_at : null;
+      const effectiveStatus = typeof appointment.status === "string" ? appointment.status : "BOOKED";
+      if (!appointmentId || !effectiveStartAt) return null;
+      if (new Date(effectiveStartAt).getTime() < nowMs) return null;
+
+      const activeStatuses = ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED", "BOOKED", "CHECKED_IN"];
+      if (!activeStatuses.includes(effectiveStatus)) return null;
+
+      const bookingRequest = Array.isArray(appointment.booking_requests) ? appointment.booking_requests[0] : null;
+      return {
+        id: appointmentId,
+        requestedService:
+          typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
+            ? bookingRequest.requested_service.trim()
+            : "Lịch dịch vụ đã đặt",
+        preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
+        requestedStartAt: effectiveStartAt,
+        requestedEndAt: effectiveEndAt,
+        status: effectiveStatus,
+        appointmentId,
+      } satisfies CustomerUpcomingBookingItem;
+    })
+    .filter((item): item is CustomerUpcomingBookingItem => Boolean(item));
+
+  return [...bookingBasedUpcomingItems, ...appointmentOnlyUpcomingItems]
     .sort((left, right) => new Date(left.requestedStartAt).getTime() - new Date(right.requestedStartAt).getTime())
     .slice(0, options.limit ?? 12);
 }

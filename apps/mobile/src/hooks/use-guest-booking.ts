@@ -40,8 +40,8 @@ const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
 });
 
 function getDateLabel(date: Date, index: number) {
-  if (index === 0) return "Hom nay";
-  if (index === 1) return "Ngay mai";
+  if (index === 0) return "Hôm nay";
+  if (index === 1) return "Ngày mai";
 
   return date.toLocaleDateString("vi-VN", {
     weekday: "short",

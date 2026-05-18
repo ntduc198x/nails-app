@@ -11,9 +11,7 @@ const { colors, radius } = premiumTheme;
 const FILTERS = [
   { key: "Tất cả", label: "Tất cả", icon: "bell" },
   { key: "Lịch hẹn", label: "Lịch hẹn", icon: "calendar" },
-  { key: "Thành viên", label: "Thành viên", icon: "award" },
-  { key: "Hệ thống", label: "Hệ thống", icon: "message-square" },
-  { key: "Khuyến mãi", label: "Khuyến mãi", icon: "gift" },
+  { key: "Cập nhật", label: "Cập nhật", icon: "layers" },
 ] as const;
 
 type FilterKey = (typeof FILTERS)[number]["key"];
@@ -40,10 +38,7 @@ function normalizeVietnamese(value: string) {
 function normalizeGroup(value: string): FilterKey {
   const normalized = normalizeVietnamese(value);
   if (normalized.includes("booking") || normalized.includes("lich")) return "Lịch hẹn";
-  if (normalized.includes("membership") || normalized.includes("thanh vien") || normalized.includes("tier") || normalized.includes("len hang")) return "Thành viên";
-  if (normalized.includes("he thong")) return "Hệ thống";
-  if (normalized.includes("khuyen mai") || normalized.includes("promotion") || normalized.includes("promo")) return "Khuyến mãi";
-  return "Tất cả";
+  return "Cập nhật";
 }
 
 function formatTime(isoString: string): string {

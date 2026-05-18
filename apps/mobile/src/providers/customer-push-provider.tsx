@@ -36,6 +36,7 @@ export function CustomerPushProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     if (!user?.id || !mobileSupabase) return;
+    const supabase = mobileSupabase;
 
     let cancelled = false;
     const run = async () => {
@@ -43,7 +44,7 @@ export function CustomerPushProvider({ children }: PropsWithChildren) {
         const expoPushToken = await registerPushToken();
         if (!expoPushToken || cancelled) return;
 
-        await mobileSupabase.rpc("register_customer_push_device", {
+        await supabase.rpc("register_customer_push_device", {
           p_platform: Platform.OS,
           p_expo_push_token: expoPushToken,
           p_device_label: Constants.deviceName ?? null,

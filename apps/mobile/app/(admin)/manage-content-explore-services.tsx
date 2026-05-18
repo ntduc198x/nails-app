@@ -78,7 +78,7 @@ export default function AdminManageContentExploreServicesScreen() {
       subtitle="Dùng khi khu sản phẩm và phụ kiện chưa có dữ liệu."
       currentKey="content"
       group="setup"
-      backHref="/(admin)/manage-content"
+      backHref="/(admin)/(tabs)/manage-content"
       showTabs={false}
       showBottomDock={false}
       onRefresh={() => void loadServices()}

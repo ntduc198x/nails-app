@@ -245,6 +245,26 @@ const ADMIN_NAV_ITEMS: Array<{
   { key: "profile", label: "C\u00e1 nh\u00e2n", icon: "user" },
 ];
 
+function resolveAdminNavPresentation(
+  key: AdminNavTarget,
+  role: AppRole | null | undefined,
+) {
+  const item = ADMIN_NAV_ITEMS.find((entry) => entry.key === key);
+  if (!item) {
+    return { label: "", icon: "circle" as const };
+  }
+
+  if (key !== "profile") {
+    return { label: item.label, icon: item.icon };
+  }
+
+  if (isOwnerRole(role)) {
+    return { label: "Quản lý", icon: "grid" as const };
+  }
+
+  return { label: "Ca làm", icon: "clock" as const };
+}
+
 function getStatusLabel(status: string) {
   if (status === "NEEDS_RESCHEDULE") return "C\u1ea7n d\u1eddi l\u1ecbch";
   if (status === "BOOKED") return "Ch\u1edd check-in";
@@ -456,9 +476,9 @@ export function AdminNavLinks({
       <Text style={styles.sectionTitle}>\u0110i\u1ec1u h\u01b0\u1edbng nhanh</Text>
       <View style={styles.inlineWrap}>
         {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
-          const isProfile = key === "profile";
-          const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quản lý" : label;
-          const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
+          const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined);
+          const resolvedLabel = resolved.label || label;
+          const resolvedIcon = resolved.icon || icon;
 
           return (
             <Pressable
@@ -504,11 +524,16 @@ export function AdminBottomNav({
   return (
     <View style={styles.bottomNav}>
       {visibleItems.map(({ key, label, icon }) => {
-        const isProfile = key === "profile";
         const active = current === key;
-        const resolvedLabel = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "Quản lý" : label;
-        const resolvedIcon = isProfile && isOwnerRole(role as AppRole | null | undefined) ? "grid" : icon;
-        const targetHref = isProfile ? (isOwnerRole(role as AppRole | null | undefined) ? "/(admin)/manage" : "/(admin)/shifts") : null;
+        const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined);
+        const resolvedLabel = resolved.label || label;
+        const resolvedIcon = resolved.icon || icon;
+        const targetHref =
+          key === "profile"
+            ? isOwnerRole(role as AppRole | null | undefined)
+              ? "/(admin)/manage"
+              : "/(admin)/shifts"
+            : null;
         return (
           <Pressable
             key={`${key}-${resolvedLabel}`}
@@ -567,6 +592,7 @@ export function AdminHeaderActions({
 }) {
   const router = useRouter();
   const { role, user } = useSession();
+  const canOpenSettings = isOwnerRole(role as AppRole | null | undefined);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
   const {
@@ -617,9 +643,11 @@ export function AdminHeaderActions({
             ) : null}
           </View>
         </Pressable>
-        <Pressable style={styles.headerIconButton} onPress={onSettingsPress ?? undefined} disabled={!onSettingsPress}>
-          <Feather name="settings" size={20} color="#2b241f" />
-        </Pressable>
+        {canOpenSettings && onSettingsPress ? (
+          <Pressable style={styles.headerIconButton} onPress={onSettingsPress}>
+            <Feather name="settings" size={20} color="#2b241f" />
+          </Pressable>
+        ) : null}
       </View>
 
       <Modal visible={notificationsOpen} transparent animationType="fade" onRequestClose={() => setNotificationsOpen(false)}>

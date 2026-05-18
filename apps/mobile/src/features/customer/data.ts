@@ -227,8 +227,8 @@ export const NEWS_ITEMS = [
 ] as const;
 
 export const HOME_SHORTCUTS = [
-  { id: "shortcut-1", title: "Mẫu hot hôm nay", detail: "Mở màn Khám phá để xem trend hiện tại", href: "/(customer)/explore" },
-  { id: "shortcut-2", title: "Đặt lịch nhanh", detail: "Gửi yêu cầu và chọn khung giờ phù hợp", href: "/(customer)/booking" },
+  { id: "shortcut-1", title: "Mẫu hot hôm nay", detail: "Mở màn Khám phá để xem trend hiện tại", href: "/(customer)/(tabs)/explore" },
+  { id: "shortcut-2", title: "Đặt lịch nhanh", detail: "Gửi yêu cầu và chọn khung giờ phù hợp", href: "/(customer)/(tabs)/booking" },
   { id: "shortcut-3", title: "Ưu đãi thành viên", detail: "Voucher mới và điểm tích lũy hiện tại", href: "/(customer)/offers" },
 ] as const;
 

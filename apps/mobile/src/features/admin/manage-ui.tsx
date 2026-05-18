@@ -46,7 +46,7 @@ export function useManageOwnerGuard() {
   useEffect(() => {
     if (!session.isHydrated) return;
     if (isOwnerRole(session.role)) return;
-    void router.push("/(admin)/shifts");
+    void router.push("/shifts");
   }, [router, session.isHydrated, session.role]);
 
   return {
@@ -160,7 +160,7 @@ export function ManageScreenShell({
             <Pressable
               style={styles.headerButton}
               onPress={() => {
-                dismissToHref(router, backHref ?? "/(admin)/manage");
+                dismissToHref(router, backHref ?? "/manage");
               }}
             >
               <Feather name="chevron-left" size={22} color={palette.text} />
@@ -171,7 +171,7 @@ export function ManageScreenShell({
             <Text style={styles.headerSubtitle}>{subtitle}</Text>
           </View>
           <View style={!showBackButton ? styles.headerActionsFloating : null}>
-            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+            <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
           </View>
         </View>
 

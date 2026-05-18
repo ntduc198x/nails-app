@@ -118,7 +118,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
   const [pickerMinute, setPickerMinute] = useState(() => 0);
 
   function goBackToScheduling() {
-    dismissToHref(router, "/(admin)/scheduling");
+    dismissToHref(router, "/(admin)/(tabs)/scheduling");
   }
 
   function openDatePicker() {
@@ -354,7 +354,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       )}
 
       {appointment.status === "CHECKED_IN" && (
-        <Pressable style={styles.secondaryButton} onPress={() => router.push({ pathname: "/(admin)/checkout", params: { appointmentId: appointment.id } })}>
+        <Pressable style={styles.secondaryButton} onPress={() => router.push({ pathname: "/checkout", params: { appointmentId: appointment.id } })}>
           <Feather name="credit-card" size={16} color={palette.textPrimary} />
           <Text style={styles.secondaryButtonText}>Check-out</Text>
         </Pressable>
@@ -463,7 +463,7 @@ export default function AdminAppointmentDetailScreen() {
   const { appointments, bookingRequests, role } = useAdminOperations();
 
   function goBackToScheduling() {
-    dismissToHref(router, "/(admin)/scheduling");
+    dismissToHref(router, "/scheduling");
   }
 
   const appointment = useMemo(
@@ -509,7 +509,7 @@ export default function AdminAppointmentDetailScreen() {
                 {newBookingCount > 0 && <View style={styles.bellBadge}><Text style={styles.bellBadgeText}>{Math.min(newBookingCount, 9)}</Text></View>}
               </View>
             </Pressable>
-            <Pressable style={styles.headerIconButton} onPress={() => router.push({ pathname: "/(admin)/settings", params: { from: "/(admin)/scheduling/[appointmentId]" } })}>
+            <Pressable style={styles.headerIconButton} onPress={() => router.push({ pathname: "/settings", params: { from: "/scheduling/[appointmentId]" } })}>
               <Feather name="settings" size={22} color={palette.textPrimary} />
             </Pressable>
           </View>

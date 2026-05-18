@@ -71,7 +71,7 @@ export default function HistoryScreen() {
             key={item.id}
             onPress={() =>
               router.push({
-                pathname: "/(customer)/booking",
+                pathname: "/(customer)/(tabs)/booking",
                 params: { service: item.serviceName },
               })
             }

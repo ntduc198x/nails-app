@@ -83,7 +83,7 @@ type AppointmentNotificationRow = {
 
 function buildAppointmentHref(appointmentId: string): Href {
   return {
-    pathname: "/(admin)/scheduling/[appointmentId]",
+    pathname: "/scheduling/[appointmentId]",
     params: { appointmentId },
   };
 }
@@ -150,23 +150,23 @@ function mapNotificationHref(kind: ManageNotificationKind): Href {
     case "booking_request":
     case "booking_expired_unconfirmed":
       return {
-        pathname: "/(admin)/scheduling",
+        pathname: "/scheduling",
         params: { tab: "bookings" },
       };
     case "customer_arrival_overdue":
     case "customer_checked_in":
     case "customer_checked_in_stale":
-      return "/(admin)/scheduling";
+      return "/scheduling";
     case "customer_checked_out":
-      return "/(admin)/checkout";
+      return "/checkout";
     case "customer_membership_upgrade":
     case "customer_membership_offer":
-      return "/(admin)/manage-content";
+      return "/manage-content";
     case "leave_request":
     case "staff_clock_in_approval":
     case "shift_published":
     default:
-      return "/(admin)/shifts";
+      return "/shifts";
   }
 }
 
@@ -313,7 +313,8 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
   const canSeeBookings = role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const canSeeAppointments =
     role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
-  const shouldSeeShiftPublished = role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
+  const shouldSeeShiftPublished =
+    role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
 
   const [pendingAttendance, pendingLeaveRequests, bookingRequests, appointmentEvents, publishedShiftPlans, membershipNotifications, stateMap] = await Promise.all([
     canApproveShift ? listPendingAttendance(orgId) : Promise.resolve([] as PendingAttendanceRow[]),
@@ -345,6 +346,7 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
             href: buildAppointmentHref(row.id),
             createdAt: row.start_at,
             actionRequired: true,
+            severity: "warning",
           };
         }
         return null;
@@ -415,7 +417,7 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
       : [];
 
   const notifications: ManageNotificationItem[] = [
-    ...pendingAttendance.map((row) => ({
+    ...pendingAttendance.map<ManageNotificationItem>((row) => ({
       id: `attendance-${row.id}`,
       kind: "staff_clock_in_approval" as const,
       title: "Nhân sự vào ca chờ duyệt",
@@ -425,7 +427,7 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
       actionRequired: true,
       severity: "warning",
     })),
-    ...pendingLeaveRequests.map((row) => ({
+    ...pendingLeaveRequests.map<ManageNotificationItem>((row) => ({
       id: `leave-${row.id}`,
       kind: "leave_request" as const,
       title: row.request_type === "DAY_OFF" ? "Xin nghỉ ca chờ duyệt" : "Xin về sớm chờ duyệt",
@@ -438,9 +440,9 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
       actionRequired: true,
       severity: "warning",
     })),
-    ...bookingRequests.map((row) => ({
+    ...bookingRequests.map<ManageNotificationItem>((row) => ({
       id: `booking-${row.id}`,
-      kind: (row.status === "EXPIRED_UNCONFIRMED" ? "booking_expired_unconfirmed" : "booking_request") as const,
+      kind: row.status === "EXPIRED_UNCONFIRMED" ? "booking_expired_unconfirmed" : "booking_request",
       title:
         row.status === "NEEDS_RESCHEDULE"
           ? "Booking cần đổi lịch"
@@ -451,7 +453,7 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
               : "Booking mới từ web",
       message: `${row.customer_name} · ${row.requested_service || "Dịch vụ chưa rõ"} · ${formatTime(row.requested_start_at)} ${formatDate(row.requested_start_at)}.`,
       href: {
-        pathname: "/(admin)/scheduling",
+        pathname: "/scheduling",
         params: {
           tab: "bookings",
           focusBookingId: row.id,
@@ -469,13 +471,13 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
     })),
     ...appointmentNotifications,
     ...shiftPublishedNotifications,
-    ...membershipNotifications.map((row) => ({
+    ...membershipNotifications.map<ManageNotificationItem>((row) => ({
       id: `membership-${row.id}`,
       kind: row.title.includes("lên hạng") ? ("customer_membership_upgrade" as const) : ("customer_membership_offer" as const),
       title: row.title,
       message: row.body,
       href: {
-        pathname: "/(admin)/manage-content",
+        pathname: "/manage-content",
         params: { tab: "membership-feed", customerId: row.customer_id },
       },
       createdAt: row.sent_at,

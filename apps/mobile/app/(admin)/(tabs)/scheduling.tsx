@@ -112,7 +112,9 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
 }
 
 function getBookingStatusLabel(status: BookingStatusGroup) {
-  return status === "NEW" ? "Mới" : "Cần dời lịch";
+  if (status === "NEW") return "Mới";
+  if (status === "EXPIRED_UNCONFIRMED") return "Không được xác nhận";
+  return "Cần dời lịch";
 }
 
 function getBookingSourceLabel(source: string | null) {
@@ -175,7 +177,9 @@ export default function AdminSchedulingScreen() {
   } = useAdminOperations();
 
   const [filterOverride, setFilterOverride] = useState<SchedulingFilter | null>(null);
-  const activeTab: SchedulingTab = params.tab === "bookings" ? "bookings" : "appointments";
+  const canSeeBookingRequests = role !== "TECH";
+  const activeTab: SchedulingTab =
+    canSeeBookingRequests && params.tab === "bookings" ? "bookings" : "appointments";
   const focusedBookingId = Array.isArray(params.focusBookingId) ? params.focusBookingId[0] : params.focusBookingId;
   const [customerName, setCustomerName] = useState("");
   const defaultStartAt = useMemo(() => createDefaultStartAt(), []);
@@ -324,7 +328,7 @@ export default function AdminSchedulingScreen() {
             <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
           </View>
 
-          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
       </AdminTopSafeArea>
 
@@ -360,7 +364,7 @@ export default function AdminSchedulingScreen() {
             <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
           </View>
 
-          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
 
         <View style={styles.card}>
@@ -456,14 +460,14 @@ export default function AdminSchedulingScreen() {
 
         <View style={styles.card}>
           <View style={styles.tabWrap}>
-            {TAB_OPTIONS.map((option) => {
+            {TAB_OPTIONS.filter((option) => canSeeBookingRequests || option.key !== "bookings").map((option) => {
               const active = activeTab === option.key;
               return (
                 <Pressable
                   key={option.key}
                   onPress={() =>
                     void router.replace({
-                      pathname: "/(admin)/scheduling",
+                      pathname: "/scheduling",
                       params: option.key === "bookings" ? { tab: "bookings" } : {},
                     })
                   }
@@ -1144,6 +1148,9 @@ const styles = StyleSheet.create({
     color: "#7f7064",
     fontSize: 12,
     fontWeight: "500",
+  },
+  appointmentMetaFocused: {
+    color: "#6B4DB5",
   },
   appointmentPhone: {
     color: "#9b8a7d",

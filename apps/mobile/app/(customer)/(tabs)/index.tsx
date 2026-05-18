@@ -107,8 +107,8 @@ export default function CustomerHomeScreen() {
           </Text>
 
           <View style={styles.heroActions}>
-            <PrimaryButton label="Đặt lịch ngay" onPress={() => router.push("/(customer)/booking")} />
-            <PrimaryButton label="Khám phá" subtle onPress={() => router.push("/(customer)/explore")} />
+            <PrimaryButton label="Đặt lịch ngay" onPress={() => router.push("/(customer)/(tabs)/booking")} />
+            <PrimaryButton label="Khám phá" subtle onPress={() => router.push("/(customer)/(tabs)/explore")} />
           </View>
         </View>
 
@@ -157,7 +157,7 @@ export default function CustomerHomeScreen() {
           title={strings.homeHotLooks}
           subtitle="Lookbook đồng bộ với landing page, ưu tiên mẫu nổi bật và dễ đặt lịch."
           actionLabel="Xem tất cả"
-          onPress={() => router.push("/(customer)/explore")}
+          onPress={() => router.push("/(customer)/(tabs)/explore")}
         />
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardsRow}>
@@ -179,7 +179,7 @@ export default function CustomerHomeScreen() {
           title={strings.homeTrends}
           subtitle="Nội dung ngắn gọn từ beauty feed, ưu tiên bài đã publish."
           actionLabel="Xem thêm"
-          onPress={() => router.push("/(customer)/explore")}
+          onPress={() => router.push("/(customer)/(tabs)/explore")}
         />
 
       <View style={styles.postList}>
@@ -195,7 +195,7 @@ export default function CustomerHomeScreen() {
             title={strings.homeMembershipOffers}
             subtitle="Ưu đãi hiện có được xem và sử dụng trong Thẻ thành viên."
             actionLabel={strings.homeOpenMembership}
-            onPress={() => router.replace("/(customer)/membership")}
+            onPress={() => router.replace("/(customer)/(tabs)/membership")}
           />
 
           <View style={styles.offerList}>
@@ -250,7 +250,7 @@ function LookbookCard({
             style={styles.bookButton}
             onPress={() =>
               router.push({
-                pathname: "/(customer)/booking",
+                pathname: "/(customer)/(tabs)/booking",
                 params: { service: item.title },
               })
             }
@@ -308,7 +308,7 @@ function PostCard({ post }: { post: CustomerContentPost }) {
 
 function OfferCard({ offer }: { offer: MarketingOfferCard }) {
   return (
-    <Pressable style={styles.offerCard} onPress={() => router.replace("/(customer)/membership")}>
+    <Pressable style={styles.offerCard} onPress={() => router.replace("/(customer)/(tabs)/membership")}>
       <View style={styles.offerIcon}>
         <Feather color="#a7744d" name="percent" size={16} />
       </View>

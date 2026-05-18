@@ -207,7 +207,7 @@ export default function AdminManageContentOfferDetailScreen() {
   const [dateDraft, setDateDraft] = useState<Date>(new Date());
 
   function closeDetail() {
-    dismissToHref(router, "/(admin)/manage-content");
+    dismissToHref(router, "/manage-content");
   }
 
   function openDatePicker(field: OfferDateField) {
@@ -383,7 +383,7 @@ export default function AdminManageContentOfferDetailScreen() {
       subtitle="Chỉnh sửa dữ liệu hiển thị cho Home, Explore và Thẻ thành viên."
       currentKey="content"
       group="setup"
-      backHref="/(admin)/manage-content"
+      backHref="/manage-content"
       showTabs={false}
       showBottomDock={false}
     >

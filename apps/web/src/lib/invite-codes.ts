@@ -1,3 +1,4 @@
+import { ensureOrgContext } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
 
 export type InviteCodeRow = {
@@ -26,7 +27,9 @@ export async function listInviteCodes() {
 
 export async function generateInviteCode(allowedRole: InviteCodeRow["allowed_role"] = "TECH", note?: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
+  const { branchId } = await ensureOrgContext();
   const { data, error } = await supabase.rpc("generate_invite_code_secure", {
+    p_branch_id: branchId,
     p_allowed_role: allowedRole,
     p_note: note ?? null,
   });

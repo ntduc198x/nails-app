@@ -38,7 +38,7 @@ export default function AdminManageHubScreen() {
             </View>
             <Text style={styles.headerTitle}>Quản lý</Text>
           </View>
-          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
       </AdminTopSafeArea>
 

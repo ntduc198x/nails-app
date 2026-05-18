@@ -20,21 +20,21 @@ export function canAccessLandingFeed(role: AppRole | null | undefined) {
 }
 
 export function getAdminProfileDestination(role: AppRole | null | undefined): Href {
-  return isOwnerRole(role) ? "/(admin)/manage" : "/(admin)/shifts";
+  return isOwnerRole(role) ? "/manage" : "/shifts";
 }
 
 export function getAdminNavHref(target: AdminNavTarget, role: AppRole | null | undefined): Href {
   switch (target) {
     case "booking":
-      return canAccessLandingFeed(role) ? "/(admin)/booking" : "/(admin)/shifts";
+      return canAccessLandingFeed(role) ? "/booking" : "/shifts";
     case "scheduling":
-      return "/(admin)/scheduling";
+      return "/scheduling";
     case "checkout":
-      return "/(admin)/checkout";
+      return "/checkout";
     case "profile":
-      return isOwnerRole(role) ? "/(admin)/manage" : "/(admin)/shifts";
+      return isOwnerRole(role) ? "/manage" : "/shifts";
     default:
-      return canAccessLandingFeed(role) ? "/(admin)/booking" : "/(admin)/shifts";
+      return canAccessLandingFeed(role) ? "/booking" : "/shifts";
   }
 }
 

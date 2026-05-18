@@ -1,5 +1,6 @@
 import type { SharedSupabaseClient } from "./org";
 import { ensureOrgContext } from "./org";
+import { getAuthenticatedUserSummary } from "./session";
 
 export type MobileAppointmentSummary = {
   id: string;
@@ -25,18 +26,50 @@ type AppointmentMutationInput = {
   appointmentId?: string | null;
 };
 
+type AppointmentRow = {
+  id: unknown;
+  start_at: unknown;
+  end_at: unknown;
+  status: unknown;
+  staff_user_id: unknown;
+  resource_id: unknown;
+  checked_in_at?: unknown;
+  customers?: { name?: unknown; phone?: unknown }[] | { name?: unknown; phone?: unknown } | null;
+};
+
 export async function listAppointmentsForMobile(client: SharedSupabaseClient): Promise<MobileAppointmentSummary[]> {
   const { orgId } = await ensureOrgContext(client);
+  const authUser = await getAuthenticatedUserSummary(client);
+  const isTech = authUser?.role === "TECH";
 
-  let { data, error } = await client
-    .from("appointments")
-    .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
-    .eq("org_id", orgId)
-    .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-    .order("start_at", { ascending: true })
-    .limit(300);
+  let data: AppointmentRow[] | null = null;
+  let error: { message?: string } | null = null;
 
-  if (error && error.message.includes("checked_in_at")) {
+  if (isTech) {
+    const result = await client
+      .from("appointments")
+      .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at")
+      .eq("org_id", orgId)
+      .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .order("start_at", { ascending: true })
+      .limit(300);
+
+    data = (result.data ?? []) as AppointmentRow[];
+    error = result.error;
+  } else {
+    const result = await client
+      .from("appointments")
+      .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
+      .eq("org_id", orgId)
+      .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+      .order("start_at", { ascending: true })
+      .limit(300);
+
+    data = (result.data ?? []) as AppointmentRow[];
+    error = result.error;
+  }
+
+  if (error?.message?.includes("checked_in_at")) {
     const fallback = await client
       .from("appointments")
       .select("id,start_at,end_at,status,staff_user_id,resource_id,customers(name,phone)")
@@ -45,7 +78,7 @@ export async function listAppointmentsForMobile(client: SharedSupabaseClient): P
       .order("start_at", { ascending: true })
       .limit(300);
 
-    data = (fallback.data ?? []).map((row) => ({ ...row, checked_in_at: null })) as typeof data;
+    data = ((fallback.data ?? []) as AppointmentRow[]).map((row) => ({ ...row, checked_in_at: null }));
     error = fallback.error;
   }
 
@@ -135,6 +168,7 @@ export async function updateAppointmentStatusForMobile(
 async function findOrCreateCustomerForMobile(
   client: SharedSupabaseClient,
   orgId: string,
+  branchId: string | null,
   customerName: string,
   customerPhone?: string | null,
 ) {
@@ -144,23 +178,65 @@ async function findOrCreateCustomerForMobile(
     throw new Error("Tên khách hàng là bắt buộc.");
   }
 
-  const existing = await client
-    .from("customers")
-    .select("id")
-    .eq("org_id", orgId)
-    .eq("name", normalizedName)
-    .limit(1);
+  const findExistingByBranchScope = async () => {
+    if (!branchId) {
+      return null;
+    }
 
-  if (existing.error) {
-    throw existing.error;
-  }
-
-  if (existing.data?.[0]?.id) {
     if (normalizedPhone) {
+      const byPhone = await client
+        .from("customers")
+        .select("id,phone,customer_branches!inner(branch_id)")
+        .eq("org_id", orgId)
+        .eq("customer_branches.branch_id", branchId)
+        .eq("phone", normalizedPhone)
+        .limit(1)
+        .maybeSingle();
+
+      if (byPhone.error) {
+        throw byPhone.error;
+      }
+
+      if (byPhone.data?.id) {
+        return {
+          id: String(byPhone.data.id),
+          phone: typeof byPhone.data.phone === "string" ? byPhone.data.phone : null,
+        };
+      }
+    }
+
+    for (const field of ["full_name", "name"] as const) {
+      const byName = await client
+        .from("customers")
+        .select("id,phone,customer_branches!inner(branch_id)")
+        .eq("org_id", orgId)
+        .eq("customer_branches.branch_id", branchId)
+        .eq(field, normalizedName)
+        .limit(1)
+        .maybeSingle();
+
+      if (byName.error) {
+        throw byName.error;
+      }
+
+      if (byName.data?.id) {
+        return {
+          id: String(byName.data.id),
+          phone: typeof byName.data.phone === "string" ? byName.data.phone : null,
+        };
+      }
+    }
+
+    return null;
+  };
+
+  const existingInBranch = await findExistingByBranchScope();
+  if (existingInBranch?.id) {
+    if (normalizedPhone && !existingInBranch.phone) {
       const updateRes = await client
         .from("customers")
         .update({ phone: normalizedPhone })
-        .eq("id", String(existing.data[0].id))
+        .eq("id", existingInBranch.id)
         .eq("org_id", orgId);
 
       if (updateRes.error) {
@@ -168,7 +244,7 @@ async function findOrCreateCustomerForMobile(
       }
     }
 
-    return String(existing.data[0].id);
+    return existingInBranch.id;
   }
 
   const created = await client
@@ -188,12 +264,41 @@ async function findOrCreateCustomerForMobile(
   return String(created.data.id);
 }
 
+async function ensureCustomerBranchLinkForMobile(
+  client: SharedSupabaseClient,
+  input: { customerId: string; orgId: string; branchId: string | null },
+) {
+  if (!input.branchId) {
+    return;
+  }
+
+  const upsert = await client.from("customer_branches").upsert(
+    {
+      customer_id: input.customerId,
+      org_id: input.orgId,
+      branch_id: input.branchId,
+    },
+    {
+      onConflict: "customer_id,branch_id",
+    },
+  );
+
+  if (upsert.error) {
+    throw upsert.error;
+  }
+}
+
 export async function saveAppointmentForMobile(
   client: SharedSupabaseClient,
   input: AppointmentMutationInput,
 ) {
   const { orgId, branchId } = await ensureOrgContext(client);
-  const customerId = await findOrCreateCustomerForMobile(client, orgId, input.customerName, input.customerPhone);
+  const customerId = await findOrCreateCustomerForMobile(client, orgId, branchId ?? null, input.customerName, input.customerPhone);
+  await ensureCustomerBranchLinkForMobile(client, {
+    customerId,
+    orgId,
+    branchId: branchId ?? null,
+  });
 
   const payload = {
     customer_id: customerId,

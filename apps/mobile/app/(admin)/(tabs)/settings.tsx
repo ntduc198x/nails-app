@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { ensureOrgContext } from "@nails/shared";
-import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination } from "@/src/features/admin/navigation";
+import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination, isOwnerRole } from "@/src/features/admin/navigation";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { upsertAndVerifyAdminProfile } from "@/src/lib/admin-profile";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -40,6 +40,12 @@ export default function AdminSettingsScreen() {
   const [editingField, setEditingField] = useState<EditField>(null);
   const [editValue, setEditValue] = useState("");
   const [branchModalOpen, setBranchModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (role === undefined) return;
+    if (isOwnerRole(role)) return;
+    router.replace("/shifts");
+  }, [role]);
 
   useEffect(() => {
     async function loadProfileData() {
@@ -241,7 +247,7 @@ export default function AdminSettingsScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bảo mật tài khoản</Text>
-            <SecurityRow icon="lock" iconColor="#7D5BA6" title="Đổi mật khẩu" subtitle="Cập nhật mật khẩu để bảo vệ tài khoản" onPress={() => router.push("/(admin)/change-password")} />
+            <SecurityRow icon="lock" iconColor="#7D5BA6" title="Đổi mật khẩu" subtitle="Cập nhật mật khẩu để bảo vệ tài khoản" onPress={() => router.push("/change-password")} />
             <SecurityRow icon="shield" iconColor="#7D5BA6" title="Xác thực 2 lớp" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng xác thực 2 lớp sẽ sớm được bổ sung.")} />
             <SecurityRow icon="smartphone" iconColor="#7D5BA6" title="Thiết bị đăng nhập" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng quản lý thiết bị sẽ sớm được bổ sung.")} isLast />
           </View>

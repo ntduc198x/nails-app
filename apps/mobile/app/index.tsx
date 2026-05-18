@@ -21,20 +21,20 @@ export default function IndexScreen() {
         <Text style={styles.errorTitle}>Mobile session gặp lỗi</Text>
         <Text style={styles.errorText}>{error}</Text>
         <Text style={styles.label}>Vui lòng đăng nhập lại để tiếp tục.</Text>
-        <Redirect href="/(auth)/sign-in" />
+        <Redirect href="/sign-in" />
       </View>
     );
   }
 
   if (!role) {
-    return <Redirect href="/(auth)/sign-in" />;
+    return <Redirect href="/sign-in" />;
   }
 
   if (isCustomerRole(role)) {
-    return <Redirect href="/(customer)" />;
+    return <Redirect href="/(customer)/(tabs)" />;
   }
 
-  return <Redirect href="/(admin)" />;
+  return <Redirect href="/(admin)/(tabs)" />;
 }
 
 const styles = StyleSheet.create({

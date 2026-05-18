@@ -507,7 +507,7 @@ export default function MembershipScreen() {
                       ? undefined
                       : offerCode
                         ? router.push({
-                            pathname: "/(customer)/booking",
+                            pathname: "/(customer)/(tabs)/booking",
                             params: {
                               offerId: offer.id,
                               offerClaimId: offer.claimId ?? undefined,
@@ -549,7 +549,7 @@ export default function MembershipScreen() {
                             disabled
                               ? undefined
                               : router.push({
-                                  pathname: "/(customer)/booking",
+                                  pathname: "/(customer)/(tabs)/booking",
                                   params: {
                                     offerId: offer.id,
                                     offerClaimId: offer.claimId ?? undefined,

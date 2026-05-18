@@ -33,7 +33,7 @@ export default function CustomerFeedDetailScreen() {
             if (router.canGoBack()) {
               router.back();
             } else {
-              router.replace("/(customer)");
+              router.replace("/(customer)/(tabs)");
             }
           }}
         >

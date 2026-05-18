@@ -898,7 +898,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       if (data.session?.user) {
         await hydrateAfterAuth();
-        router.replace(input.registrationMode === "USER" ? "/(customer)" : "/(admin)");
+        router.replace(input.registrationMode === "USER" ? "/(customer)/(tabs)" : "/(admin)/(tabs)");
       }
       return inviteResult;
     } catch (nextError) {

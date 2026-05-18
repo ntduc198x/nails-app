@@ -38,7 +38,7 @@ export default function AdminChangePasswordScreen() {
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
   function goBackToSettings() {
-    dismissToHref(router, "/(admin)/settings");
+    dismissToHref(router, "/(admin)/(tabs)/settings");
   }
 
   async function handlePasswordSubmit() {
@@ -359,4 +359,3 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 });
-

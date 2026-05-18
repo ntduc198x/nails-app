@@ -377,11 +377,12 @@ export function useGuestBooking() {
         ).catch(() => {});
 
         if (mobileSupabase) {
+          const supabase = mobileSupabase;
           setTimeout(() => {
             void (async () => {
               await Promise.all([
-                prewarmCustomerHistoryCache(mobileSupabase, user.id),
-                prewarmCustomerUpcomingBookingsCache(mobileSupabase, user.id),
+                prewarmCustomerHistoryCache(supabase, user.id),
+                prewarmCustomerUpcomingBookingsCache(supabase, user.id),
               ]).catch(() => {});
 
               await refreshCustomerBookingTimeline(

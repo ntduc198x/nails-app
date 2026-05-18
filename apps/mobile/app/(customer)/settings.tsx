@@ -209,7 +209,7 @@ export default function SettingsScreen() {
             if (router.canGoBack()) {
               router.back();
             } else {
-              router.replace("/(customer)");
+              router.replace("/(customer)/(tabs)");
             }
           }}
           style={styles.backButton}

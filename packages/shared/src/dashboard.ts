@@ -28,18 +28,32 @@ export async function getDashboardSnapshotForMobile(
   const fromIso = start.toISOString();
   const toIso = end.toISOString();
 
-  const appointmentsRes = await client
-    .from("appointments")
-    .select("id,status,start_at,staff_user_id,customers(name)")
-    .eq("org_id", orgId)
-    .gte("start_at", fromIso)
-    .lt("start_at", toIso);
+  const appointmentsRes =
+    authUser?.role === "TECH"
+      ? await client
+          .from("appointments")
+          .select("id,status,start_at,staff_user_id")
+          .eq("org_id", orgId)
+          .gte("start_at", fromIso)
+          .lt("start_at", toIso)
+      : await client
+          .from("appointments")
+          .select("id,status,start_at,staff_user_id,customers(name)")
+          .eq("org_id", orgId)
+          .gte("start_at", fromIso)
+          .lt("start_at", toIso);
 
   if (appointmentsRes.error) {
     throw appointmentsRes.error;
   }
 
-  let appointments = appointmentsRes.data ?? [];
+  let appointments = (appointmentsRes.data ?? []) as Array<{
+    id: unknown;
+    status: unknown;
+    start_at: unknown;
+    staff_user_id: unknown;
+    customers?: { name?: unknown }[] | { name?: unknown } | null;
+  }>;
   if (authUser?.role === "TECH") {
     appointments = appointments.filter((row) => row.staff_user_id === authUser.id);
   }

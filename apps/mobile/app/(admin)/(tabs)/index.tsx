@@ -9,5 +9,5 @@ export default function AdminIndexRedirect() {
     return <Redirect href={getAdminProfileDestination(role)} />;
   }
 
-  return <Redirect href="/(admin)/shifts" />;
+  return <Redirect href="/shifts" />;
 }

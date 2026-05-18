@@ -678,7 +678,7 @@ export default function AccountScreen() {
               key={service.id}
               onPress={() =>
                 router.push({
-                  pathname: "/(customer)/booking",
+                  pathname: "/(customer)/(tabs)/booking",
                   params: { service: service.name },
                 })
               }
@@ -690,7 +690,7 @@ export default function AccountScreen() {
                     setPreviewImage(service.imageUrl);
                   }}
                 >
-                  <CustomerCachedImage alt={service.name} source={{ uri: service.imageUrl ?? undefined }} intent="thumbnail" style={styles.rowImage} />
+                  <CustomerCachedImage alt={service.name} source={{ uri: service.imageUrl ?? "" }} intent="thumbnail" style={styles.rowImage} />
                 </Pressable>
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{service.name}</Text>

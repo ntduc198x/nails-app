@@ -49,17 +49,21 @@ type CustomerScreenProps = {
 };
 
 type NavItem = {
-  href: "/(customer)" | "/(customer)/explore" | "/(customer)/membership" | "/(customer)/account";
+  href:
+    | "/(customer)/(tabs)"
+    | "/(customer)/(tabs)/explore"
+    | "/(customer)/(tabs)/membership"
+    | "/(customer)/(tabs)/account";
   icon: React.ComponentProps<typeof Feather>["name"];
   labelKey: "navHome" | "navExplore" | "navMembership" | "navProfile";
   match: (pathname: string) => boolean;
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { href: "/(customer)", icon: "home", labelKey: "navHome", match: (pathname) => pathname === "/" || pathname === "" },
-  { href: "/(customer)/explore", icon: "compass", labelKey: "navExplore", match: (pathname) => pathname === "/explore" },
-  { href: "/(customer)/membership", icon: "award", labelKey: "navMembership", match: (pathname) => pathname === "/membership" },
-  { href: "/(customer)/account", icon: "user", labelKey: "navProfile", match: (pathname) => PROFILE_PATHS.has(pathname) },
+  { href: "/(customer)/(tabs)", icon: "home", labelKey: "navHome", match: (pathname) => pathname === "/" || pathname === "" },
+  { href: "/(customer)/(tabs)/explore", icon: "compass", labelKey: "navExplore", match: (pathname) => pathname === "/explore" },
+  { href: "/(customer)/(tabs)/membership", icon: "award", labelKey: "navMembership", match: (pathname) => pathname === "/membership" },
+  { href: "/(customer)/(tabs)/account", icon: "user", labelKey: "navProfile", match: (pathname) => PROFILE_PATHS.has(pathname) },
 ];
 
 type IconKind = "home" | "explore" | "booking" | "profile" | "plus" | "bell";
@@ -643,8 +647,8 @@ export function CustomerBottomNav() {
   const leftItems = NAV_ITEMS.slice(0, 2);
   const rightItems = NAV_ITEMS.slice(2);
 
-  function navigateIfNeeded(targetHref: NavItem["href"] | "/(customer)/booking") {
-    const targetPath = targetHref === "/(customer)" ? "/" : targetHref.replace("/(customer)", "");
+  function navigateIfNeeded(targetHref: NavItem["href"] | "/(customer)/(tabs)/booking") {
+    const targetPath = targetHref === "/(customer)/(tabs)" ? "/" : targetHref.replace("/(customer)/(tabs)", "");
     if (targetPath === pathname) return;
     router.navigate(targetHref);
   }
@@ -664,7 +668,7 @@ export function CustomerBottomNav() {
           })}
         </View>
 
-        <Pressable style={styles.navCenterButton} onPress={() => navigateIfNeeded("/(customer)/booking")}>
+        <Pressable style={styles.navCenterButton} onPress={() => navigateIfNeeded("/(customer)/(tabs)/booking")}>
           <ShellIcon kind="plus" active />
         </Pressable>
 

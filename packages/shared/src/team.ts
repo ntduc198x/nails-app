@@ -209,8 +209,10 @@ export async function generateTeamInviteCodeForMobile(
   allowedRole: InviteCodeRole,
 ) {
   await requireOwner(client);
+  const { branchId } = await ensureOrgContext(client);
 
   const { data, error } = await client.rpc("generate_invite_code_secure", {
+    p_branch_id: branchId,
     p_allowed_role: allowedRole,
     p_note: null,
   });

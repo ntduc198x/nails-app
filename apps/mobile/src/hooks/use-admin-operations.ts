@@ -299,17 +299,24 @@ export function useAdminOperations() {
     setError(null);
 
     inflightAdminLoad = (async () => {
+      const canSeeBookingRequests =
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      const canSeeCrm =
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      const canSeeRecentTickets =
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
+
       const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
         getDashboardSnapshotForMobile(mobileSupabase),
-        listBookingRequestsForMobile(mobileSupabase),
+        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase) : Promise.resolve([]),
         listAppointmentsForMobile(mobileSupabase),
-        getCrmDashboardMetricsForMobile(mobileSupabase),
+        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase) : Promise.resolve(null),
         listStaffOptions(),
         listResourceOptions(),
         listServicesForMobile(mobileSupabase),
-        listRecentTicketsForMobile(mobileSupabase, { limit: 12 }),
+        canSeeRecentTickets ? listRecentTicketsForMobile(mobileSupabase, { limit: 12 }) : Promise.resolve([]),
         role === "TECH" ? hasOpenShiftForMobile(mobileSupabase).catch(() => false) : Promise.resolve(null),
-        listCustomersCrmForMobile(mobileSupabase).catch(() => []),
+        canSeeCrm ? listCustomersCrmForMobile(mobileSupabase).catch(() => []) : Promise.resolve([]),
       ]);
 
       const customerCrmByPhone = Object.fromEntries(
@@ -324,7 +331,10 @@ export function useAdminOperations() {
       const nextState: AdminOperationsState = {
         dashboard,
         bookingRequests: bookingRequests.filter(
-          (bookingRequest) => bookingRequest.status === "NEW" || bookingRequest.status === "NEEDS_RESCHEDULE",
+          (bookingRequest) =>
+            bookingRequest.status === "NEW" ||
+            bookingRequest.status === "NEEDS_RESCHEDULE" ||
+            bookingRequest.status === "EXPIRED_UNCONFIRMED",
         ),
         appointments,
         crmMetrics,
@@ -406,7 +416,7 @@ export function useAdminOperations() {
   const saveBookingRequest = useCallback(
     async (input: {
       bookingRequestId: string;
-      status?: "NEW" | "NEEDS_RESCHEDULE" | "CANCELLED";
+      status?: "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED" | "CANCELLED";
       requestedStartAt?: string | null;
       durationMinutes?: number;
       preferredStaff?: string | null;

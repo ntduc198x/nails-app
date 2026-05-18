@@ -195,6 +195,36 @@ function parseCustomerRow(row: Record<string, unknown>): CustomerCrmSummary {
   };
 }
 
+function parseCustomerBranchRow(row: Record<string, unknown>): CustomerCrmSummary {
+  const nestedCustomer = Array.isArray(row.customers)
+    ? row.customers[0]
+    : row.customers && typeof row.customers === "object"
+      ? row.customers
+      : null;
+  const customer = nestedCustomer && typeof nestedCustomer === "object"
+    ? (nestedCustomer as Record<string, unknown>)
+    : {};
+
+  return parseCustomerRow({
+    ...customer,
+    id: customer.id ?? row.customer_id ?? row.id,
+    org_id: row.org_id ?? customer.org_id,
+    last_visit_at: row.last_seen_at ?? customer.last_visit_at,
+    total_visits: row.total_visits ?? customer.total_visits,
+    total_spend: row.total_spend ?? customer.total_spend,
+    favorite_staff_user_id: row.favorite_staff_user_id ?? customer.favorite_staff_user_id,
+    customer_status: row.customer_status ?? customer.customer_status,
+    tags: row.tags ?? customer.tags,
+    care_note: row.care_note ?? row.notes ?? customer.care_note ?? customer.notes,
+    source: row.source ?? customer.source,
+    next_follow_up_at: row.next_follow_up_at ?? customer.next_follow_up_at,
+    last_contacted_at: row.last_contacted_at ?? customer.last_contacted_at,
+    follow_up_status: row.follow_up_status ?? customer.follow_up_status,
+    needs_merge_review: row.needs_merge_review ?? customer.needs_merge_review,
+    last_service_summary: customer.last_service_summary ?? row.last_service_summary,
+  });
+}
+
 async function listMembershipTierByCustomerId(
   client: SharedSupabaseClient,
   orgId: string,
@@ -261,32 +291,32 @@ async function attachMembershipTier(
   }));
 }
 
-async function selectCustomersBase(client: SharedSupabaseClient, orgId: string) {
-  const primary = await client
-    .from("customers")
+async function selectCustomersBase(
+  client: SharedSupabaseClient,
+  orgId: string,
+  branchId: string | null,
+) {
+  let query = client
+    .from("customer_branches")
     .select(
-      "id,org_id,full_name,name,phone,birthday,gender,first_visit_at,last_visit_at,total_visits,total_spend,last_service_summary,favorite_staff_user_id,customer_status,tags,care_note,notes,source,next_follow_up_at,last_contacted_at,follow_up_status,needs_merge_review",
+      "customer_id,org_id,branch_id,first_seen_at,last_seen_at,total_visits,total_spend,customer_status,favorite_staff_user_id,care_note,tags,source,next_follow_up_at,last_contacted_at,follow_up_status,customers!inner(id,org_id,full_name,name,phone,birthday,gender,first_visit_at,last_visit_at,last_service_summary,needs_merge_review)",
     )
     .eq("org_id", orgId)
-    .order("last_visit_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
+    .order("last_seen_at", { ascending: false, nullsFirst: false })
+    .order("updated_at", { ascending: false });
 
-  if (!primary.error) {
-    return primary;
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
   }
 
-  return client
-    .from("customers")
-    .select("id,org_id,name,phone,notes,first_visit_at,last_visit_at,total_visits,total_spend,customer_status")
-    .eq("org_id", orgId)
-    .order("created_at", { ascending: false });
+  return query;
 }
 
 export async function listCustomersCrmForMobile(
   client: SharedSupabaseClient,
   filters: CustomerCrmFilters = {},
 ): Promise<CustomerCrmSummary[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
 
   const rpc = await client.rpc("list_customers_crm", {
     p_search: filters.search?.trim() || null,
@@ -294,6 +324,7 @@ export async function listCustomersCrmForMobile(
     p_dormant_days: filters.dormantDays ?? null,
     p_vip_only: Boolean(filters.vipOnly),
     p_source: filters.source && filters.source !== "ALL" ? filters.source : null,
+    p_branch_id: branchId,
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {
@@ -304,12 +335,12 @@ export async function listCustomersCrmForMobile(
     );
   }
 
-  const { data, error } = await selectCustomersBase(client, orgId);
+  const { data, error } = await selectCustomersBase(client, orgId, branchId);
   if (error) {
     throw error;
   }
 
-  let rows = (data ?? []).map((row) => parseCustomerRow(row as Record<string, unknown>));
+  let rows = (data ?? []).map((row) => parseCustomerBranchRow(row as Record<string, unknown>));
 
   if (filters.search?.trim()) {
     const query = filters.search.trim().toLowerCase();
@@ -342,9 +373,12 @@ export async function listFollowUpCandidatesForMobile(
   client: SharedSupabaseClient,
   range?: { fromIso?: string | null; toIso?: string | null },
 ): Promise<CustomerCrmSummary[]> {
+  const { branchId } = await ensureOrgContext(client);
+
   const rpc = await client.rpc("list_follow_up_candidates", {
     p_from: range?.fromIso ?? null,
     p_to: range?.toIso ?? null,
+    p_branch_id: branchId,
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {

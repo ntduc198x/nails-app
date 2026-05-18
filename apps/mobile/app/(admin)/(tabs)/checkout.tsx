@@ -169,7 +169,7 @@ export default function AdminCheckoutScreen() {
             <Text style={styles.headerTitle}>Thanh toán</Text>
             <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
           </View>
-          <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+          <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
       </AdminTopSafeArea>
       <KeyboardAvoidingView
@@ -195,7 +195,7 @@ export default function AdminCheckoutScreen() {
               <Text style={styles.headerTitle}>Thanh toán</Text>
               <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
             </View>
-            <AdminHeaderActions onSettingsPress={() => void router.push("/(admin)/settings")} />
+            <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
           </View>
 
           <View style={styles.card}>
@@ -377,11 +377,11 @@ export default function AdminCheckoutScreen() {
                   <Text style={styles.primaryButtonText}>{busyTargetId === selectedAppointment.id ? "Đang thanh toán..." : "Thanh toán"}</Text>
                 </Pressable>
 
-                <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/(admin)/scheduling")}>
+                <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/scheduling")}>
                   <Text style={styles.secondaryButtonText}>Về lịch</Text>
                 </Pressable>
                 {lastReceiptToken && mobileEnv.apiBaseUrl ? <Pressable style={styles.linkButton} onPress={() => void openReceipt()}><Text style={styles.linkText}>Mở hóa đơn</Text></Pressable> : null}
-                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/(admin)/shifts")}><Text style={styles.linkText}>Mở ca</Text></Pressable> : null}
+                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/shifts")}><Text style={styles.linkText}>Mở ca</Text></Pressable> : null}
               </View>
             </View>
           ) : null}

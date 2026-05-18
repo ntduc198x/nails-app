@@ -109,7 +109,7 @@ export default function NotificationsScreen() {
           if (router.canGoBack()) {
             router.back();
           } else {
-            router.replace("/(customer)");
+            router.replace("/(customer)/(tabs)");
           }
         }}>
           <Feather color={colors.text} name="chevron-left" size={22} />

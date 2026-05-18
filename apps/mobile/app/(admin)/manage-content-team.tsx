@@ -76,7 +76,7 @@ export default function AdminManageContentTeamScreen() {
       subtitle="Mở người cần sửa ở màn riêng để vuốt quay lại mượt hơn."
       currentKey="content"
       group="setup"
-      backHref="/(admin)/manage-content"
+      backHref="/(admin)/(tabs)/manage-content"
       showTabs={false}
       showBottomDock={false}
       onRefresh={() => void loadSnapshot()}

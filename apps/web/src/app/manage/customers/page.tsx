@@ -27,6 +27,31 @@ function formatDateTime(value: string | null) {
   return new Date(value).toLocaleString("vi-VN");
 }
 
+function dedupeCustomers(items: CustomerCrmSummary[]) {
+  const grouped = new Map<string, CustomerCrmSummary>();
+
+  for (const item of items) {
+    const existing = grouped.get(item.id);
+    if (!existing) {
+      grouped.set(item.id, item);
+      continue;
+    }
+
+    const existingMs = existing.last_visit_at ? new Date(existing.last_visit_at).getTime() : 0;
+    const nextMs = item.last_visit_at ? new Date(item.last_visit_at).getTime() : 0;
+    const keepIncoming =
+      nextMs > existingMs ||
+      (nextMs === existingMs && item.total_visits > existing.total_visits) ||
+      (nextMs === existingMs &&
+        item.total_visits === existing.total_visits &&
+        item.total_spend > existing.total_spend);
+
+    grouped.set(item.id, keepIncoming ? item : existing);
+  }
+
+  return Array.from(grouped.values());
+}
+
 export default function CustomersPage() {
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [followUps, setFollowUps] = useState<CustomerCrmSummary[]>([]);
@@ -74,71 +99,87 @@ export default function CustomersPage() {
     void load();
   }, [load]);
 
+  const uniqueRows = useMemo(() => dedupeCustomers(rows), [rows]);
+  const uniqueFollowUps = useMemo(() => dedupeCustomers(followUps), [followUps]);
+
   const sourceOptions = useMemo(() => {
     const values = new Set<string>();
-    for (const row of rows) {
-      if (row.source) values.add(row.source);
+    for (const row of uniqueRows) {
+      const value = typeof row.source === "string" ? row.source.trim() : "";
+      if (value && value !== "ALL") {
+        values.add(value);
+      }
     }
     return ["ALL", ...Array.from(values.values())];
-  }, [rows]);
+  }, [uniqueRows]);
 
-  const customerListContent = loading ? (
-    <div className="space-y-2">
-      <div className="skeleton h-16 rounded-2xl" />
-      <div className="skeleton h-16 rounded-2xl" />
-      <div className="skeleton h-16 rounded-2xl" />
-    </div>
-  ) : rows.length === 0 ? (
-    <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">
-      Chưa có khách nào khớp bộ lọc hiện tại.
-    </div>
-  ) : (
-    <div className="space-y-2">
-      {rows.map((row) => (
-        <Link
-          key={row.id}
-          href={`/manage/customers/${row.id}`}
-          className="block rounded-2xl border border-neutral-200 bg-white px-4 py-3 transition hover:border-rose-200 hover:bg-rose-50/40"
-        >
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="truncate text-sm font-semibold text-neutral-900 md:text-base">{row.full_name}</div>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone(row.customer_status)}`}>
-                  {row.customer_status}
-                </span>
-                {row.needs_merge_review ? (
-                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Cần rà soát</span>
+  function renderCustomerList(keyPrefix: string) {
+    if (loading) {
+      return (
+        <div className="space-y-2">
+          <div className="skeleton h-16 rounded-2xl" />
+          <div className="skeleton h-16 rounded-2xl" />
+          <div className="skeleton h-16 rounded-2xl" />
+        </div>
+      );
+    }
+
+    if (uniqueRows.length === 0) {
+      return (
+        <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-8 text-sm text-neutral-500">
+          Chưa có khách nào khớp bộ lọc hiện tại.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        {uniqueRows.map((row) => (
+          <Link
+            key={`${keyPrefix}-${row.id}`}
+            href={`/manage/customers/${row.id}`}
+            className="block rounded-2xl border border-neutral-200 bg-white px-4 py-3 transition hover:border-rose-200 hover:bg-rose-50/40"
+          >
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="truncate text-sm font-semibold text-neutral-900 md:text-base">{row.full_name}</div>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusTone(row.customer_status)}`}>
+                    {row.customer_status}
+                  </span>
+                  {row.needs_merge_review ? (
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Cần rà soát</span>
+                  ) : null}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800">{row.phone ?? "Chưa có SĐT"}</span>
+                  <span>•</span>
+                  <span>{row.total_visits} lượt</span>
+                  <span>•</span>
+                  <span>{formatVnd(row.total_spend)}</span>
+                  <span>•</span>
+                  <span>{row.source ?? "walk-in"}</span>
+                </div>
+                <div className="mt-2 text-xs text-neutral-600">
+                  Lần gần nhất: <span className="font-medium text-neutral-800">{formatDateTime(row.last_visit_at)}</span>
+                </div>
+                {row.last_service_summary ? (
+                  <div className="mt-1 line-clamp-1 text-xs text-neutral-600">Dịch vụ gần nhất: {row.last_service_summary}</div>
+                ) : null}
+                {row.care_note ? (
+                  <div className="mt-1 line-clamp-2 text-xs text-neutral-600">Ghi chú: {row.care_note}</div>
                 ) : null}
               </div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-neutral-500">
-                <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800">{row.phone ?? "Chưa có SĐT"}</span>
-                <span>•</span>
-                <span>{row.total_visits} lượt</span>
-                <span>•</span>
-                <span>{formatVnd(row.total_spend)}</span>
-                <span>•</span>
-                <span>{row.source ?? "walk-in"}</span>
+              <div className="shrink-0 text-left text-xs text-neutral-500 md:text-right">
+                <div>Follow-up</div>
+                <div className="mt-1 font-medium text-neutral-800">{formatDateTime(row.next_follow_up_at)}</div>
               </div>
-              <div className="mt-2 text-xs text-neutral-600">
-                Lần gần nhất: <span className="font-medium text-neutral-800">{formatDateTime(row.last_visit_at)}</span>
-              </div>
-              {row.last_service_summary ? (
-                <div className="mt-1 line-clamp-1 text-xs text-neutral-600">Dịch vụ gần nhất: {row.last_service_summary}</div>
-              ) : null}
-              {row.care_note ? (
-                <div className="mt-1 line-clamp-2 text-xs text-neutral-600">Ghi chú: {row.care_note}</div>
-              ) : null}
             </div>
-            <div className="shrink-0 text-left text-xs text-neutral-500 md:text-right">
-              <div>Follow-up</div>
-              <div className="mt-1 font-medium text-neutral-800">{formatDateTime(row.next_follow_up_at)}</div>
-            </div>
-          </div>
-        </Link>
-      ))}
-    </div>
-  );
+          </Link>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <AppShell>
@@ -147,7 +188,7 @@ export default function CustomersPage() {
 
         <MobileSectionHeader
           title="CRM khách"
-          meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : `${rows.length} khách`}</div>}
+          meta={<div className="manage-info-box">{refreshing ? "Đang làm mới..." : `${uniqueRows.length} khách`}</div>}
         />
 
         {error ? (
@@ -225,10 +266,10 @@ export default function CustomersPage() {
           <div className="manage-surface hidden space-y-3 p-4 md:block">
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-semibold text-neutral-900">Danh sách khách</h3>
-              <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{rows.length} khách</div>
+              <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{uniqueRows.length} khách</div>
             </div>
 
-            {customerListContent}
+            {renderCustomerList("desktop")}
           </div>
 
           <MobileCollapsible
@@ -236,27 +277,27 @@ export default function CustomersPage() {
             summary={
               <div className="flex items-center justify-between gap-3 pr-2">
                 <span>Danh sách khách</span>
-                <span className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{rows.length} khách</span>
+                <span className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{uniqueRows.length} khách</span>
               </div>
             }
           >
-            {customerListContent}
+            {renderCustomerList("mobile")}
           </MobileCollapsible>
 
           <div className="space-y-4">
             <div className="manage-surface space-y-3 p-4">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold text-neutral-900">Đến hạn chăm sóc</h3>
-                <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{followUps.length}</div>
+                <div className="rounded-full bg-neutral-100 px-3 py-1 text-[11px] font-medium text-neutral-700">{uniqueFollowUps.length}</div>
               </div>
 
-              {followUps.length === 0 ? (
+              {uniqueFollowUps.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">
                   Chưa có khách nào đến hạn follow-up.
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {followUps.map((row) => (
+                  {uniqueFollowUps.map((row) => (
                     <div key={`follow-up-${row.id}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-3">
                       <div className="text-sm font-semibold text-neutral-900">{row.full_name}</div>
                       <div className="mt-1 text-xs text-neutral-500">{row.phone ?? "Chưa có SĐT"} • {formatDateTime(row.next_follow_up_at)}</div>

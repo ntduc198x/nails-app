@@ -134,7 +134,7 @@ export default function AdminManageContentPostDetailScreen() {
   const [lastError, setLastError] = useState<string | null>(null);
 
   function closeDetail() {
-    dismissToHref(router, "/(admin)/manage-content");
+    dismissToHref(router, "/manage-content");
   }
 
   const loadPost = useCallback(async () => {
@@ -268,7 +268,7 @@ export default function AdminManageContentPostDetailScreen() {
       subtitle="Chỉnh sửa nội dung Home và đồng bộ dữ liệu Landing Feed."
       currentKey="content"
       group="setup"
-      backHref="/(admin)/manage-content"
+      backHref="/manage-content"
       showTabs={false}
       showBottomDock={false}
     >

@@ -133,7 +133,7 @@ export default function ExploreScreen() {
         favoriteError.split(":")[1] || "Vui lòng cập nhật hồ sơ để lưu yêu thích.",
         [
           { text: "Hủy", style: "cancel" },
-          { text: actionLabel, onPress: () => router.navigate("/(customer)/account") },
+          { text: actionLabel, onPress: () => router.navigate("/(customer)/(tabs)/account") },
         ],
       );
       return;
@@ -390,7 +390,7 @@ function ExploreServiceCard({
             onPress={(event) => {
               event.stopPropagation();
               router.push({
-                pathname: "/(customer)/booking",
+                pathname: "/(customer)/(tabs)/booking",
                 params: { service: service.title },
               });
             }}
@@ -453,7 +453,7 @@ function GalleryCard({ item }: { item: ExploreGalleryItem }) {
 
 function OfferCard({ offer }: { offer: MarketingOfferCard }) {
   return (
-    <Pressable style={styles.offerCard} onPress={() => router.replace("/(customer)/membership")}>
+    <Pressable style={styles.offerCard} onPress={() => router.replace("/(customer)/(tabs)/membership")}>
       <View style={styles.offerIcon}>
         <Feather color="#a7744d" name="percent" size={16} />
       </View>

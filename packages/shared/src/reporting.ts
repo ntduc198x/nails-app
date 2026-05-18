@@ -128,11 +128,12 @@ export async function getReportBreakdownForMobile(
   fromIso: string,
   toIso: string,
 ): Promise<MobileReportBreakdown> {
-  await ensureOrgContext(client);
+  const { branchId } = await ensureOrgContext(client);
 
   const { data, error } = await client.rpc("get_report_breakdown_secure", {
     p_from: fromIso,
     p_to: toIso,
+    p_branch_id: branchId,
   });
 
   if (error) {

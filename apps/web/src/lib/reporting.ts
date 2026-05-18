@@ -225,11 +225,12 @@ export async function getRevenueTrend7d(opts?: { force?: boolean }) {
 
 export async function getReportBreakdown(fromIso: string, toIso: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
-  await ensureOrgContext();
+  const { branchId } = await ensureOrgContext();
 
   const { data, error } = await supabase.rpc("get_report_breakdown_secure", {
     p_from: fromIso,
     p_to: toIso,
+    p_branch_id: branchId,
   });
 
   if (error) throw error;

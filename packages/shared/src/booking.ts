@@ -3,7 +3,13 @@ import { ensureOrgContext } from "./org";
 import type { PublicBookingInput } from "./validation";
 import { publicBookingInputSchema } from "./validation";
 
-export type BookingRequestStatus = "NEW" | "CONFIRMED" | "NEEDS_RESCHEDULE" | "CANCELLED" | "CONVERTED";
+export type BookingRequestStatus =
+  | "NEW"
+  | "CONFIRMED"
+  | "NEEDS_RESCHEDULE"
+  | "CANCELLED"
+  | "CONVERTED"
+  | "EXPIRED_UNCONFIRMED";
 
 export type BookingRequestAppointmentResult = {
   booking_request_id: string;
@@ -50,7 +56,7 @@ function patchExpiredRows(rows: MobileBookingRequestSummary[]) {
   return {
     expiredIds,
     rows: rows.map((row) =>
-      expiredIds.includes(row.id) ? { ...row, status: "NEEDS_RESCHEDULE" as BookingRequestStatus } : row,
+      expiredIds.includes(row.id) ? { ...row, status: "EXPIRED_UNCONFIRMED" as BookingRequestStatus } : row,
     ),
   };
 }
@@ -204,7 +210,7 @@ export async function listBookingRequestsForMobile(
     if (patched.expiredIds.length > 0) {
       await client
         .from("booking_requests")
-        .update({ status: "NEEDS_RESCHEDULE" })
+        .update({ status: "EXPIRED_UNCONFIRMED" })
         .eq("org_id", orgId)
         .in("id", patched.expiredIds)
         .eq("status", "NEW");
@@ -240,7 +246,7 @@ export async function listBookingRequestsForMobile(
   if (patched.expiredIds.length > 0) {
     await client
       .from("booking_requests")
-      .update({ status: "NEEDS_RESCHEDULE" })
+      .update({ status: "EXPIRED_UNCONFIRMED" })
       .eq("org_id", orgId)
       .in("id", patched.expiredIds)
       .eq("status", "NEW");

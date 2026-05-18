@@ -166,7 +166,7 @@ function BookingRequestEditor({
       staffUserId: effectiveSelectedStaffUserId || null,
       resourceId: selectedResourceId || null,
     });
-    router.replace("/(admin)/scheduling");
+    router.replace("/scheduling");
   }
 
   async function handleCancelBooking() {
@@ -176,7 +176,7 @@ function BookingRequestEditor({
       requestedStartAt: effectiveScheduledStartAt,
       preferredStaff: resolveStaffName(effectiveSelectedStaffUserId, staffOptions) ?? preferredStaffName ?? null,
     });
-    router.replace("/(admin)/booking");
+    router.replace("/booking");
   }
 
   const activeStaffId = selectedStaffUserId || effectiveSelectedStaffUserId;
@@ -563,7 +563,7 @@ export default function BookingRequestDetailScreen() {
                 )}
               </View>
             </Pressable>
-            <Pressable style={styles.headerButton} onPress={() => router.push({ pathname: "/(admin)/settings", params: { from: "/booking-request/[bookingRequestId]" } })}>
+            <Pressable style={styles.headerButton} onPress={() => router.push({ pathname: "/settings", params: { from: "/booking-request/[bookingRequestId]" } })}>
               <Feather name="settings" size={22} color={palette.textPrimary} />
             </Pressable>
           </View>

@@ -42,11 +42,16 @@ export function useAdminOverview() {
     setError(null);
 
     try {
+      const canSeeBookingRequests =
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      const canSeeCrm =
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+
       const [dashboard, bookingRequests, appointments, crmMetrics] = await Promise.all([
         getDashboardSnapshotForMobile(mobileSupabase),
-        listBookingRequestsForMobile(mobileSupabase),
+        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase) : Promise.resolve([]),
         listAppointmentsForMobile(mobileSupabase),
-        getCrmDashboardMetricsForMobile(mobileSupabase),
+        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase) : Promise.resolve(null),
       ]);
 
       setState({

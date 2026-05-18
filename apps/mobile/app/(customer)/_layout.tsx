@@ -66,7 +66,7 @@ function CustomerLayoutContent() {
   }
 
   if (role && !isCustomerRole(role)) {
-    return <Redirect href="/(admin)" />;
+    return <Redirect href="/(admin)/(tabs)" />;
   }
 
   return (

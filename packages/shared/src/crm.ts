@@ -4,6 +4,17 @@ import { ensureOrgContext } from "./org";
 export type CustomerStatus = "NEW" | "ACTIVE" | "RETURNING" | "VIP" | "AT_RISK" | "LOST";
 export type FollowUpStatus = "PENDING" | "DONE" | "SKIPPED";
 
+export type CustomerCrmMembershipTier = {
+  id: string;
+  code: string;
+  name: string;
+  accentColor: string | null;
+  gradientFrom: string | null;
+  gradientTo: string | null;
+  badgeIcon: string | null;
+  themeKey: string | null;
+};
+
 export type CustomerCrmSummary = {
   id: string;
   orgId?: string;
@@ -26,6 +37,7 @@ export type CustomerCrmSummary = {
   followUpStatus: FollowUpStatus;
   needsMergeReview: boolean;
   dormantDays: number | null;
+  membershipTier: CustomerCrmMembershipTier | null;
 };
 
 export type CrmDashboardMetrics = {
@@ -123,6 +135,24 @@ function inferStatus(row: {
   return "NEW";
 }
 
+function parseMembershipTier(row: Record<string, unknown> | null | undefined): CustomerCrmMembershipTier | null {
+  if (!row) return null;
+  const id = String(row.id ?? "").trim();
+  const name = typeof row.name === "string" ? row.name.trim() : "";
+  if (!id || !name) return null;
+
+  return {
+    id,
+    code: typeof row.code === "string" ? row.code.trim() : "",
+    name,
+    accentColor: typeof row.accent_color === "string" ? row.accent_color : null,
+    gradientFrom: typeof row.gradient_from === "string" ? row.gradient_from : null,
+    gradientTo: typeof row.gradient_to === "string" ? row.gradient_to : null,
+    badgeIcon: typeof row.badge_icon === "string" ? row.badge_icon : null,
+    themeKey: typeof row.theme_key === "string" ? row.theme_key : null,
+  };
+}
+
 function parseCustomerRow(row: Record<string, unknown>): CustomerCrmSummary {
   const lastVisitAt = typeof row.last_visit_at === "string" ? row.last_visit_at : null;
   const totalVisits = Number(row.total_visits ?? 0);
@@ -155,7 +185,80 @@ function parseCustomerRow(row: Record<string, unknown>): CustomerCrmSummary {
     followUpStatus: typeof row.follow_up_status === "string" ? (row.follow_up_status as FollowUpStatus) : "PENDING",
     needsMergeReview: Boolean(row.needs_merge_review),
     dormantDays: daysBetweenIso(lastVisitAt),
+    membershipTier: parseMembershipTier(
+      row.membership_tiers && typeof row.membership_tiers === "object"
+        ? (row.membership_tiers as Record<string, unknown>)
+        : row.membership_tier && typeof row.membership_tier === "object"
+          ? (row.membership_tier as Record<string, unknown>)
+          : undefined,
+    ),
   };
+}
+
+async function listMembershipTierByCustomerId(
+  client: SharedSupabaseClient,
+  orgId: string,
+  customerIds: string[],
+): Promise<Map<string, CustomerCrmMembershipTier>> {
+  const uniqueCustomerIds = [...new Set(customerIds.filter(Boolean))];
+  if (!uniqueCustomerIds.length) {
+    return new Map();
+  }
+
+  const membershipRes = await client
+    .from("customer_memberships")
+    .select(
+      "customer_id,membership_tiers(id,code,name,accent_color,gradient_from,gradient_to,badge_icon,theme_key)",
+    )
+    .eq("org_id", orgId)
+    .in("customer_id", uniqueCustomerIds);
+
+  if (membershipRes.error) {
+    return new Map();
+  }
+
+  const tierMap = new Map<string, CustomerCrmMembershipTier>();
+  for (const row of (membershipRes.data ?? []) as Array<Record<string, unknown>>) {
+    const customerId = typeof row.customer_id === "string" ? row.customer_id : "";
+    if (!customerId || tierMap.has(customerId)) continue;
+
+    const rawTier = Array.isArray(row.membership_tiers)
+      ? row.membership_tiers[0]
+      : row.membership_tiers && typeof row.membership_tiers === "object"
+        ? row.membership_tiers
+        : null;
+    const tier = parseMembershipTier(rawTier as Record<string, unknown> | null);
+    if (tier) {
+      tierMap.set(customerId, tier);
+    }
+  }
+
+  return tierMap;
+}
+
+async function attachMembershipTier(
+  client: SharedSupabaseClient,
+  orgId: string,
+  rows: CustomerCrmSummary[],
+): Promise<CustomerCrmSummary[]> {
+  if (!rows.length || rows.some((row) => row.membershipTier)) {
+    return rows;
+  }
+
+  const tierMap = await listMembershipTierByCustomerId(
+    client,
+    orgId,
+    rows.map((row) => row.id),
+  );
+
+  if (!tierMap.size) {
+    return rows;
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    membershipTier: tierMap.get(row.id) ?? null,
+  }));
 }
 
 async function selectCustomersBase(client: SharedSupabaseClient, orgId: string) {
@@ -194,7 +297,11 @@ export async function listCustomersCrmForMobile(
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {
-    return rpc.data.map((row) => parseCustomerRow(row as Record<string, unknown>));
+    return attachMembershipTier(
+      client,
+      orgId,
+      rpc.data.map((row) => parseCustomerRow(row as Record<string, unknown>)),
+    );
   }
 
   const { data, error } = await selectCustomersBase(client, orgId);
@@ -228,7 +335,7 @@ export async function listCustomersCrmForMobile(
     rows = rows.filter((row) => (row.dormantDays ?? -1) >= minimumDormantDays);
   }
 
-  return rows;
+  return attachMembershipTier(client, orgId, rows);
 }
 
 export async function listFollowUpCandidatesForMobile(

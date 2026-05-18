@@ -579,7 +579,6 @@ export function AdminHeaderActions({
     unreadCount,
     markSeen,
     markActionHandled,
-    markActionResolved,
   } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id);
 
   useEffect(() => {
@@ -611,9 +610,9 @@ export function AdminHeaderActions({
         >
           <View>
             <Feather name="bell" size={20} color="#2b241f" />
-            {unreadCount > 0 ? (
+            {badgeCount > 0 ? (
               <View style={styles.headerBadge}>
-                <Text style={styles.headerBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                <Text style={styles.headerBadgeText}>{badgeCount > 99 ? "99+" : badgeCount}</Text>
               </View>
             ) : null}
           </View>
@@ -683,28 +682,17 @@ export function AdminHeaderActions({
                             style={[
                               styles.notificationActionBadge,
                               item.severity === "critical" ? styles.notificationActionBadgeCritical : null,
-                              item.acknowledgedAt && !item.resolvedAt ? styles.notificationActionBadgeAcknowledged : null,
                             ]}
                           >
                             <Text
                               style={[
                                 styles.notificationActionBadgeText,
                                 item.severity === "critical" ? styles.notificationActionBadgeTextCritical : null,
-                                item.acknowledgedAt && !item.resolvedAt ? styles.notificationActionBadgeTextAcknowledged : null,
                               ]}
                             >
-                              {item.resolvedAt
-                                ? "Đã xong"
-                                : item.acknowledgedAt
-                                  ? "Đang theo dõi"
-                                  : item.severity === "critical"
-                                    ? "Khẩn"
-                                    : "Cần xử lý"}
+                              {item.severity === "critical" ? "Khẩn" : "Cần xử lý"}
                             </Text>
                           </View>
-                          <Pressable style={styles.notificationResolveButton} onPress={() => void markActionResolved(item.id)}>
-                            <Text style={styles.notificationResolveButtonText}>Xong</Text>
-                          </Pressable>
                         </View>
                       ) : null}
                     </View>
@@ -1132,7 +1120,7 @@ export const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: -25,
+    bottom: -20,
     backgroundColor: "#FCFAF8",
   },
   bottomNavDock: {
@@ -1365,23 +1353,6 @@ export const styles = StyleSheet.create({
   },
   notificationActionBadgeTextCritical: {
     color: "#B91C1C",
-  },
-  notificationActionBadgeAcknowledged: {
-    backgroundColor: "#E5E7EB",
-  },
-  notificationActionBadgeTextAcknowledged: {
-    color: "#4B5563",
-  },
-  notificationResolveButton: {
-    backgroundColor: "rgba(255,255,255,0.82)",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
-  notificationResolveButtonText: {
-    color: "#4B5563",
-    fontSize: 11,
-    fontWeight: "700",
   },
   notificationsEmpty: {
     borderRadius: 18,

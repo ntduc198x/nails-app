@@ -23,7 +23,7 @@ const palette = {
 };
 
 type EditField = "fullName" | "phone" | "address" | null;
-type BranchOption = { id: string; name: string };
+type BranchOption = { id: string; name: string; priority: number };
 type ProfileData = {
   phone: string;
   address: string;
@@ -69,10 +69,18 @@ export default function AdminSettingsScreen() {
             .order("created_at", { ascending: true });
 
           setBranchOptions(
-            (branches ?? []).map((branch) => ({
-              id: String(branch.id ?? ""),
-              name: typeof branch.name === "string" && branch.name.trim() ? branch.name.trim() : "Chi nhánh",
-            })),
+            (branches ?? [])
+              .map((branch, index) => {
+                const branchName = typeof branch.name === "string" && branch.name.trim() ? branch.name.trim() : "Chi nhánh";
+                const isPrimaryBranch = String(branch.id ?? "") === branchId || /\b(ch[ií]nh|main|primary|head)\b/i.test(branchName);
+
+                return {
+                  id: String(branch.id ?? ""),
+                  name: branchName,
+                  priority: isPrimaryBranch ? 0 : index + 1,
+                };
+              })
+              .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, "vi")),
           );
         }
       } catch (error) {
@@ -225,23 +233,23 @@ export default function AdminSettingsScreen() {
           
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Thông tin cá nhân</Text>
-            <InfoRow icon="user" label="Họ và tên" value={displayName} onPress={() => openEdit("fullName", displayName)} />
-            <InfoRow icon="mail" label="Email" value={displayEmail} onPress={null} />
-            <InfoRow icon="phone" label="Số điện thoại" value={displayPhone} onPress={() => openEdit("phone", displayPhone)} />
-            <InfoRow icon="map-pin" label="Địa chỉ" value={displayAddress} onPress={() => openEdit("address", displayAddress)} isLast />
+            <InfoRow icon="user" iconColor="#7B5C47" label="Họ và tên" value={displayName} onPress={() => openEdit("fullName", displayName)} />
+            <InfoRow icon="mail" iconColor="#7B5C47" label="Email" value={displayEmail} onPress={null} />
+            <InfoRow icon="phone" iconColor="#7B5C47" label="Số điện thoại" value={displayPhone} onPress={() => openEdit("phone", displayPhone)} />
+            <InfoRow icon="map-pin" iconColor="#D4A437" label="Địa chỉ" value={displayAddress} onPress={() => openEdit("address", displayAddress)} isLast />
           </View>
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Bảo mật tài khoản</Text>
-            <SecurityRow icon="lock" title="Đổi mật khẩu" subtitle="Cập nhật mật khẩu để bảo vệ tài khoản" onPress={() => router.push("/(admin)/change-password")} />
-            <SecurityRow icon="shield" title="Xác thực 2 lớp" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng xác thực 2 lớp sẽ sớm được bổ sung.")} />
-            <SecurityRow icon="smartphone" title="Thiết bị đăng nhập" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng quản lý thiết bị sẽ sớm được bổ sung.")} isLast />
+            <SecurityRow icon="lock" iconColor="#7D5BA6" title="Đổi mật khẩu" subtitle="Cập nhật mật khẩu để bảo vệ tài khoản" onPress={() => router.push("/(admin)/change-password")} />
+            <SecurityRow icon="shield" iconColor="#7D5BA6" title="Xác thực 2 lớp" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng xác thực 2 lớp sẽ sớm được bổ sung.")} />
+            <SecurityRow icon="smartphone" iconColor="#7D5BA6" title="Thiết bị đăng nhập" subtitle="Tính năng sẽ sớm được bổ sung" onPress={() => Alert.alert("Đang phát triển", "Tính năng quản lý thiết bị sẽ sớm được bổ sung.")} isLast />
           </View>
 
           {canSelectAdminBranch(role) ? (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Chi nhánh quản trị</Text>
-              <SecurityRow icon="map" title="Chi nhánh hiện tại" subtitle={selectedBranchName} onPress={() => setBranchModalOpen(true)} isLast />
+              <SecurityRow icon="map" iconColor="#D4A437" title="Chi nhánh hiện tại" subtitle={selectedBranchName} onPress={() => setBranchModalOpen(true)} isLast />
             </View>
           ) : null}
 
@@ -314,12 +322,14 @@ export default function AdminSettingsScreen() {
 
 function InfoRow({
   icon,
+  iconColor,
   label,
   value,
   onPress,
   isLast = false,
 }: {
   icon: React.ComponentProps<typeof Feather>["name"];
+  iconColor?: string;
   label: string;
   value: string;
   onPress: (() => void) | null;
@@ -328,7 +338,7 @@ function InfoRow({
   return (
     <Pressable style={[styles.infoRow, !isLast && styles.infoRowBorder]} onPress={onPress} disabled={!onPress}>
       <View style={styles.infoIconCircle}>
-        <Feather name={icon} size={16} color={palette.primary} />
+        <Feather name={icon} size={16} color={iconColor ?? palette.primary} />
       </View>
       <View style={styles.infoContent}>
         <Text style={styles.infoLabel}>{label}</Text>
@@ -343,12 +353,14 @@ function InfoRow({
 
 function SecurityRow({
   icon,
+  iconColor,
   title,
   subtitle,
   onPress,
   isLast = false,
 }: {
   icon: React.ComponentProps<typeof Feather>["name"];
+  iconColor?: string;
   title: string;
   subtitle: string;
   onPress: () => void;
@@ -357,7 +369,7 @@ function SecurityRow({
   return (
     <Pressable style={[styles.securityRow, !isLast && styles.securityRowBorder]} onPress={onPress}>
       <View style={styles.securityIconCircle}>
-        <Feather name={icon} size={18} color={palette.primary} />
+        <Feather name={icon} size={18} color={iconColor ?? palette.primary} />
       </View>
       <View style={styles.securityContent}>
         <Text style={styles.securityTitle}>{title}</Text>

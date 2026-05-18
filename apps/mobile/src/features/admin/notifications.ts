@@ -590,7 +590,17 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
     [notifications],
   );
 
-  const openBookingActionCount = bookingQueueCount;
+  const openBookingActionCount = useMemo(
+    () =>
+      actionNotifications.filter(
+        (item) => item.kind === "booking_request" || item.kind === "booking_expired_unconfirmed",
+      ).length,
+    [actionNotifications],
+  );
+
+  useEffect(() => {
+    setBookingQueueCount(openBookingActionCount);
+  }, [openBookingActionCount]);
 
   const nonBookingActionCount = useMemo(
     () =>
@@ -603,6 +613,8 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
       ).length,
     [notifications],
   );
+
+  const actionOpenCount = actionNotifications.length;
 
   const feedNotifications = useMemo(
     () => notifications.filter((item) => !item.actionRequired),
@@ -617,6 +629,8 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
       return new Date(item.createdAt).getTime() > seenAtMs;
     }).length;
   }, [dismissedActionIds, notifications, seenAt]);
+
+  const badgeCount = actionOpenCount > 0 ? actionOpenCount : unreadCount;
 
   const markSeen = useCallback(async () => {
     const nextSeenAt = new Date().toISOString();
@@ -677,6 +691,11 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
     actionNotifications,
     feedNotifications,
     unreadCount,
+    badgeCount,
+    actionOpenCount,
+    bookingQueueCount,
+    openBookingActionCount,
+    nonBookingActionCount,
     reloadNotifications: loadNotifications,
     markSeen,
     markActionHandled,

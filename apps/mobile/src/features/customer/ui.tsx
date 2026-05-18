@@ -182,7 +182,7 @@ function useStaticStyles() {
       paddingBottom: 176,
     },
     navWrap: {
-      bottom: 0,
+      bottom: -20,
       left: 0,
       position: "absolute",
       right: 0,

@@ -122,6 +122,11 @@ function getBookingSourceLabel(source: string | null) {
   return source.replace(/_/g, " ");
 }
 
+function getMembershipTierLabel(tierName: string | null | undefined) {
+  if (!tierName) return null;
+  return `Hạng thành viên: ${tierName}`;
+}
+
 function normalizePhone(raw: string | null | undefined) {
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
@@ -583,6 +588,7 @@ export default function AdminSchedulingScreen() {
                       {rows.map((item) => {
                         const dateTime = toHumanDateTime(item.requestedStartAt);
                         const crm = customerCrmByPhone[normalizePhone(item.customerPhone) ?? ""] ?? null;
+                        const membershipTierLabel = getMembershipTierLabel(crm?.membershipTier?.name);
                         const isFocusedBooking = focusedBookingId === item.id;
 
                         return (
@@ -638,6 +644,7 @@ export default function AdminSchedulingScreen() {
                                   CRM: {crm.customerStatus} • {crm.totalVisits} luot • {crm.totalSpend.toLocaleString("vi-VN")} VND
                                 </Text>
                               ) : null}
+                              {membershipTierLabel ? <Text style={styles.bookingMembershipLine}>{membershipTierLabel}</Text> : null}
                               {item.note ? (
                                 <Text numberOfLines={2} style={styles.bookingNoteLine}>
                                   Ghi chu: {item.note}
@@ -1152,6 +1159,11 @@ const styles = StyleSheet.create({
     color: "#6b4db5",
     fontSize: 11,
     fontWeight: "600",
+  },
+  bookingMembershipLine: {
+    color: "#b8870a",
+    fontSize: 11,
+    fontWeight: "700",
   },
   bookingNoteLine: {
     color: "#8b5e34",

@@ -5,8 +5,8 @@ const detailScreenOptions = {
   animation: "default" as const,
   presentation: "card" as const,
   gestureEnabled: true,
-  fullScreenGestureEnabled: false,
-  gestureResponseDistance: { start: 48 } as const,
+  fullScreenGestureEnabled: true,
+  gestureResponseDistance: { start: 120 } as const,
 };
 
 export default function AdminStackLayout() {

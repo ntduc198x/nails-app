@@ -48,23 +48,23 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
         return;
       }
 
+      const accountRes = await mobileSupabase
+        .from("customer_accounts")
+        .select("org_id,customer_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
       if (next.colorScheme) {
         const {
           data: { user: authUser },
         } = await mobileSupabase.auth.getUser();
 
-        const profileRes = await mobileSupabase
-          .from("profiles")
-          .select("org_id")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (!profileRes.error && profileRes.data?.org_id) {
+        if (!accountRes.error && accountRes.data?.org_id && accountRes.data?.customer_id) {
           const existingPrefRes = await mobileSupabase
             .from("customer_notification_preferences")
             .select("id")
-            .eq("user_id", user.id)
-            .eq("org_id", profileRes.data.org_id)
+            .eq("customer_id", accountRes.data.customer_id)
+            .eq("org_id", accountRes.data.org_id)
             .maybeSingle();
 
           if (!existingPrefRes.error && existingPrefRes.data?.id) {
@@ -75,7 +75,8 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
           } else {
             await mobileSupabase.from("customer_notification_preferences").insert({
               user_id: user.id,
-              org_id: profileRes.data.org_id,
+              customer_id: accountRes.data.customer_id,
+              org_id: accountRes.data.org_id,
               dark_mode_enabled: next.colorScheme === "dark",
             });
           }
@@ -91,10 +92,28 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
       }
 
       if (next.locale) {
-        await mobileSupabase
-          .from("profiles")
-          .update({ language: next.locale, updated_at: new Date().toISOString() })
-          .eq("user_id", user.id);
+        if (!accountRes.error && accountRes.data?.org_id && accountRes.data?.customer_id) {
+          const existingLocalePref = await mobileSupabase
+            .from("customer_notification_preferences")
+            .select("id")
+            .eq("customer_id", accountRes.data.customer_id)
+            .eq("org_id", accountRes.data.org_id)
+            .maybeSingle();
+
+          if (!existingLocalePref.error && existingLocalePref.data?.id) {
+            await mobileSupabase
+              .from("customer_notification_preferences")
+              .update({ language: next.locale, updated_at: new Date().toISOString() })
+              .eq("id", existingLocalePref.data.id);
+          } else {
+            await mobileSupabase.from("customer_notification_preferences").insert({
+              user_id: user.id,
+              customer_id: accountRes.data.customer_id,
+              org_id: accountRes.data.org_id,
+              language: next.locale,
+            });
+          }
+        }
       }
     },
     [user?.id],
@@ -133,30 +152,32 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
       setLocaleState(storedLocale);
 
       if (mobileSupabase && user?.id) {
-        const [prefsRes, profileRes] = await Promise.all([
-          mobileSupabase
+        const accountRes = await mobileSupabase
+          .from("customer_accounts")
+          .select("org_id,customer_id")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (!accountRes.error && accountRes.data?.org_id && accountRes.data?.customer_id) {
+          const prefsRes = await mobileSupabase
             .from("customer_notification_preferences")
-            .select("dark_mode_enabled")
-            .eq("user_id", user.id)
-            .maybeSingle(),
-          mobileSupabase
-            .from("profiles")
-            .select("language")
-            .eq("user_id", user.id)
-            .maybeSingle(),
-        ]);
+            .select("dark_mode_enabled,language")
+            .eq("customer_id", accountRes.data.customer_id)
+            .eq("org_id", accountRes.data.org_id)
+            .maybeSingle();
 
-        if (!cancelled) {
-          if (!prefsRes.error && typeof prefsRes.data?.dark_mode_enabled === "boolean") {
-            const nextTheme: PremiumThemeMode = prefsRes.data.dark_mode_enabled ? "dark" : "light";
-            setColorSchemeState(nextTheme);
-            void writeStoredPreference(STORAGE_THEME_KEY, nextTheme);
-          }
+          if (!cancelled) {
+            if (!prefsRes.error && typeof prefsRes.data?.dark_mode_enabled === "boolean") {
+              const nextTheme: PremiumThemeMode = prefsRes.data.dark_mode_enabled ? "dark" : "light";
+              setColorSchemeState(nextTheme);
+              void writeStoredPreference(STORAGE_THEME_KEY, nextTheme);
+            }
 
-          if (!profileRes.error && (profileRes.data?.language === "vi" || profileRes.data?.language === "en")) {
-            const nextLocale = profileRes.data.language;
-            setLocaleState(nextLocale);
-            void writeStoredPreference(STORAGE_LOCALE_KEY, nextLocale);
+            if (!prefsRes.error && (prefsRes.data?.language === "vi" || prefsRes.data?.language === "en")) {
+              const nextLocale = prefsRes.data.language;
+              setLocaleState(nextLocale);
+              void writeStoredPreference(STORAGE_LOCALE_KEY, nextLocale);
+            }
           }
         }
       }

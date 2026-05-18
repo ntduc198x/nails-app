@@ -19,9 +19,11 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useEffect, useState } from "react";
 import { useCustomerStrings } from "@/src/features/customer/strings";
+import { useCustomerNotifications } from "@/src/hooks/use-customer-notifications";
 import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 
 const PROFILE_PATHS = new Set([
+  "/account",
   "/profile",
   "/offers",
   "/membership",
@@ -47,7 +49,7 @@ type CustomerScreenProps = {
 };
 
 type NavItem = {
-  href: "/(customer)" | "/(customer)/explore" | "/(customer)/membership" | "/(customer)/profile";
+  href: "/(customer)" | "/(customer)/explore" | "/(customer)/membership" | "/(customer)/account";
   icon: React.ComponentProps<typeof Feather>["name"];
   labelKey: "navHome" | "navExplore" | "navMembership" | "navProfile";
   match: (pathname: string) => boolean;
@@ -57,7 +59,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/(customer)", icon: "home", labelKey: "navHome", match: (pathname) => pathname === "/" || pathname === "" },
   { href: "/(customer)/explore", icon: "compass", labelKey: "navExplore", match: (pathname) => pathname === "/explore" },
   { href: "/(customer)/membership", icon: "award", labelKey: "navMembership", match: (pathname) => pathname === "/membership" },
-  { href: "/(customer)/profile", icon: "user", labelKey: "navProfile", match: (pathname) => PROFILE_PATHS.has(pathname) },
+  { href: "/(customer)/account", icon: "user", labelKey: "navProfile", match: (pathname) => PROFILE_PATHS.has(pathname) },
 ];
 
 type IconKind = "home" | "explore" | "booking" | "profile" | "plus" | "bell";
@@ -603,11 +605,12 @@ export function CustomerTopActions() {
   const theme = useCustomerTheme();
   const strings = useCustomerStrings();
   const pathname = usePathname() || "/";
+  const { unreadCount } = useCustomerNotifications(20);
 
   function navigateIfNeeded(targetHref: "/(customer)/notifications" | "/(customer)/settings") {
     const targetPath = targetHref.replace("/(customer)", "");
     if (targetPath === pathname) return;
-    router.push(targetHref);
+    router.navigate(targetHref);
   }
 
   return (
@@ -618,7 +621,7 @@ export function CustomerTopActions() {
         onPress={() => navigateIfNeeded("/(customer)/notifications")}
       >
         <Feather color={theme.colors.text} name="bell" size={18} />
-        <View style={styles.topDot} />
+        {unreadCount > 0 ? <View style={styles.topDot} /> : null}
       </Pressable>
       <Pressable
         accessibilityLabel={strings.settings}
@@ -643,7 +646,7 @@ export function CustomerBottomNav() {
   function navigateIfNeeded(targetHref: NavItem["href"] | "/(customer)/booking") {
     const targetPath = targetHref === "/(customer)" ? "/" : targetHref.replace("/(customer)", "");
     if (targetPath === pathname) return;
-    router.push(targetHref);
+    router.navigate(targetHref);
   }
 
   return (

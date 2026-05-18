@@ -1325,10 +1325,16 @@ export default function AdminManageContentScreen() {
                 <Pressable
                   key={service.id}
                   style={styles.rowCard}
-                  onPress={() => {
-                    setMerchContext("home");
-                    setMerchForm(buildMerchForm(service));
-                  }}
+                  onPress={() =>
+                    void router.push({
+                      pathname: "/(admin)/manage-content-service/[serviceId]",
+                      params: {
+                        serviceId: service.id,
+                        context: "home",
+                        backHref: "/(admin)/manage-content",
+                      },
+                    })
+                  }
                 >
                   <ItemThumbnail uri={service.imageUrl} label={service.name} />
                   <View style={styles.rowCopy}>

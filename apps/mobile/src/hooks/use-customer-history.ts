@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listCustomerHistory, type CustomerHistoryItem } from "@nails/shared";
-import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/customer-feed-cache";
+import { hydrateCachedValue, isCacheFresh, peekCachedValue, writeCachedValue } from "@/src/lib/customer-feed-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -16,13 +16,19 @@ type UseCustomerHistoryOptions = {
 export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOptions = {}) {
   const { isHydrated: sessionHydrated, user } = useSession();
   const userId = user?.id ?? null;
-  const [historyItems, setHistoryItems] = useState<CustomerHistoryItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isHydrated, setIsHydrated] = useState(false);
   const enabled = options.enabled ?? true;
   const revalidateOnMount = options.revalidateOnMount ?? true;
 
-  const cacheKey = userId ? `customer-history:${userId}:${limit}` : `customer-history:guest:${limit}`;
+  const cacheKey = useMemo(
+    () => (userId ? `customer-history:${userId}:${limit}` : `customer-history:guest:${limit}`),
+    [limit, userId],
+  );
+  const initialCached = useMemo(() => peekCachedValue<CustomerHistoryItem[]>(cacheKey), [cacheKey]);
+  const [historyItems, setHistoryItems] = useState<CustomerHistoryItem[]>(() =>
+    Array.isArray(initialCached?.value) ? initialCached.value : [],
+  );
+  const [isLoading, setIsLoading] = useState(false);
+  const [isHydrated, setIsHydrated] = useState(() => Boolean(initialCached) || !userId);
 
   const fetchRemote = useCallback(async () => {
     if (!mobileSupabase || !userId) {
@@ -73,14 +79,35 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
   useEffect(() => {
     let cancelled = false;
 
-    const boot = async () => {
-      if (!userId) {
-        setHistoryItems([]);
-        setIsHydrated(true);
-        setIsLoading(false);
-        return;
-      }
+    if (!enabled) {
+      setIsLoading(false);
+      return;
+    }
 
+    if (!userId) {
+      setHistoryItems([]);
+      setIsHydrated(true);
+      setIsLoading(false);
+      return;
+    }
+
+    const syncCached = peekCachedValue<CustomerHistoryItem[]>(cacheKey);
+    if (syncCached) {
+      setHistoryItems(Array.isArray(syncCached.value) ? syncCached.value : []);
+      setIsHydrated(true);
+      setIsLoading(false);
+
+      if (
+        revalidateOnMount &&
+        Date.now() - syncCached.updatedAt > HISTORY_FRESH_MS &&
+        Date.now() - syncCached.updatedAt <= HISTORY_MAX_STALE_MS
+      ) {
+        void refresh({ silent: true, skipFreshCheck: true });
+      }
+      return;
+    }
+
+    const boot = async () => {
       const cached = await hydrateCachedValue<CustomerHistoryItem[]>(cacheKey);
       if (cancelled) return;
 
@@ -102,11 +129,6 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
       void refresh();
     };
 
-    if (!enabled) {
-      setIsLoading(false);
-      return;
-    }
-
     void boot();
 
     return () => {
@@ -114,10 +136,26 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
     };
   }, [cacheKey, enabled, refresh, revalidateOnMount, userId]);
 
+  const syncFromCache = useCallback(async () => {
+    const syncCached = peekCachedValue<CustomerHistoryItem[]>(cacheKey);
+    if (syncCached) {
+      setHistoryItems(Array.isArray(syncCached.value) ? syncCached.value : []);
+      setIsHydrated(true);
+      return;
+    }
+
+    const cached = await hydrateCachedValue<CustomerHistoryItem[]>(cacheKey);
+    if (cached) {
+      setHistoryItems(Array.isArray(cached.value) ? cached.value : []);
+      setIsHydrated(true);
+    }
+  }, [cacheKey]);
+
   return {
     historyItems,
     isHydrated,
     isLoading,
     refresh: () => refresh({ force: true }),
+    syncFromCache,
   };
 }

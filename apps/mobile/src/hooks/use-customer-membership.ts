@@ -42,8 +42,9 @@ function normalizeMembershipSummary(
 const MEMBERSHIP_FRESH_MS = 2 * 60 * 1000;
 const MEMBERSHIP_MAX_STALE_MS = 10 * 60 * 1000;
 
-export function useCustomerMembership() {
+export function useCustomerMembership(options: { autoRefreshOnMount?: boolean } = {}) {
   const { user, isHydrated: sessionHydrated } = useSession();
+  const autoRefreshOnMount = options.autoRefreshOnMount ?? true;
   const cacheKey = useMemo(
     () => (user?.id ? `membership-summary:${user.id}` : "membership-summary:guest"),
     [user?.id],
@@ -135,7 +136,7 @@ export function useCustomerMembership() {
         setIsLoading(false);
 
         const age = Date.now() - cached.updatedAt;
-        if (age <= MEMBERSHIP_FRESH_MS) {
+        if (age <= MEMBERSHIP_FRESH_MS || !autoRefreshOnMount) {
           return;
         }
 
@@ -143,6 +144,11 @@ export function useCustomerMembership() {
           void refresh({ silent: true });
           return;
         }
+      }
+
+      if (!autoRefreshOnMount) {
+        setIsLoading(false);
+        return;
       }
 
       void refresh();
@@ -153,7 +159,7 @@ export function useCustomerMembership() {
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, refresh, sessionHydrated, user?.id]);
+  }, [autoRefreshOnMount, cacheKey, refresh, sessionHydrated, user?.id]);
 
   return {
     ...summary,

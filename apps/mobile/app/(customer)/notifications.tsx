@@ -1,16 +1,17 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { CustomerScreen, CustomerTopActions } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
-import { mobileSupabase } from "@/src/lib/supabase";
-import { useSession } from "@/src/providers/session-provider";
+import { useCustomerNotifications } from "@/src/hooks/use-customer-notifications";
 
 const { colors, radius } = premiumTheme;
 
 const FILTERS = [
   { key: "Tất cả", label: "Tất cả", icon: "bell" },
+  { key: "Lịch hẹn", label: "Lịch hẹn", icon: "calendar" },
+  { key: "Thành viên", label: "Thành viên", icon: "award" },
   { key: "Hệ thống", label: "Hệ thống", icon: "message-square" },
   { key: "Khuyến mãi", label: "Khuyến mãi", icon: "gift" },
 ] as const;
@@ -38,8 +39,10 @@ function normalizeVietnamese(value: string) {
 
 function normalizeGroup(value: string): FilterKey {
   const normalized = normalizeVietnamese(value);
+  if (normalized.includes("booking") || normalized.includes("lich")) return "Lịch hẹn";
+  if (normalized.includes("membership") || normalized.includes("thanh vien") || normalized.includes("tier") || normalized.includes("len hang")) return "Thành viên";
   if (normalized.includes("he thong")) return "Hệ thống";
-  if (normalized.includes("khuyen mai")) return "Khuyến mãi";
+  if (normalized.includes("khuyen mai") || normalized.includes("promotion") || normalized.includes("promo")) return "Khuyến mãi";
   return "Tất cả";
 }
 
@@ -62,8 +65,11 @@ function getVisualFromType(type: string): { accent: string; icon: FeatherIconNam
   if (normalized.includes("khuyen mai") || normalized.includes("promo")) {
     return { accent: "#f39a24", icon: "gift", surface: "#fdf2e5" };
   }
+  if (normalized.includes("membership") || normalized.includes("thanh vien") || normalized.includes("tier")) {
+    return { accent: "#B8860B", icon: "award", surface: "#FFF7DF" };
+  }
   if (normalized.includes("booking") || normalized.includes("lich")) {
-    return { accent: "#c97137", icon: "calendar", surface: "#f8ece3" };
+    return { accent: "#6F52D9", icon: "calendar", surface: "#F2EEFF" };
   }
   if (normalized.includes("thanh toan") || normalized.includes("payment")) {
     return { accent: "#4287c8", icon: "credit-card", surface: "#eef5fb" };
@@ -72,53 +78,20 @@ function getVisualFromType(type: string): { accent: string; icon: FeatherIconNam
 }
 
 export default function NotificationsScreen() {
-  const { user } = useSession();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("Tất cả");
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items: rawItems, isLoading, isRefreshing, refresh, markAsRead, markAllAsRead } = useCustomerNotifications(50);
 
-  async function loadNotifications() {
-    if (!mobileSupabase || !user?.id) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      const { data, error } = await mobileSupabase
-        .from("customer_notifications")
-        .select("id, title, body, kind, is_read, sent_at")
-        .eq("user_id", user.id)
-        .order("sent_at", { ascending: false })
-        .limit(50);
-
-      if (error) {
-        console.error("Notification query error:", error);
-        setLoading(false);
-        return;
-      }
-
-      if (data && data.length > 0) {
-        setNotifications(data.map(n => ({
-          id: n.id,
-          title: n.title || "",
-          body: n.body || "",
-          created_at: n.sent_at || "",
-          type: n.kind || "GENERAL",
-          is_read: n.is_read ?? false,
-        })));
-      } else {
-        setNotifications([]);
-      }
-    } catch (e) {
-      console.error("Failed to load notifications:", e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadNotifications();
-  }, [user?.id]);
+  const notifications: NotificationItem[] = useMemo(
+    () => rawItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      body: item.body,
+      created_at: item.createdAt,
+      type: item.type,
+      is_read: item.isRead,
+    })),
+    [rawItems],
+  );
 
   const items = useMemo(() => {
     if (notifications.length > 0) {
@@ -128,24 +101,13 @@ export default function NotificationsScreen() {
     return [];
   }, [activeFilter, notifications]);
 
-  async function handleMarkAsRead(id: string) {
-    if (!mobileSupabase || !user?.id) return;
-    try {
-      await mobileSupabase
-        .from("customer_notifications")
-        .update({ is_read: true, read_at: new Date().toISOString() })
-        .eq("id", id);
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-    } catch {}
-  }
-
   return (
     <CustomerScreen
       hideHeader
       title="Thông báo"
       contentContainerStyle={styles.content}
-      onRefresh={() => void loadNotifications()}
-      refreshing={loading}
+      onRefresh={() => void refresh()}
+      refreshing={isRefreshing || isLoading}
     >
       <View style={styles.headerRow}>
         <Pressable style={styles.backButton} onPress={() => {
@@ -185,7 +147,7 @@ export default function NotificationsScreen() {
       </View>
 
       <View style={styles.list}>
-        {loading ? (
+        {isLoading ? (
           <Text style={styles.emptyText}>Đang tải...</Text>
         ) : items.length === 0 ? (
           <Text style={styles.emptyText}>Không có thông báo nào</Text>
@@ -198,7 +160,7 @@ export default function NotificationsScreen() {
               <Pressable
                 key={item.id}
                 style={[styles.card, !item.is_read && styles.cardUnread]}
-                onPress={() => handleMarkAsRead(item.id)}
+                onPress={() => void markAsRead(item.id)}
               >
                 <View style={[styles.notificationIconWrap, { backgroundColor: visual.surface }]}>
                   <Feather color={visual.accent} name={visual.icon} size={16} />
@@ -216,7 +178,7 @@ export default function NotificationsScreen() {
         )}
       </View>
 
-      <Pressable style={styles.readAllButton}>
+      <Pressable style={styles.readAllButton} onPress={() => void markAllAsRead()}>
         <View style={styles.readAllCopy}>
           <Feather color="#8d7d6f" name="inbox" size={15} />
           <Text style={styles.readAllText}>Đánh dấu tất cả đã đọc</Text>

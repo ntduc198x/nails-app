@@ -133,7 +133,7 @@ export default function ExploreScreen() {
         favoriteError.split(":")[1] || "Vui lòng cập nhật hồ sơ để lưu yêu thích.",
         [
           { text: "Hủy", style: "cancel" },
-          { text: actionLabel, onPress: () => router.push("/(customer)/profile") },
+          { text: actionLabel, onPress: () => router.navigate("/(customer)/account") },
         ],
       );
       return;

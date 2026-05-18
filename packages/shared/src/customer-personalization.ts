@@ -34,6 +34,15 @@ type FavoriteRow = {
   service_id?: string | null;
 };
 
+type FavoriteServiceRow = {
+  id?: string | null;
+  name?: string | null;
+  short_description?: string | null;
+  image_url?: string | null;
+  base_price?: number | null;
+  duration_min?: number | null;
+};
+
 type TicketHistoryItemRow = {
   service_id?: string | null;
   unit_price?: number | null;
@@ -103,6 +112,15 @@ export type CustomerMembershipTier = {
 };
 
 export type CustomerMembershipOffer = MarketingOfferCard;
+
+export type CustomerFavoriteService = {
+  id: string;
+  name: string;
+  summary: string | null;
+  imageUrl: string | null;
+  priceLabel: string | null;
+  durationLabel: string | null;
+};
 
 export type CustomerMembershipSummary = {
   hasMembership: boolean;
@@ -287,6 +305,8 @@ function getCustomerHistoryStatusLabel(status: string) {
       return "Cần dời lịch";
     case "CONVERTED":
       return "Đã chuyển thành lịch hẹn";
+    case "EXPIRED_UNCONFIRMED":
+      return "Không được xác nhận";
     default:
       return status || "Không rõ trạng thái";
   }
@@ -939,6 +959,37 @@ export async function listCustomerFavoriteServiceIds(client: SharedSupabaseClien
     .filter((value): value is string => Boolean(value));
 }
 
+export async function listCustomerFavoriteServices(
+  client: SharedSupabaseClient,
+): Promise<CustomerFavoriteService[]> {
+  const favoriteIds = await listCustomerFavoriteServiceIds(client);
+  if (!favoriteIds.length) {
+    return [];
+  }
+
+  const { data, error } = await client
+    .from("services")
+    .select("id,name,short_description,image_url,base_price,duration_min")
+    .in("id", favoriteIds);
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = (data ?? []) as FavoriteServiceRow[];
+  return favoriteIds
+    .map((serviceId) => rows.find((row) => typeof row.id === "string" && row.id === serviceId) ?? null)
+    .filter((row): row is FavoriteServiceRow => Boolean(row))
+    .map((row) => ({
+      id: typeof row.id === "string" ? row.id : "",
+      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Dịch vụ yêu thích",
+      summary: typeof row.short_description === "string" && row.short_description.trim() ? row.short_description.trim() : null,
+      imageUrl: typeof row.image_url === "string" && row.image_url.trim() ? row.image_url.trim() : null,
+      priceLabel: typeof row.base_price === "number" ? formatLookbookPrice(row.base_price) : null,
+      durationLabel: typeof row.duration_min === "number" ? `${row.duration_min} phút` : null,
+    }));
+}
+
 export async function setCustomerFavoriteService(
   client: SharedSupabaseClient,
   input: { serviceId: string; isFavorite: boolean },
@@ -999,7 +1050,6 @@ export async function listCustomerHistory(
   }
 
   const limit = Math.max(options.limit ?? 24, 48);
-
   const customerResult = await client
     .from("customers")
     .select("phone")
@@ -1010,89 +1060,12 @@ export async function listCustomerHistory(
     throw customerResult.error;
   }
 
-  const appointmentsResult = await client
-    .from("appointments")
-    .select(
-      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
-    )
-    .eq("org_id", context.orgId)
-    .eq("customer_id", context.customerId)
-    .order("start_at", { ascending: false })
-    .limit(limit);
-
-  if (appointmentsResult.error) {
-    throw appointmentsResult.error;
-  }
-
-  const appointmentRows = (appointmentsResult.data ?? []) as AppointmentHistoryRow[];
-  const history: CustomerHistoryItem[] = [];
-  const linkedBookingRequestIds = new Set<string>();
-
-  for (const row of appointmentRows) {
-    const appointmentId = typeof row.id === "string" ? row.id : null;
-    const occurredAt = typeof row.start_at === "string" ? row.start_at : null;
-    const endAt = typeof row.end_at === "string" ? row.end_at : null;
-    const status = typeof row.status === "string" ? row.status : "BOOKED";
-
-    if (!appointmentId || !occurredAt) {
-      continue;
-    }
-
-    const bookingRequest = Array.isArray(row.booking_requests)
-      ? row.booking_requests[0] ?? null
-      : row.booking_requests ?? null;
-
-    const bookingRequestId = typeof bookingRequest?.id === "string" ? bookingRequest.id : null;
-    if (bookingRequestId) {
-      linkedBookingRequestIds.add(bookingRequestId);
-    }
-
-    const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
-    const primaryItem = items[0] ?? null;
-    const serviceId =
-      typeof primaryItem?.service_id === "string"
-        ? primaryItem.service_id
-        : typeof primaryItem?.services?.id === "string"
-          ? primaryItem.services.id
-          : null;
-
-    const serviceName =
-      primaryItem?.services?.name?.trim() ||
-      (typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
-        ? bookingRequest.requested_service.trim()
-        : "Lịch dịch vụ đã đặt");
-
-    const priceValue =
-      typeof primaryItem?.unit_price === "number"
-        ? primaryItem.unit_price
-        : typeof primaryItem?.services?.base_price === "number"
-          ? primaryItem.services.base_price
-          : null;
-
-    history.push({
-      id: `appointment:${appointmentId}`,
-      appointmentId,
-      bookingRequestId,
-      serviceId,
-      serviceName,
-      serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
-      servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
-      serviceSummary: primaryItem?.services?.short_description?.trim() || null,
-      occurredAt,
-      status,
-      statusLabel: getCustomerHistoryStatusLabel(status),
-      source: "appointment",
-      preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
-      endAt,
-    });
-  }
-
   const customerPhoneRaw = typeof customerResult.data?.phone === "string" ? customerResult.data.phone : null;
   const customerPhone = normalizePhone(customerPhoneRaw);
   const customerPhoneVariants = buildPhoneLookupVariants(customerPhoneRaw);
-
   const bookingRequestSelect =
     "id,customer_id,customer_phone,requested_service,preferred_staff,requested_start_at,requested_end_at,status,appointment_id";
+
   const [directBookingRequestsResult, phoneBookingRequestsResult] = await Promise.all([
     client
       .from("booking_requests")
@@ -1112,76 +1085,49 @@ export async function listCustomerHistory(
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (directBookingRequestsResult.error) {
-    throw directBookingRequestsResult.error;
-  }
-  if (phoneBookingRequestsResult.error) {
-    throw phoneBookingRequestsResult.error;
-  }
+  if (directBookingRequestsResult.error) throw directBookingRequestsResult.error;
+  if (phoneBookingRequestsResult.error) throw phoneBookingRequestsResult.error;
 
-  const matchingBookingRows = dedupeRowsById([
+  const bookingRows = dedupeRowsById([
     ...((directBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
     ...((phoneBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
   ]);
 
-  const linkedAppointmentIds = matchingBookingRows
+  const appointmentIds = bookingRows
     .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
     .filter((value): value is string => Boolean(value))
-    .filter((value, index, source) => source.indexOf(value) === index)
-    .filter((value) => !history.some((item) => item.appointmentId === value));
+    .filter((value, index, source) => source.indexOf(value) === index);
 
-  const appointmentStatusMap = new Map<string, string>();
-  if (linkedAppointmentIds.length) {
-    const appointmentStatusResult = await client
-      .from("appointments")
-      .select("id,status")
-      .eq("org_id", context.orgId)
-      .in("id", linkedAppointmentIds);
-
-    if (appointmentStatusResult.error) {
-      throw appointmentStatusResult.error;
-    }
-
-    for (const appointment of appointmentStatusResult.data ?? []) {
-      if (typeof appointment.id === "string" && typeof appointment.status === "string") {
-        appointmentStatusMap.set(appointment.id, appointment.status);
-      }
-    }
-  }
-
-  if (linkedAppointmentIds.length) {
-    const legacyAppointmentsResult = await client
+  const appointmentDetailsMap = new Map<string, AppointmentHistoryRow>();
+  if (appointmentIds.length) {
+    const appointmentsResult = await client
       .from("appointments")
       .select(
         "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
       )
       .eq("org_id", context.orgId)
-      .in("id", linkedAppointmentIds);
+      .in("id", appointmentIds);
 
-    if (legacyAppointmentsResult.error) {
-      throw legacyAppointmentsResult.error;
+    if (appointmentsResult.error) throw appointmentsResult.error;
+    for (const row of (appointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
+      if (typeof row.id === "string") {
+        appointmentDetailsMap.set(row.id, row);
+      }
     }
+  }
 
-    for (const row of (legacyAppointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
-      const appointmentId = typeof row.id === "string" ? row.id : null;
-      const occurredAt = typeof row.start_at === "string" ? row.start_at : null;
-      const endAt = typeof row.end_at === "string" ? row.end_at : null;
-      const status = typeof row.status === "string" ? row.status : "BOOKED";
+  return bookingRows
+    .map((row) => {
+      const bookingRequestId = typeof row.id === "string" ? row.id : null;
+      const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
+      const occurredAt = typeof row.requested_start_at === "string" ? row.requested_start_at : null;
+      const requestedEndAt = typeof row.requested_end_at === "string" ? row.requested_end_at : null;
+      if (!bookingRequestId || !occurredAt) return null;
 
-      if (!appointmentId || !occurredAt) {
-        continue;
-      }
-
-      const bookingRequest = Array.isArray(row.booking_requests)
-        ? row.booking_requests[0] ?? null
-        : row.booking_requests ?? null;
-
-      const bookingRequestId = typeof bookingRequest?.id === "string" ? bookingRequest.id : null;
-      if (bookingRequestId) {
-        linkedBookingRequestIds.add(bookingRequestId);
-      }
-
-      const items = Array.isArray(row.ticket_items) ? row.ticket_items : [];
+      const appointment = appointmentId ? appointmentDetailsMap.get(appointmentId) ?? null : null;
+      const appointmentStatus = typeof appointment?.status === "string" ? appointment.status : null;
+      const effectiveStatus = appointmentStatus ?? (typeof row.status === "string" ? row.status : "NEW");
+      const items = Array.isArray(appointment?.ticket_items) ? appointment!.ticket_items : [];
       const primaryItem = items[0] ?? null;
       const serviceId =
         typeof primaryItem?.service_id === "string"
@@ -1189,13 +1135,11 @@ export async function listCustomerHistory(
           : typeof primaryItem?.services?.id === "string"
             ? primaryItem.services.id
             : null;
-
       const serviceName =
         primaryItem?.services?.name?.trim() ||
-        (typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
-          ? bookingRequest.requested_service.trim()
-          : "Lá»‹ch dá»‹ch vá»¥ Ä‘Ã£ Ä‘áº·t");
-
+        (typeof row.requested_service === "string" && row.requested_service.trim()
+          ? row.requested_service.trim()
+          : "Yêu cầu đặt lịch");
       const priceValue =
         typeof primaryItem?.unit_price === "number"
           ? primaryItem.unit_price
@@ -1203,8 +1147,8 @@ export async function listCustomerHistory(
             ? primaryItem.services.base_price
             : null;
 
-      history.push({
-        id: `appointment:${appointmentId}`,
+      return {
+        id: appointmentId ? `appointment:${appointmentId}` : `booking-request:${bookingRequestId}`,
         appointmentId,
         bookingRequestId,
         serviceId,
@@ -1212,80 +1156,15 @@ export async function listCustomerHistory(
         serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
         servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
         serviceSummary: primaryItem?.services?.short_description?.trim() || null,
-        occurredAt,
-        status,
-        statusLabel: getCustomerHistoryStatusLabel(status),
-        source: "appointment",
-        preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
-        endAt,
-      });
-    }
-  }
-
-  for (const row of matchingBookingRows) {
-    const bookingRequestId = typeof row.id === "string" ? row.id : null;
-    const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
-    const occurredAt = typeof row.requested_start_at === "string" ? row.requested_start_at : null;
-    const status = typeof row.status === "string" ? row.status : "NEW";
-
-    if (!bookingRequestId || !occurredAt) {
-      continue;
-    }
-
-    if (linkedBookingRequestIds.has(bookingRequestId)) {
-      continue;
-    }
-
-    if (appointmentId) {
-      if (history.some((item) => item.appointmentId === appointmentId)) {
-        continue;
-      }
-
-      const appointmentStatus = appointmentStatusMap.get(appointmentId) ?? "BOOKED";
-      history.push({
-        id: `appointment:${appointmentId}`,
-        appointmentId,
-        bookingRequestId,
-        serviceId: null,
-        serviceName:
-          typeof row.requested_service === "string" && row.requested_service.trim()
-            ? row.requested_service.trim()
-            : "Lá»‹ch dá»‹ch vá»¥ Ä‘Ã£ Ä‘áº·t",
-        serviceImageUrl: null,
-        servicePriceLabel: null,
-        serviceSummary: null,
-        occurredAt,
-        status: appointmentStatus,
-        statusLabel: getCustomerHistoryStatusLabel(appointmentStatus),
-        source: "appointment",
+        occurredAt: typeof appointment?.start_at === "string" ? appointment.start_at : occurredAt,
+        status: effectiveStatus,
+        statusLabel: getCustomerHistoryStatusLabel(effectiveStatus),
+        source: appointmentId ? "appointment" : "booking_request",
         preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
-        endAt: typeof row.requested_end_at === "string" ? row.requested_end_at : null,
-      });
-      continue;
-    }
-
-    history.push({
-      id: `booking-request:${bookingRequestId}`,
-      appointmentId: null,
-      bookingRequestId,
-      serviceId: null,
-      serviceName:
-        typeof row.requested_service === "string" && row.requested_service.trim()
-          ? row.requested_service.trim()
-          : "Yêu cầu đặt lịch",
-      serviceImageUrl: null,
-      servicePriceLabel: null,
-      serviceSummary: null,
-      occurredAt,
-      status,
-      statusLabel: getCustomerHistoryStatusLabel(status),
-      source: "booking_request",
-      preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
-      endAt: typeof row.requested_end_at === "string" ? row.requested_end_at : null,
-    });
-  }
-
-  return history
+        endAt: typeof appointment?.end_at === "string" ? appointment.end_at : requestedEndAt,
+      } satisfies CustomerHistoryItem;
+    })
+    .filter((item): item is CustomerHistoryItem => Boolean(item))
     .sort((left, right) => new Date(right.occurredAt).getTime() - new Date(left.occurredAt).getTime())
     .slice(0, options.limit ?? 24);
 }
@@ -1300,13 +1179,11 @@ export async function listCustomerUpcomingBookings(
   }
 
   const queryLimit = Math.max(options.limit ?? 12, 48);
-  const [customerResult] = await Promise.all([
-    client
-      .from("customers")
-      .select("phone")
-      .eq("id", context.customerId)
-      .maybeSingle(),
-  ]);
+  const customerResult = await client
+    .from("customers")
+    .select("phone")
+    .eq("id", context.customerId)
+    .maybeSingle();
 
   if (customerResult.error) {
     throw customerResult.error;
@@ -1323,8 +1200,6 @@ export async function listCustomerUpcomingBookings(
       .select(bookingRequestSelect)
       .eq("org_id", context.orgId)
       .eq("customer_id", context.customerId)
-      .gte("requested_start_at", new Date().toISOString())
-      .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
       .order("requested_start_at", { ascending: true })
       .limit(queryLimit),
     customerPhone
@@ -1333,19 +1208,13 @@ export async function listCustomerUpcomingBookings(
           .select(bookingRequestSelect)
           .eq("org_id", context.orgId)
           .in("customer_phone", customerPhoneVariants)
-          .gte("requested_start_at", new Date().toISOString())
-          .in("status", ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED"])
           .order("requested_start_at", { ascending: true })
           .limit(queryLimit)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (directBookingRequestsResult.error) {
-    throw directBookingRequestsResult.error;
-  }
-  if (phoneBookingRequestsResult.error) {
-    throw phoneBookingRequestsResult.error;
-  }
+  if (directBookingRequestsResult.error) throw directBookingRequestsResult.error;
+  if (phoneBookingRequestsResult.error) throw phoneBookingRequestsResult.error;
 
   const rows = dedupeRowsById([
     ...((directBookingRequestsResult.data ?? []) as Array<Record<string, unknown>>),
@@ -1354,54 +1223,70 @@ export async function listCustomerUpcomingBookings(
 
   const appointmentIds = rows
     .map((row) => (typeof row.appointment_id === "string" ? row.appointment_id : null))
-    .filter((value): value is string => Boolean(value));
+    .filter((value): value is string => Boolean(value))
+    .filter((value, index, source) => source.indexOf(value) === index);
 
-  const appointmentStatusMap = new Map<string, { status: string; startAt: string }>();
+  const appointmentDetailsMap = new Map<string, AppointmentHistoryRow>();
   if (appointmentIds.length) {
     const appointmentsResult = await client
       .from("appointments")
-      .select("id,status,start_at")
+      .select(
+        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price))",
+      )
+      .eq("org_id", context.orgId)
       .in("id", appointmentIds);
 
-    if (appointmentsResult.error) {
-      throw appointmentsResult.error;
-    }
-
-    for (const appointment of appointmentsResult.data ?? []) {
-      if (typeof appointment.id === "string" && typeof appointment.status === "string" && typeof appointment.start_at === "string") {
-        appointmentStatusMap.set(appointment.id, {
-          status: appointment.status,
-          startAt: appointment.start_at,
-        });
+    if (appointmentsResult.error) throw appointmentsResult.error;
+    for (const row of (appointmentsResult.data ?? []) as AppointmentHistoryRow[]) {
+      if (typeof row.id === "string") {
+        appointmentDetailsMap.set(row.id, row);
       }
     }
   }
 
+  const nowMs = Date.now();
   return rows
-    .filter((row) => {
+    .map((row) => {
+      const bookingRequestId = typeof row.id === "string" ? row.id : null;
+      if (!bookingRequestId) return null;
       const appointmentId = typeof row.appointment_id === "string" ? row.appointment_id : null;
-      if (!appointmentId) {
-        return true;
-      }
+      const appointment = appointmentId ? appointmentDetailsMap.get(appointmentId) ?? null : null;
+      const effectiveStatus = typeof appointment?.status === "string"
+        ? appointment.status
+        : typeof row.status === "string"
+          ? row.status
+          : "NEW";
+      const effectiveStartAt = typeof appointment?.start_at === "string"
+        ? appointment.start_at
+        : typeof row.requested_start_at === "string"
+          ? row.requested_start_at
+          : null;
+      const effectiveEndAt = typeof appointment?.end_at === "string"
+        ? appointment.end_at
+        : typeof row.requested_end_at === "string"
+          ? row.requested_end_at
+          : null;
 
-      const appointment = appointmentStatusMap.get(appointmentId);
-      if (!appointment) {
-        return true;
-      }
+      if (!effectiveStartAt) return null;
+      if (new Date(effectiveStartAt).getTime() < nowMs) return null;
 
-      return appointment.status === "BOOKED" || appointment.status === "CHECKED_IN";
+      const activeStatuses = ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED", "BOOKED", "CHECKED_IN"];
+      if (!activeStatuses.includes(effectiveStatus)) return null;
+
+      return {
+        id: bookingRequestId,
+        requestedService:
+          typeof row.requested_service === "string" && row.requested_service.trim()
+            ? row.requested_service.trim()
+            : "Lịch dịch vụ đã đặt",
+        preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
+        requestedStartAt: effectiveStartAt,
+        requestedEndAt: effectiveEndAt,
+        status: effectiveStatus,
+        appointmentId,
+      } satisfies CustomerUpcomingBookingItem;
     })
-    .map((row) => ({
-      id: String(row.id ?? ""),
-      requestedService:
-        typeof row.requested_service === "string" && row.requested_service.trim()
-          ? row.requested_service.trim()
-          : "Lịch dịch vụ đã đặt",
-      preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
-      requestedStartAt: String(row.requested_start_at ?? ""),
-      requestedEndAt: typeof row.requested_end_at === "string" ? row.requested_end_at : null,
-      status: String(row.status ?? "NEW"),
-      appointmentId: typeof row.appointment_id === "string" ? row.appointment_id : null,
-    }))
+    .filter((item): item is CustomerUpcomingBookingItem => Boolean(item))
+    .sort((left, right) => new Date(left.requestedStartAt).getTime() - new Date(right.requestedStartAt).getTime())
     .slice(0, options.limit ?? 12);
 }

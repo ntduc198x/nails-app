@@ -22,7 +22,7 @@ const palette = {
 
 type SchedulingFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "OTHER";
 type SchedulingTab = "appointments" | "bookings";
-type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE";
+type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED";
 
 const FILTER_OPTIONS = [
   { value: "ALL" as const, label: "Tất cả", icon: "grid" as const, accent: "#8a6346", accentSoft: "#f7ece2" },
@@ -60,8 +60,9 @@ const STATUS_WEIGHT: Record<string, number> = {
 };
 
 const BOOKING_STATUS_WEIGHT: Record<BookingStatusGroup, number> = {
-  NEW: 0,
-  NEEDS_RESCHEDULE: 1,
+  NEEDS_RESCHEDULE: 0,
+  NEW: 1,
+  EXPIRED_UNCONFIRMED: 2,
 };
 
 function normalizeFilter(value: string | string[] | undefined): SchedulingFilter {
@@ -153,7 +154,7 @@ function getResourceAccent(index: number) {
 
 export default function AdminSchedulingScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ filter?: string; tab?: string }>();
+  const params = useLocalSearchParams<{ filter?: string; tab?: string; focusBookingId?: string; status?: string }>();
   const {
     appointments,
     bookingRequests,
@@ -170,6 +171,7 @@ export default function AdminSchedulingScreen() {
 
   const [filterOverride, setFilterOverride] = useState<SchedulingFilter | null>(null);
   const activeTab: SchedulingTab = params.tab === "bookings" ? "bookings" : "appointments";
+  const focusedBookingId = Array.isArray(params.focusBookingId) ? params.focusBookingId[0] : params.focusBookingId;
   const [customerName, setCustomerName] = useState("");
   const defaultStartAt = useMemo(() => createDefaultStartAt(), []);
   const [dateInput, setDateInput] = useState(() => toDateInput(defaultStartAt));
@@ -260,23 +262,33 @@ export default function AdminSchedulingScreen() {
       [...bookingRequests]
         .filter(
           (item): item is typeof item & { status: BookingStatusGroup } =>
-            item.status === "NEW" || item.status === "NEEDS_RESCHEDULE",
+            item.status === "NEW" || item.status === "NEEDS_RESCHEDULE" || item.status === "EXPIRED_UNCONFIRMED",
         )
         .sort((left, right) => {
+          if (focusedBookingId && left.id === focusedBookingId) return -1;
+          if (focusedBookingId && right.id === focusedBookingId) return 1;
           const statusDelta = BOOKING_STATUS_WEIGHT[left.status] - BOOKING_STATUS_WEIGHT[right.status];
           if (statusDelta !== 0) return statusDelta;
           return new Date(left.requestedStartAt).getTime() - new Date(right.requestedStartAt).getTime();
         }),
-    [bookingRequests],
+    [bookingRequests, focusedBookingId],
   );
 
   const groupedBookingRequests = useMemo(
     () => ({
-      NEW: visibleBookingRequests.filter((item) => item.status === "NEW"),
       NEEDS_RESCHEDULE: visibleBookingRequests.filter((item) => item.status === "NEEDS_RESCHEDULE"),
+      NEW: visibleBookingRequests.filter((item) => item.status === "NEW"),
+      EXPIRED_UNCONFIRMED: visibleBookingRequests.filter((item) => item.status === "EXPIRED_UNCONFIRMED"),
     }),
     [visibleBookingRequests],
   );
+
+  const orderedBookingGroupKeys = useMemo(() => {
+    const focused = visibleBookingRequests.find((item) => item.id === focusedBookingId) ?? null;
+    const base: BookingStatusGroup[] = ["NEEDS_RESCHEDULE", "NEW", "EXPIRED_UNCONFIRMED"];
+    if (!focused) return base;
+    return [focused.status, ...base.filter((key) => key !== focused.status)];
+  }, [focusedBookingId, visibleBookingRequests]);
 
   async function handleCreateAppointment() {
     const startAt = combineDateAndTimeToIso(dateInput, timeInput);
@@ -551,7 +563,7 @@ export default function AdminSchedulingScreen() {
                     </Pressable>
                   );
                 })
-              : (["NEW", "NEEDS_RESCHEDULE"] as const).map((groupKey) => {
+              : orderedBookingGroupKeys.map((groupKey) => {
                   const rows = groupedBookingRequests[groupKey];
                   if (!rows.length) return null;
 
@@ -559,7 +571,11 @@ export default function AdminSchedulingScreen() {
                     <View key={groupKey} style={styles.bookingSection}>
                       <View style={styles.bookingSectionHeader}>
                         <Text style={styles.bookingSectionTitle}>
-                          {groupKey === "NEW" ? "Booking moi" : "Cần dời lịch"}
+                          {groupKey === "NEEDS_RESCHEDULE"
+                            ? "Cần dời lịch"
+                            : groupKey === "EXPIRED_UNCONFIRMED"
+                              ? "Không được xác nhận"
+                              : "Booking mới"}
                         </Text>
                         <Text style={styles.bookingSectionCount}>{rows.length}</Text>
                       </View>
@@ -567,6 +583,7 @@ export default function AdminSchedulingScreen() {
                       {rows.map((item) => {
                         const dateTime = toHumanDateTime(item.requestedStartAt);
                         const crm = customerCrmByPhone[normalizePhone(item.customerPhone) ?? ""] ?? null;
+                        const isFocusedBooking = focusedBookingId === item.id;
 
                         return (
                           <Pressable
@@ -577,9 +594,9 @@ export default function AdminSchedulingScreen() {
                                 params: { bookingRequestId: item.id },
                               })
                             }
-                            style={styles.appointmentCard}
+                            style={[styles.appointmentCard, isFocusedBooking ? styles.appointmentCardFocused : null]}
                           >
-                            <View style={styles.appointmentAvatar}>
+                            <View style={[styles.appointmentAvatar, isFocusedBooking ? styles.appointmentAvatarFocused : null]}>
                               <Text style={styles.appointmentAvatarText}>{item.customerName.slice(0, 1)}</Text>
                             </View>
 
@@ -608,7 +625,7 @@ export default function AdminSchedulingScreen() {
                                   </Text>
                                 </View>
                               </View>
-                              <Text style={styles.appointmentMeta}>
+                              <Text style={[styles.appointmentMeta, isFocusedBooking ? styles.appointmentMetaFocused : null]}>
                                 {dateTime.time} • {dateTime.date} • {getBookingSourceLabel(item.source)}
                               </Text>
                               <Text style={styles.bookingDetailLine}>{item.requestedService ?? "Chua chon dich vu"}</Text>
@@ -1075,6 +1092,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 12,
   },
+  appointmentCardFocused: {
+    backgroundColor: "#F8F3FF",
+    borderColor: "#8A63D2",
+    shadowColor: "#8A63D2",
+    shadowOpacity: 0.14,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
   appointmentAvatar: {
     alignItems: "center",
     backgroundColor: "#ead9ca",
@@ -1082,6 +1108,9 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
+  },
+  appointmentAvatarFocused: {
+    backgroundColor: "#E7DBFF",
   },
   appointmentAvatarText: {
     color: "#5d4c3f",

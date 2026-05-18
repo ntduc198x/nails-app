@@ -571,9 +571,15 @@ export function AdminHeaderActions({
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
   const {
     actionNotifications,
+    actionOpenCount,
+    openBookingActionCount,
+    bookingQueueCount,
+    badgeCount,
     feedNotifications,
     unreadCount,
     markSeen,
+    markActionHandled,
+    markActionResolved,
   } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id);
 
   useEffect(() => {
@@ -584,11 +590,14 @@ export function AdminHeaderActions({
   const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
 
   function renderNotificationTone(item: ManageNotificationItem) {
-    if (item.actionRequired) return styles.notificationCardAction;
-    if (item.kind === "customer_checked_in") return styles.notificationCardInfo;
-    if (item.kind === "customer_checked_out") return styles.notificationCardSuccess;
+    if (item.severity === "critical") return styles.notificationCardCritical;
+    if (item.severity === "warning") return styles.notificationCardAction;
+    if (item.severity === "info") return styles.notificationCardInfo;
+    if (item.severity === "success") return styles.notificationCardSuccess;
     return styles.notificationCardDefault;
   }
+
+  const criticalActionCount = actionNotifications.filter((item) => item.severity === "critical").length;
 
   return (
     <>
@@ -621,7 +630,11 @@ export function AdminHeaderActions({
               <View style={styles.notificationsHeaderCopy}>
                 <Text style={styles.notificationsTitle}>Thông báo</Text>
                 <Text style={styles.notificationsSubtitle}>
-                  {unreadCount > 0 ? `${unreadCount} mục cần chú ý` : "Chưa có mục mới"}
+                  {criticalActionCount > 0
+                    ? `${criticalActionCount} mục khẩn · ${bookingQueueCount} booking-request mở · ${actionOpenCount} việc đang mở`
+                    : badgeCount > 0
+                      ? `${bookingQueueCount} booking-request mở · ${actionOpenCount} việc đang mở`
+                      : "Chưa có mục mới"}
                 </Text>
               </View>
               <Pressable style={styles.notificationsClose} onPress={() => setNotificationsOpen(false)}>
@@ -665,8 +678,33 @@ export function AdminHeaderActions({
                         <Text style={styles.notificationCardMessage}>{item.message}</Text>
                       </View>
                       {item.actionRequired ? (
-                        <View style={styles.notificationActionBadge}>
-                          <Text style={styles.notificationActionBadgeText}>Cần xử lý</Text>
+                        <View style={styles.notificationActionGroup}>
+                          <View
+                            style={[
+                              styles.notificationActionBadge,
+                              item.severity === "critical" ? styles.notificationActionBadgeCritical : null,
+                              item.acknowledgedAt && !item.resolvedAt ? styles.notificationActionBadgeAcknowledged : null,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.notificationActionBadgeText,
+                                item.severity === "critical" ? styles.notificationActionBadgeTextCritical : null,
+                                item.acknowledgedAt && !item.resolvedAt ? styles.notificationActionBadgeTextAcknowledged : null,
+                              ]}
+                            >
+                              {item.resolvedAt
+                                ? "Đã xong"
+                                : item.acknowledgedAt
+                                  ? "Đang theo dõi"
+                                  : item.severity === "critical"
+                                    ? "Khẩn"
+                                    : "Cần xử lý"}
+                            </Text>
+                          </View>
+                          <Pressable style={styles.notificationResolveButton} onPress={() => void markActionResolved(item.id)}>
+                            <Text style={styles.notificationResolveButtonText}>Xong</Text>
+                          </Pressable>
                         </View>
                       ) : null}
                     </View>
@@ -1268,6 +1306,10 @@ export const styles = StyleSheet.create({
     borderColor: "#f59e0b",
     backgroundColor: "#fff7ed",
   },
+  notificationCardCritical: {
+    borderColor: "#f87171",
+    backgroundColor: "#FEF2F2",
+  },
   notificationCardInfo: {
     borderColor: "#bfdbfe",
     backgroundColor: "#eff6ff",
@@ -1302,17 +1344,44 @@ export const styles = StyleSheet.create({
     lineHeight: 14,
     color: "#9ca3af",
   },
+  notificationActionGroup: {
+    alignItems: "flex-end",
+    gap: 6,
+  },
   notificationActionBadge: {
     borderRadius: 999,
     backgroundColor: "#fff",
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
+  notificationActionBadgeCritical: {
+    backgroundColor: "#FEE2E2",
+  },
   notificationActionBadgeText: {
     fontSize: 10,
     lineHeight: 12,
     fontWeight: "800",
     color: "#b45309",
+  },
+  notificationActionBadgeTextCritical: {
+    color: "#B91C1C",
+  },
+  notificationActionBadgeAcknowledged: {
+    backgroundColor: "#E5E7EB",
+  },
+  notificationActionBadgeTextAcknowledged: {
+    color: "#4B5563",
+  },
+  notificationResolveButton: {
+    backgroundColor: "rgba(255,255,255,0.82)",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  notificationResolveButtonText: {
+    color: "#4B5563",
+    fontSize: 11,
+    fontWeight: "700",
   },
   notificationsEmpty: {
     borderRadius: 18,

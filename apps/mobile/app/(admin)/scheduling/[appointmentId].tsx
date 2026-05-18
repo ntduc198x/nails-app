@@ -191,6 +191,9 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
           <View style={styles.bookingInfo}>
             <View style={styles.bookingNameRow}>
               <Text style={styles.bookingName}>{appointment.customerName}</Text>
+            </View>
+            <View style={styles.statusBadgeWrap}>
+              <Text style={styles.statusLabel}>Trạng thái lịch hẹn</Text>
               <View style={[styles.statusBadge, appointment.status === "BOOKED" && styles.statusBadgeBooked]}>
                 <Text style={[styles.statusBadgeText, appointment.status === "BOOKED" && styles.statusBadgeTextBooked]}>
                   {appointment.status === "BOOKED" ? "Chờ check-in" : "Đang phục vụ"}
@@ -564,6 +567,8 @@ const styles = StyleSheet.create({
   bookingInfo: { flex: 1 },
   bookingNameRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   bookingName: { fontSize: 20, fontWeight: "800", color: palette.textPrimary, letterSpacing: -0.4 },
+  statusBadgeWrap: { alignItems: "flex-start", gap: 6, marginTop: 10 },
+  statusLabel: { color: palette.textSecondary, fontSize: 11, fontWeight: "700", letterSpacing: 0.2, textTransform: "uppercase" },
   statusBadge: { minHeight: 24, borderRadius: 12, paddingHorizontal: 10, backgroundColor: palette.successSoft, alignItems: "center", justifyContent: "center" },
   statusBadgeText: { fontSize: 11, fontWeight: "700", color: palette.success },
   statusBadgeBooked: { backgroundColor: "#E0F2FE" },

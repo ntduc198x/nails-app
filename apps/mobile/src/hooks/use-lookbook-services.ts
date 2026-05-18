@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { normalizeLookbookRows, type LookbookRow } from "@nails/shared";
 import { mobileEnv } from "@/src/lib/env";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -24,7 +24,10 @@ type LookbookSource = "api" | "supabase" | "fallback" | "empty";
 type UseLookbookServicesOptions = {
   allowFallback?: boolean;
   preferApi?: boolean;
+  autoRefreshOnMount?: boolean;
 };
+
+const lookbookMemoryCache = new Map<string, { services: LookbookService[]; source: LookbookSource }>();
 
 export function useLookbookServices(
   fallbackServices: LookbookService[] = [],
@@ -32,11 +35,14 @@ export function useLookbookServices(
 ) {
   const allowFallback = options.allowFallback ?? true;
   const preferApi = options.preferApi ?? false;
+  const autoRefreshOnMount = options.autoRefreshOnMount ?? true;
+  const cacheKey = useMemo(() => `lookbook:${preferApi ? "api" : "supabase"}:${allowFallback ? "fallback" : "strict"}`, [allowFallback, preferApi]);
+  const initialCached = useMemo(() => lookbookMemoryCache.get(cacheKey) ?? null, [cacheKey]);
   const [services, setServices] = useState<LookbookService[]>(
-    allowFallback ? fallbackServices : [],
+    initialCached?.services ?? (allowFallback ? fallbackServices : []),
   );
   const [source, setSource] = useState<LookbookSource>(
-    allowFallback && fallbackServices.length ? "fallback" : "empty",
+    initialCached?.source ?? (allowFallback && fallbackServices.length ? "fallback" : "empty"),
   );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -72,6 +78,7 @@ export function useLookbookServices(
         }
 
         if (isActive()) {
+          lookbookMemoryCache.set(cacheKey, { services: normalized, source: "api" });
           setServices(normalized);
           setSource("api");
         }
@@ -112,6 +119,7 @@ export function useLookbookServices(
         }
 
         if (isActive()) {
+          lookbookMemoryCache.set(cacheKey, { services: normalized, source: "supabase" });
           setServices(normalized);
           setSource("supabase");
         }
@@ -142,9 +150,11 @@ export function useLookbookServices(
 
       if (isActive()) {
         if (allowFallback) {
+          lookbookMemoryCache.set(cacheKey, { services: fallbackServices, source: "fallback" });
           setServices(fallbackServices);
           setSource("fallback");
         } else {
+          lookbookMemoryCache.set(cacheKey, { services: [], source: "empty" });
           setServices([]);
           setSource("empty");
         }
@@ -153,9 +163,11 @@ export function useLookbookServices(
       if (isActive()) {
         setLastError(error instanceof Error ? error.message : "Unknown lookbook error");
         if (allowFallback) {
+          lookbookMemoryCache.set(cacheKey, { services: fallbackServices, source: "fallback" });
           setServices(fallbackServices);
           setSource("fallback");
         } else {
+          lookbookMemoryCache.set(cacheKey, { services: [], source: "empty" });
           setServices([]);
           setSource("empty");
         }
@@ -166,13 +178,18 @@ export function useLookbookServices(
         setIsRefreshing(false);
       }
     }
-  }, [allowFallback, fallbackServices, preferApi]);
+  }, [allowFallback, cacheKey, fallbackServices, preferApi]);
 
   const refresh = useCallback(async () => {
     await loadServices(() => true, { silent: true });
   }, [loadServices]);
 
   useEffect(() => {
+    if (!autoRefreshOnMount) {
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     const timeoutId = setTimeout(() => {
       void loadServices(() => !cancelled);
@@ -182,7 +199,15 @@ export function useLookbookServices(
       clearTimeout(timeoutId);
       cancelled = true;
     };
-  }, [loadServices]);
+  }, [autoRefreshOnMount, loadServices]);
+
+  const syncFromCache = useCallback(() => {
+    const cached = lookbookMemoryCache.get(cacheKey) ?? null;
+    if (!cached) return;
+    setServices(cached.services);
+    setSource(cached.source);
+    setIsLoading(false);
+  }, [cacheKey]);
 
   return {
     refresh,
@@ -191,5 +216,6 @@ export function useLookbookServices(
     lastError,
     services,
     source,
+    syncFromCache,
   };
 }

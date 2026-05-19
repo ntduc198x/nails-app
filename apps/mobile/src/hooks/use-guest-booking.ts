@@ -86,19 +86,19 @@ function normalizeBookingErrorMessage(message: string) {
     lower.includes("profiles") ||
     lower.includes("user_id_fkey")
   ) {
-    return "Ưu đãi này chưa sẵn sàng để dùng trên tài khoản của bạn. Anh/chị vui lòng mở Hồ sơ kiểm tra lại số điện thoại hoặc chọn ưu đãi khác, bên em sẽ hỗ trợ ngay nếu cần.";
+    return "Ưu đãi này chưa sẵn sàng để dùng trên tài khoản của bạn. Bạn vui lòng mở Hồ sơ kiểm tra lại số điện thoại hoặc chọn ưu đãi khác, bên em sẽ hỗ trợ ngay nếu cần.";
   }
 
   if (lower.includes("offer_already_used_or_reserved")) {
-    return "Ưu đãi này vừa được giữ chỗ hoặc đã được sử dụng rồi. Anh/chị vui lòng chọn ưu đãi khác giúp em nhé.";
+    return "Ưu đãi này vừa được giữ chỗ hoặc đã được sử dụng rồi. Bạn vui lòng chọn ưu đãi khác giúp em nhé.";
   }
 
   if (lower.includes("offer_not_available")) {
-    return "Ưu đãi này hiện không còn khả dụng nữa. Anh/chị vui lòng chọn ưu đãi khác giúp em nhé.";
+    return "Ưu đãi này hiện không còn khả dụng nữa. Bạn vui lòng chọn ưu đãi khác giúp em nhé.";
   }
 
   if (lower.includes("offer_requires_linked_customer")) {
-    return "Tài khoản của anh/chị chưa liên kết đủ thông tin thành viên để dùng ưu đãi này. Vui lòng kiểm tra lại hồ sơ trước khi đặt lịch.";
+    return "Tài khoản của bạn chưa liên kết đủ thông tin thành viên để dùng ưu đãi này. Vui lòng kiểm tra lại hồ sơ trước khi đặt lịch.";
   }
 
   if (lower.includes("customer_name_required")) {
@@ -113,7 +113,7 @@ function normalizeBookingErrorMessage(message: string) {
     return "Vui lòng chọn lại ngày giờ đặt lịch hợp lệ.";
   }
 
-  return normalized || "Không thể gửi yêu cầu đặt lịch lúc này. Anh/chị vui lòng thử lại sau ít phút.";
+  return normalized || "Không thể gửi yêu cầu đặt lịch lúc này. Bạn vui lòng thử lại sau ít phút.";
 }
 
 function inferFieldErrors(message: string): GuestBookingFieldErrors {
@@ -345,67 +345,94 @@ export function useGuestBooking() {
         return;
       }
 
-      const result = mobileSupabase
-        ? await createPublicBookingRequestForMobile(mobileSupabase, parsed.data)
-        : await createPublicBookingRequest(parsed.data, {
-            baseUrl: mobileEnv.apiBaseUrl,
+      let result;
+
+      const bookingApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
+
+      if (bookingApiBaseUrl) {
+        try {
+          result = await createPublicBookingRequest(parsed.data, {
+            baseUrl: bookingApiBaseUrl,
           });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const shouldFallbackToRpc = Boolean(mobileSupabase) && (
+            message.startsWith("BOOKING_API_NON_JSON") ||
+            message.includes("Failed to fetch") ||
+            message.includes("Network request failed")
+          );
+
+          if (shouldFallbackToRpc && mobileSupabase) {
+            result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+          } else {
+            throw error;
+          }
+        }
+      } else if (mobileSupabase) {
+        result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+      } else {
+        result = await createPublicBookingRequest(parsed.data);
+      }
+
+      setSuccessResult(result);
 
       if (user?.id && result.bookingRequestId) {
         const hasAppliedOffer = Boolean(parsed.data.appliedOfferId || parsed.data.appliedOfferClaimId || parsed.data.appliedOfferCode);
 
-        await writeOptimisticBookingIntoCustomerHistoryCache(user.id, {
-          bookingRequestId: result.bookingRequestId,
-          requestedService: parsed.data.requestedService ?? "",
-          requestedStartAt: parsed.data.requestedStartAt,
-          preferredStaff: parsed.data.preferredStaff ?? null,
-        });
-        await writeOptimisticBookingIntoUpcomingBookingsCache(user.id, {
-          bookingRequestId: result.bookingRequestId,
-          requestedService: parsed.data.requestedService ?? "",
-          requestedStartAt: parsed.data.requestedStartAt,
-          preferredStaff: parsed.data.preferredStaff ?? null,
-        });
+        void (async () => {
+          await writeOptimisticBookingIntoCustomerHistoryCache(user.id, {
+            bookingRequestId: result.bookingRequestId,
+            requestedService: parsed.data.requestedService ?? "",
+            requestedStartAt: parsed.data.requestedStartAt,
+            preferredStaff: parsed.data.preferredStaff ?? null,
+          });
+          await writeOptimisticBookingIntoUpcomingBookingsCache(user.id, {
+            bookingRequestId: result.bookingRequestId,
+            requestedService: parsed.data.requestedService ?? "",
+            requestedStartAt: parsed.data.requestedStartAt,
+            preferredStaff: parsed.data.preferredStaff ?? null,
+          });
 
-        await refreshCustomerBookingTimeline(
-          {
-            userId: user.id,
-            historyLimit: 8,
-            upcomingLimit: 6,
-          },
-          { silent: true },
-        ).catch(() => {});
+          await refreshCustomerBookingTimeline(
+            {
+              userId: user.id,
+              historyLimit: 8,
+              upcomingLimit: 6,
+            },
+            { silent: true },
+          ).catch(() => {});
 
-        if (mobileSupabase) {
-          const supabase = mobileSupabase;
-          setTimeout(() => {
-            void (async () => {
-              await Promise.all([
-                prewarmCustomerHistoryCache(supabase, user.id),
-                prewarmCustomerUpcomingBookingsCache(supabase, user.id),
-              ]).catch(() => {});
+          if (mobileSupabase) {
+            const supabase = mobileSupabase;
+            setTimeout(() => {
+              void (async () => {
+                await Promise.all([
+                  prewarmCustomerHistoryCache(supabase, user.id),
+                  prewarmCustomerUpcomingBookingsCache(supabase, user.id),
+                ]).catch(() => {});
 
-              await refreshCustomerBookingTimeline(
-                {
-                  userId: user.id,
-                  historyLimit: 8,
-                  upcomingLimit: 6,
-                },
-                { silent: true },
-              ).catch(() => {});
-            })();
-          }, hasAppliedOffer ? 0 : 350);
-        }
+                await refreshCustomerBookingTimeline(
+                  {
+                    userId: user.id,
+                    historyLimit: 8,
+                    upcomingLimit: 6,
+                  },
+                  { silent: true },
+                ).catch(() => {});
+              })();
+            }, hasAppliedOffer ? 0 : 350);
+          }
+        })();
       }
-
-      setSuccessResult(result);
+      setIsSubmitting(false);
+      return;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Gui booking request that bai.";
       const friendlyMessage = normalizeBookingErrorMessage(rawMessage);
       setFieldErrors(inferFieldErrors(friendlyMessage));
       setSubmitError(friendlyMessage);
-    } finally {
       setIsSubmitting(false);
+      return;
     }
   }
 

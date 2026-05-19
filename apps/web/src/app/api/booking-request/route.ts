@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicBookingInputSchema } from "@nails/shared";
-import { rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
 import { assertPublicBookingRequestAllowed } from "@/lib/public-booking-guard";
 import { createServiceRoleClient } from "@/lib/supabase";
 
@@ -155,33 +154,12 @@ export async function POST(req: Request) {
         : "";
 
     if (createdBookingId) {
-      const telegramNotification = await notifyTelegramBookingRequest(req, createdBookingId);
+      void notifyTelegramBookingRequest(req, createdBookingId).catch(() => undefined);
 
-      if (serviceClient) {
-        const { data: createdRow } = await serviceClient
-          .from("booking_requests")
-          .select("id,org_id,status")
-          .eq("id", createdBookingId)
-          .maybeSingle();
-
-        if (createdRow?.org_id) {
-          await rebalanceOpenBookingRequests({ client: serviceClient, orgId: createdRow.org_id });
-          const { data: refreshedRow } = await serviceClient
-            .from("booking_requests")
-            .select("id,status")
-            .eq("id", createdBookingId)
-            .maybeSingle();
-
-          return NextResponse.json({
-            ok: true,
-            data,
-            bookingRequest: refreshedRow ?? createdRow,
-            telegramNotification,
-          });
-        }
-      }
-
-      return NextResponse.json({ ok: true, data, telegramNotification });
+      return NextResponse.json({
+        ok: true,
+        message: "Đã gửi yêu cầu thành công",
+      });
     }
 
     return NextResponse.json({ ok: true, data });

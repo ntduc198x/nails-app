@@ -37,6 +37,7 @@ export interface BookingRequestApiResponse<TData = unknown, TBookingRequest = un
   data?: TData;
   bookingRequest?: TBookingRequest;
   telegramNotification?: unknown;
+  message?: string;
   error?: string;
 }
 
@@ -45,6 +46,7 @@ export type PublicBookingSubmissionResult<TData = unknown> = {
   bookingRequestStatus: string | null;
   data: TData | null;
   telegramNotification: unknown;
+  successMessage: string | null;
 };
 
 function patchExpiredRows(rows: MobileBookingRequestSummary[]) {
@@ -121,7 +123,15 @@ export async function createPublicBookingRequest<
     body: JSON.stringify(payload),
   });
 
-  const json = (await res.json()) as BookingRequestApiResponse<TData, TBookingRequest>;
+  const rawText = await res.text();
+  let json: BookingRequestApiResponse<TData, TBookingRequest> | null = null;
+
+  try {
+    json = rawText ? (JSON.parse(rawText) as BookingRequestApiResponse<TData, TBookingRequest>) : null;
+  } catch {
+    const preview = rawText.slice(0, 160).trim();
+    throw new Error(preview ? `BOOKING_API_NON_JSON:${preview}` : "BOOKING_API_NON_JSON");
+  }
 
   if (!res.ok || !json?.ok) {
     throw new Error(json?.error || "Khong tao duoc booking request");
@@ -132,6 +142,7 @@ export async function createPublicBookingRequest<
     bookingRequestStatus: extractBookingRequestStatus(json),
     data: (json.data as TData | undefined) ?? null,
     telegramNotification: json.telegramNotification ?? null,
+    successMessage: typeof json.message === "string" && json.message ? json.message : null,
   } satisfies PublicBookingSubmissionResult<TData>;
 }
 
@@ -172,6 +183,7 @@ export async function createPublicBookingRequestForMobile(
     bookingRequestStatus: bookingRequestId ? "NEW" : null,
     data: null,
     telegramNotification: null,
+    successMessage: bookingRequestId ? "Đã gửi yêu cầu thành công" : null,
   } satisfies PublicBookingSubmissionResult<null>;
 }
 

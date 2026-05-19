@@ -95,16 +95,16 @@ function describeTierRequirements(tier: {
 function getTierGradient(tier: CustomerMembershipTier | null) {
   switch ((tier?.themeKey || tier?.code || "bronze").toLowerCase()) {
     case "silver":
-      return ["#CDD5DE", "#8A95A3"] as const;
+      return ["#F3F5F7", "#C9D1DA", "#8A97A6"] as const;
     case "gold":
-      return ["#D7B372", "#9A6B2F"] as const;
+      return ["#FFF3C9", "#E7C86D", "#B8862F"] as const;
     case "platinum":
-      return ["#C8D2DA", "#6A7887"] as const;
+      return ["#FEFEFF", "#DDE3EA", "#AEB8C4"] as const;
     case "diamond":
-      return ["#2D3E69", "#141B2A"] as const;
+      return ["#E8F7FF", "#86D7F7", "#2E7FBF"] as const;
     case "bronze":
     default:
-      return ["#B6865B", "#684123"] as const;
+      return ["#E6B17E", "#C98652", "#8A532C"] as const;
   }
 }
 

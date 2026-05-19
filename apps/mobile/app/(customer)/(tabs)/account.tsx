@@ -70,6 +70,38 @@ function toDateInputValue(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function getTierGradient(tierKey: string | null | undefined) {
+  switch ((tierKey || "bronze").toLowerCase()) {
+    case "silver":
+      return ["#F3F5F7", "#C9D1DA", "#8A97A6"] as const;
+    case "gold":
+      return ["#FFF3C9", "#E7C86D", "#B8862F"] as const;
+    case "platinum":
+      return ["#FEFEFF", "#DDE3EA", "#AEB8C4"] as const;
+    case "diamond":
+      return ["#E8F7FF", "#86D7F7", "#2E7FBF"] as const;
+    case "bronze":
+    default:
+      return ["#E6B17E", "#C98652", "#8A532C"] as const;
+  }
+}
+
+function getTierIconName(tierKey: string | null | undefined): React.ComponentProps<typeof Feather>["name"] {
+  switch ((tierKey || "bronze").toLowerCase()) {
+    case "silver":
+      return "shield";
+    case "gold":
+      return "star";
+    case "platinum":
+      return "zap";
+    case "diamond":
+      return "hexagon";
+    case "bronze":
+    default:
+      return "award";
+  }
+}
+
 function getHistoryStatusBadgeStyle(status: string, theme: ReturnType<typeof useCustomerTheme>) {
   switch (status) {
     case "DONE":
@@ -186,6 +218,10 @@ export default function AccountScreen() {
     const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || "Customer");
     return `https://ui-avatars.com/api/?name=${seed}&background=B4937D&color=FFFFFF&size=256`;
   }, [avatarUri, form.name, user?.email]);
+
+  const membershipThemeKey = currentTier?.themeKey || currentTier?.code || "bronze";
+  const membershipCardGradient = getTierGradient(membershipThemeKey);
+  const membershipIconName = getTierIconName(membershipThemeKey);
 
   const membershipBlurb = useMemo(() => {
     if (!currentTier && nextTier) {
@@ -594,7 +630,7 @@ export default function AccountScreen() {
       </View>
 
       <LinearGradient
-        colors={["#FAEEDF", "#F4E0C8"]}
+        colors={membershipCardGradient}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
         style={styles.membershipCard}
@@ -605,8 +641,8 @@ export default function AccountScreen() {
           <Text style={styles.membershipHint}>{membershipBlurb}</Text>
         </View>
         <View style={styles.membershipAwardWrap}>
-          <LinearGradient colors={["#C89B76", "#9F7453"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
-            <Feather color="#FFF7F0" name="award" size={18} />
+          <LinearGradient colors={membershipCardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
+            <Feather color="#FFF7F0" name={membershipIconName} size={18} />
           </LinearGradient>
         </View>
       </LinearGradient>

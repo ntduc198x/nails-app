@@ -85,13 +85,13 @@ export function getManageScreenItem(key: ManageScreenKey) {
 export function canViewManageScreenItem(role: AppRole | null | undefined, key: ManageScreenKey) {
   switch (key) {
     case "customers":
-      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      return role === "OWNER" || role === "PARTNER" || role === "RECEPTION";
     case "reports":
-      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "ACCOUNTANT";
+      return role === "OWNER" || role === "PARTNER" || role === "ACCOUNTANT";
     case "tax-books":
       return role === "OWNER" || role === "PARTNER" || role === "ACCOUNTANT";
     case "shifts":
-      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      return role === "OWNER" || role === "PARTNER" || role === "RECEPTION";
     case "services":
     case "resources":
     case "team":

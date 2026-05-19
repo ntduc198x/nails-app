@@ -592,7 +592,7 @@ export function AdminHeaderActions({
 }) {
   const router = useRouter();
   const { role, user } = useSession();
-  const canOpenSettings = isOwnerRole(role as AppRole | null | undefined);
+  const canOpenSettings = role != null && role !== "USER";
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
   const {

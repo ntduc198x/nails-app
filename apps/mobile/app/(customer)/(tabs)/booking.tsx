@@ -262,7 +262,7 @@ export default function BookingScreen() {
         {successResult ? (
           <SurfaceCard style={styles.successCard}>
             <Text style={styles.successTitle}>Đã gửi yêu cầu thành công</Text>
-            <Text style={styles.successText}>{successResult.bookingRequestId ?? "Đang đồng bộ mã booking"}</Text>
+            <Text style={styles.successText}>{successResult.successMessage ?? "Tiệm đã nhận yêu cầu của bạn."}</Text>
           </SurfaceCard>
         ) : null}
 

@@ -298,15 +298,47 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
     .eq("user_id", authUser.id)
     .maybeSingle();
 
+  let resolvedCustomerAccount = customerAccount ?? null;
+
+  if (!resolvedCustomerAccount?.customer_id) {
+    const currentUserLink = await mobileSupabase.rpc("link_customer_account_for_current_user");
+    if (!currentUserLink.error || currentUserLink.error.message?.includes("AUTH_USER_NOT_FOUND")) {
+      const refreshedCustomerAccount = await mobileSupabase
+        .from("customer_accounts")
+        .select("id, customer_id, org_id")
+        .eq("user_id", authUser.id)
+        .maybeSingle();
+
+      if (!refreshedCustomerAccount.error) {
+        resolvedCustomerAccount = refreshedCustomerAccount.data ?? resolvedCustomerAccount;
+      }
+    }
+  }
+
+  if (!resolvedCustomerAccount?.customer_id) {
+    const phoneLink = await mobileSupabase.rpc("link_customer_account_by_phone");
+    if (!phoneLink.error || phoneLink.error.message?.includes("AUTH_USER_NOT_FOUND")) {
+      const refreshedCustomerAccount = await mobileSupabase
+        .from("customer_accounts")
+        .select("id, customer_id, org_id")
+        .eq("user_id", authUser.id)
+        .maybeSingle();
+
+      if (!refreshedCustomerAccount.error) {
+        resolvedCustomerAccount = refreshedCustomerAccount.data ?? resolvedCustomerAccount;
+      }
+    }
+  }
+
   const profile = null as { display_name?: string | null; email?: string | null; phone?: string | null } | null;
 
   let customer: { full_name?: string | null; name?: string | null; email?: string | null; phone?: string | null } | null = null;
-  if (customerAccount?.customer_id) {
+  if (resolvedCustomerAccount?.customer_id) {
     const { data: customerData } = await mobileSupabase
       .from("customers")
       .select("full_name,name,email,phone")
-      .eq("id", customerAccount.customer_id)
-      .eq("org_id", customerAccount.org_id)
+      .eq("id", resolvedCustomerAccount.customer_id)
+      .eq("org_id", resolvedCustomerAccount.org_id)
       .maybeSingle();
     customer = customerData ?? null;
   }
@@ -327,7 +359,7 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
     } satisfies AuthenticatedUserSummary;
   }
 
-  if (!customerAccount) {
+  if (!resolvedCustomerAccount) {
     return {
       id: authUser.id,
       email: customer?.email || profile?.email || authUser.email || "",

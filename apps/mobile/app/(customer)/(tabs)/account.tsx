@@ -330,6 +330,7 @@ export default function AccountScreen() {
   useFocusEffect(
     useCallback(() => {
       void syncTimelineFromCache();
+      void refreshTimeline();
       syncLookbookFromCache();
       if (!favoritesHydrated) {
         void refreshFavorites();
@@ -337,7 +338,7 @@ export default function AccountScreen() {
       if (!services.length) {
         void refreshLookbook();
       }
-    }, [favoritesHydrated, refreshFavorites, refreshLookbook, services.length, syncLookbookFromCache, syncTimelineFromCache]),
+    }, [favoritesHydrated, refreshFavorites, refreshLookbook, refreshTimeline, services.length, syncLookbookFromCache, syncTimelineFromCache]),
   );
 
   const handleRefresh = useCallback(async () => {

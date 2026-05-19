@@ -58,6 +58,25 @@ export async function upsertAndVerifyCustomerProfile(
     customerAccount = relinked.data ?? null;
   }
 
+  if (!customerAccount?.customer_id) {
+    const relinkByPhoneRpc = await mobileSupabase.rpc("link_customer_account_by_phone");
+    if (relinkByPhoneRpc.error && !relinkByPhoneRpc.error.message?.includes("AUTH_USER_NOT_FOUND")) {
+      throw relinkByPhoneRpc.error;
+    }
+
+    const relinkedByPhone = await mobileSupabase
+      .from("customer_accounts")
+      .select("org_id,customer_id")
+      .eq("user_id", input.userId)
+      .maybeSingle();
+
+    if (relinkedByPhone.error) {
+      throw relinkedByPhone.error;
+    }
+
+    customerAccount = relinkedByPhone.data ?? null;
+  }
+
   const orgId = customerAccount?.org_id ?? null;
   const customerId = customerAccount?.customer_id ?? null;
 

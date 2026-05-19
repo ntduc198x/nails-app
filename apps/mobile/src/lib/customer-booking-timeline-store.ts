@@ -1,5 +1,5 @@
 import { listCustomerHistory, listCustomerUpcomingBookings, type CustomerHistoryItem, type CustomerUpcomingBookingItem } from "@nails/shared";
-import { hydrateCachedValue, peekCachedValue, writeCachedValue } from "@/src/lib/customer-feed-cache";
+import { hydrateCachedValue, isCacheFresh, peekCachedValue, writeCachedValue } from "@/src/lib/customer-feed-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 type TimelineState = {
@@ -28,6 +28,7 @@ const EMPTY_TIMELINE_STATE: TimelineState = {
   isRefreshing: false,
   lastError: null,
 };
+const TIMELINE_FRESH_MS = 90 * 1000;
 
 function makeStoreKey(config: TimelineConfig) {
   return `${config.userId ?? "guest"}:${config.historyLimit}:${config.upcomingLimit}`;
@@ -137,6 +138,17 @@ export async function refreshCustomerBookingTimeline(config: TimelineConfig, opt
     }));
 
     try {
+      try {
+        await mobileSupabase.rpc("link_customer_account_for_current_user");
+      } catch {
+        // Best-effort relink before timeline fetch.
+      }
+      try {
+        await mobileSupabase.rpc("link_customer_account_by_phone");
+      } catch {
+        // Best-effort relink before timeline fetch.
+      }
+
       const [historyItems, upcomingItems] = await Promise.all([
         listCustomerHistory(mobileSupabase, { limit: config.historyLimit }),
         listCustomerUpcomingBookings(mobileSupabase, { limit: config.upcomingLimit }),
@@ -174,15 +186,28 @@ export async function refreshCustomerBookingTimeline(config: TimelineConfig, opt
 
 export async function bootCustomerBookingTimeline(config: TimelineConfig) {
   const storeKey = makeStoreKey(config);
-  if (store.has(storeKey) && (store.get(storeKey)?.isHydrated || store.get(storeKey)?.isLoading)) {
+  if (!config.userId) {
+    setState(storeKey, { ...getDefaultState(), isHydrated: true });
     return;
   }
 
-  setState(storeKey, (prev) => ({ ...prev, isLoading: true }));
+  const currentState = store.get(storeKey);
+  if (!currentState?.isHydrated && !currentState?.isLoading) {
+    setState(storeKey, (prev) => ({ ...prev, isLoading: true }));
+  }
+
   await syncCustomerBookingTimelineFromCache(config);
 
   const current = store.get(storeKey) ?? getDefaultState();
+  const historyFresh = isCacheFresh(getHistoryCacheKey(config.userId, config.historyLimit), TIMELINE_FRESH_MS);
+  const upcomingFresh = isCacheFresh(getUpcomingCacheKey(config.userId, config.upcomingLimit), TIMELINE_FRESH_MS);
+
   if (!current.historyItems.length && !current.upcomingItems.length) {
     await refreshCustomerBookingTimeline(config);
+    return;
+  }
+
+  if (!historyFresh || !upcomingFresh) {
+    await refreshCustomerBookingTimeline(config, { silent: true });
   }
 }

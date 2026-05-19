@@ -118,7 +118,7 @@ function getRegistrationMode(user: User): "USER" | "ADMIN" {
 async function getCustomerAccountContext(client: SharedSupabaseClient, userId: string) {
   const { data, error } = await client
     .from("customer_accounts")
-    .select("org_id,branch_id")
+    .select("org_id,customer_id")
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -126,9 +126,31 @@ async function getCustomerAccountContext(client: SharedSupabaseClient, userId: s
     throw error;
   }
 
+  let branchId: string | undefined;
+  const orgId = typeof data?.org_id === "string" ? data.org_id : undefined;
+  const customerId = typeof data?.customer_id === "string" ? data.customer_id : undefined;
+
+  if (orgId && customerId) {
+    const customerBranch = await client
+      .from("customer_branches")
+      .select("branch_id,last_seen_at,created_at")
+      .eq("org_id", orgId)
+      .eq("customer_id", customerId)
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (customerBranch.error && customerBranch.error.code !== "PGRST116") {
+      throw customerBranch.error;
+    }
+
+    branchId = typeof customerBranch.data?.branch_id === "string" ? customerBranch.data.branch_id : undefined;
+  }
+
   return {
-    orgId: typeof data?.org_id === "string" ? data.org_id : undefined,
-    branchId: typeof data?.branch_id === "string" ? data.branch_id : undefined,
+    orgId,
+    branchId,
   };
 }
 
@@ -287,6 +309,25 @@ async function ensureCustomerAccountLink(client: SharedSupabaseClient, user: Use
 
   if (existingLink.error && !isMissingCustomerAccountLinkInfraError(existingLink.error)) {
     throw existingLink.error;
+  }
+
+  const currentUserLink = await client.rpc("link_customer_account_for_current_user");
+  if (!currentUserLink.error && typeof currentUserLink.data === "string") {
+    return currentUserLink.data;
+  }
+
+  const refreshedLink = await client
+    .from("customer_accounts")
+    .select("customer_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!refreshedLink.error && refreshedLink.data?.customer_id) {
+    return refreshedLink.data.customer_id as string;
+  }
+
+  if (refreshedLink.error && !isMissingCustomerAccountLinkInfraError(refreshedLink.error)) {
+    throw refreshedLink.error;
   }
 
   const { data, error } = await client.rpc("link_customer_account_by_phone");

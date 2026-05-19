@@ -20,7 +20,12 @@ export default function BookingScreen() {
   const { user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
     useGuestBooking();
-  const { upcomingItems: upcomingBookings, isRefreshing, refresh: refreshUpcomingBookings, syncFromCache: syncTimelineFromCache } = useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
+  const {
+    upcomingItems: upcomingBookings,
+    isRefreshing,
+    refresh: refreshUpcomingBookings,
+    syncFromCache: syncTimelineFromCache,
+  } = useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
 
   useEffect(() => {
     if (params.service && typeof params.service === "string" && params.service !== values.requestedService) {
@@ -97,7 +102,8 @@ export default function BookingScreen() {
   useFocusEffect(
     useCallback(() => {
       void syncTimelineFromCache();
-    }, [syncTimelineFromCache]),
+      void refreshUpcomingBookings();
+    }, [refreshUpcomingBookings, syncTimelineFromCache]),
   );
 
   useEffect(() => {

@@ -7,6 +7,44 @@ export type OrgContext = {
   branchId: string;
 };
 
+async function getCustomerBranchContext(client: SharedSupabaseClient, userId: string) {
+  const { data: customerAccount, error: customerAccountErr } = await client
+    .from("customer_accounts")
+    .select("org_id,customer_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (customerAccountErr && customerAccountErr.code !== "PGRST116") {
+    throw customerAccountErr;
+  }
+
+  const orgId = typeof customerAccount?.org_id === "string" ? customerAccount.org_id : undefined;
+  const customerId = typeof customerAccount?.customer_id === "string" ? customerAccount.customer_id : undefined;
+
+  if (!orgId || !customerId) {
+    return { orgId, branchId: undefined as string | undefined };
+  }
+
+  const { data: customerBranch, error: customerBranchErr } = await client
+    .from("customer_branches")
+    .select("branch_id,last_seen_at,created_at")
+    .eq("org_id", orgId)
+    .eq("customer_id", customerId)
+    .order("last_seen_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (customerBranchErr && customerBranchErr.code !== "PGRST116") {
+    throw customerBranchErr;
+  }
+
+  return {
+    orgId,
+    branchId: typeof customerBranch?.branch_id === "string" ? customerBranch.branch_id : undefined,
+  };
+}
+
 function getRegistrationMode(user: { app_metadata?: Record<string, unknown> | null; user_metadata?: Record<string, unknown> | null }) {
   const provider =
     typeof user.app_metadata?.provider === "string" && user.app_metadata.provider.trim()
@@ -63,18 +101,9 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
   }
 
   if (!orgId || !branchId) {
-    const { data: customerAccount, error: customerAccountErr } = await client
-      .from("customer_accounts")
-      .select("org_id,branch_id")
-      .eq("user_id", currentUser.id)
-      .maybeSingle();
-
-    if (customerAccountErr && customerAccountErr.code !== "PGRST116") {
-      throw customerAccountErr;
-    }
-
-    orgId = orgId ?? (typeof customerAccount?.org_id === "string" ? customerAccount.org_id : undefined);
-    branchId = branchId ?? (typeof customerAccount?.branch_id === "string" ? customerAccount.branch_id : undefined);
+    const customerContext = await getCustomerBranchContext(client, currentUser.id);
+    orgId = orgId ?? customerContext.orgId;
+    branchId = branchId ?? customerContext.branchId;
   }
 
   if (!orgId) {

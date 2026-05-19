@@ -1,6 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { useCallback, useMemo, useState } from "react";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Keyboard,
   KeyboardAvoidingView,
@@ -11,7 +11,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, createCheckoutKey, formatVnd, useKeyboardVisible } from "@/src/features/admin/ui";
@@ -86,15 +85,19 @@ export default function AdminCheckoutScreen() {
   // Removed useFocusEffect to prevent layout shift when returning to screen
   // Data is loaded via useAdminOperations hook
 
-  const checkedInAppointments = useMemo(() => appointments.filter((item) => item.status === "CHECKED_IN"), [appointments]);
+  const checkoutAppointments = useMemo(
+    () => appointments.filter((item) => item.status === "CHECKED_IN"),
+    [appointments],
+  );
   const selectedAppointment = useMemo(
     () =>
-      checkedInAppointments.find((item) => item.id === selectedAppointmentId) ??
-      checkedInAppointments.find((item) => item.id === requestedAppointmentId) ??
-      checkedInAppointments[0] ??
+      checkoutAppointments.find((item) => item.id === selectedAppointmentId) ??
+      checkoutAppointments.find((item) => item.id === requestedAppointmentId) ??
+      checkoutAppointments[0] ??
       null,
-    [checkedInAppointments, requestedAppointmentId, selectedAppointmentId],
+    [checkoutAppointments, requestedAppointmentId, selectedAppointmentId],
   );
+  const checkedInAppointments = checkoutAppointments;
   const activeCheckoutServices = useMemo(() => checkoutServices.filter((item) => item.active), [checkoutServices]);
   const checkoutSummary = useMemo(() => {
     const selectedLines = checkoutLines
@@ -146,7 +149,6 @@ export default function AdminCheckoutScreen() {
       appointmentId: selectedAppointment.id,
       idempotencyKey: createCheckoutKey(),
     });
-    await reload();
     setCheckoutNotice("Đã thanh toán.");
     setLastReceiptToken(result?.receiptToken ?? null);
     setCheckoutLines([{ serviceId: "", qty: 1 }]);
@@ -201,7 +203,7 @@ export default function AdminCheckoutScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Khách đang phục vụ</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
-              {checkedInAppointments.map((item) => {
+              {checkoutAppointments.map((item) => {
                 const [avatarStrong, avatarSoft] = buildAvatarTone(item.customerName);
                 const active = item.id === selectedAppointment?.id;
                 return (

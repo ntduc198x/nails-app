@@ -13,7 +13,7 @@ import {
   type MobileStaffHoursRow,
   type MobileStaffRevenueRow,
 } from "@nails/shared";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 type RangeMode = "day" | "week" | "month" | "custom";
@@ -189,6 +189,7 @@ function SelectLike({ label, value, onPress }: { label: string; value: string; o
 }
 
 export default function AdminManageReportsScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "ACCOUNTANT"]);
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [customFrom, setCustomFrom] = useState(() => toDateInput(new Date()));
@@ -294,6 +295,10 @@ export default function AdminManageReportsScreen() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không thể xuất báo cáo.");
     }
+  }
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
   }
 
   return (

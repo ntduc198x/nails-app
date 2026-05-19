@@ -6,6 +6,7 @@ import type { RealtimeChannel } from "@supabase/supabase-js";
 export type OrgContext = { orgId: string; branchId: string };
 
 const TTL = 30_000;
+const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 
 interface SessionCache<T> {
   value: T;
@@ -75,6 +76,26 @@ function isMissingResourceSchema(error: unknown) {
     || msg.includes("care_note")
     || msg.includes("next_follow_up_at")
     || msg.includes("follow_up_status");
+}
+
+function canCheckInAppointmentAt(startAt: string, now = new Date()) {
+  const scheduledAtMs = new Date(startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) return false;
+
+  const windowMs = APPOINTMENT_CHECK_IN_WINDOW_MINUTES * 60 * 1000;
+  return nowMs >= scheduledAtMs - windowMs && nowMs <= scheduledAtMs + windowMs;
+}
+
+function normalizeAppointmentStatusMutationError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
+    return new Error("Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.");
+  }
+  if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) {
+    return new Error("Trạng thái lịch hẹn không hợp lệ cho thao tác này.");
+  }
+  return error instanceof Error ? error : new Error(message || "Thao tác lịch hẹn thất bại.");
 }
 
 export async function ensureOrgContext(opts?: { force?: boolean }): Promise<OrgContext> {
@@ -667,6 +688,23 @@ export async function updateAppointmentStatus(appointmentId: string, status: "BO
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
 
+  if (status === "CHECKED_IN") {
+    const currentAppointmentRes = await supabase
+      .from("appointments")
+      .select("start_at,status")
+      .eq("id", appointmentId)
+      .eq("org_id", orgId)
+      .single();
+
+    if (currentAppointmentRes.error) throw currentAppointmentRes.error;
+    if (currentAppointmentRes.data.status !== "BOOKED") {
+      throw new Error("Chỉ có lịch chờ check-in mới được check-in.");
+    }
+    if (!canCheckInAppointmentAt(String(currentAppointmentRes.data.start_at ?? ""))) {
+      throw new Error("Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.");
+    }
+  }
+
   if (status === "CANCELLED") {
     const { data: sessionData } = await supabase.auth.getSession();
     const currentUserId = sessionData.session?.user?.id;
@@ -707,7 +745,7 @@ export async function updateAppointmentStatus(appointmentId: string, status: "BO
     .eq("id", appointmentId)
     .eq("org_id", orgId);
 
-  if (error) throw error;
+  if (error) throw normalizeAppointmentStatusMutationError(error);
   if (status === "CANCELLED" || status === "DONE" || status === "NO_SHOW") {
     await rebalanceOpenBookingRequests({ orgId });
   }

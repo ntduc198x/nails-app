@@ -68,6 +68,17 @@ const INITIAL_STATE: AdminOperationsState = {
   customerCrmByPhone: {},
 };
 
+function normalizeAdminOperationError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
+    return "Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.";
+  }
+  if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) {
+    return "Trạng thái lịch hẹn không hợp lệ cho thao tác này.";
+  }
+  return message || "Thao tác thất bại";
+}
+
 const ADMIN_OPERATIONS_CACHE_TTL_MS = 60 * 1000;
 
 let cachedAdminState: AdminOperationsState = INITIAL_STATE;
@@ -77,12 +88,6 @@ let inflightAdminLoad: Promise<AdminOperationsState> | null = null;
 const adminStateListeners = new Set<(state: AdminOperationsState) => void>();
 
 function emitAdminState(nextState: AdminOperationsState) {
-  // Only emit state if data actually changed to prevent unnecessary re-renders
-  const stateChanged = JSON.stringify(cachedAdminState) !== JSON.stringify(nextState);
-  if (!stateChanged) {
-    return;
-  }
-
   cachedAdminState = nextState;
   cachedAdminStateAt = Date.now();
   adminStateListeners.forEach((listener) => listener(nextState));
@@ -300,7 +305,7 @@ export function useAdminOperations() {
 
     inflightAdminLoad = (async () => {
       const canSeeBookingRequests =
-        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
       const canSeeCrm =
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
       const canSeeRecentTickets =
@@ -389,7 +394,7 @@ export function useAdminOperations() {
         await action();
         await load(true);
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Thao tac that bai");
+        setError(normalizeAdminOperationError(nextError));
         throw nextError;
       } finally {
         setMutating(false);

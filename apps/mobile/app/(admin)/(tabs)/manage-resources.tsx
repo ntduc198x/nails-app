@@ -16,7 +16,7 @@ import {
   updateResourceForMobile,
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
 const palette = {
@@ -228,6 +228,7 @@ function ResourceRowCard({
 }
 
 export default function AdminManageResourcesScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const [rows, setRows] = useState<MobileAdminResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -334,6 +335,10 @@ export default function AdminManageResourcesScreen() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
   }
 
   return (

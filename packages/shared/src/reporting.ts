@@ -54,12 +54,48 @@ export type MobileTicketDetail = {
   items: Array<{ qty: number; unitPrice: number; vatRate: number; serviceName: string }>;
 };
 
+async function getCurrentOrgRole(client: SharedSupabaseClient, orgId: string) {
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+
+  const userId = session?.user?.id;
+  if (!userId) {
+    throw new Error("Chua dang nhap");
+  }
+
+  const { data, error } = await client
+    .from("user_roles")
+    .select("role")
+    .eq("org_id", orgId)
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return typeof data?.role === "string" ? data.role : null;
+}
+
+async function assertCanViewReports(client: SharedSupabaseClient) {
+  const { orgId } = await ensureOrgContext(client);
+  const role = await getCurrentOrgRole(client, orgId);
+
+  if (role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "ACCOUNTANT") {
+    return { orgId, role };
+  }
+
+  throw new Error("FORBIDDEN_REPORTS");
+}
+
 export async function listTicketsInRangeForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
 ): Promise<MobileReportTicketRow[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId } = await assertCanViewReports(client);
 
   const { data, error } = await client
     .from("tickets")
@@ -128,6 +164,7 @@ export async function getReportBreakdownForMobile(
   fromIso: string,
   toIso: string,
 ): Promise<MobileReportBreakdown> {
+  await assertCanViewReports(client);
   const { branchId } = await ensureOrgContext(client);
 
   const { data, error } = await client.rpc("get_report_breakdown_secure", {
@@ -175,7 +212,7 @@ export async function listTimeEntriesInRangeForMobile(
   fromIso: string,
   toIso: string,
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId } = await assertCanViewReports(client);
 
   const { data, error } = await client
     .from("time_entries")
@@ -222,7 +259,7 @@ async function listStaffNameMap(client: SharedSupabaseClient, orgId: string, sta
 export async function listReportStaffOptionsForMobile(
   client: SharedSupabaseClient,
 ): Promise<MobileReportStaffOption[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId } = await assertCanViewReports(client);
 
   const { data: roleRows, error: roleErr } = await client
     .from("user_roles")
@@ -256,7 +293,7 @@ export async function getStaffRevenueInRangeForMobile(
   fromIso: string,
   toIso: string,
 ): Promise<MobileStaffRevenueRow[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId } = await assertCanViewReports(client);
 
   const { data: tickets, error: ticketErr } = await client
     .from("tickets")
@@ -336,7 +373,7 @@ export async function getStaffHoursInRangeForMobile(
   fromIso: string,
   toIso: string,
 ): Promise<MobileStaffHoursRow[]> {
-  await ensureOrgContext(client);
+  await assertCanViewReports(client);
   const [entries, staffOptions] = await Promise.all([
     listTimeEntriesInRangeForMobile(client, fromIso, toIso),
     listReportStaffOptionsForMobile(client),
@@ -379,7 +416,7 @@ export async function getTicketDetailForMobile(
   client: SharedSupabaseClient,
   ticketId: string,
 ): Promise<MobileTicketDetail> {
-  await ensureOrgContext(client);
+  await assertCanViewReports(client);
 
   const { data, error } = await client.rpc("get_ticket_detail_secure", {
     p_ticket_id: ticketId,

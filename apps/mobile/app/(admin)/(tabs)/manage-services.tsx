@@ -20,7 +20,7 @@ import {
   updateAdminServiceForMobile,
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { uploadPickedServiceImage } from "@/src/features/admin/services-data";
 
@@ -348,6 +348,7 @@ function TrashRowCard({
 }
 
 export default function AdminManageServicesScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const [rows, setRows] = useState<MobileAdminService[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -612,6 +613,10 @@ export default function AdminManageServicesScreen() {
     : visibleSection === "lookbook"
       ? filteredLookbook
       : filteredTrash;
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
+  }
 
   return (
     <ManageScreenShell

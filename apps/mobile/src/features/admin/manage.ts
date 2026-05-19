@@ -1,3 +1,5 @@
+import type { AppRole } from "@nails/shared";
+
 export type ManageScreenKey =
   | "content"
   | "customers"
@@ -78,4 +80,31 @@ export const MANAGE_SCREEN_ITEMS: ManageScreenItem[] = [
 
 export function getManageScreenItem(key: ManageScreenKey) {
   return MANAGE_SCREEN_ITEMS.find((item) => item.key === key) ?? null;
+}
+
+export function canViewManageScreenItem(role: AppRole | null | undefined, key: ManageScreenKey) {
+  switch (key) {
+    case "customers":
+      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+    case "reports":
+      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "ACCOUNTANT";
+    case "tax-books":
+      return role === "OWNER" || role === "PARTNER" || role === "ACCOUNTANT";
+    case "shifts":
+      return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+    case "services":
+    case "resources":
+    case "team":
+    case "content":
+      return role === "OWNER" || role === "PARTNER";
+    default:
+      return false;
+  }
+}
+
+export function filterManageScreenItemsForRole(
+  role: AppRole | null | undefined,
+  items: ManageScreenItem[] = MANAGE_SCREEN_ITEMS,
+) {
+  return items.filter((item) => canViewManageScreenItem(role, item.key));
 }

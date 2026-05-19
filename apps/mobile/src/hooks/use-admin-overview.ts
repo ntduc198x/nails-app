@@ -43,7 +43,7 @@ export function useAdminOverview() {
 
     try {
       const canSeeBookingRequests =
-        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
       const canSeeCrm =
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
 

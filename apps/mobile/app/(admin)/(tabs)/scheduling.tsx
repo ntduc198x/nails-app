@@ -177,7 +177,7 @@ export default function AdminSchedulingScreen() {
   } = useAdminOperations();
 
   const [filterOverride, setFilterOverride] = useState<SchedulingFilter | null>(null);
-  const canSeeBookingRequests = role !== "TECH";
+  const canSeeBookingRequests = true;
   const activeTab: SchedulingTab =
     canSeeBookingRequests && params.tab === "bookings" ? "bookings" : "appointments";
   const focusedBookingId = Array.isArray(params.focusBookingId) ? params.focusBookingId[0] : params.focusBookingId;

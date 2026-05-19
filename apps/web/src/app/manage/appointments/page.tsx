@@ -62,6 +62,7 @@ type RangeMode = "day" | "week" | "month" | "custom";
 const OVERDUE_GRACE_MINUTES = 20;
 const STALE_CHECKED_IN_MINUTES = 90;
 const CRITICAL_CHECKED_IN_MINUTES = 150;
+const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 
 function toInputValue(date: Date) {
   return toDateTimeLocalValue(date);
@@ -182,6 +183,14 @@ function isOverdueBooked(row: AppointmentRow) {
   return new Date(row.start_at).getTime() < threshold;
 }
 
+function canCheckInAppointmentAt(startAt: string, now = new Date()) {
+  const scheduledAtMs = new Date(startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) return false;
+  const windowMs = APPOINTMENT_CHECK_IN_WINDOW_MINUTES * 60 * 1000;
+  return nowMs >= scheduledAtMs - windowMs && nowMs <= scheduledAtMs + windowMs;
+}
+
 function isStaleCheckedIn(row: AppointmentRow & { checked_in_at?: string | null }) {
   if (row.status !== "CHECKED_IN") return false;
   const checkedInTime = row.checked_in_at ? new Date(row.checked_in_at).getTime() : new Date(row.start_at).getTime();
@@ -266,6 +275,7 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
   const customer = pickCustomerName(row.customers);
   const customerPhone = pickCustomerPhone(row.customers);
   const customerRecord = pickCustomerRecord(row.customers);
+  const canCheckInNow = row.status === "BOOKED" && canCheckInAppointmentAt(row.start_at);
 
   return (
     <div className={`rounded-2xl border bg-white p-3 shadow-sm ${overdue ? "border-amber-300 bg-amber-50/40" : criticalCheckedIn ? "border-fuchsia-300 bg-fuchsia-50/40" : staleCheckedIn ? "border-violet-300 bg-violet-50/40" : "border-neutral-200"}`}>
@@ -296,7 +306,7 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
           {row.status === "BOOKED" && (
             <>
               <button type="button" className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50" onClick={onEdit}>Sửa</button>
-              <button onClick={() => void onQuickStatus(row.id, "CHECKED_IN")} className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId}>{updatingId === row.id ? "Đang xử lý..." : "Check-in"}</button>
+              <button onClick={() => void onQuickStatus(row.id, "CHECKED_IN")} className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60" disabled={!!updatingId || !canCheckInNow}>{updatingId === row.id ? "Đang xử lý..." : "Check-in"}</button>
               {confirmCancelId === row.id ? (
                 <>
                   <button onClick={() => { setConfirmCancelId(null); void onQuickStatus(row.id, "CANCELLED"); }} className="cursor-pointer rounded-xl border border-red-600 bg-red-600 px-3 py-2 text-sm font-medium text-white" disabled={!!updatingId}>Xác nhận</button>
@@ -331,6 +341,9 @@ function AppointmentCard({ row, staffName, resourceName, onlineBooked, overdue, 
       </div>
 
       {customerRecord ? <CrmMiniCard customer={customerRecord} compact /> : null}
+      {row.status === "BOOKED" && !canCheckInNow ? (
+        <div className="mt-2 text-xs text-amber-700">Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.</div>
+      ) : null}
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { canCheckInAppointmentAt } from "@nails/shared";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { AdminBottomNavDock, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
@@ -116,6 +117,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
   const [pickerDay, setPickerDay] = useState(() => new Date().getDate());
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
+  const canCheckInNow = appointment.status === "BOOKED" && canCheckInAppointmentAt(appointment.startAt);
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -343,14 +345,19 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       </Pressable>
 
       {appointment.status === "BOOKED" && (
-        <Pressable
-          style={styles.checkinButton}
-          disabled={mutating || busyTargetId === appointment.id}
-          onPress={() => void updateAppointmentStatus(appointment.id, "CHECKED_IN")}
-        >
-          <Feather name="user-check" size={16} color={palette.success} />
-          <Text style={styles.checkinButtonText}>Check-in</Text>
-        </Pressable>
+        <>
+          <Pressable
+            style={[styles.checkinButton, !canCheckInNow ? styles.checkinButtonDisabled : null]}
+            disabled={mutating || busyTargetId === appointment.id || !canCheckInNow}
+            onPress={() => void updateAppointmentStatus(appointment.id, "CHECKED_IN")}
+          >
+            <Feather name="user-check" size={16} color={palette.success} />
+            <Text style={styles.checkinButtonText}>Check-in</Text>
+          </Pressable>
+          {!canCheckInNow ? (
+            <Text style={styles.checkinHintText}>Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.</Text>
+          ) : null}
+        </>
       )}
 
       {appointment.status === "CHECKED_IN" && (
@@ -594,7 +601,9 @@ const styles = StyleSheet.create({
   primaryButtonDisabled: { opacity: 0.55 },
   primaryButtonText: { fontSize: 17, fontWeight: "800", color: "#FFFFFF", letterSpacing: -0.2 },
   checkinButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.success, backgroundColor: palette.successSoft },
+  checkinButtonDisabled: { opacity: 0.45 },
   checkinButtonText: { fontSize: 15, fontWeight: "700", color: palette.success },
+  checkinHintText: { marginTop: 8, textAlign: "center", fontSize: 12, lineHeight: 18, color: palette.textSecondary },
   secondaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card },
   secondaryButtonText: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
   dangerButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.card },

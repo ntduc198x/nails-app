@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
-import { MANAGE_SCREEN_ITEMS, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
+import { MANAGE_SCREEN_ITEMS, canViewManageScreenItem, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
 import { dismissToHref, getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
@@ -62,14 +62,18 @@ function getGroupTabs(group: ManageScreenItem["group"]) {
 export function ManageModuleTabs({
   currentKey,
   group,
+  role,
   hiddenTabKeys = [],
 }: {
   currentKey: ManageScreenKey;
   group: ManageScreenItem["group"];
+  role: ReturnType<typeof useSession>["role"];
   hiddenTabKeys?: ManageScreenKey[];
 }) {
   const router = useRouter();
-  const tabs = getGroupTabs(group).filter((item) => !hiddenTabKeys.includes(item.key));
+  const tabs = getGroupTabs(group).filter(
+    (item) => canViewManageScreenItem(role, item.key) && !hiddenTabKeys.includes(item.key),
+  );
 
   return (
     <View style={styles.tabsRow}>
@@ -151,6 +155,12 @@ export function ManageScreenShell({
   const router = useRouter();
   const { role } = useSession();
   const keyboardVisible = useKeyboardVisible();
+  const effectiveHiddenTabKeys = Array.from(
+    new Set([
+      ...hiddenTabKeys,
+      ...MANAGE_SCREEN_ITEMS.filter((item) => item.group === group && !canViewManageScreenItem(role, item.key)).map((item) => item.key),
+    ]),
+  );
 
   return (
     <View style={styles.screen}>
@@ -175,7 +185,7 @@ export function ManageScreenShell({
           </View>
         </View>
 
-        {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} hiddenTabKeys={hiddenTabKeys} /> : null}
+        {showTabs ? <ManageModuleTabs currentKey={currentKey} group={group} role={role} hiddenTabKeys={effectiveHiddenTabKeys} /> : null}
       </AdminTopSafeArea>
 
       <KeyboardAvoidingView
@@ -219,8 +229,30 @@ export function ManageScreenShell({
   );
 }
 
+export function useManageRouteAccess(allowed: ReadonlyArray<NonNullable<ReturnType<typeof useSession>["role"]>>) {
+  const router = useRouter();
+  const session = useSession();
+
+  const canAccess = Boolean(session.role && allowed.includes(session.role));
+
+  useEffect(() => {
+    if (!session.isHydrated) return;
+    if (canAccess) return;
+    void router.replace("/shifts");
+  }, [canAccess, router, session.isHydrated]);
+
+  return {
+    ...session,
+    allowed: canAccess,
+  };
+}
+
 const styles = StyleSheet.create({
   screen: {
+    flex: 1,
+    backgroundColor: palette.bg,
+  },
+  loadingState: {
     flex: 1,
     backgroundColor: palette.bg,
   },

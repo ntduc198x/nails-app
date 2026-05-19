@@ -154,11 +154,12 @@ export async function POST(req: Request) {
         : "";
 
     if (createdBookingId) {
-      void notifyTelegramBookingRequest(req, createdBookingId).catch(() => undefined);
+      const telegramNotification = await notifyTelegramBookingRequest(req, createdBookingId);
 
       return NextResponse.json({
         ok: true,
         message: "Đã gửi yêu cầu thành công",
+        telegramNotification,
       });
     }
 

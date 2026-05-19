@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
 type ProfileRow = {
@@ -28,7 +28,7 @@ export default function CustomerAccountPage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  async function loadAccount() {
+  const loadAccount = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -66,11 +66,14 @@ export default function CustomerAccountPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
-    void loadAccount();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void loadAccount();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [loadAccount]);
 
   async function handleSaveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

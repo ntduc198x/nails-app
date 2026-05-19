@@ -15,10 +15,12 @@ import type {
   InviteCodeConsumptionResult,
 } from "@nails/shared";
 import {
+  buildRoleSignUpAuthData,
   consumeInviteCodeWithClient,
   createAppSessionWithDevice,
   getAuthenticatedUserSummary,
   isCustomerRole,
+  normalizeInviteCode,
   revokeAppSessionToken,
   validateAppSessionToken,
 } from "@nails/shared";
@@ -91,7 +93,7 @@ const defaultSessionContextValue: SessionContextValue = {
 const SessionContext = createContext<SessionContextValue>(defaultSessionContextValue);
 
 function getPostAuthHref(role: AppRole | null | undefined) {
-  return isCustomerRole(role) ? "/(customer)" : "/(admin)";
+  return isCustomerRole(role) ? "/(customer)/(tabs)" : "/(admin)/(tabs)";
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallbackValue: T) {
@@ -131,18 +133,6 @@ function shouldUseNativeOAuthRedirect() {
 
 function buildGoogleOAuthRedirectUrl() {
   return shouldUseNativeOAuthRedirect() ? buildNativeAppRedirectUrl() : buildAuthRedirectUrl();
-}
-
-function getGoogleOAuthModeLabel() {
-  return shouldUseNativeOAuthRedirect() ? "native-dev-build" : "expo-go";
-}
-
-function buildSupabaseCallbackUrl() {
-  if (mobileEnv.supabaseUrl) {
-    const baseUrl = mobileEnv.supabaseUrl.replace(/\/$/, "");
-    return `${baseUrl}/auth/v1/callback`;
-  }
-  return buildAuthRedirectUrl();
 }
 
 function readAuthParams(url: string) {
@@ -488,7 +478,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const finalizePromise = (async () => {
       try {
         await ensureCustomerUserMetadata();
-      } catch (metadataError) {
+      } catch {
       }
 
       await hydrateAfterAuth();
@@ -509,10 +499,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const completeOAuthUrl = useCallback(
     async (url: string) => {
-      console.log("[Auth] completeOAuthUrl received:", url);
-
       if (handledOAuthUrlsRef.current.has(url)) {
-        console.log("[Auth] completeOAuthUrl skipped duplicate callback");
         return true;
       }
 
@@ -521,23 +508,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       if (isWebOAuthFallbackUrl(url)) {
-        console.warn("[Auth] OAuth callback fell back to web URL:", url);
         throw new Error(
           "Google dang tra callback ve web URL thay vi mobile app. Kiem tra Supabase Redirect URLs cho mode Expo hien tai.",
         );
       }
 
       if (!isOAuthCallbackUrl(url)) {
-        console.warn("[Auth] URL is not recognized as a mobile OAuth callback");
         return false;
       }
 
       const { code, accessToken, refreshToken } = readAuthParams(url);
-      console.log("[Auth] OAuth params detected:", {
-        hasCode: Boolean(code),
-        hasAccessToken: Boolean(accessToken),
-        hasRefreshToken: Boolean(refreshToken),
-      });
 
       if (code) {
         const { error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(code);
@@ -562,7 +542,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       await finalizePostAuthRedirect("USER");
       handledOAuthUrlsRef.current.add(url);
-      console.log("[Auth] OAuth callback finalized successfully");
       return true;
     },
     [finalizePostAuthRedirect],
@@ -739,8 +718,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     try {
       const appCallbackUrl = buildGoogleOAuthRedirectUrl();
-      console.log("[Auth] Google OAuth mode:", getGoogleOAuthModeLabel());
-      console.log("[Auth] Google OAuth redirectTo:", appCallbackUrl);
 
       const { data, error: oauthError } = await mobileSupabase.auth.signInWithOAuth({
         provider: "google",
@@ -762,12 +739,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         throw new Error("Khong tao duoc duong dan dang nhap Google.");
       }
 
-      console.log("[Auth] Google OAuth authorize URL:", data.url);
       const result = await WebBrowser.openAuthSessionAsync(data.url, appCallbackUrl);
-      console.log("[Auth] Google OAuth browser result:", result.type);
 
       if (result.type === "cancel" || result.type === "dismiss") {
-        console.warn("[Auth] Google OAuth was cancelled or dismissed by the user");
         return;
       }
 
@@ -776,7 +750,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       const resultUrl = (result as { url: string }).url;
-      console.log("[Auth] Google OAuth callback URL:", resultUrl);
 
       if (isWebOAuthFallbackUrl(resultUrl)) {
         throw new Error(
@@ -893,14 +866,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
+      const authData = buildRoleSignUpAuthData(input.name);
+      const displayName = authData.display_name;
+      const inviteCode = normalizeInviteCode(input.inviteCode);
+
+      if (input.registrationMode === "ADMIN" && !inviteCode) {
+        throw new Error("Nhap ma moi de tao tai khoan quan tri.");
+      }
+
       const { data, error: signUpError } = await mobileSupabase.auth.signUp({
         email: input.email,
         password: input.password,
         options: {
-          data: {
-            display_name: input.name.trim(),
-            registration_mode: input.registrationMode,
-          },
+          data: authData,
         },
       });
 
@@ -916,21 +894,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       let inviteResult: InviteCodeConsumptionResult | null = null;
 
       if (input.registrationMode === "ADMIN") {
-        const nextInviteCode = input.inviteCode?.trim().toUpperCase();
-        if (!nextInviteCode) {
-          throw new Error("Nhap ma moi de tao tai khoan quan tri.");
-        }
-
         inviteResult = await consumeInviteCodeWithClient(mobileSupabase, {
-          code: nextInviteCode,
+          code: inviteCode,
           userId,
-          displayName: input.name.trim(),
+          displayName,
         });
       }
 
       if (data.session?.user) {
-        await hydrateAfterAuth();
-        router.replace(input.registrationMode === "USER" ? "/(customer)/(tabs)" : "/(admin)/(tabs)");
+        const summary = await finalizePostAuthRedirect(input.registrationMode === "USER" ? "USER" : "RECEPTION");
+        router.replace(getPostAuthHref(summary?.role ?? (input.registrationMode === "USER" ? "USER" : "RECEPTION")));
       }
       return inviteResult;
     } catch (nextError) {

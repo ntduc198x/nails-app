@@ -100,17 +100,10 @@ function buildProfileDisplayName(user: User) {
 }
 
 function getRegistrationMode(user: User): "USER" | "ADMIN" {
-  const provider =
-    typeof user.app_metadata?.provider === "string" && user.app_metadata.provider.trim()
-      ? user.app_metadata.provider.trim().toLowerCase()
-      : "email";
-
   const rawMode =
     typeof user.user_metadata?.registration_mode === "string" && user.user_metadata.registration_mode.trim()
       ? user.user_metadata.registration_mode.trim().toUpperCase()
-      : provider === "google" || provider === "apple"
-        ? "USER"
-        : "ADMIN";
+      : "USER";
 
   return rawMode === "USER" ? "USER" : "ADMIN";
 }

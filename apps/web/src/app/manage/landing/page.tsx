@@ -171,19 +171,20 @@ export default function ManageLandingPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
-
-  const posts = data?.posts ?? [];
   const summary = data?.summary ?? null;
 
   const orderedPosts = useMemo(
     () =>
-      [...posts].sort((a, b) => {
+      [...(data?.posts ?? [])].sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
         return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
       }),
-    [posts],
+    [data?.posts],
   );
 
   function startCreate() {

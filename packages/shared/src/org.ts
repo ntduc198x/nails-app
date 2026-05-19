@@ -46,17 +46,10 @@ async function getCustomerBranchContext(client: SharedSupabaseClient, userId: st
 }
 
 function getRegistrationMode(user: { app_metadata?: Record<string, unknown> | null; user_metadata?: Record<string, unknown> | null }) {
-  const provider =
-    typeof user.app_metadata?.provider === "string" && user.app_metadata.provider.trim()
-      ? user.app_metadata.provider.trim().toLowerCase()
-      : "email";
-
   const rawMode =
     typeof user.user_metadata?.registration_mode === "string" && user.user_metadata.registration_mode.trim()
       ? user.user_metadata.registration_mode.trim().toUpperCase()
-      : provider === "google" || provider === "apple"
-        ? "USER"
-        : "ADMIN";
+      : "USER";
 
   return rawMode === "USER" ? "USER" : "ADMIN";
 }

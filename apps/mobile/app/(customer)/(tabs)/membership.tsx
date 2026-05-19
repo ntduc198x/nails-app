@@ -2,7 +2,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
@@ -496,8 +496,11 @@ export default function MembershipScreen() {
               const offerCode = getOfferCode(offer);
               const offerUsageHint = getOfferUsageHint(offer);
               const redeemLabel = getOfferRedeemLabel(offer);
+              const offerBookingCtaLabel = getOfferBookingCtaLabel(offer);
               const disabled = isOfferDisabled(offer);
               const offerStatusLabel = getOfferStatusLabel(offer);
+              void redeemLabel;
+              void offerBookingCtaLabel;
 
               return (
                 <Pressable

@@ -376,22 +376,25 @@ export default function AdminShiftsScreen() {
         setRefreshing(false);
       }
     },
-    [canManage, isHydrated, user?.id, weekStart],
+    [canManage, isHydrated, user, weekStart],
   );
 
   useEffect(() => {
-    void loadData(true);
+    const timeoutId = setTimeout(() => {
+      void loadData(true);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [loadData]);
 
-  useEffect(() => {
-    const dates = generateWeekDates(weekStart);
-    if (!dates.includes(selectedDateKey)) {
-      setSelectedDateKey(dates[0] ?? weekStart);
-    }
-    setSelectedCell(null);
-  }, [selectedDateKey, weekStart]);
-
   const weekDates = useMemo(() => generateWeekDates(weekStart), [weekStart]);
+  const currentSelectedDateKey = weekDates.includes(selectedDateKey) ? selectedDateKey : (weekDates[0] ?? weekStart);
+  const currentSelectedCell = useMemo(
+    () => (selectedCell && weekDates.includes(selectedCell.dateKey) ? selectedCell : null),
+    [selectedCell, weekDates],
+  );
   const pendingOwnerEntries = useMemo(
     () => ownerEntries.filter((item) => item.approval_status === "PENDING"),
     [ownerEntries],
@@ -432,17 +435,20 @@ export default function AdminShiftsScreen() {
       ? "Bạn đã được xếp lịch, nhưng ca này chưa được xuất lịch chính thức."
       : "Hôm nay chưa có ca nào được xuất lịch cho bạn.";
   const selectedEmployee = useMemo(
-    () => employees.find((employee) => employee.id === selectedCell?.employeeId) ?? null,
-    [employees, selectedCell?.employeeId],
+    () => employees.find((employee) => employee.id === currentSelectedCell?.employeeId) ?? null,
+    [currentSelectedCell?.employeeId, employees],
   );
   const selectedProfile = useMemo(
     () => (selectedEmployee ? profiles.find((item) => item.userId === selectedEmployee.id) ?? null : null),
     [profiles, selectedEmployee],
   );
   const selectedAssignment = useMemo(() => {
-    if (!selectedCell || !selectedEmployee) return null;
-    return assignmentMap.get(`${selectedCell.employeeId}:${selectedCell.dateKey}`) ?? createOffAssignment(selectedCell.dateKey, selectedEmployee);
-  }, [assignmentMap, selectedCell, selectedEmployee]);
+    if (!currentSelectedCell || !selectedEmployee) return null;
+    return (
+      assignmentMap.get(`${currentSelectedCell.employeeId}:${currentSelectedCell.dateKey}`) ??
+      createOffAssignment(currentSelectedCell.dateKey, selectedEmployee)
+    );
+  }, [assignmentMap, currentSelectedCell, selectedEmployee]);
   const manualOptions = useMemo(
     () =>
       selectedEmployee && selectedAssignment
@@ -457,19 +463,21 @@ export default function AdminShiftsScreen() {
     () =>
       employees.map((employee) => ({
         employee,
-        assignment: assignmentMap.get(`${employee.id}:${selectedDateKey}`) ?? createOffAssignment(selectedDateKey, employee),
+        assignment:
+          assignmentMap.get(`${employee.id}:${currentSelectedDateKey}`) ??
+          createOffAssignment(currentSelectedDateKey, employee),
       })),
-    [assignmentMap, employees, selectedDateKey],
+    [assignmentMap, currentSelectedDateKey, employees],
   );
   const selectedDaySummary = useMemo(
-    () => draftResult?.daySummaries.find((item) => item.dateKey === selectedDateKey) ?? null,
-    [draftResult, selectedDateKey],
+    () => draftResult?.daySummaries.find((item) => item.dateKey === currentSelectedDateKey) ?? null,
+    [currentSelectedDateKey, draftResult],
   );
   const selectedPersonalAssignment = useMemo(
     () =>
-      getAssignmentForUserOnDate(publishedPlan, user?.id, selectedDateKey) ??
-      getAssignmentForUserOnDate(draftPlan, user?.id, selectedDateKey),
-    [draftPlan, publishedPlan, selectedDateKey, user?.id],
+      getAssignmentForUserOnDate(publishedPlan, user?.id, currentSelectedDateKey) ??
+      getAssignmentForUserOnDate(draftPlan, user?.id, currentSelectedDateKey),
+    [currentSelectedDateKey, draftPlan, publishedPlan, user?.id],
   );
   const personalWeekAssignments = useMemo(
     () =>
@@ -630,6 +638,16 @@ export default function AdminShiftsScreen() {
     }
   }
 
+  function handleWeekChange(amount: number) {
+    setWeekStart((current) => addDays(current, amount));
+    setSelectedCell(null);
+  }
+
+  function handleSelectedDateChange(dateKey: string) {
+    setSelectedDateKey(dateKey);
+    setSelectedCell(null);
+  }
+
   if (loading) {
     return (
       <View style={styles.screen}>
@@ -661,13 +679,13 @@ export default function AdminShiftsScreen() {
               <Text style={styles.badgeText}>{draftPlan?.status === "published" || publishedPlan ? "Đã có lịch" : "Chưa xuất lịch"}</Text>
             </View>
             <View style={styles.weekNavRow}>
-              <Pressable style={styles.iconRound} onPress={() => setWeekStart((current) => addDays(current, -7))}>
+              <Pressable style={styles.iconRound} onPress={() => handleWeekChange(-7)}>
                 <Feather name="chevron-left" size={18} color={c.text} />
               </Pressable>
               <View style={styles.weekLabelPill}>
                 <Text style={styles.weekLabel}>{getWeekLabel(weekStart)}</Text>
               </View>
-              <Pressable style={styles.iconRound} onPress={() => setWeekStart((current) => addDays(current, 7))}>
+              <Pressable style={styles.iconRound} onPress={() => handleWeekChange(7)}>
                 <Feather name="chevron-right" size={18} color={c.text} />
               </Pressable>
             </View>
@@ -717,12 +735,12 @@ export default function AdminShiftsScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayTabsRow}>
               {weekDates.map((dateKey) => {
                 const summary = draftResult?.daySummaries.find((item) => item.dateKey === dateKey);
-                const active = selectedDateKey === dateKey;
+                const active = currentSelectedDateKey === dateKey;
                 const personalAssignment = !canManage
                   ? getAssignmentForUserOnDate(publishedPlan, user?.id, dateKey) ?? getAssignmentForUserOnDate(draftPlan, user?.id, dateKey)
                   : null;
                 return (
-                  <Pressable key={dateKey} style={[styles.dayChip, active ? styles.dayChipActive : null]} onPress={() => setSelectedDateKey(dateKey)}>
+                  <Pressable key={dateKey} style={[styles.dayChip, active ? styles.dayChipActive : null]} onPress={() => handleSelectedDateChange(dateKey)}>
                     <Text style={[styles.dayChipText, active ? styles.dayChipTextActive : null]}>{formatDayChip(dateKey)}</Text>
                     <Text style={[styles.dayChipSub, active ? styles.dayChipTextActive : null]}>
                       {canManage ? `${summary?.scheduledCount ?? 0}/${summary?.requiredCount ?? 0}` : personalAssignment?.shortCode ?? "--"}
@@ -777,7 +795,7 @@ export default function AdminShiftsScreen() {
                     <Pressable
                       key={employee.id}
                       style={[styles.personCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
-                      onPress={() => setSelectedCell({ employeeId: employee.id, dateKey: selectedDateKey })}
+                      onPress={() => setSelectedCell({ employeeId: employee.id, dateKey: currentSelectedDateKey })}
                     >
                       <View style={styles.personAvatar}>
                         <Text style={styles.personAvatarText}>{initials(employee.name)}</Text>
@@ -814,7 +832,7 @@ export default function AdminShiftsScreen() {
                 {personalWeekAssignments.map(({ dateKey, assignment, published }) => {
                   const definition = getShiftDefinition(assignment?.shiftType ?? "OFF");
                   const colors = getShiftColors(definition);
-                  const active = selectedDateKey === dateKey;
+                  const active = currentSelectedDateKey === dateKey;
                   return (
                     <Pressable
                       key={dateKey}
@@ -825,7 +843,7 @@ export default function AdminShiftsScreen() {
                           backgroundColor: assignment ? colors.bg : c.soft,
                         },
                       ]}
-                      onPress={() => setSelectedDateKey(dateKey)}
+                      onPress={() => handleSelectedDateChange(dateKey)}
                     >
                       <View style={styles.rowBetween}>
                         <View style={styles.personalShiftDayCopy}>
@@ -1011,7 +1029,7 @@ export default function AdminShiftsScreen() {
           ) : null}
         
 
-        <Modal visible={!!selectedCell && !!selectedEmployee && !!selectedAssignment} transparent animationType="slide" onRequestClose={() => setSelectedCell(null)}>
+        <Modal visible={!!currentSelectedCell && !!selectedEmployee && !!selectedAssignment} transparent animationType="slide" onRequestClose={() => setSelectedCell(null)}>
           <Pressable style={styles.modalBackdrop} onPress={() => setSelectedCell(null)}>
             <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
               <View style={styles.rowBetween}>

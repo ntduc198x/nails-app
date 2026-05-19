@@ -29,7 +29,7 @@ import {
   type ShiftType,
   type StaffRole,
 } from "@nails/shared";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type UserRoleRow = {
   id: string;
@@ -195,7 +195,7 @@ export default function TeamPage() {
     [staffProfiles],
   );
 
-  async function load(opts?: { silent?: boolean }) {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (opts?.silent) setRefreshing(true);
       else setLoading(true);
@@ -252,11 +252,14 @@ export default function TeamPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [load]);
 
   async function onSaveRole(id: string) {
     const currentRow = rows.find((row) => row.id === id);

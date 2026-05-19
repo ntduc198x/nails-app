@@ -178,6 +178,11 @@ function chunkItemsLoopFilled<T>(items: T[], chunkSize: number) {
   });
 }
 
+function normalizeCarouselSlide(slide: number, totalSlides: number) {
+  if (totalSlides <= 0) return 0;
+  return slide % totalSlides;
+}
+
 function LandingMobileCarousel<T>({
   items,
   slide,
@@ -323,6 +328,8 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   );
   const serviceDesktopSlides = useMemo(() => chunkItemsLoopFilled(featuredServices, 4), [featuredServices]);
   const serviceMobileSlides = useMemo(() => chunkItems(featuredServices, 2), [featuredServices]);
+  const activeServiceDesktopSlide = normalizeCarouselSlide(serviceDesktopSlide, serviceDesktopSlides.length);
+  const activeServiceMobileSlide = normalizeCarouselSlide(serviceMobileSlide, serviceMobileSlides.length);
   useEffect(() => {
     if (serviceDesktopSlides.length <= 1) return;
 
@@ -333,12 +340,6 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
     return () => window.clearInterval(intervalId);
   }, [serviceDesktopSlides.length]);
 
-  useEffect(() => {
-    if (serviceDesktopSlide >= serviceDesktopSlides.length) {
-      setServiceDesktopSlide(0);
-    }
-  }, [serviceDesktopSlide, serviceDesktopSlides.length]);
-
   const stories = useMemo(() => homeFeed.contentPosts.slice(0, 3), [homeFeed.contentPosts]);
   const products = useMemo(() => explore.products.slice(0, 8), [explore.products]);
   const testimonials = FALLBACK_TESTIMONIALS;
@@ -347,6 +348,11 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   const storyMobileSlides = useMemo(() => chunkItems(stories, 2), [stories]);
   const productMobileSlides = useMemo(() => chunkItems(products, 2), [products]);
   const testimonialMobileSlides = useMemo(() => chunkItems(testimonials, 2), [testimonials]);
+  const activeStoryDesktopSlide = normalizeCarouselSlide(storyDesktopSlide, storyDesktopSlides.length);
+  const activeStoryMobileSlide = normalizeCarouselSlide(storyMobileSlide, storyMobileSlides.length);
+  const activeProductDesktopSlide = normalizeCarouselSlide(productDesktopSlide, productDesktopSlides.length);
+  const activeProductMobileSlide = normalizeCarouselSlide(productMobileSlide, productMobileSlides.length);
+  const activeTestimonialMobileSlide = normalizeCarouselSlide(testimonialMobileSlide, testimonialMobileSlides.length);
 
   useEffect(() => {
     if (serviceMobileSlides.length <= 1) return;
@@ -407,42 +413,6 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
     return () => window.clearInterval(intervalId);
   }, [testimonialMobileSlides.length]);
-
-  useEffect(() => {
-    if (serviceMobileSlide >= serviceMobileSlides.length) {
-      setServiceMobileSlide(0);
-    }
-  }, [serviceMobileSlide, serviceMobileSlides.length]);
-
-  useEffect(() => {
-    if (storyMobileSlide >= storyMobileSlides.length) {
-      setStoryMobileSlide(0);
-    }
-  }, [storyMobileSlide, storyMobileSlides.length]);
-
-  useEffect(() => {
-    if (storyDesktopSlide >= storyDesktopSlides.length) {
-      setStoryDesktopSlide(0);
-    }
-  }, [storyDesktopSlide, storyDesktopSlides.length]);
-
-  useEffect(() => {
-    if (productMobileSlide >= productMobileSlides.length) {
-      setProductMobileSlide(0);
-    }
-  }, [productMobileSlide, productMobileSlides.length]);
-
-  useEffect(() => {
-    if (productDesktopSlide >= productDesktopSlides.length) {
-      setProductDesktopSlide(0);
-    }
-  }, [productDesktopSlide, productDesktopSlides.length]);
-
-  useEffect(() => {
-    if (testimonialMobileSlide >= testimonialMobileSlides.length) {
-      setTestimonialMobileSlide(0);
-    }
-  }, [testimonialMobileSlide, testimonialMobileSlides.length]);
 
   const heroImage =
     REFERENCE_HERO_IMAGE ??
@@ -699,7 +669,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
           <div id="pricing" className="landing-showcase__services-carousel landing-showcase__services-carousel--desktop">
             <LandingDesktopCarousel
               items={featuredServices}
-              slide={serviceDesktopSlide}
+              slide={activeServiceDesktopSlide}
               onSelectSlide={setServiceDesktopSlide}
               labelPrefix="Xem slide dịch vụ"
               getItemKey={(service) => service.id}
@@ -736,7 +706,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={featuredServices}
-            slide={serviceMobileSlide}
+            slide={activeServiceMobileSlide}
             onSelectSlide={setServiceMobileSlide}
             labelPrefix="Xem slide dịch vụ"
             getItemKey={(service) => service.id}
@@ -791,7 +761,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingDesktopCarousel
             items={stories}
-            slide={storyDesktopSlide}
+            slide={activeStoryDesktopSlide}
             onSelectSlide={setStoryDesktopSlide}
             labelPrefix="Xem slide blog"
             getItemKey={(post) => post.id}
@@ -822,7 +792,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={stories}
-            slide={storyMobileSlide}
+            slide={activeStoryMobileSlide}
             onSelectSlide={setStoryMobileSlide}
             labelPrefix="Xem slide blog"
             getItemKey={(post) => post.id}
@@ -857,7 +827,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingDesktopCarousel
             items={products}
-            slide={productDesktopSlide}
+            slide={activeProductDesktopSlide}
             onSelectSlide={setProductDesktopSlide}
             labelPrefix="Xem slide sản phẩm"
             getItemKey={(product) => product.id}
@@ -869,7 +839,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={products}
-            slide={productMobileSlide}
+            slide={activeProductMobileSlide}
             onSelectSlide={setProductMobileSlide}
             labelPrefix="Xem slide sản phẩm"
             getItemKey={(product) => product.id}
@@ -894,7 +864,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={testimonials}
-            slide={testimonialMobileSlide}
+            slide={activeTestimonialMobileSlide}
             onSelectSlide={setTestimonialMobileSlide}
             labelPrefix="Xem slide cảm nhận"
             getItemKey={(testimonial) => testimonial.id}

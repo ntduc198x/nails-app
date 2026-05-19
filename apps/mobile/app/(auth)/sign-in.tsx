@@ -88,7 +88,11 @@ export default function SignInScreen() {
       ) => void;
     };
     const focusedHandle =
-      typeof focusedInput === "number" ? focusedInput : focusedInput ? findNodeHandle(focusedInput as any) : null;
+      typeof focusedInput === "number"
+        ? focusedInput
+        : focusedInput
+          ? findNodeHandle(focusedInput as unknown as Parameters<typeof findNodeHandle>[0])
+          : null;
 
     if (!focusedHandle || !responder?.scrollResponderScrollNativeHandleToKeyboard) {
       return;

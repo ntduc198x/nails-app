@@ -58,7 +58,10 @@ export default function CustomerDetailPage() {
 
   useEffect(() => {
     if (!customerId) return;
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [customerId, load]);
 
   const telegramReminderText = useMemo(() => {

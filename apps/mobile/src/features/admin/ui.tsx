@@ -35,7 +35,7 @@ import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
-import { getAdminNavHref, isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
+import { isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 export const ADMIN_HEADER_TOP_OFFSET = 4;
@@ -598,13 +598,10 @@ export function AdminHeaderActions({
   const {
     actionNotifications,
     actionOpenCount,
-    openBookingActionCount,
     bookingQueueCount,
     badgeCount,
     feedNotifications,
-    unreadCount,
     markSeen,
-    markActionHandled,
   } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id);
 
   useEffect(() => {

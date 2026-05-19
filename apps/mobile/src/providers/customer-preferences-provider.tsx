@@ -114,7 +114,7 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
         }
       }
     },
-    [user?.id],
+    [user],
   );
 
   const setColorScheme = useCallback(

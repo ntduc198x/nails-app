@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export function MobileSectionHeader({
   title,
@@ -37,12 +37,6 @@ export function MobileCollapsible({ summary, children, defaultOpen = false, open
   const [internalOpen, setInternalOpen] = useState(defaultOpen);
   const controlled = typeof open === "boolean";
   const actualOpen = controlled ? open : internalOpen;
-
-  useEffect(() => {
-    if (!controlled) {
-      setInternalOpen(defaultOpen);
-    }
-  }, [defaultOpen, controlled]);
 
   return (
     <details

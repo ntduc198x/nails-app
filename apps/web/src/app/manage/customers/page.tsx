@@ -96,7 +96,10 @@ export default function CustomersPage() {
   }, [dormantDays, search, source, status, vipOnly]);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
 
   const uniqueRows = useMemo(() => dedupeCustomers(rows), [rows]);

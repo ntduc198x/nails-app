@@ -1,7 +1,7 @@
 "use client";
 
 import { AppShell } from "@/components/app-shell";
-import { MobileCollapsible, MobileSectionHeader } from "@/components/manage-mobile";
+import { MobileSectionHeader } from "@/components/manage-mobile";
 import { ManageQuickNav, reportsQuickNav } from "@/components/manage-quick-nav";
 import { listUserRoles } from "@/lib/auth";
 import { getCrmDashboardMetrics } from "@/lib/crm";
@@ -9,7 +9,6 @@ import { formatVnd } from "@/lib/mock-data";
 import { getReportBreakdown, getStaffRevenueInRange, listTicketsInRange, listTimeEntriesInRange, type ReportTicketRow } from "@/lib/reporting";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 
 type RangeMode = "day" | "week" | "month" | "custom";
 
@@ -55,13 +54,27 @@ function endOfMonth(year: number, monthIndex: number) {
   return new Date(year, monthIndex + 1, 0, 23, 59, 59, 999);
 }
 
-function downloadExcel(filename: string, sheets: Array<{ name: string; rows: Array<Array<string | number>> }>) {
-  const workbook = XLSX.utils.book_new();
+async function downloadExcel(filename: string, sheets: Array<{ name: string; rows: Array<Array<string | number>> }>) {
+  const ExcelJS = await import("exceljs");
+  const workbook = new ExcelJS.Workbook();
+
   for (const sheet of sheets) {
-    const worksheet = XLSX.utils.aoa_to_sheet(sheet.rows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheet.name.slice(0, 31));
+    const worksheet = workbook.addWorksheet(sheet.name.slice(0, 31));
+    sheet.rows.forEach((row) => {
+      worksheet.addRow(row);
+    });
   }
-  XLSX.writeFile(workbook, filename);
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function ReportsPage() {
@@ -77,7 +90,6 @@ export default function ReportsPage() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [mobileInsightsOpen, setMobileInsightsOpen] = useState(false);
   const [mobileTicketsLimit, setMobileTicketsLimit] = useState(12);
-  const [mobileTicketsOpen, setMobileTicketsOpen] = useState(false);
 
   const [rows, setRows] = useState<ReportTicketRow[]>([]);
   const [breakdown, setBreakdown] = useState<{
@@ -178,7 +190,10 @@ export default function ReportsPage() {
   }, [range.from, range.to]);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
 
   const summary = useMemo(() => {
@@ -207,8 +222,8 @@ export default function ReportsPage() {
 
   const mobileTicketRows = useMemo(() => filteredTicketRows.slice(0, mobileTicketsLimit), [filteredTicketRows, mobileTicketsLimit]);
 
-  function exportExcel() {
-    downloadExcel(`bao-cao-nails-${rangeMode}.xlsx`, [
+  async function exportExcel() {
+    await downloadExcel(`bao-cao-nails-${rangeMode}.xlsx`, [
       {
         name: "Tong_quan",
         rows: [
@@ -252,7 +267,7 @@ export default function ReportsPage() {
         <section className="manage-surface space-y-3 p-4 md:p-5">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-sm font-semibold text-neutral-900">Điều hướng nhanh</h3>
-            <button className="cursor-pointer rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700" onClick={exportExcel}>Xuất Excel</button>
+            <button className="cursor-pointer rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700" onClick={() => void exportExcel()}>Xuất Excel</button>
           </div>
 
           <div className="grid grid-cols-4 gap-2">
@@ -383,7 +398,6 @@ export default function ReportsPage() {
               <button
                 className="cursor-pointer rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700"
                 onClick={() => {
-                  setMobileTicketsOpen(true);
                   requestAnimationFrame(() => ticketsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
               >

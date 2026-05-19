@@ -29,11 +29,12 @@ export async function upsertAndVerifyCustomerProfile(
     throw new Error("Thieu cau hinh Supabase mobile.");
   }
 
-  let { data: customerAccount, error: customerAccountError } = await mobileSupabase
+  const { data: customerAccountData, error: customerAccountError } = await mobileSupabase
     .from("customer_accounts")
     .select("org_id,customer_id")
     .eq("user_id", input.userId)
     .maybeSingle();
+  let customerAccount = customerAccountData;
 
   if (customerAccountError) {
     throw customerAccountError;

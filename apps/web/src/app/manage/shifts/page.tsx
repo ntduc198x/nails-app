@@ -1030,6 +1030,13 @@ export default function ManageShiftsPage() {
     }
   }, [currentUserId, refreshPersonalShiftState]);
 
+  const refreshPersonalShiftStateRef = useRef(refreshPersonalShiftState);
+  const refreshOwnerApprovalsRef = useRef(refreshOwnerApprovals);
+  useEffect(() => {
+    refreshPersonalShiftStateRef.current = refreshPersonalShiftState;
+    refreshOwnerApprovalsRef.current = refreshOwnerApprovals;
+  }, [refreshOwnerApprovals, refreshPersonalShiftState]);
+
   const handlePersonalClockOut = useCallback(async () => {
     if (!openEntry) return;
     try {
@@ -1166,7 +1173,7 @@ export default function ManageShiftsPage() {
           if (mounted) setCurrentUserId(userId);
 
           if (userId && !canManageShiftOperations(currentRole)) {
-            await refreshPersonalShiftState(userId);
+            await refreshPersonalShiftStateRef.current(userId);
             if (!mounted) return;
           }
         }
@@ -1187,7 +1194,7 @@ export default function ManageShiftsPage() {
             if (mounted) {
               setStaffProfiles(profiles);
               setProfilesSchemaMissing(false);
-              await refreshOwnerApprovals();
+              await refreshOwnerApprovalsRef.current();
             }
           } catch (nextError) {
             if (mounted && isMissingStaffShiftProfilesSchema(nextError)) {

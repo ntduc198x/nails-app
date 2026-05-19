@@ -255,7 +255,6 @@ export async function listServices(opts?: { force?: boolean; branchId?: string }
   const targetBranchId = opts?.branchId ?? profileBranchId;
   
   // Use cache only if no specific branch filter is requested
-  const cacheKey = targetBranchId ?? 'default';
   if (!opts?.force && servicesCache?.sessionId === sessionId && servicesCache?.orgId === orgId && isFresh(servicesCache)) {
     // Return cached services, optionally filtered by branch
     const cached = servicesCache!.value as Array<{branch_id?: string | null}>;

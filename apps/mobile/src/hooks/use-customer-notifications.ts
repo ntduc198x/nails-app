@@ -73,7 +73,13 @@ export function useCustomerNotifications(limit = 50) {
   }, [items]);
 
   useEffect(() => {
-    void refresh();
+    const timeoutId = setTimeout(() => {
+      void refresh();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [refresh]);
 
   return {

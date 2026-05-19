@@ -10,7 +10,7 @@ import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 type AppointmentRow = {
@@ -166,15 +166,6 @@ function pickBookingRequest(row: AppointmentRow) {
 function isOnlineBooked(row: AppointmentRow) {
   const booking = pickBookingRequest(row);
   return booking?.source === "landing_page";
-}
-
-function rankStatus(status: string) {
-  if (status === "BOOKED") return 0;
-  if (status === "CHECKED_IN") return 1;
-  if (status === "DONE") return 2;
-  if (status === "NO_SHOW") return 3;
-  if (status === "CANCELLED") return 4;
-  return 5;
 }
 
 function isOverdueBooked(row: AppointmentRow) {
@@ -352,7 +343,7 @@ function OperationsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const now = roundToNextSlot(new Date());
-  const [customerName, setCustomerName] = useState("");
+  const [customerName, setCustomerName] = useState(() => searchParams.get("customer") ?? "");
   const [autoTime, setAutoTime] = useState(true);
   const [bookingAt, setBookingAt] = useState(toInputValue(now));
   const [staffUserId, setStaffUserId] = useState("");
@@ -368,14 +359,12 @@ function OperationsPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
-  const [showRangeFilters, setShowRangeFilters] = useState(false);
   const [fromDate, setFromDate] = useState(toDateInputValue(now));
   const [toDate, setToDate] = useState(toDateInputValue(now));
   const [submitting, setSubmitting] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [showDetailList, setShowDetailList] = useState(false);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
-  const [prefilledCustomerId, setPrefilledCustomerId] = useState<string | null>(null);
+  const [prefilledCustomerId, setPrefilledCustomerId] = useState<string | null>(() => searchParams.get("customerId"));
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const activeTab = searchParams.get("tab") === "web-booking" ? "web-booking" : "calendar";
@@ -389,11 +378,10 @@ function OperationsPageContent() {
 
   function openFilteredDetails(nextStatus: string) {
     setStatusFilter(nextStatus);
-    setShowDetailList(true);
     requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
-  const load = useCallback(async (opts?: { force?: boolean; silent?: boolean }) => {
+  async function load(opts?: { force?: boolean; silent?: boolean }) {
     const isInitial = rows.length === 0;
     try {
       if (isInitial) setLoading(true);
@@ -423,19 +411,15 @@ function OperationsPageContent() {
       if (isInitial) setLoading(false);
       else setRefreshing(false);
     }
-  }, [rows.length, editingId]);
+  }
+
+  const loadEvent = useEffectEvent(load);
 
   useEffect(() => {
-    void load({ force: true });
-  }, [load]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const qs = new URLSearchParams(window.location.search);
-    const customer = qs.get("customer");
-    const customerId = qs.get("customerId");
-    if (customer) setCustomerName(customer);
-    if (customerId) setPrefilledCustomerId(customerId);
+    const timeoutId = window.setTimeout(() => {
+      void loadEvent({ force: true });
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, []);
 
   const scopedRows = useMemo(() => {
@@ -634,14 +618,6 @@ function OperationsPageContent() {
         ? "rounded-2xl border-2 border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-5 py-4 text-sm font-bold text-violet-900 shadow-lg shadow-violet-200/50 animate-pulse"
         : "rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-600 shadow-sm";
 
-  const topStatusBarClass = overdueBookedRows.length > 0
-    ? "rounded-2xl border border-amber-400 bg-gradient-to-r from-amber-100 via-amber-50 to-white px-4 py-3 text-sm font-semibold text-amber-950 ring-2 ring-amber-200 shadow-lg shadow-amber-100"
-    : criticalCheckedInRows.length > 0
-      ? "rounded-2xl border border-fuchsia-400 bg-gradient-to-r from-fuchsia-100 via-fuchsia-50 to-white px-4 py-3 text-sm font-semibold text-fuchsia-950 ring-2 ring-fuchsia-200 shadow-lg shadow-fuchsia-100"
-      : staleCheckedInRows.length > 0
-        ? "rounded-2xl border border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-4 py-3 text-sm font-semibold text-violet-950 ring-2 ring-violet-200 shadow-lg shadow-violet-100"
-        : "rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-700";
-
   if (activeTab === "web-booking") {
     return (
       <AppShell>
@@ -697,7 +673,6 @@ function OperationsPageContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowDetailList(true);
                   requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                 }}
                 className="cursor-pointer rounded-2xl border border-neutral-300 bg-neutral-800 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-700"

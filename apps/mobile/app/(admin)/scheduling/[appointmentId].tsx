@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { canCheckInAppointmentAt } from "@nails/shared";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { AdminBottomNavDock, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
 
 const palette = {

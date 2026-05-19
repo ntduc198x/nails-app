@@ -115,7 +115,7 @@ export default function TaxBooksPage() {
   async function exportExcel() {
     try {
       setExporting(true);
-      const XLSX = await import("xlsx");
+      const ExcelJS = await import("exceljs");
       const bookLabel = toBookLabel();
       const header = [
         [`Mẫu ${bookLabel}`],
@@ -132,12 +132,24 @@ export default function TaxBooksPage() {
       const body = rows.map((r) => [new Date(r.date).toLocaleDateString("vi-VN"), r.description, r.amount]);
       while (body.length < 18) body.push(["", "", ""]);
       const footer = [[], ["", "Tổng cộng", total], [], ["", "Ngày ... tháng ... năm ...", ""], ["", "Người đại diện HKD/CNKD", ""]];
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet(bookLabel);
 
-      const ws = XLSX.utils.aoa_to_sheet([...header, ...body, ...footer]);
-      ws["!cols"] = [{ wch: 14 }, { wch: 56 }, { wch: 18 }];
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, bookLabel);
-      XLSX.writeFile(wb, `${bookLabel}_${fromDate}_to_${toDate}.xlsx`);
+      [...header, ...body, ...footer].forEach((row) => {
+        worksheet.addRow(row);
+      });
+      worksheet.columns = [{ width: 14 }, { width: 56 }, { width: 18 }];
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${bookLabel}_${fromDate}_to_${toDate}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(url);
     } finally {
       setExporting(false);
     }

@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useCallback, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
   Keyboard,

@@ -67,9 +67,10 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 type IconKind = "home" | "explore" | "booking" | "profile" | "plus" | "bell";
+const HIDDEN_KEYBOARD_STATE = { visible: false, height: 0 };
 
 function useKeyboardState(enabled: boolean) {
-  const [state, setState] = useState({ visible: false, height: 0 });
+  const [state, setState] = useState(HIDDEN_KEYBOARD_STATE);
 
   useEffect(() => {
     if (!enabled) return;
@@ -95,12 +96,7 @@ function useKeyboardState(enabled: boolean) {
     };
   }, [enabled]);
 
-  useEffect(() => {
-    if (enabled) return;
-    setState({ visible: false, height: 0 });
-  }, [enabled]);
-
-  return state;
+  return enabled ? state : HIDDEN_KEYBOARD_STATE;
 }
 
 function useStaticStyles() {
@@ -524,7 +520,11 @@ export function CustomerScreen({
       ) => void;
     };
     const focusedHandle =
-      typeof focusedInput === "number" ? focusedInput : focusedInput ? findNodeHandle(focusedInput as any) : null;
+      typeof focusedInput === "number"
+        ? focusedInput
+        : focusedInput
+          ? findNodeHandle(focusedInput as unknown as Parameters<typeof findNodeHandle>[0])
+          : null;
 
     if (!focusedHandle || !responder?.scrollResponderScrollNativeHandleToKeyboard) {
       return;

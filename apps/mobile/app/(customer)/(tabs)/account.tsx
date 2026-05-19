@@ -27,6 +27,15 @@ import { useCustomerTheme } from "@/src/providers/customer-preferences-provider"
 
 type TabKey = "history" | "favorites" | "info";
 
+function parseTabKey(value?: string | string[]): TabKey | null {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  if (rawValue === "history" || rawValue === "favorites" || rawValue === "info") {
+    return rawValue;
+  }
+
+  return null;
+}
+
 function formatBirthDateLabel(value: string) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
@@ -123,7 +132,9 @@ export default function AccountScreen() {
     useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
   const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership({ autoRefreshOnMount: false });
   const { refresh: refreshLookbook, services, syncFromCache: syncLookbookFromCache } = useLookbookServices(FALLBACK_SERVICES, { autoRefreshOnMount: false });
-  const [activeTab, setActiveTab] = useState<TabKey>("history");
+  const [manualTab, setManualTab] = useState<TabKey | null>(null);
+  const routeTab = parseTabKey(params.tab);
+  const currentTab = manualTab ?? routeTab ?? "history";
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -167,13 +178,6 @@ export default function AccountScreen() {
     };
   }, [favoriteIds]);
 
-  useEffect(() => {
-    const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-    if (rawTab === "history" || rawTab === "favorites" || rawTab === "info") {
-      setActiveTab(rawTab);
-    }
-  }, [params.tab]);
-
   const displayAvatar = useMemo(() => {
     if (avatarUri?.trim()) {
       return avatarUri.trim();
@@ -213,7 +217,7 @@ export default function AccountScreen() {
     return parts.length
       ? `Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
       : `Mục tiêu tiếp theo là ${nextTier.name}.`;
-  }, [currentTier?.name, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
+  }, [currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
 
   const summary = useMemo(() => {
     const totalSpent = historyItems.reduce((sum, item) => {
@@ -321,14 +325,11 @@ export default function AccountScreen() {
         setForm((current) => ({ ...current, email: user?.email ?? "" }));
       }
     }
-  }, [user?.displayName, user?.email, user?.id]);
-
-  useEffect(() => {
-    void loadProfile({ forceRemote: false });
-  }, [loadProfile]);
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
+      void loadProfile({ forceRemote: false });
       void syncTimelineFromCache();
       void refreshTimeline();
       syncLookbookFromCache();
@@ -338,7 +339,7 @@ export default function AccountScreen() {
       if (!services.length) {
         void refreshLookbook();
       }
-    }, [favoritesHydrated, refreshFavorites, refreshLookbook, refreshTimeline, services.length, syncLookbookFromCache, syncTimelineFromCache]),
+    }, [favoritesHydrated, loadProfile, refreshFavorites, refreshLookbook, refreshTimeline, services.length, syncLookbookFromCache, syncTimelineFromCache]),
   );
 
   const handleRefresh = useCallback(async () => {
@@ -581,7 +582,7 @@ export default function AccountScreen() {
       </View>
 
       <View style={styles.profileHero}>
-        <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()}>
+        <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()} disabled={isUploadingAvatar}>
           <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: displayAvatar }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
           <View style={styles.cameraBadge}>
             <Feather color={theme.colors.textSoft} name="camera" size={15} />
@@ -620,9 +621,9 @@ export default function AccountScreen() {
 
       <SurfaceCard style={styles.tabsCard}>
         {TABS.map((tab) => {
-          const active = tab.key === activeTab;
+          const active = tab.key === currentTab;
           return (
-            <Pressable key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
+            <Pressable key={tab.key} onPress={() => setManualTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
               <Feather color={active ? theme.colors.text : theme.colors.textSoft} name={tab.icon} size={14} />
               <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
             </Pressable>
@@ -630,7 +631,7 @@ export default function AccountScreen() {
         })}
       </SurfaceCard>
 
-      {activeTab === "history" ? (
+      {currentTab === "history" ? (
         <View style={styles.cardList}>
           {historyItems.map((item) => {
             const badgeStyle = getHistoryStatusBadgeStyle(item.status, theme);
@@ -672,7 +673,7 @@ export default function AccountScreen() {
         </View>
       ) : null}
 
-      {activeTab === "favorites" ? (
+      {currentTab === "favorites" ? (
         <View style={styles.cardList}>
           {favoriteServices.map((service) => (
             <Pressable
@@ -711,7 +712,7 @@ export default function AccountScreen() {
         </View>
       ) : null}
 
-      {activeTab === "info" ? (
+      {currentTab === "info" ? (
         <SurfaceCard style={styles.formCard}>
           <EditableField styles={styles} label={strings.profileName} value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} />
           <DatePickerField

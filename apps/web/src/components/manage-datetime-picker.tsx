@@ -85,13 +85,16 @@ export function ManageDateTimePicker({
   const [timeOpen, setTimeOpen] = useState(false);
 
   useEffect(() => {
-    const next = parseDateTimeLocal(value);
-    setSelectedDate(next);
-    setSelectedTime(next ? `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}` : null);
-    if (next) {
-      setViewMonth(next.getMonth());
-      setViewYear(next.getFullYear());
-    }
+    const timeoutId = window.setTimeout(() => {
+      const next = parseDateTimeLocal(value);
+      setSelectedDate(next);
+      setSelectedTime(next ? `${String(next.getHours()).padStart(2, "0")}:${String(next.getMinutes()).padStart(2, "0")}` : null);
+      if (next) {
+        setViewMonth(next.getMonth());
+        setViewYear(next.getFullYear());
+      }
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [value]);
 
   const calendarCells = useMemo(() => {
@@ -168,6 +171,7 @@ export function ManageDateTimePicker({
   const compactLabelClass = "mb-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500";
   const compactTriggerClass = "min-h-[56px] w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2";
   const compactTimeTriggerClass = "min-h-[56px] w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2";
+  void theme;
 
   return (
     <div className={`manage-picker-block ${compact ? "space-y-1.5" : ""}`}>

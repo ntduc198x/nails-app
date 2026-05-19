@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
 import { verifyTelegramInternalRequest } from "@/lib/route-secrets";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -244,30 +243,6 @@ export async function processTelegramBookingNotification(body: unknown) {
       if (bookingError) throw bookingError;
       if (!bookingRow?.id) throw new Error("Không đọc được booking request sau khi claim.");
 
-      const requestedEndAt = bookingRow.requested_end_at ?? addMinutes(bookingRow.requested_start_at, 60);
-      await rebalanceOpenBookingRequests({ client: supabase, orgId: bookingRow.org_id });
-      const snapshot = await getBookingWindowCapacitySnapshot({
-        client: supabase,
-        orgId: bookingRow.org_id,
-        startAt: bookingRow.requested_start_at,
-        endAt: requestedEndAt,
-        excludeBookingRequestId: bookingId,
-      });
-      const overlapCount = snapshot.overlapCount;
-
-      const nearbyAppointments = await listNearbyAppointments(supabase, bookingRow.org_id, bookingRow.requested_start_at);
-      const nearbyCount = nearbyAppointments.length;
-      const { data: refreshedBooking, error: refreshedBookingError } = await supabase
-        .from("booking_requests")
-        .select("status")
-        .eq("id", bookingId)
-        .maybeSingle();
-
-      if (refreshedBookingError) throw refreshedBookingError;
-
-      const hasConflict = refreshedBooking?.status === "NEEDS_RESCHEDULE" || !snapshot.allowed;
-      const hasNearbyWarning = !hasConflict && nearbyCount >= snapshot.maxSimultaneous;
-
       const sent = await sendTelegramBookingMessageV2({
         bookingId,
         customerName: bookingRow.customer_name,
@@ -275,18 +250,12 @@ export async function processTelegramBookingNotification(body: unknown) {
         requestedService: bookingRow.requested_service,
         note: bookingRow.note,
         requestedStartAt: bookingRow.requested_start_at,
-        conflict: hasConflict
+        conflict: bookingRow.status === "NEEDS_RESCHEDULE"
           ? {
-              appointment: snapshot.overlaps.map((item) => ({ id: item.id, start_at: item.start_at, customers: item.customers })),
-              overlapCount,
+              overlapCount: 0,
             }
           : null,
-        nearbyWarning: hasNearbyWarning
-          ? {
-              appointment: nearbyAppointments.map((item) => ({ id: item.id, start_at: item.start_at, customers: item.customers })),
-              nearbyCount,
-            }
-          : null,
+        nearbyWarning: null,
       });
 
       const messageId = sent.telegram.result?.message_id ?? null;
@@ -310,15 +279,8 @@ export async function processTelegramBookingNotification(body: unknown) {
         chatId,
         debug: {
           bookingId,
-          conflict: hasConflict,
-          overlapCount,
-          maxSimultaneous: snapshot.maxSimultaneous,
-          nearbyWarning: hasNearbyWarning,
-          nearbyCount,
           callbackData: sent.debug,
           bookingRow,
-          capacitySnapshot: snapshot,
-          nearbyAppointments,
           updatedRow: updateRes.data ?? null,
           updateError: updateRes.error ? {
             message: updateRes.error.message,

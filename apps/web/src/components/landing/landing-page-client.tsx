@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import type { HomeFeedPayload } from "@/lib/landing-content";
+import { supabase } from "@/lib/supabase";
 import { getCurrentAuthenticatedSummary } from "@/lib/web-auth";
 import { AuthModal } from "@/components/landing/auth-modal";
 import { ManageDateTimePicker } from "@/components/manage-datetime-picker";
@@ -153,6 +154,10 @@ function getProfileInitials(summary: AuthenticatedUserSummary | null) {
     return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
   }
   return source.slice(0, 2).toUpperCase();
+}
+
+function getBookingPrefillName(summary: AuthenticatedUserSummary | null) {
+  return (summary?.displayName ?? summary?.email ?? "").trim();
 }
 
 function chunkItems<T>(items: T[], chunkSize: number) {
@@ -320,6 +325,35 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       .catch(() => setCurrentUser(null))
       .finally(() => setAuthResolved(true));
   }, []);
+
+  useEffect(() => {
+    if (!currentUser?.id || !supabase) return;
+
+    const fallbackName = getBookingPrefillName(currentUser);
+
+    void supabase
+      .from("profiles")
+      .select("display_name,phone")
+      .eq("user_id", currentUser.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        const profileName = String(data?.display_name ?? "").trim();
+        const profilePhone = String(data?.phone ?? "").trim();
+
+        setBookingState((current) => ({
+          ...current,
+          customerName: current.customerName.trim() ? current.customerName : (profileName || fallbackName),
+          customerPhone: current.customerPhone.trim() ? current.customerPhone : profilePhone,
+        }));
+      })
+      .catch(() => {
+        if (!fallbackName) return;
+        setBookingState((current) => ({
+          ...current,
+          customerName: current.customerName.trim() ? current.customerName : fallbackName,
+        }));
+      });
+  }, [currentUser]);
 
   const storefront = explore.storefront;
   const featuredServices = useMemo(

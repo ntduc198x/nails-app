@@ -345,41 +345,54 @@ export function useGuestBooking() {
         return;
       }
 
-      let result;
-
       const bookingApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
 
-      if (bookingApiBaseUrl) {
-        try {
-          result = await createPublicBookingRequest(parsed.data, {
+      const precheckResult = bookingApiBaseUrl
+        ? await precheckPublicBookingRequest(parsed.data, {
             baseUrl: bookingApiBaseUrl,
-          });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const shouldFallbackToRpc = Boolean(mobileSupabase) && (
-            message.startsWith("BOOKING_API_NON_JSON") ||
-            message.includes("Failed to fetch") ||
-            message.includes("Network request failed")
-          );
+          })
+        : {
+            bookingRequestId: null,
+            bookingRequestStatus: null,
+            data: null,
+            telegramNotification: null,
+            successMessage: "Đã gửi yêu cầu thành công",
+          };
 
-          if (shouldFallbackToRpc && mobileSupabase) {
-            result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
-          } else {
-            throw error;
+      setSuccessResult(precheckResult);
+      setIsSubmitting(false);
+
+      void (async () => {
+        let result;
+
+        if (bookingApiBaseUrl) {
+          try {
+            result = await createPublicBookingRequest(parsed.data, {
+              baseUrl: bookingApiBaseUrl,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            const shouldFallbackToRpc = Boolean(mobileSupabase) && (
+              message.startsWith("BOOKING_API_NON_JSON") ||
+              message.includes("Failed to fetch") ||
+              message.includes("Network request failed")
+            );
+
+            if (shouldFallbackToRpc && mobileSupabase) {
+              result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+            } else {
+              throw error;
+            }
           }
+        } else if (mobileSupabase) {
+          result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+        } else {
+          result = await createPublicBookingRequest(parsed.data);
         }
-      } else if (mobileSupabase) {
-        result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
-      } else {
-        result = await createPublicBookingRequest(parsed.data);
-      }
 
-      setSuccessResult(result);
+        if (user?.id && result.bookingRequestId) {
+          const hasAppliedOffer = Boolean(parsed.data.appliedOfferId || parsed.data.appliedOfferClaimId || parsed.data.appliedOfferCode);
 
-      if (user?.id && result.bookingRequestId) {
-        const hasAppliedOffer = Boolean(parsed.data.appliedOfferId || parsed.data.appliedOfferClaimId || parsed.data.appliedOfferCode);
-
-        void (async () => {
           await writeOptimisticBookingIntoCustomerHistoryCache(user.id, {
             bookingRequestId: result.bookingRequestId,
             requestedService: parsed.data.requestedService ?? "",
@@ -422,9 +435,8 @@ export function useGuestBooking() {
               })();
             }, hasAppliedOffer ? 0 : 350);
           }
-        })();
-      }
-      setIsSubmitting(false);
+        }
+      })().catch(() => {});
       return;
     } catch (error) {
       const rawMessage = error instanceof Error ? error.message : "Gui booking request that bai.";

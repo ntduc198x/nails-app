@@ -20,7 +20,7 @@ import {
   type CustomerStatus,
   type SafeCustomerDuplicateCandidate,
 } from "@nails/shared";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
@@ -273,7 +273,49 @@ function CustomerRow({
   );
 }
 
+function dedupeCustomerRowsForRender(rows: CustomerCrmSummary[]) {
+  const byId = new Map<string, CustomerCrmSummary>();
+
+  for (const row of rows) {
+    if (!byId.has(row.id)) {
+      byId.set(row.id, row);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
+function normalizeDuplicateCandidatesForRender(candidates: SafeCustomerDuplicateCandidate[]) {
+  const grouped = new Map<string, SafeCustomerDuplicateCandidate>();
+
+  for (const candidate of candidates) {
+    const key = `${candidate.matchType}:${candidate.matchValue}:${candidate.canonicalCustomerId}`;
+    const duplicateCustomerIds = [...new Set(candidate.duplicateCustomerIds.filter(Boolean))];
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...candidate,
+        duplicateCustomerIds,
+        duplicateCount: duplicateCustomerIds.length + 1,
+      });
+      continue;
+    }
+
+    const mergedIds = [...new Set([...existing.duplicateCustomerIds, ...duplicateCustomerIds])];
+    grouped.set(key, {
+      ...existing,
+      duplicateCustomerIds: mergedIds,
+      duplicateCount: mergedIds.length + 1,
+      reason: existing.reason || candidate.reason,
+    });
+  }
+
+  return Array.from(grouped.values());
+}
+
 export default function AdminManageCustomersScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "RECEPTION"]);
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
   const [duplicateCandidates, setDuplicateCandidates] = useState<SafeCustomerDuplicateCandidate[]>([]);
@@ -326,10 +368,10 @@ export default function AdminManageCustomersScreen() {
         listSafeCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
       ]);
 
-      setRows(filteredRows);
-      setAllRows(customers);
+      setRows(dedupeCustomerRowsForRender(filteredRows));
+      setAllRows(dedupeCustomerRowsForRender(customers));
       setMetrics(dashboard);
-      setDuplicateCandidates(duplicates);
+      setDuplicateCandidates(normalizeDuplicateCandidatesForRender(duplicates));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được CRM khách.");
     } finally {
@@ -372,6 +414,8 @@ export default function AdminManageCustomersScreen() {
     [dormantDays],
   );
 
+  const renderRows = useMemo(() => dedupeCustomerRowsForRender(rows), [rows]);
+
   const safeEmailPreviewCount = useMemo(
     () => duplicateCandidates.filter((candidate) => candidate.matchType === "EMAIL").length,
     [duplicateCandidates],
@@ -408,6 +452,10 @@ export default function AdminManageCustomersScreen() {
     } finally {
       setMergingPairKey(null);
     }
+  }
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
   }
 
   return (
@@ -489,8 +537,11 @@ export default function AdminManageCustomersScreen() {
           </View>
         ) : (
           <View style={styles.listStack}>
-            {duplicateCandidates.slice(0, 8).map((candidate) => (
-              <View key={`${candidate.matchType}:${candidate.matchValue}`} style={styles.duplicateCard}>
+            {duplicateCandidates.slice(0, 8).map((candidate, candidateIndex) => (
+              <View
+                key={`${candidate.matchType}:${candidate.matchValue}:${candidate.canonicalCustomerId}:${candidateIndex}`}
+                style={styles.duplicateCard}
+              >
                 <View style={styles.duplicateHeader}>
                   <Text style={styles.duplicateTitle}>{candidate.matchType} · {candidate.matchValue}</Text>
                   <Text style={styles.duplicateMeta}>{candidate.duplicateCount} hồ sơ</Text>
@@ -498,12 +549,13 @@ export default function AdminManageCustomersScreen() {
                 <Text style={styles.duplicateHint}>Bản chính: {candidate.canonicalCustomerId.slice(0, 8)}…</Text>
                 <Text style={styles.duplicateHint}>Rule: {candidate.reason}</Text>
                 <View style={styles.duplicateActions}>
-                  {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId) => {
-                    const pairKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
-                    const busy = mergingPairKey === pairKey;
+                  {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId, duplicateIndex) => {
+                    const busyKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
+                    const renderKey = `${busyKey}:${duplicateIndex}`;
+                    const busy = mergingPairKey === busyKey;
                     return (
                       <Pressable
-                        key={duplicateId}
+                        key={renderKey}
                         style={[styles.mergeButton, busy ? styles.mergeButtonDisabled : null]}
                         disabled={busy}
                         onPress={() => void handleMergeDuplicate(candidate, duplicateId)}
@@ -529,7 +581,7 @@ export default function AdminManageCustomersScreen() {
           </View>
           <View style={styles.headerActions}>
             <View style={styles.countPill}>
-              <Text style={styles.countPillText}>{rows.length} khách</Text>
+              <Text style={styles.countPillText}>{renderRows.length} khách</Text>
             </View>
             <Pressable
               style={styles.collapseButton}
@@ -576,14 +628,18 @@ export default function AdminManageCustomersScreen() {
                 <ActivityIndicator size="small" color={palette.accent} />
                 <Text style={styles.emptyText}>Đang tải danh sách khách...</Text>
               </View>
-            ) : rows.length === 0 ? (
+            ) : renderRows.length === 0 ? (
               <View style={styles.emptyState}>
                 <Text style={styles.emptyText}>Không có khách nào khớp bộ lọc hiện tại.</Text>
               </View>
             ) : (
               <View style={styles.listStack}>
-                {rows.map((item) => (
-                  <CustomerRow key={item.id} item={item} onPress={() => setSelectedCustomerId(item.id)} />
+                {renderRows.map((item, index) => (
+                  <CustomerRow
+                    key={`${item.id}:${index}`}
+                    item={item}
+                    onPress={() => setSelectedCustomerId(item.id)}
+                  />
                 ))}
               </View>
             )}

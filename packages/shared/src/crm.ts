@@ -225,6 +225,46 @@ function parseCustomerBranchRow(row: Record<string, unknown>): CustomerCrmSummar
   });
 }
 
+function dedupeCustomerRows(rows: CustomerCrmSummary[]): CustomerCrmSummary[] {
+  const byId = new Map<string, CustomerCrmSummary>();
+
+  for (const row of rows) {
+    const existing = byId.get(row.id);
+    if (!existing) {
+      byId.set(row.id, row);
+      continue;
+    }
+
+    byId.set(row.id, {
+      ...existing,
+      phone: existing.phone ?? row.phone,
+      birthday: existing.birthday ?? row.birthday,
+      gender: existing.gender ?? row.gender,
+      firstVisitAt: existing.firstVisitAt ?? row.firstVisitAt,
+      lastVisitAt: existing.lastVisitAt ?? row.lastVisitAt,
+      totalVisits: Math.max(existing.totalVisits, row.totalVisits),
+      totalSpend: Math.max(existing.totalSpend, row.totalSpend),
+      lastServiceSummary: existing.lastServiceSummary ?? row.lastServiceSummary,
+      favoriteStaffUserId: existing.favoriteStaffUserId ?? row.favoriteStaffUserId,
+      tags: existing.tags.length >= row.tags.length ? existing.tags : row.tags,
+      careNote: existing.careNote ?? row.careNote,
+      source: existing.source ?? row.source,
+      nextFollowUpAt: existing.nextFollowUpAt ?? row.nextFollowUpAt,
+      lastContactedAt: existing.lastContactedAt ?? row.lastContactedAt,
+      needsMergeReview: existing.needsMergeReview || row.needsMergeReview,
+      dormantDays:
+        existing.dormantDays == null
+          ? row.dormantDays
+          : row.dormantDays == null
+            ? existing.dormantDays
+            : Math.min(existing.dormantDays, row.dormantDays),
+      membershipTier: existing.membershipTier ?? row.membershipTier,
+    });
+  }
+
+  return Array.from(byId.values());
+}
+
 async function listMembershipTierByCustomerId(
   client: SharedSupabaseClient,
   orgId: string,
@@ -331,7 +371,7 @@ export async function listCustomersCrmForMobile(
     return attachMembershipTier(
       client,
       orgId,
-      rpc.data.map((row) => parseCustomerRow(row as Record<string, unknown>)),
+      dedupeCustomerRows(rpc.data.map((row) => parseCustomerRow(row as Record<string, unknown>))),
     );
   }
 
@@ -340,7 +380,7 @@ export async function listCustomersCrmForMobile(
     throw error;
   }
 
-  let rows = (data ?? []).map((row) => parseCustomerBranchRow(row as Record<string, unknown>));
+  let rows = dedupeCustomerRows((data ?? []).map((row) => parseCustomerBranchRow(row as Record<string, unknown>)));
 
   if (filters.search?.trim()) {
     const query = filters.search.trim().toLowerCase();
@@ -499,6 +539,45 @@ function groupSafeDuplicatePreviewRows(
   });
 }
 
+function normalizeSafeDuplicateCandidates(
+  candidates: SafeCustomerDuplicateCandidate[],
+): SafeCustomerDuplicateCandidate[] {
+  const grouped = new Map<string, SafeCustomerDuplicateCandidate>();
+
+  for (const candidate of candidates) {
+    const key = `${candidate.matchType}:${candidate.matchValue}:${candidate.canonicalCustomerId}`;
+    const dedupedIds = [...new Set(candidate.duplicateCustomerIds.filter(Boolean))];
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...candidate,
+        duplicateCustomerIds: dedupedIds,
+        duplicateCount: dedupedIds.length + 1,
+      });
+      continue;
+    }
+
+    const mergedIds = [...new Set([...existing.duplicateCustomerIds, ...dedupedIds])];
+    grouped.set(key, {
+      ...existing,
+      duplicateCustomerIds: mergedIds,
+      duplicateCount: mergedIds.length + 1,
+      reason: existing.reason || candidate.reason,
+    });
+  }
+
+  return Array.from(grouped.values()).sort((left, right) => {
+    if (left.matchType !== right.matchType) {
+      return left.matchType.localeCompare(right.matchType);
+    }
+    if (left.matchValue !== right.matchValue) {
+      return left.matchValue.localeCompare(right.matchValue);
+    }
+    return left.canonicalCustomerId.localeCompare(right.canonicalCustomerId);
+  });
+}
+
 export async function listSafeCustomerDuplicateCandidatesForMobile(
   client: SharedSupabaseClient,
 ): Promise<SafeCustomerDuplicateCandidate[]> {
@@ -507,10 +586,10 @@ export async function listSafeCustomerDuplicateCandidatesForMobile(
     previewSafeCustomerDuplicateMergesForMobile(client, { kind: "PHONE" }),
   ]);
 
-  return [
+  return normalizeSafeDuplicateCandidates([
     ...groupSafeDuplicatePreviewRows("EMAIL", emailRows),
     ...groupSafeDuplicatePreviewRows("PHONE", phoneRows),
-  ];
+  ]);
 }
 
 export async function getCrmDashboardMetricsForMobile(client: SharedSupabaseClient): Promise<CrmDashboardMetrics> {

@@ -1594,11 +1594,6 @@ export default function ManageShiftsPage() {
             {openEntry ? "Đóng ca" : "Mở ca"}
           </button>
         </MobileStickyActions>
-        <style>{`
-          .manage-shifts-page button:not(:disabled) {
-            cursor: pointer;
-          }
-        `}</style>
       </AppShell>
     );
   }
@@ -2815,11 +2810,6 @@ export default function ManageShiftsPage() {
           Xuất lịch
         </button>
       </div>
-      <style>{`
-        .manage-shifts-page button:not(:disabled) {
-          cursor: pointer;
-        }
-      `}</style>
     </AppShell>
   );
 }

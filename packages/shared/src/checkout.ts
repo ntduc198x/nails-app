@@ -1,6 +1,8 @@
 import type { SharedSupabaseClient } from "./org";
 import { ensureOrgContext } from "./org";
 
+const STALE_CHECKED_IN_MS = 7 * 24 * 60 * 60 * 1000;
+
 export type MobileCheckoutService = {
   id: string;
   name: string;
@@ -28,6 +30,54 @@ export type MobileCheckoutInput = {
   dedupeWindowMs?: number;
   idempotencyKey?: string | null;
 };
+
+export type MobileCheckedInAppointment = {
+  id: string;
+  startAt: string;
+  status: string;
+  staffUserId: string | null;
+  resourceId: string | null;
+  checkedInAt: string | null;
+  customerName: string;
+  customerPhone: string | null;
+};
+
+export type MobileCheckedInQueue = {
+  active: MobileCheckedInAppointment[];
+  stale: MobileCheckedInAppointment[];
+  autoCancelledCount: number;
+  cleanupError: string | null;
+};
+
+type CheckedInAppointmentRow = {
+  id: unknown;
+  start_at: unknown;
+  status: unknown;
+  staff_user_id: unknown;
+  resource_id: unknown;
+  checked_in_at?: unknown;
+  customers?: { name?: unknown; phone?: unknown }[] | { name?: unknown; phone?: unknown } | null;
+};
+
+function toReferenceTimeMs(row: { checked_in_at?: unknown; start_at?: unknown }) {
+  const referenceValue = typeof row.checked_in_at === "string" ? row.checked_in_at : row.start_at;
+  const referenceMs = new Date(String(referenceValue ?? "")).getTime();
+  return Number.isFinite(referenceMs) ? referenceMs : 0;
+}
+
+function mapCheckedInAppointment(row: CheckedInAppointmentRow): MobileCheckedInAppointment {
+  const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+  return {
+    id: String(row.id ?? ""),
+    startAt: String(row.start_at ?? ""),
+    status: String(row.status ?? ""),
+    staffUserId: typeof row.staff_user_id === "string" ? row.staff_user_id : null,
+    resourceId: typeof row.resource_id === "string" ? row.resource_id : null,
+    checkedInAt: typeof row.checked_in_at === "string" ? row.checked_in_at : null,
+    customerName: typeof customer?.name === "string" ? customer.name : "-",
+    customerPhone: typeof customer?.phone === "string" ? customer.phone : null,
+  };
+}
 
 export async function listServicesForMobile(
   client: SharedSupabaseClient,
@@ -112,6 +162,70 @@ export async function listRecentTicketsForMobile(
       receiptToken: typeof receipt?.public_token === "string" ? receipt.public_token : null,
     };
   });
+}
+
+export async function listCheckedInQueueForMobile(
+  client: SharedSupabaseClient,
+): Promise<MobileCheckedInQueue> {
+  const { orgId } = await ensureOrgContext(client);
+
+  let { data, error } = await client
+    .from("appointments")
+    .select("id,start_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
+    .eq("org_id", orgId)
+    .eq("status", "CHECKED_IN")
+    .order("start_at", { ascending: true })
+    .limit(200);
+
+  if (error?.message?.includes("checked_in_at")) {
+    const fallback = await client
+      .from("appointments")
+      .select("id,start_at,status,staff_user_id,resource_id,customers(name,phone)")
+      .eq("org_id", orgId)
+      .eq("status", "CHECKED_IN")
+      .order("start_at", { ascending: true })
+      .limit(200);
+
+    data = (fallback.data ?? []).map((row) => ({ ...row, checked_in_at: null }));
+    error = fallback.error;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  const rows = ((data ?? []) as CheckedInAppointmentRow[]).map(mapCheckedInAppointment);
+  const staleIds = rows
+    .filter((row) => toReferenceTimeMs({ checked_in_at: row.checkedInAt, start_at: row.startAt }) < Date.now() - STALE_CHECKED_IN_MS)
+    .map((row) => row.id);
+
+  let autoCancelledCount = 0;
+  let cleanupError: string | null = null;
+
+  if (staleIds.length > 0) {
+    const { error: cleanupErr } = await client
+      .from("appointments")
+      .update({ status: "CANCELLED" })
+      .eq("org_id", orgId)
+      .in("id", staleIds)
+      .eq("status", "CHECKED_IN");
+
+    if (cleanupErr) {
+      cleanupError = cleanupErr.message || "Khong the tu dong huy stale check-ins.";
+    } else {
+      autoCancelledCount = staleIds.length;
+    }
+  }
+
+  const remainingRows = autoCancelledCount > 0 ? rows.filter((row) => !staleIds.includes(row.id)) : rows;
+  const thresholdMs = Date.now() - STALE_CHECKED_IN_MS;
+
+  return {
+    active: remainingRows.filter((row) => toReferenceTimeMs({ checked_in_at: row.checkedInAt, start_at: row.startAt }) >= thresholdMs),
+    stale: remainingRows.filter((row) => toReferenceTimeMs({ checked_in_at: row.checkedInAt, start_at: row.startAt }) < thresholdMs),
+    autoCancelledCount,
+    cleanupError,
+  };
 }
 
 export async function hasOpenShiftForMobile(

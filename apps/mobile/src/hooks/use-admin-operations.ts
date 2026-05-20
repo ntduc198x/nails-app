@@ -3,6 +3,7 @@ import {
   type AppRole,
   type AppointmentStatus,
   type CustomerCrmSummary,
+  type MobileCheckedInAppointment,
   type MobileCheckoutService,
   type MobileRecentTicketSummary,
   type CrmDashboardMetrics,
@@ -19,6 +20,7 @@ import {
   hasOpenShiftForMobile,
   listAppointmentsForMobile,
   listBookingRequestsForMobile,
+  listCheckedInQueueForMobile,
   listCustomersCrmForMobile,
   listRecentTicketsForMobile,
   listServicesForMobile,
@@ -50,9 +52,13 @@ type AdminOperationsState = {
   staffOptions: StaffOption[];
   resourceOptions: ResourceOption[];
   checkoutServices: MobileCheckoutService[];
+  checkoutCheckedInAppointments: MobileCheckedInAppointment[];
+  staleCheckedInAppointments: MobileCheckedInAppointment[];
   recentTickets: MobileRecentTicketSummary[];
   techShiftOpen: boolean | null;
   customerCrmByPhone: Record<string, CustomerCrmSummary>;
+  staleCheckInAutoCancelledCount: number;
+  staleCheckInCleanupError: string | null;
 };
 
 const INITIAL_STATE: AdminOperationsState = {
@@ -63,9 +69,13 @@ const INITIAL_STATE: AdminOperationsState = {
   staffOptions: [],
   resourceOptions: [],
   checkoutServices: [],
+  checkoutCheckedInAppointments: [],
+  staleCheckedInAppointments: [],
   recentTickets: [],
   techShiftOpen: null,
   customerCrmByPhone: {},
+  staleCheckInAutoCancelledCount: 0,
+  staleCheckInCleanupError: null,
 };
 
 function normalizeAdminOperationError(error: unknown): string {
@@ -311,7 +321,7 @@ export function useAdminOperations() {
       const canSeeRecentTickets =
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
 
-      const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
+      const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
         getDashboardSnapshotForMobile(mobileSupabase),
         canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase) : Promise.resolve([]),
         listAppointmentsForMobile(mobileSupabase),
@@ -319,6 +329,7 @@ export function useAdminOperations() {
         listStaffOptions(),
         listResourceOptions(),
         listServicesForMobile(mobileSupabase),
+        listCheckedInQueueForMobile(mobileSupabase),
         canSeeRecentTickets ? listRecentTicketsForMobile(mobileSupabase, { limit: 12 }) : Promise.resolve([]),
         role === "TECH" ? hasOpenShiftForMobile(mobileSupabase).catch(() => false) : Promise.resolve(null),
         canSeeCrm ? listCustomersCrmForMobile(mobileSupabase).catch(() => []) : Promise.resolve([]),
@@ -346,9 +357,13 @@ export function useAdminOperations() {
         staffOptions,
         resourceOptions,
         checkoutServices,
+        checkoutCheckedInAppointments: checkedInQueue.active,
+        staleCheckedInAppointments: checkedInQueue.stale,
         recentTickets,
         techShiftOpen,
         customerCrmByPhone,
+        staleCheckInAutoCancelledCount: checkedInQueue.autoCancelledCount,
+        staleCheckInCleanupError: checkedInQueue.cleanupError,
       };
 
       emitAdminState(nextState);

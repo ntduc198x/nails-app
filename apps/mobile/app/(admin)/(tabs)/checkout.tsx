@@ -65,11 +65,33 @@ function formatShortDateTime(value: string | null | undefined) {
   });
 }
 
+function formatStaleDays(value: string | null | undefined, fallback: string) {
+  const reference = value ?? fallback;
+  const diffMs = Date.now() - new Date(reference).getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "kẹt lâu";
+  const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+  return `kẹt ${days} ngày`;
+}
+
 export default function AdminCheckoutScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   useSession();
-  const { appointments, checkoutServices, createCheckout, reload, loading, role, techShiftOpen, busyTargetId, error, mutating } =
+  const {
+    checkoutCheckedInAppointments,
+    staleCheckedInAppointments,
+    staleCheckInAutoCancelledCount,
+    staleCheckInCleanupError,
+    checkoutServices,
+    createCheckout,
+    reload,
+    loading,
+    role,
+    techShiftOpen,
+    busyTargetId,
+    error,
+    mutating,
+  } =
     useAdminOperations();
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [checkoutCustomerName] = useState("");
@@ -85,10 +107,7 @@ export default function AdminCheckoutScreen() {
   // Removed useFocusEffect to prevent layout shift when returning to screen
   // Data is loaded via useAdminOperations hook
 
-  const checkoutAppointments = useMemo(
-    () => appointments.filter((item) => item.status === "CHECKED_IN"),
-    [appointments],
-  );
+  const checkoutAppointments = useMemo(() => checkoutCheckedInAppointments, [checkoutCheckedInAppointments]);
   const selectedAppointment = useMemo(
     () =>
       checkoutAppointments.find((item) => item.id === selectedAppointmentId) ??
@@ -202,6 +221,8 @@ export default function AdminCheckoutScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Khách đang phục vụ</Text>
+            {staleCheckInAutoCancelledCount > 0 ? <Text style={styles.successText}>Đã tự hủy {staleCheckInAutoCancelledCount} stale check-ins quá 7 ngày.</Text> : null}
+            {staleCheckInCleanupError ? <Text style={styles.errorText}>{staleCheckInCleanupError}</Text> : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
               {checkoutAppointments.map((item) => {
                 const [avatarStrong, avatarSoft] = buildAvatarTone(item.customerName);
@@ -220,6 +241,27 @@ export default function AdminCheckoutScreen() {
             </ScrollView>
             {checkedInAppointments.length === 0 ? <Text style={styles.emptyText}>Chưa có khách đang phục vụ</Text> : null}
           </View>
+
+          {staleCheckedInAppointments.length > 0 ? (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Stale check-ins</Text>
+              <View style={{ gap: 10 }}>
+                {staleCheckedInAppointments.map((item) => (
+                  <View key={`stale-${item.id}`} style={styles.staleRow}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={styles.staleName}>{item.customerName}</Text>
+                      <Text style={styles.staleMeta}>
+                        {formatShortDateTime(item.checkedInAt ?? item.startAt)} · {formatStaleDays(item.checkedInAt, item.startAt)}
+                      </Text>
+                    </View>
+                    <View style={styles.staleBadge}>
+                      <Text style={styles.staleBadgeText}>Đang hủy</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           {selectedAppointment ? (
             <View style={styles.card}>
@@ -428,6 +470,11 @@ const styles = StyleSheet.create({
   timeText: { fontSize: 12, lineHeight: 15, color: "#6D6055" },
   errorText: { fontSize: 13, lineHeight: 18, color: "#B64747", fontWeight: "600" },
   successText: { fontSize: 13, lineHeight: 18, color: "#2B7A56", fontWeight: "600" },
+  staleRow: { minHeight: 54, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFF8F1", paddingHorizontal: 12, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  staleName: { fontSize: 14, lineHeight: 18, color: palette.text, fontWeight: "700" },
+  staleMeta: { fontSize: 12, lineHeight: 16, color: palette.muted },
+  staleBadge: { minHeight: 24, borderRadius: 12, backgroundColor: "#F5D7BA", paddingHorizontal: 10, alignItems: "center", justifyContent: "center" },
+  staleBadgeText: { fontSize: 11, lineHeight: 13, color: "#8A5530", fontWeight: "700" },
   methodRow: { flexDirection: "row", gap: 10 },
   methodButton: { flex: 1, minHeight: 46, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   methodButtonActive: { backgroundColor: palette.beige, borderColor: palette.beigeStrong },

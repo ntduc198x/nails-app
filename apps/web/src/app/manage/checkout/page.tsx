@@ -15,6 +15,7 @@ type CheckedInAppointment = {
   id: string;
   customer_id?: string | null;
   start_at: string;
+  checked_in_at?: string | null;
   staff_user_id?: string | null;
   resource_id?: string | null;
   customers?:
@@ -90,6 +91,14 @@ function formatCompactDate(value: string | null | undefined) {
   });
 }
 
+function formatStaleDays(value: string | null | undefined, fallback: string) {
+  const reference = value ?? fallback;
+  const diffMs = Date.now() - new Date(reference).getTime();
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return "kẹt lâu";
+  const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
+  return `kẹt ${days} ngày`;
+}
+
 function getSuggestedFollowUpDays(serviceNames: string[]) {
   const normalized = serviceNames.map((item) => normalizeText(item));
   if (normalized.some((name) => name.includes("extension") || name.includes("refill") || name.includes("mong up") || name.includes("dual form"))) {
@@ -106,6 +115,7 @@ export default function CheckoutPage() {
   const [services, setServices] = useState<ServiceRow[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [checkedInAppointments, setCheckedInAppointments] = useState<CheckedInAppointment[]>([]);
+  const [staleCheckedInAppointments, setStaleCheckedInAppointments] = useState<CheckedInAppointment[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +125,8 @@ export default function CheckoutPage() {
   const [lastReceipt, setLastReceipt] = useState<string | null>(null);
   const [receiptLink, setReceiptLink] = useState<string | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState<string | null>(null);
+  const [staleAutoCancelledNotice, setStaleAutoCancelledNotice] = useState<string | null>(null);
+  const [staleCleanupError, setStaleCleanupError] = useState<string | null>(null);
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [fromDate, setFromDate] = useState(toDateInputValue(today));
   const [toDate, setToDate] = useState(toDateInputValue(today));
@@ -150,7 +162,7 @@ export default function CheckoutPage() {
       setError(null);
       const currentRole = await getCurrentSessionRole();
       setRole(currentRole);
-      if (!["OWNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"].includes(currentRole)) throw new Error("Vai trò hiện tại không có quyền truy cập trang thanh toán.");
+      if (!["OWNER", "PARTNER", "MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"].includes(currentRole)) throw new Error("Vai trò hiện tại không có quyền truy cập trang thanh toán.");
       const [serviceRows, ticketRows, checkedInRows, openShift] = await Promise.all([
         listServices(),
         listRecentTickets({ fromIso: range.from.toISOString(), toIso: range.to.toISOString(), limit: 200, force: true }),
@@ -159,7 +171,10 @@ export default function CheckoutPage() {
       ]);
       setServices(serviceRows as ServiceRow[]);
       setTickets(ticketRows as TicketRow[]);
-      setCheckedInAppointments(checkedInRows as CheckedInAppointment[]);
+      setCheckedInAppointments((checkedInRows.active ?? []) as CheckedInAppointment[]);
+      setStaleCheckedInAppointments((checkedInRows.stale ?? []) as CheckedInAppointment[]);
+      setStaleAutoCancelledNotice(checkedInRows.autoCancelledCount > 0 ? `Đã tự động hủy ${checkedInRows.autoCancelledCount} stale check-ins quá 7 ngày.` : null);
+      setStaleCleanupError(checkedInRows.cleanupError ?? null);
       setTechShiftOpen(openShift);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Tải dữ liệu thanh toán thất bại");
@@ -291,6 +306,8 @@ export default function CheckoutPage() {
         {error ? <ManageAlert tone="error">Lỗi: {error}</ManageAlert> : null}
         {lastReceipt ? <div ref={receiptAlertRef}><ManageAlert tone="info">Tạo hóa đơn thành công. Mã công khai: <code>{lastReceipt}</code>{receiptLink ? <> · <a className="underline" href={receiptLink} target="_blank" rel="noreferrer">Mở link hóa đơn</a></> : null}</ManageAlert></div> : null}
         {dedupeNotice ? <ManageAlert tone="warn">{dedupeNotice}</ManageAlert> : null}
+        {staleAutoCancelledNotice ? <ManageAlert tone="info">{staleAutoCancelledNotice}</ManageAlert> : null}
+        {staleCleanupError ? <ManageAlert tone="warn">{staleCleanupError}</ManageAlert> : null}
         {role === "TECH" && techShiftOpen === false ? (
           <ManageAlert tone="warn">
             Chưa mở ca. Vui lòng vào <a className="underline font-medium" href="/manage/shifts">Ca làm</a> để chuyển sang ca mới và mở ca trước khi thanh toán.
@@ -346,6 +363,31 @@ export default function CheckoutPage() {
                       </button>
                     );
                   })}
+                </div>
+              ) : null}
+
+              {staleCheckedInAppointments.length > 0 ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/80 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-amber-950">Stale check-ins</h4>
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">{staleCheckedInAppointments.length}</span>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {staleCheckedInAppointments.map((appointment) => {
+                      const customer = Array.isArray(appointment.customers) ? appointment.customers[0]?.name : appointment.customers?.name;
+                      return (
+                        <div key={`stale-${appointment.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-2.5 text-sm">
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-neutral-900">{customer ?? "Khách"}</div>
+                            <div className="text-xs text-amber-900">
+                              {formatCompactDate(appointment.checked_in_at ?? appointment.start_at)} · {formatStaleDays(appointment.checked_in_at, appointment.start_at)}
+                            </div>
+                          </div>
+                          <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">Đang hủy</span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ) : null}
 

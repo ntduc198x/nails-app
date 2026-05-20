@@ -1,4 +1,3 @@
-import { listUserRoles } from "@/lib/auth";
 import { rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
 import { supabase } from "@/lib/supabase";
 import type { RealtimeChannel } from "@supabase/supabase-js";
@@ -7,6 +6,7 @@ export type OrgContext = { orgId: string; branchId: string };
 
 const TTL = 30_000;
 const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
+const STALE_CHECKED_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SessionCache<T> {
   value: T;
@@ -14,6 +14,50 @@ interface SessionCache<T> {
   sessionId: string;
   orgId: string;
 }
+
+type CheckedInAppointmentRow = {
+  id: string;
+  customer_id?: string | null;
+  start_at: string;
+  staff_user_id?: string | null;
+  resource_id?: string | null;
+  checked_in_at?: string | null;
+  customers?:
+    | {
+        id?: string;
+        name?: string;
+        phone?: string;
+        customer_status?: string;
+        total_visits?: number;
+        total_spend?: number;
+        last_visit_at?: string | null;
+        last_service_summary?: string | null;
+        care_note?: string | null;
+        next_follow_up_at?: string | null;
+        follow_up_status?: string | null;
+      }
+    | Array<{
+        id?: string;
+        name?: string;
+        phone?: string;
+        customer_status?: string;
+        total_visits?: number;
+        total_spend?: number;
+        last_visit_at?: string | null;
+        last_service_summary?: string | null;
+        care_note?: string | null;
+        next_follow_up_at?: string | null;
+        follow_up_status?: string | null;
+      }>
+    | null;
+};
+
+export type CheckedInQueueResult = {
+  active: CheckedInAppointmentRow[];
+  stale: CheckedInAppointmentRow[];
+  autoCancelledCount: number;
+  cleanupError: string | null;
+};
 
 let orgContextCache: { value: OrgContext; at: number; sessionId: string } | null = null;
 let servicesCache: SessionCache<unknown[]> | null = null;
@@ -522,13 +566,59 @@ async function findOrCreateCustomer(orgId: string, name: string) {
 }
 
 export async function listStaffMembers() {
-  const teamRows = (await listUserRoles()) as Array<{ user_id: string; role: string; display_name?: string }>;
-  return (teamRows ?? [])
-    .filter((r) => r.role === "TECH")
-    .map((r) => ({
-      userId: r.user_id,
-      name: r.display_name || String(r.user_id).slice(0, 8),
-    }));
+  if (!supabase) return [];
+  const { orgId } = await ensureOrgContext();
+
+  const teamRpc = await supabase.rpc("list_team_members_secure_v2");
+  if (!teamRpc.error && teamRpc.data) {
+    return (teamRpc.data as Array<Record<string, unknown>>)
+      .filter((row) => String(row.role ?? "") === "TECH")
+      .map((row) => {
+        const userId = String(row.user_id ?? "");
+        const name =
+          typeof row.display_name === "string" && row.display_name.trim().length > 0
+            ? row.display_name.trim()
+            : userId.slice(0, 8);
+        return { userId, name };
+      })
+      .filter((row) => Boolean(row.userId));
+  }
+
+  const rolesRes = await supabase
+    .from("user_roles")
+    .select("user_id,role")
+    .eq("org_id", orgId)
+    .eq("role", "TECH");
+
+  if (rolesRes.error) throw rolesRes.error;
+
+  const roleRows = (rolesRes.data ?? []) as Array<{ user_id: string; role: string }>;
+  const ids = [...new Set(roleRows.map((row) => String(row.user_id)).filter(Boolean))];
+  let profileMap = new Map<string, string>();
+
+  if (ids.length) {
+    const profilesRes = await supabase
+      .from("profiles")
+      .select("user_id,display_name")
+      .eq("org_id", orgId)
+      .in("user_id", ids);
+
+    if (!profilesRes.error) {
+      profileMap = new Map(
+        (profilesRes.data ?? []).map((profile) => [
+          String(profile.user_id),
+          typeof profile.display_name === "string" && profile.display_name.trim().length > 0
+            ? profile.display_name.trim()
+            : String(profile.user_id).slice(0, 8),
+        ]),
+      );
+    }
+  }
+
+  return roleRows.map((row) => ({
+    userId: String(row.user_id),
+    name: profileMap.get(String(row.user_id)) ?? String(row.user_id).slice(0, 8),
+  }));
 }
 
 export async function listAppointments(opts?: { force?: boolean }) {
@@ -667,20 +757,75 @@ export async function createAppointment(input: {
   invalidateDataCaches();
 }
 
-export async function listCheckedInAppointments() {
-  if (!supabase) return [];
+function getCheckedInReferenceTimeMs(row: { checked_in_at?: string | null; start_at?: string | null }) {
+  const referenceValue = row.checked_in_at || row.start_at;
+  const referenceMs = new Date(referenceValue ?? "").getTime();
+  return Number.isFinite(referenceMs) ? referenceMs : 0;
+}
+
+export async function listCheckedInAppointments(): Promise<CheckedInQueueResult> {
+  if (!supabase) {
+    return { active: [], stale: [], autoCancelledCount: 0, cleanupError: null };
+  }
   const { orgId } = await ensureOrgContext();
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("appointments")
-    .select("id,customer_id,start_at,staff_user_id,resource_id,customers(id,name,phone,customer_status,total_visits,total_spend,last_visit_at,last_service_summary,care_note,next_follow_up_at,follow_up_status)")
+    .select("id,customer_id,start_at,staff_user_id,resource_id,checked_in_at,customers(id,name,phone,customer_status,total_visits,total_spend,last_visit_at,last_service_summary,care_note,next_follow_up_at,follow_up_status)")
     .eq("org_id", orgId)
     .eq("status", "CHECKED_IN")
     .order("start_at", { ascending: true })
-    .limit(50);
+    .limit(200);
+
+  if (error?.message?.includes("checked_in_at")) {
+    const fallback = await supabase
+      .from("appointments")
+      .select("id,customer_id,start_at,staff_user_id,resource_id,customers(id,name,phone,customer_status,total_visits,total_spend,last_visit_at,last_service_summary,care_note,next_follow_up_at,follow_up_status)")
+      .eq("org_id", orgId)
+      .eq("status", "CHECKED_IN")
+      .order("start_at", { ascending: true })
+      .limit(200);
+
+    data = (fallback.data ?? []).map((row) => ({ ...row, checked_in_at: null })) as typeof data;
+    error = fallback.error;
+  }
 
   if (error) throw error;
-  return data ?? [];
+
+  const rows = ((data ?? []) as CheckedInAppointmentRow[]);
+  const staleIds = rows
+    .filter((row) => getCheckedInReferenceTimeMs(row) < Date.now() - STALE_CHECKED_IN_MS)
+    .map((row) => row.id);
+
+  let autoCancelledCount = 0;
+  let cleanupError: string | null = null;
+
+  if (staleIds.length > 0) {
+    const { error: cleanupErr } = await supabase
+      .from("appointments")
+      .update({ status: "CANCELLED" })
+      .eq("org_id", orgId)
+      .in("id", staleIds)
+      .eq("status", "CHECKED_IN");
+
+    if (cleanupErr) {
+      cleanupError = cleanupErr.message || "Không thể tự động hủy stale check-ins.";
+    } else {
+      autoCancelledCount = staleIds.length;
+      await rebalanceOpenBookingRequests({ orgId });
+      await invalidateDataCaches();
+    }
+  }
+
+  const remainingRows = autoCancelledCount > 0 ? rows.filter((row) => !staleIds.includes(row.id)) : rows;
+  const thresholdMs = Date.now() - STALE_CHECKED_IN_MS;
+
+  return {
+    active: remainingRows.filter((row) => getCheckedInReferenceTimeMs(row) >= thresholdMs),
+    stale: remainingRows.filter((row) => getCheckedInReferenceTimeMs(row) < thresholdMs),
+    autoCancelledCount,
+    cleanupError,
+  };
 }
 
 export async function updateAppointmentStatus(appointmentId: string, status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW") {

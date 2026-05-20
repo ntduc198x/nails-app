@@ -76,6 +76,7 @@ type ShiftPlanNotificationRow = {
 
 const APPOINTMENT_OVERDUE_MINUTES = 20;
 const STALE_CHECKED_IN_MINUTES = 90;
+const STALE_CHECKED_IN_DAYS = 7;
 const RECENT_SHIFT_PUBLISHED_HOURS = 72;
 const NOTIFICATION_PRIORITY: Record<ManageNotificationKind, number> = {
   customer_arrival_overdue: 0,
@@ -180,18 +181,39 @@ async function listOpenBookingRequests(orgId: string) {
 async function listRecentAppointmentEvents(orgId: string) {
   if (!supabase) return [] as AppointmentNotificationRow[];
 
-  const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const recentEventSinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const checkedInSinceIso = new Date(Date.now() - STALE_CHECKED_IN_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from("appointments")
     .select("id,status,start_at,checked_in_at,updated_at,customers(name,full_name)")
     .eq("org_id", orgId)
     .in("status", ["BOOKED", "CHECKED_IN", "DONE"])
-    .or(`start_at.gte.${sinceIso},updated_at.gte.${sinceIso}`)
+    .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso})`)
     .order("updated_at", { ascending: false })
-    .limit(16);
+    .limit(24);
 
   if (error) return [] as AppointmentNotificationRow[];
-  return (data ?? []) as AppointmentNotificationRow[];
+
+  const rows = (data ?? []) as AppointmentNotificationRow[];
+  const staleThresholdMs = Date.now() - STALE_CHECKED_IN_DAYS * 24 * 60 * 60 * 1000;
+  const staleIds = rows
+    .filter((row) => row.status === "CHECKED_IN")
+    .filter((row) => {
+      const referenceValue = row.checked_in_at ?? row.start_at;
+      return new Date(referenceValue).getTime() < staleThresholdMs;
+    })
+    .map((row) => row.id);
+
+  if (staleIds.length > 0) {
+    await supabase
+      .from("appointments")
+      .update({ status: "CANCELLED" })
+      .eq("org_id", orgId)
+      .in("id", staleIds)
+      .eq("status", "CHECKED_IN");
+  }
+
+  return rows.filter((row) => !staleIds.includes(row.id));
 }
 
 async function listRecentPublishedShiftPlans(orgId: string) {

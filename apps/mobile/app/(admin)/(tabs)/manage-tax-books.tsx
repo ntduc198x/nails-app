@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { buildTaxBookForMobile, type MobileTaxBookRow, type TaxBookType } from "@nails/shared";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -84,6 +85,7 @@ function QuickInfo({ accent = false, label, value }: { accent?: boolean; label: 
 
 export default function AdminManageTaxBooksScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "ACCOUNTANT"]);
+  const observer = useAdminObserverScope();
   const today = new Date();
   const [bookType] = useState<TaxBookType>("S1A_HKD");
   const [fromDate, setFromDate] = useState(() => toDateInput(today));
@@ -121,6 +123,7 @@ export default function AdminManageTaxBooksScreen() {
         bookType,
         new Date(`${fromDate}T00:00:00`).toISOString(),
         new Date(`${toDate}T00:00:00`).toISOString(),
+        { observerScope: observer.observerScope },
       );
       setRows(data);
     } catch (nextError) {
@@ -128,14 +131,15 @@ export default function AdminManageTaxBooksScreen() {
     } finally {
       setLoading(false);
     }
-  }, [bookType, fromDate, rows.length, toDate]);
+  }, [bookType, fromDate, observer.observerScope, rows.length, toDate]);
 
   useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void load(true);
     }, 200);
     return () => clearTimeout(timeoutId);
-  }, [load]);
+  }, [load, observer.isReady]);
 
   function applyQuickRange(type: "week" | "month") {
     const range = type === "week" ? getWeekRange() : getMonthRange();

@@ -4,8 +4,10 @@ import { useRouter } from "expo-router";
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import type { MobileAdminViewContext, ObserverScopeInput } from "@nails/shared";
 import { MANAGE_SCREEN_ITEMS, canViewManageScreenItem, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
 import { dismissToHref, getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
+import { AdminObserverScopeSwitcher } from "@/src/features/admin/observer-scope-switcher";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -136,6 +138,11 @@ export function ManageScreenShell({
   showBottomDock = true,
   showBackButton = true,
   hiddenTabKeys = [],
+  observerViewContext = null,
+  observerLoading = false,
+  onSelectObserverScope,
+  observerReadOnly = false,
+  observerReadOnlyMessage,
   children,
 }: {
   title: string;
@@ -150,6 +157,11 @@ export function ManageScreenShell({
   showBottomDock?: boolean;
   showBackButton?: boolean;
   hiddenTabKeys?: ManageScreenKey[];
+  observerViewContext?: MobileAdminViewContext | null;
+  observerLoading?: boolean;
+  onSelectObserverScope?: ((scope: ObserverScopeInput) => void | Promise<void>) | null;
+  observerReadOnly?: boolean;
+  observerReadOnlyMessage?: string;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -214,6 +226,23 @@ export function ManageScreenShell({
             ) : undefined
           }
         >
+          {observerViewContext && onSelectObserverScope ? (
+            <AdminObserverScopeSwitcher
+              viewContext={observerViewContext}
+              loading={observerLoading}
+              onSelectScope={onSelectObserverScope}
+            />
+          ) : null}
+
+          {observerReadOnly ? (
+            <View style={styles.inlineNotice}>
+              <Feather name="eye" size={16} color={palette.sub} />
+              <Text style={styles.inlineNoticeText}>
+                {observerReadOnlyMessage ?? "Đang ở chế độ quan sát. Các thao tác ghi vẫn bám theo chi nhánh làm việc thật."}
+              </Text>
+            </View>
+          ) : null}
+
           {children}
         </AdminKeyboardAwareScrollView>
       </KeyboardAvoidingView>
@@ -377,6 +406,23 @@ const styles = StyleSheet.create({
     color: palette.text,
   },
   gridSubtitle: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: palette.sub,
+  },
+  inlineNotice: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#F8F4EF",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+  },
+  inlineNoticeText: {
+    flex: 1,
     fontSize: 12,
     lineHeight: 18,
     color: palette.sub,

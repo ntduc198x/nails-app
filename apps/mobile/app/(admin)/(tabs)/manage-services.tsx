@@ -21,6 +21,7 @@ import {
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { uploadPickedServiceImage } from "@/src/features/admin/services-data";
 
@@ -349,6 +350,7 @@ function TrashRowCard({
 
 export default function AdminManageServicesScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
+  const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminService[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -361,6 +363,10 @@ export default function AdminManageServicesScreen() {
   const [visibleSection, setVisibleSection] = useState<"services" | "lookbook" | "trash">("services");
   const [uploadingCreateImage, setUploadingCreateImage] = useState(false);
   const [uploadingEditImage, setUploadingEditImage] = useState(false);
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -376,16 +382,17 @@ export default function AdminManageServicesScreen() {
         setRefreshing(true);
       }
       setError(null);
-      setRows(await listAdminServicesForMobile(mobileSupabase));
+      setRows(await listAdminServicesForMobile(mobileSupabase, { observerScope: observer.observerScope }));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu dịch vụ.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [rows.length]);
+  }, [observer.observerScope, rows.length]);
 
   useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void load(true);
     }, 0);
@@ -393,7 +400,7 @@ export default function AdminManageServicesScreen() {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [load]);
+  }, [load, observer.isReady]);
 
   const activeRows = useMemo(() => rows.filter((item) => item.active), [rows]);
   const serviceCount = useMemo(() => activeRows.filter((item) => !item.featuredInLookbook).length, [activeRows]);
@@ -414,6 +421,7 @@ export default function AdminManageServicesScreen() {
   );
 
   async function pickCreateImage() {
+    if (observerReadOnly) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: true,
@@ -436,6 +444,7 @@ export default function AdminManageServicesScreen() {
   }
 
   async function pickEditImage() {
+    if (observerReadOnly) return;
     if (!editForm) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -460,6 +469,10 @@ export default function AdminManageServicesScreen() {
 
   async function submitCreate() {
     if (!mobileSupabase || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thêm dịch vụ.");
+      return;
+    }
     if (!createForm.name.trim()) {
       setError("Vui lòng nhập tên dịch vụ.");
       return;
@@ -494,6 +507,10 @@ export default function AdminManageServicesScreen() {
 
   async function saveEdit() {
     if (!mobileSupabase || !editingId || !editForm || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật dịch vụ.");
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -527,6 +544,7 @@ export default function AdminManageServicesScreen() {
         onPress: () => {
           void (async () => {
             if (!mobileSupabase) return;
+            if (observerReadOnly) return;
             try {
               setSubmitting(true);
               setError(null);
@@ -560,6 +578,10 @@ export default function AdminManageServicesScreen() {
 
   async function restoreFromTrash(item: MobileAdminService) {
     if (!mobileSupabase || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để khôi phục dịch vụ.");
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -592,6 +614,7 @@ export default function AdminManageServicesScreen() {
         onPress: () => {
           void (async () => {
             if (!mobileSupabase) return;
+            if (observerReadOnly) return;
             try {
               setSubmitting(true);
               setError(null);
@@ -626,6 +649,8 @@ export default function AdminManageServicesScreen() {
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage="Đang quan sát danh mục dịch vụ theo scope đã chọn. Chỉ khi quay về chi nhánh làm việc mới có thể thêm, sửa hoặc xóa."
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>

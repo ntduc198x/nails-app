@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 export type CustomerStatus = "NEW" | "ACTIVE" | "RETURNING" | "VIP" | "AT_RISK" | "LOST";
 export type FollowUpStatus = "PENDING" | "DONE" | "SKIPPED";
@@ -355,8 +355,10 @@ async function selectCustomersBase(
 export async function listCustomersCrmForMobile(
   client: SharedSupabaseClient,
   filters: CustomerCrmFilters = {},
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<CustomerCrmSummary[]> {
-  const { orgId, branchId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
+  const { orgId, viewBranchId } = view;
 
   const rpc = await client.rpc("list_customers_crm", {
     p_search: filters.search?.trim() || null,
@@ -364,7 +366,7 @@ export async function listCustomersCrmForMobile(
     p_dormant_days: filters.dormantDays ?? null,
     p_vip_only: Boolean(filters.vipOnly),
     p_source: filters.source && filters.source !== "ALL" ? filters.source : null,
-    p_branch_id: branchId,
+    p_branch_id: viewBranchId,
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {
@@ -375,7 +377,7 @@ export async function listCustomersCrmForMobile(
     );
   }
 
-  const { data, error } = await selectCustomersBase(client, orgId, branchId);
+  const { data, error } = await selectCustomersBase(client, orgId, viewBranchId);
   if (error) {
     throw error;
   }
@@ -413,12 +415,12 @@ export async function listFollowUpCandidatesForMobile(
   client: SharedSupabaseClient,
   range?: { fromIso?: string | null; toIso?: string | null },
 ): Promise<CustomerCrmSummary[]> {
-  const { branchId } = await ensureOrgContext(client);
+  const { viewBranchId } = await resolveMobileAdminViewContext(client);
 
   const rpc = await client.rpc("list_follow_up_candidates", {
     p_from: range?.fromIso ?? null,
     p_to: range?.toIso ?? null,
-    p_branch_id: branchId,
+    p_branch_id: viewBranchId,
   });
 
   if (!rpc.error && Array.isArray(rpc.data)) {
@@ -592,8 +594,11 @@ export async function listSafeCustomerDuplicateCandidatesForMobile(
   ]);
 }
 
-export async function getCrmDashboardMetricsForMobile(client: SharedSupabaseClient): Promise<CrmDashboardMetrics> {
-  const customers = await listCustomersCrmForMobile(client);
+export async function getCrmDashboardMetricsForMobile(
+  client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
+): Promise<CrmDashboardMetrics> {
+  const customers = await listCustomersCrmForMobile(client, {}, options);
   const todayKey = toLocalDateKey(new Date());
 
   const newToday = customers.filter((row) => toLocalDateKey(row.firstVisitAt) === todayKey).length;

@@ -9,6 +9,7 @@ import {
   listAppointmentsForMobile,
   listBookingRequestsForMobile,
 } from "@nails/shared";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -28,12 +29,13 @@ const INITIAL_STATE: AdminOverviewState = {
 
 export function useAdminOverview() {
   const { isHydrated, role } = useSession();
+  const observer = useAdminObserverScope();
   const [state, setState] = useState<AdminOverviewState>(INITIAL_STATE);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!mobileSupabase || !isHydrated || !role) {
+    if (!mobileSupabase || !isHydrated || !role || !observer.isReady) {
       setState(INITIAL_STATE);
       return;
     }
@@ -46,12 +48,13 @@ export function useAdminOverview() {
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
       const canSeeCrm =
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+      const observerOptions = { observerScope: observer.observerScope };
 
       const [dashboard, bookingRequests, appointments, crmMetrics] = await Promise.all([
-        getDashboardSnapshotForMobile(mobileSupabase),
-        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase) : Promise.resolve([]),
-        listAppointmentsForMobile(mobileSupabase),
-        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase) : Promise.resolve(null),
+        getDashboardSnapshotForMobile(mobileSupabase, observerOptions),
+        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase, observerOptions) : Promise.resolve([]),
+        listAppointmentsForMobile(mobileSupabase, observerOptions),
+        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase, observerOptions) : Promise.resolve(null),
       ]);
 
       setState({
@@ -65,7 +68,7 @@ export function useAdminOverview() {
     } finally {
       setLoading(false);
     }
-  }, [isHydrated, role]);
+  }, [isHydrated, observer.isReady, observer.observerScope, role]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {

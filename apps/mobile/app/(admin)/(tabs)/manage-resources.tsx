@@ -17,6 +17,7 @@ import {
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
 const palette = {
@@ -229,6 +230,7 @@ function ResourceRowCard({
 
 export default function AdminManageResourcesScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
+  const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminResource[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -242,6 +244,10 @@ export default function AdminManageResourcesScreen() {
   const [editType, setEditType] = useState<MobileAdminResourceType>("CHAIR");
   const [editActive, setEditActive] = useState(true);
   const [filterType, setFilterType] = useState<"ALL" | MobileAdminResourceType>("ALL");
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -257,21 +263,25 @@ export default function AdminManageResourcesScreen() {
         setRefreshing(true);
       }
       setError(null);
-      setRows(await listResourcesForMobile(mobileSupabase, { activeOnly: false }));
+      setRows(await listResourcesForMobile(mobileSupabase, {
+        activeOnly: false,
+        observerScope: observer.observerScope,
+      }));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không tải được tài nguyên.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [rows.length]);
+  }, [observer.observerScope, rows.length]);
 
   useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void load(true);
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [load]);
+  }, [load, observer.isReady]);
 
   const totalCount = rows.length;
   const activeCount = useMemo(() => rows.filter((item) => item.active).length, [rows]);
@@ -291,6 +301,10 @@ export default function AdminManageResourcesScreen() {
 
   async function submitCreate() {
     if (!mobileSupabase || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thêm tài nguyên.");
+      return;
+    }
     if (!name.trim()) {
       setError("Vui lòng nhập tên tài nguyên.");
       return;
@@ -319,6 +333,10 @@ export default function AdminManageResourcesScreen() {
 
   async function saveEdit() {
     if (!mobileSupabase || !editingId || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật tài nguyên.");
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -349,6 +367,8 @@ export default function AdminManageResourcesScreen() {
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage="Đang quan sát tài nguyên theo scope đã chọn. Các thao tác tạo và chỉnh sửa chỉ mở ở chi nhánh làm việc."
     >
       <View style={styles.infoCard}>
         <View style={styles.infoHeader}>

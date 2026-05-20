@@ -1,10 +1,36 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppRole } from "./auth";
 
 export type SharedSupabaseClient = SupabaseClient<any, "public", any>;
 
 export type OrgContext = {
   orgId: string;
   branchId: string;
+};
+
+export type ObserverMode = "org" | "branch";
+
+export type ObserverScopeInput = {
+  mode: ObserverMode;
+  branchId?: string | null;
+};
+
+export type OrgBranchSummary = {
+  id: string;
+  name: string;
+};
+
+export type MobileAdminViewContext = {
+  orgId: string;
+  role: AppRole | null;
+  workingBranchId: string;
+  observerScope: ObserverScopeInput;
+  viewBranchId: string | null;
+  scopeLabel: string;
+  branchId: string | null;
+  branchName: string | null;
+  branches: OrgBranchSummary[];
+  canViewOrgWide: boolean;
 };
 
 async function getCustomerBranchContext(client: SharedSupabaseClient, userId: string) {
@@ -154,4 +180,99 @@ export async function ensureOrgContext(client: SharedSupabaseClient): Promise<Or
   }
 
   return { orgId, branchId };
+}
+
+async function getCurrentOrgRole(
+  client: SharedSupabaseClient,
+  input: { orgId: string; userId: string },
+): Promise<{ role: AppRole | null; branchId: string | null }> {
+  const { data, error } = await client
+    .from("user_roles")
+    .select("role,branch_id")
+    .eq("org_id", input.orgId)
+    .eq("user_id", input.userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return {
+    role: typeof data?.role === "string" ? (data.role as AppRole) : null,
+    branchId: typeof data?.branch_id === "string" ? data.branch_id : null,
+  };
+}
+
+async function listOrgBranches(client: SharedSupabaseClient, orgId: string): Promise<OrgBranchSummary[]> {
+  const { data, error } = await client
+    .from("branches")
+    .select("id,name")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: String(row.id ?? ""),
+    name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Chi nhánh",
+  }));
+}
+
+export async function resolveMobileAdminViewContext(
+  client: SharedSupabaseClient,
+  requestedScope?: ObserverScopeInput | null,
+): Promise<MobileAdminViewContext> {
+  const {
+    data: { session },
+  } = await client.auth.getSession();
+
+  const currentUser = session?.user;
+  if (!currentUser) {
+    throw new Error("Chua dang nhap");
+  }
+
+  const { orgId, branchId: workingBranchId } = await ensureOrgContext(client);
+  const [{ role, branchId: roleBranchId }, branches] = await Promise.all([
+    getCurrentOrgRole(client, { orgId, userId: currentUser.id }),
+    listOrgBranches(client, orgId),
+  ]);
+
+  const canViewOrgWide = role === "OWNER";
+  const requestedBranchId =
+    requestedScope?.mode === "branch" && typeof requestedScope.branchId === "string" && requestedScope.branchId.trim()
+      ? requestedScope.branchId
+      : null;
+
+  let observerScope: ObserverScopeInput;
+  if (canViewOrgWide && requestedScope?.mode === "org") {
+    observerScope = { mode: "org" };
+  } else {
+    const fallbackBranchId = role === "PARTNER" ? roleBranchId ?? workingBranchId : workingBranchId;
+    const nextBranchId = requestedBranchId ?? fallbackBranchId;
+    const branchExists = branches.some((branch) => branch.id === nextBranchId);
+    observerScope = {
+      mode: "branch",
+      branchId: branchExists ? nextBranchId : workingBranchId,
+    };
+  }
+
+  const viewBranchId = observerScope.mode === "branch" ? observerScope.branchId ?? workingBranchId : null;
+  const branchName = viewBranchId ? branches.find((branch) => branch.id === viewBranchId)?.name ?? null : null;
+  const scopeLabel = observerScope.mode === "org" ? "Toàn công ty" : branchName ?? "Chi nhánh";
+
+  return {
+    orgId,
+    role,
+    workingBranchId,
+    observerScope,
+    viewBranchId,
+    scopeLabel,
+    branchId: viewBranchId,
+    branchName,
+    branches,
+    canViewOrgWide,
+  };
 }

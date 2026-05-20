@@ -1,7 +1,7 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
@@ -40,7 +40,6 @@ import {
   createAdminStorefrontProductForMobile,
   createAdminStorefrontTeamMemberForMobile,
   deleteAdminStorefrontProductForMobile,
-  ensureOrgContext,
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
   setActiveAdminStorefrontProfileForMobile,
@@ -54,6 +53,7 @@ import {
 } from "@nails/shared";
 import { AdminKeyboardAwareScrollView, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminHeaderTopPadding, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
@@ -81,7 +81,6 @@ const EXPLORE_PRODUCTS_PREVIEW_COUNT = 4;
 
 type ContentTab = "home" | "explore";
 type MerchContext = "home" | "explore";
-type BranchOption = { id: string; name: string };
 
 type MerchFormState = {
   id: string;
@@ -622,11 +621,9 @@ function ModalShell({
 
 export default function AdminManageContentScreen() {
   const router = useRouter();
+  const observer = useAdminObserverScope();
   const [activeTab, setActiveTab] = useState<ContentTab>("home");
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
-  const [, setBranchOptions] = useState<BranchOption[]>([]);
-  const [, setDefaultBranchId] = useState<string | null>(null);
-  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<MobileAdminMerchService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
@@ -651,36 +648,21 @@ export default function AdminManageContentScreen() {
   const [teamForm, setTeamForm] = useState<TeamFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
   const [galleryForm, setGalleryForm] = useState<GalleryFormState | null>(null);
-  const loadSnapshotRef = useRef<() => Promise<void>>(async () => {});
-  const loadServicesRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
-  const loadBranchOptionsRef = useRef<() => Promise<void>>(async () => {});
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
 
-  const loadBranchOptions = useCallback(async () => {
-    if (!mobileSupabase) return;
-
-    const { orgId, branchId } = await ensureOrgContext(mobileSupabase);
-    setDefaultBranchId(branchId);
-    setSelectedBranchId((current) => current ?? branchId);
-
-    const { data, error: branchesError } = await mobileSupabase
-      .from("branches")
-      .select("id, name")
-      .eq("org_id", orgId)
-      .order("created_at", { ascending: true });
-
-    if (branchesError) {
-      throw branchesError;
+  function guardObserverWrite(actionLabel: string) {
+    if (!observerReadOnly) {
+      return false;
     }
 
-    setBranchOptions(
-      (data ?? []).map((branch) => ({
-        id: String(branch.id ?? ""),
-        name: typeof branch.name === "string" && branch.name.trim() ? branch.name.trim() : "Chi nhánh",
-      })),
-    );
-  }, []);
+    Alert.alert("Đang ở chế độ quan sát", `${actionLabel} chỉ khả dụng khi quay về chi nhánh làm việc.`);
+    return true;
+  }
 
-  const loadSnapshot = useCallback(async (branchIdOverride?: string) => {
+  const loadSnapshot = useCallback(async () => {
     if (!mobileSupabase) {
       setError("Thiếu cấu hình Database mobile.");
       setLoading(false);
@@ -691,15 +673,9 @@ export default function AdminManageContentScreen() {
     setError(null);
 
     try {
-      const { branchId } = await ensureOrgContext(mobileSupabase);
-      const effectiveBranchId = branchIdOverride ?? selectedBranchId ?? branchId;
-
-      setDefaultBranchId(branchId);
-      setSelectedBranchId((current) => current ?? branchId);
-
       const next = await listAdminContentSnapshotForMobile(mobileSupabase, {
         includeServices: false,
-        branchId: effectiveBranchId,
+        observerScope: observer.observerScope,
       });
       await prewarmContentDetailCache(next);
       setSnapshot(next);
@@ -709,10 +685,10 @@ export default function AdminManageContentScreen() {
     } finally {
       setLoading(false);
     }
-  }, [selectedBranchId]);
+  }, [observer.observerScope]);
 
   const loadServices = useCallback(
-    async (force = false, branchIdOverride?: string) => {
+    async (force = false) => {
       if (!mobileSupabase) {
         setError("Thiếu cấu hình Database mobile.");
         return;
@@ -729,9 +705,6 @@ export default function AdminManageContentScreen() {
 
       setServicesLoading(true);
       try {
-        const { branchId } = await ensureOrgContext(mobileSupabase);
-        const effectiveBranchId = branchIdOverride ?? selectedBranchId ?? branchId;
-        
         // Try to load from cache first
         if (!force) {
           const cached = await hydrateCachedValue<MobileAdminMerchService[]>(SERVICES_CACHE_KEY);
@@ -742,7 +715,7 @@ export default function AdminManageContentScreen() {
             // If cache is stale but still usable, refresh in background
             if (!isCacheFresh(SERVICES_CACHE_KEY, SERVICES_FRESH_MS)) {
               // Background refresh
-              listAdminMerchServicesForMobile(mobileSupabase, { branchId: effectiveBranchId })
+              listAdminMerchServicesForMobile(mobileSupabase, { observerScope: observer.observerScope })
                 .then((next) => {
                   setServices(next);
                   setServicesLoaded(true);
@@ -758,7 +731,7 @@ export default function AdminManageContentScreen() {
         }
         
         // Load from server
-        const next = await listAdminMerchServicesForMobile(mobileSupabase, { branchId: effectiveBranchId });
+        const next = await listAdminMerchServicesForMobile(mobileSupabase, { observerScope: observer.observerScope });
         setServices(next);
         setServicesLoaded(true);
         await writeCachedValue(SERVICES_CACHE_KEY, next);
@@ -769,30 +742,18 @@ export default function AdminManageContentScreen() {
         setServicesLoading(false);
       }
     },
-    [selectedBranchId, servicesLoaded, servicesLoading, services.length],
+    [observer.observerScope, servicesLoaded, servicesLoading, services.length],
   );
 
   useEffect(() => {
-    loadSnapshotRef.current = loadSnapshot;
-  }, [loadSnapshot]);
-
-  useEffect(() => {
-    loadServicesRef.current = loadServices;
-  }, [loadServices]);
-
-  useEffect(() => {
-    loadBranchOptionsRef.current = loadBranchOptions;
-  }, [loadBranchOptions]);
-
-  useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void (async () => {
-        await loadBranchOptions();
         await loadSnapshot();
       })();
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [loadBranchOptions, loadSnapshot]);
+  }, [loadSnapshot, observer.isReady]);
 
   useEffect(() => {
     if (!snapshot) return;
@@ -908,6 +869,7 @@ export default function AdminManageContentScreen() {
     baseName: string,
     onSuccess: (publicUrl: string) => void,
   ) {
+    if (guardObserverWrite("Tải ảnh")) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.85,
@@ -931,6 +893,7 @@ export default function AdminManageContentScreen() {
 
   async function saveMerchService() {
     if (!mobileSupabase || !merchForm) return;
+    if (guardObserverWrite("Lưu dịch vụ")) return;
     setSaving(true);
     try {
       const featuredInLookbook = merchForm.featuredInHome || merchForm.featuredInExplore;
@@ -976,6 +939,7 @@ export default function AdminManageContentScreen() {
 
   async function saveOffer() {
     if (!mobileSupabase || !offerForm) return;
+    if (guardObserverWrite("Lưu ưu đãi")) return;
     setSaving(true);
     try {
       const payload = toOfferInput(offerForm);
@@ -1008,6 +972,7 @@ export default function AdminManageContentScreen() {
 
   async function savePost() {
     if (!mobileSupabase || !postForm) return;
+    if (guardObserverWrite("Lưu bài viết")) return;
     setSaving(true);
     try {
       const payload = toPostInput(postForm);
@@ -1027,6 +992,7 @@ export default function AdminManageContentScreen() {
 
   async function seedDummyPosts() {
     if (!mobileSupabase) return;
+    if (guardObserverWrite("Tạo dữ liệu mẫu")) return;
     const client = mobileSupabase;
     setSaving(true);
     try {
@@ -1050,6 +1016,7 @@ export default function AdminManageContentScreen() {
 
   async function saveStorefront() {
     if (!mobileSupabase) return;
+    if (guardObserverWrite("Lưu hồ sơ cửa tiệm")) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontProfileInput & { id?: string | null } = {
@@ -1083,6 +1050,7 @@ export default function AdminManageContentScreen() {
 
   async function saveTeamMember() {
     if (!mobileSupabase || !teamForm || !snapshot?.storefront?.id) return;
+    if (guardObserverWrite("Lưu nhân sự")) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontTeamMemberInput = {
@@ -1109,6 +1077,7 @@ export default function AdminManageContentScreen() {
 
   async function saveProduct() {
     if (!mobileSupabase || !productForm || !snapshot?.storefront?.id) return;
+    if (guardObserverWrite("Lưu sản phẩm")) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontProductInput = {
@@ -1137,6 +1106,7 @@ export default function AdminManageContentScreen() {
 
   async function saveGalleryItem() {
     if (!mobileSupabase || !galleryForm || !snapshot?.storefront?.id) return;
+    if (guardObserverWrite("Lưu gallery")) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontGalleryItemInput = {
@@ -1161,6 +1131,7 @@ export default function AdminManageContentScreen() {
   }
 
   async function confirmTask(title: string, message: string, task: () => Promise<void>) {
+    if (guardObserverWrite(title)) return;
     Alert.alert(title, message, [
       { text: "Hủy", style: "cancel" },
       {
@@ -1185,7 +1156,18 @@ export default function AdminManageContentScreen() {
 
   if (loading && !snapshot) {
     return (
-      <ManageScreenShell title="Cửa tiệm" subtitle="Đang tải dữ liệu Home và Explore..." currentKey="content" group="setup" activeTab="booking" showTabs={false} showBottomDock={true} showBackButton={false}>
+      <ManageScreenShell
+        title="Cửa tiệm"
+        subtitle="Đang tải dữ liệu Home và Explore..."
+        currentKey="content"
+        group="setup"
+        activeTab="booking"
+        showTabs={false}
+        showBottomDock={true}
+        showBackButton={false}
+        observerReadOnly={observerReadOnly}
+        observerReadOnlyMessage="Đang quan sát nội dung theo scope đã chọn. Các thao tác chỉnh sửa storefront, ưu đãi và bài viết chỉ mở ở chi nhánh làm việc."
+      >
         <View style={styles.stateCard}>
           <ActivityIndicator color={palette.accent} />
           <Text style={styles.stateTitle}>Đang đồng bộ nội dung hiển thị cho khách hàng...</Text>
@@ -1204,8 +1186,10 @@ export default function AdminManageContentScreen() {
       showTabs={false}
       showBottomDock={true}
       showBackButton={false}
-      onRefresh={() => void Promise.all([loadBranchOptions(), loadSnapshot(), loadServices(true)])}
+      onRefresh={() => void Promise.all([loadSnapshot(), loadServices(true)])}
       refreshing={loading || servicesLoading}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage="Đang quan sát nội dung theo scope đã chọn. Các thao tác chỉnh sửa storefront, ưu đãi và bài viết chỉ mở ở chi nhánh làm việc."
     >
       <View style={styles.heroRow}>
         <Chip active={activeTab === "home"} icon="home" label="Home" onPress={() => setActiveTab("home")} />

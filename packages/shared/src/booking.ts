@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 import type { PublicBookingInput } from "./validation";
 import { publicBookingInputSchema } from "./validation";
 
@@ -189,18 +189,25 @@ export async function createPublicBookingRequestForMobile(
 
 export async function listBookingRequestsForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileBookingRequestSummary[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
   const selectFields =
     "id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at";
 
-  const direct = await client
+  let directQuery = client
     .from("booking_requests")
     .select(selectFields)
-    .eq("org_id", orgId)
+    .eq("org_id", view.orgId)
     .order("created_at", { ascending: true })
     .limit(200);
+
+  if (view.viewBranchId) {
+    directQuery = directQuery.eq("branch_id", view.viewBranchId);
+  }
+
+  const direct = await directQuery;
 
   if (!direct.error) {
     const rows = (direct.data ?? []).map((row) => ({
@@ -223,7 +230,7 @@ export async function listBookingRequestsForMobile(
       await client
         .from("booking_requests")
         .update({ status: "EXPIRED_UNCONFIRMED" })
-        .eq("org_id", orgId)
+        .eq("org_id", view.orgId)
         .in("id", patched.expiredIds)
         .eq("status", "NEW");
     }
@@ -259,7 +266,7 @@ export async function listBookingRequestsForMobile(
     await client
       .from("booking_requests")
       .update({ status: "EXPIRED_UNCONFIRMED" })
-      .eq("org_id", orgId)
+      .eq("org_id", view.orgId)
       .in("id", patched.expiredIds)
       .eq("status", "NEW");
   }
@@ -272,13 +279,14 @@ export async function updateBookingRequestStatusForMobile(
   id: string,
   status: BookingRequestStatus,
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
 
   const { error } = await client
     .from("booking_requests")
     .update({ status })
     .eq("id", id)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
 
   if (error) {
     throw error;
@@ -295,7 +303,7 @@ export async function updateBookingRequestForMobile(
     preferredStaff?: string | null;
   },
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
   const payload: Record<string, string | null> = {};
 
   if (typeof input.status === "string") {
@@ -315,7 +323,8 @@ export async function updateBookingRequestForMobile(
     .from("booking_requests")
     .update(payload)
     .eq("id", input.id)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
 
   if (error) {
     throw error;
@@ -326,13 +335,14 @@ export async function deleteBookingRequestForMobile(
   client: SharedSupabaseClient,
   id: string,
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
 
   const { error } = await client
     .from("booking_requests")
     .delete()
     .eq("id", id)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
 
   if (error) {
     throw error;

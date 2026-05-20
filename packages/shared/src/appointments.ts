@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 export type MobileAppointmentSummary = {
   id: string;
@@ -65,28 +65,42 @@ function normalizeAppointmentStatusMutationError(error: unknown): Error {
   return error instanceof Error ? error : new Error(message || "Thao tác lịch hẹn thất bại.");
 }
 
-export async function listAppointmentsForMobile(client: SharedSupabaseClient): Promise<MobileAppointmentSummary[]> {
-  const { orgId } = await ensureOrgContext(client);
-  const result = await client
+export async function listAppointmentsForMobile(
+  client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
+): Promise<MobileAppointmentSummary[]> {
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
+  let query = client
     .from("appointments")
     .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
-    .eq("org_id", orgId)
+    .eq("org_id", view.orgId)
     .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     .order("start_at", { ascending: true })
     .limit(300);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  const result = await query;
 
   let data: AppointmentRow[] | null = (result.data ?? []) as AppointmentRow[];
   let error: { message?: string } | null = result.error;
 
   if (error?.message?.includes("checked_in_at")) {
-    const fallback = await client
+    let fallbackQuery = client
       .from("appointments")
       .select("id,start_at,end_at,status,staff_user_id,resource_id,customers(name,phone)")
-      .eq("org_id", orgId)
+      .eq("org_id", view.orgId)
       .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
       .order("start_at", { ascending: true })
       .limit(300);
 
+    if (view.viewBranchId) {
+      fallbackQuery = fallbackQuery.eq("branch_id", view.viewBranchId);
+    }
+
+    const fallback = await fallbackQuery;
     data = ((fallback.data ?? []) as AppointmentRow[]).map((row) => ({ ...row, checked_in_at: null }));
     error = fallback.error;
   }
@@ -116,7 +130,7 @@ export async function updateAppointmentStatusForMobile(
   appointmentId: string,
   status: AppointmentStatus,
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
 
   if (status === "CHECKED_IN") {
     const { data: currentAppointment, error: currentAppointmentError } = await client
@@ -124,6 +138,7 @@ export async function updateAppointmentStatusForMobile(
       .select("start_at,status")
       .eq("id", appointmentId)
       .eq("org_id", orgId)
+      .eq("branch_id", branchId)
       .single();
 
     if (currentAppointmentError) {
@@ -161,6 +176,7 @@ export async function updateAppointmentStatusForMobile(
           .select("status")
           .eq("id", appointmentId)
           .eq("org_id", orgId)
+          .eq("branch_id", branchId)
           .single(),
       ]);
 
@@ -186,7 +202,8 @@ export async function updateAppointmentStatusForMobile(
     .from("appointments")
     .update(updateData)
     .eq("id", appointmentId)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
 
   if (error) {
     throw normalizeAppointmentStatusMutationError(error);
@@ -341,7 +358,8 @@ export async function saveAppointmentForMobile(
       .from("appointments")
       .update(payload)
       .eq("id", input.appointmentId)
-      .eq("org_id", orgId);
+      .eq("org_id", orgId)
+      .eq("branch_id", branchId);
 
     if (updateRes.error) {
       throw updateRes.error;
@@ -372,13 +390,14 @@ export async function deleteAppointmentForMobile(
   client: SharedSupabaseClient,
   appointmentId: string,
 ) {
-  const { orgId } = await ensureOrgContext(client);
+  const { orgId, branchId } = await ensureOrgContext(client);
 
   const { error } = await client
     .from("appointments")
     .delete()
     .eq("id", appointmentId)
-    .eq("org_id", orgId);
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
 
   if (error) {
     throw error;

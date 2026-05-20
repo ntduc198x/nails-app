@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 export type MobileReportTicketRow = {
   id: string;
@@ -15,9 +15,45 @@ export type MobileReportTicketRow = {
 };
 
 export type MobileReportBreakdown = {
+  viewMode?: "org" | "branch";
+  branchId?: string | null;
+  branchName?: string | null;
+  scopeLabel?: string;
+  comparedToOrg?: boolean;
+  orgBenchmark?: MobileOrgBenchmark | null;
+  branchRanking?: MobileBranchKpiRow[];
   summary: { count: number; subtotal: number; vat: number; revenue: number };
   byService: Array<{ serviceName: string; qty: number; subtotal: number }>;
   byPayment: Array<{ method: string; count: number; amount: number }>;
+};
+
+export type MobileBranchKpiRow = {
+  branchId: string;
+  branchName: string;
+  revenue: number;
+  ticketCount: number;
+  appointmentCount: number;
+  checkedInCount: number;
+  noShowCount: number;
+  avgTicketValue: number;
+  checkInRate: number;
+  noShowRate: number;
+  revenueRank: number;
+  appointmentRank: number;
+};
+
+export type MobileOrgBenchmark = {
+  branchCount: number;
+  orgRevenue: number;
+  orgTicketCount: number;
+  orgAppointmentCount: number;
+  avgRevenuePerBranch: number;
+  avgTicketsPerBranch: number;
+  avgAppointmentsPerBranch: number;
+  avgTicketValue: number;
+  avgCheckInRate: number;
+  avgNoShowRate: number;
+  selectedBranch?: MobileBranchKpiRow | null;
 };
 
 export type MobileStaffRevenueRow = {
@@ -90,14 +126,137 @@ async function assertCanViewReports(client: SharedSupabaseClient) {
   throw new Error("FORBIDDEN_REPORTS");
 }
 
+async function buildBranchPerformanceForRange(
+  client: SharedSupabaseClient,
+  input: {
+    orgId: string;
+    fromIso: string;
+    toIso: string;
+    branches: Array<{ id: string; name: string }>;
+  },
+) {
+  const [ticketsRes, appointmentsRes] = await Promise.all([
+    client
+      .from("tickets")
+      .select("branch_id,totals_json,status")
+      .eq("org_id", input.orgId)
+      .eq("status", "CLOSED")
+      .gte("created_at", input.fromIso)
+      .lt("created_at", input.toIso)
+      .limit(2000),
+    client
+      .from("appointments")
+      .select("branch_id,status")
+      .eq("org_id", input.orgId)
+      .gte("start_at", input.fromIso)
+      .lt("start_at", input.toIso)
+      .limit(2000),
+  ]);
+
+  if (ticketsRes.error) {
+    throw ticketsRes.error;
+  }
+  if (appointmentsRes.error) {
+    throw appointmentsRes.error;
+  }
+
+  const branchMap = new Map(
+    input.branches.map((branch) => [
+      branch.id,
+      {
+        branchId: branch.id,
+        branchName: branch.name,
+        revenue: 0,
+        ticketCount: 0,
+        appointmentCount: 0,
+        checkedInCount: 0,
+        noShowCount: 0,
+        avgTicketValue: 0,
+        checkInRate: 0,
+        noShowRate: 0,
+        revenueRank: 0,
+        appointmentRank: 0,
+      } satisfies Omit<MobileBranchKpiRow, "revenueRank" | "appointmentRank"> & { revenueRank: number; appointmentRank: number },
+    ]),
+  );
+
+  for (const ticket of (ticketsRes.data ?? []) as Array<{ branch_id?: string | null; totals_json?: { grand_total?: number } | null }>) {
+    const branchId = typeof ticket.branch_id === "string" ? ticket.branch_id : null;
+    if (!branchId || !branchMap.has(branchId)) continue;
+    const row = branchMap.get(branchId)!;
+    row.ticketCount += 1;
+    row.revenue += Number(ticket.totals_json?.grand_total ?? 0);
+  }
+
+  for (const appointment of (appointmentsRes.data ?? []) as Array<{ branch_id?: string | null; status?: string | null }>) {
+    const branchId = typeof appointment.branch_id === "string" ? appointment.branch_id : null;
+    if (!branchId || !branchMap.has(branchId)) continue;
+    const row = branchMap.get(branchId)!;
+    row.appointmentCount += 1;
+    if (appointment.status === "CHECKED_IN" || appointment.status === "DONE") {
+      row.checkedInCount += 1;
+    }
+    if (appointment.status === "NO_SHOW") {
+      row.noShowCount += 1;
+    }
+  }
+
+  const branches = Array.from(branchMap.values()).map((row) => ({
+    ...row,
+    avgTicketValue: row.ticketCount > 0 ? row.revenue / row.ticketCount : 0,
+    checkInRate: row.appointmentCount > 0 ? row.checkedInCount / row.appointmentCount : 0,
+    noShowRate: row.appointmentCount > 0 ? row.noShowCount / row.appointmentCount : 0,
+  }));
+
+  const byRevenue = [...branches].sort((a, b) => b.revenue - a.revenue || b.ticketCount - a.ticketCount);
+  const byAppointments = [...branches].sort((a, b) => b.appointmentCount - a.appointmentCount || b.revenue - a.revenue);
+
+  const revenueRankMap = new Map(byRevenue.map((row, index) => [row.branchId, index + 1]));
+  const appointmentRankMap = new Map(byAppointments.map((row, index) => [row.branchId, index + 1]));
+
+  const ranking = byRevenue.map((row) => ({
+    ...row,
+    revenueRank: revenueRankMap.get(row.branchId) ?? 0,
+    appointmentRank: appointmentRankMap.get(row.branchId) ?? 0,
+  }));
+
+  const branchCount = ranking.length || 1;
+  const orgRevenue = ranking.reduce((sum, row) => sum + row.revenue, 0);
+  const orgTicketCount = ranking.reduce((sum, row) => sum + row.ticketCount, 0);
+  const orgAppointmentCount = ranking.reduce((sum, row) => sum + row.appointmentCount, 0);
+
+  const benchmark: MobileOrgBenchmark = {
+    branchCount: ranking.length,
+    orgRevenue,
+    orgTicketCount,
+    orgAppointmentCount,
+    avgRevenuePerBranch: orgRevenue / branchCount,
+    avgTicketsPerBranch: orgTicketCount / branchCount,
+    avgAppointmentsPerBranch: orgAppointmentCount / branchCount,
+    avgTicketValue: orgTicketCount > 0 ? orgRevenue / orgTicketCount : 0,
+    avgCheckInRate:
+      ranking.length > 0 ? ranking.reduce((sum, row) => sum + row.checkInRate, 0) / ranking.length : 0,
+    avgNoShowRate:
+      ranking.length > 0 ? ranking.reduce((sum, row) => sum + row.noShowRate, 0) / ranking.length : 0,
+    selectedBranch: null,
+  };
+
+  return {
+    ranking,
+    benchmark,
+  };
+}
+
 export async function listTicketsInRangeForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileReportTicketRow[]> {
   const { orgId } = await assertCanViewReports(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  const { data, error } = await client
+  let query = client
     .from("tickets")
     .select("id,status,created_at,appointment_id,totals_json,customers(name),receipts(public_token)")
     .eq("org_id", orgId)
@@ -105,6 +264,12 @@ export async function listTicketsInRangeForMobile(
     .lt("created_at", toIso)
     .order("created_at", { ascending: false })
     .limit(500);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw error;
@@ -163,14 +328,15 @@ export async function getReportBreakdownForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileReportBreakdown> {
   await assertCanViewReports(client);
-  const { branchId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
   const { data, error } = await client.rpc("get_report_breakdown_secure", {
     p_from: fromIso,
     p_to: toIso,
-    p_branch_id: branchId,
+    p_branch_id: view.viewBranchId,
   });
 
   if (error) {
@@ -187,7 +353,29 @@ export async function getReportBreakdownForMobile(
     by_payment?: Array<{ method?: string; count?: number; amount?: number }>;
   };
 
+  const branchPerformance = await buildBranchPerformanceForRange(client, {
+    orgId: view.orgId,
+    fromIso,
+    toIso,
+    branches: view.branches,
+  });
+
+  const selectedBranch =
+    view.viewBranchId != null
+      ? branchPerformance.ranking.find((branch) => branch.branchId === view.viewBranchId) ?? null
+      : null;
+
   return {
+    viewMode: view.observerScope.mode,
+    branchId: view.viewBranchId,
+    branchName: view.branchName,
+    scopeLabel: view.scopeLabel,
+    comparedToOrg: view.observerScope.mode === "branch",
+    orgBenchmark: {
+      ...branchPerformance.benchmark,
+      selectedBranch,
+    },
+    branchRanking: branchPerformance.ranking,
     summary: {
       count: Number(payload.summary?.count ?? 0),
       subtotal: Number(payload.summary?.subtotal ?? 0),
@@ -211,10 +399,12 @@ export async function listTimeEntriesInRangeForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ) {
   const { orgId } = await assertCanViewReports(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  const { data, error } = await client
+  let query = client
     .from("time_entries")
     .select("staff_user_id,effective_clock_in,effective_clock_out")
     .eq("org_id", orgId)
@@ -223,6 +413,12 @@ export async function listTimeEntriesInRangeForMobile(
     .lt("clock_in", toIso)
     .order("clock_in", { ascending: false })
     .limit(500);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw error;
@@ -258,14 +454,22 @@ async function listStaffNameMap(client: SharedSupabaseClient, orgId: string, sta
 
 export async function listReportStaffOptionsForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileReportStaffOption[]> {
   const { orgId } = await assertCanViewReports(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  const { data: roleRows, error: roleErr } = await client
+  let rolesQuery = client
     .from("user_roles")
     .select("user_id,role")
     .eq("org_id", orgId)
     .neq("role", "OWNER");
+
+  if (view.viewBranchId) {
+    rolesQuery = rolesQuery.or(`branch_id.eq.${view.viewBranchId},branch_id.is.null`);
+  }
+
+  const { data: roleRows, error: roleErr } = await rolesQuery;
 
   if (roleErr) {
     throw roleErr;
@@ -292,10 +496,12 @@ export async function getStaffRevenueInRangeForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileStaffRevenueRow[]> {
   const { orgId } = await assertCanViewReports(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  const { data: tickets, error: ticketErr } = await client
+  let ticketQuery = client
     .from("tickets")
     .select("id,appointment_id,totals_json")
     .eq("org_id", orgId)
@@ -304,6 +510,12 @@ export async function getStaffRevenueInRangeForMobile(
     .lt("created_at", toIso)
     .not("appointment_id", "is", null)
     .limit(500);
+
+  if (view.viewBranchId) {
+    ticketQuery = ticketQuery.eq("branch_id", view.viewBranchId);
+  }
+
+  const { data: tickets, error: ticketErr } = await ticketQuery;
 
   if (ticketErr) {
     throw ticketErr;
@@ -372,11 +584,12 @@ export async function getStaffHoursInRangeForMobile(
   client: SharedSupabaseClient,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileStaffHoursRow[]> {
   await assertCanViewReports(client);
   const [entries, staffOptions] = await Promise.all([
-    listTimeEntriesInRangeForMobile(client, fromIso, toIso),
-    listReportStaffOptionsForMobile(client),
+    listTimeEntriesInRangeForMobile(client, fromIso, toIso, options),
+    listReportStaffOptionsForMobile(client, options),
   ]);
 
   const allowedStaffIds = new Set(staffOptions.map((row) => row.userId));

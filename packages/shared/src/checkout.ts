@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 const STALE_CHECKED_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -81,14 +81,21 @@ function mapCheckedInAppointment(row: CheckedInAppointmentRow): MobileCheckedInA
 
 export async function listServicesForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileCheckoutService[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  let { data, error } = await client
+  let query = client
     .from("services")
     .select("id,name,duration_min,base_price,vat_rate,featured_in_lookbook,active")
-    .eq("org_id", orgId)
+    .eq("org_id", view.orgId)
     .order("name", { ascending: true });
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  let { data, error } = await query;
 
   if (error) {
     const message = error.message || "";
@@ -97,11 +104,17 @@ export async function listServicesForMobile(
       throw error;
     }
 
-    const fallback = await client
+    let fallbackQuery = client
       .from("services")
       .select("id,name,duration_min,base_price,vat_rate,active")
-      .eq("org_id", orgId)
+      .eq("org_id", view.orgId)
       .order("name", { ascending: true });
+
+    if (view.viewBranchId) {
+      fallbackQuery = fallbackQuery.eq("branch_id", view.viewBranchId);
+    }
+
+    const fallback = await fallbackQuery;
 
     if (fallback.error) {
       throw fallback.error;
@@ -126,16 +139,20 @@ export async function listServicesForMobile(
 
 export async function listRecentTicketsForMobile(
   client: SharedSupabaseClient,
-  options?: { fromIso?: string; toIso?: string; limit?: number },
+  options?: { fromIso?: string; toIso?: string; limit?: number; observerScope?: ObserverScopeInput | null },
 ): Promise<MobileRecentTicketSummary[]> {
-  const { orgId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
   let query = client
     .from("tickets")
     .select("id,status,totals_json,created_at,customers(name),receipts(public_token,expires_at)")
-    .eq("org_id", orgId)
+    .eq("org_id", view.orgId)
     .order("created_at", { ascending: false })
     .limit(options?.limit ?? 20);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
 
   if (options?.fromIso) {
     query = query.gte("created_at", options.fromIso);
@@ -166,26 +183,38 @@ export async function listRecentTicketsForMobile(
 
 export async function listCheckedInQueueForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileCheckedInQueue> {
-  const { orgId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
-  let { data, error } = await client
+  let query = client
     .from("appointments")
     .select("id,start_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
-    .eq("org_id", orgId)
+    .eq("org_id", view.orgId)
     .eq("status", "CHECKED_IN")
     .order("start_at", { ascending: true })
     .limit(200);
 
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  let { data, error } = await query;
+
   if (error?.message?.includes("checked_in_at")) {
-    const fallback = await client
+    let fallbackQuery = client
       .from("appointments")
       .select("id,start_at,status,staff_user_id,resource_id,customers(name,phone)")
-      .eq("org_id", orgId)
+      .eq("org_id", view.orgId)
       .eq("status", "CHECKED_IN")
       .order("start_at", { ascending: true })
       .limit(200);
 
+    if (view.viewBranchId) {
+      fallbackQuery = fallbackQuery.eq("branch_id", view.viewBranchId);
+    }
+
+    const fallback = await fallbackQuery;
     data = (fallback.data ?? []).map((row) => ({ ...row, checked_in_at: null }));
     error = fallback.error;
   }
@@ -206,7 +235,7 @@ export async function listCheckedInQueueForMobile(
     const { error: cleanupErr } = await client
       .from("appointments")
       .update({ status: "CANCELLED" })
-      .eq("org_id", orgId)
+      .eq("org_id", view.orgId)
       .in("id", staleIds)
       .eq("status", "CHECKED_IN");
 

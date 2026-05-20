@@ -1,10 +1,12 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { AdminObserverScopeSwitcher } from "@/src/features/admin/observer-scope-switcher";
 import { filterManageScreenItemsForRole, MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
 import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 
 const palette = {
   bg: "#FCFAF8",
@@ -19,6 +21,7 @@ const palette = {
 export default function AdminManageHubScreen() {
   const router = useRouter();
   const { isHydrated, allowed, role } = useManageOwnerGuard();
+  const observer = useAdminObserverScope();
 
   if (!isHydrated || !allowed) {
     return <View style={styles.screen} />;
@@ -44,6 +47,11 @@ export default function AdminManageHubScreen() {
       </AdminTopSafeArea>
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <AdminObserverScopeSwitcher
+            viewContext={observer.viewContext}
+            loading={observer.loading}
+            onSelectScope={observer.setObserverScope}
+          />
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Thiết lập vận hành</Text>

@@ -1,4 +1,4 @@
-import { ensureOrgContext, type AppRole } from "@nails/shared";
+import { ensureOrgContext, resolveMobileAdminViewContext, type AppRole, type ObserverScopeInput } from "@nails/shared";
 import {
   generateWeekDates,
   normalizeServiceSkill,
@@ -368,10 +368,17 @@ async function getCurrentUserId() {
 
 export async function loadShiftPlanWeek(
   weekStart: string,
-  opts?: { publishedOnly?: boolean; status?: ShiftPlanStatus },
+  opts?: { publishedOnly?: boolean; status?: ShiftPlanStatus; observerScope?: ObserverScopeInput | null },
 ): Promise<ShiftPlanRecord | null> {
   const supabase = requireSupabase();
   const { orgId, branchId } = await ensureOrgContext(supabase);
+  const viewContext = opts?.observerScope
+    ? await resolveMobileAdminViewContext(supabase, opts.observerScope)
+    : null;
+  const targetBranchId =
+    viewContext?.observerScope.mode === "branch"
+      ? viewContext.viewBranchId ?? branchId
+      : branchId;
 
   let query = supabase
     .from("shift_plans")
@@ -379,7 +386,7 @@ export async function loadShiftPlanWeek(
       "id,week_start,status,assignments_json,demands_json,forecast_json,employee_summaries_json,day_summaries_json,conflicts_json,suggestions_json,published_at",
     )
     .eq("org_id", orgId)
-    .eq("branch_id", branchId)
+    .eq("branch_id", targetBranchId)
     .eq("week_start", weekStart);
 
   const targetStatus = opts?.status ?? (opts?.publishedOnly ? "published" : "draft");
@@ -432,9 +439,16 @@ export async function saveShiftPlanWeek(input: {
   return normalizeShiftPlan(data as ShiftPlanRow);
 }
 
-export async function loadStaffShiftProfiles() {
+export async function loadStaffShiftProfiles(observerScope?: ObserverScopeInput | null) {
   const supabase = requireSupabase();
   const { orgId, branchId } = await ensureOrgContext(supabase);
+  const viewContext = observerScope
+    ? await resolveMobileAdminViewContext(supabase, observerScope)
+    : null;
+  const targetBranchId =
+    viewContext?.observerScope.mode === "branch"
+      ? viewContext.viewBranchId ?? branchId
+      : branchId;
 
   const { data, error } = await supabase
     .from("staff_shift_profiles")
@@ -442,7 +456,7 @@ export async function loadStaffShiftProfiles() {
       "user_id,staff_role,skills_json,availability_json,leave_dates_json,max_weekly_hours,fairness_offset_hours,performance_score",
     )
     .eq("org_id", orgId)
-    .eq("branch_id", branchId);
+    .eq("branch_id", targetBranchId);
 
   if (error) throw error;
   return (data ?? []) as StaffShiftProfileRow[];
@@ -478,28 +492,53 @@ export async function saveStaffShiftProfile(input: StaffShiftProfileRecord) {
   return normalizeStaffShiftProfile(data as StaffShiftProfileRow, input.staffRole);
 }
 
-export async function loadWeeklyShiftForecast(weekStart: string) {
+export async function loadWeeklyShiftForecast(weekStart: string, observerScope?: ObserverScopeInput | null) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
+  const viewContext = observerScope
+    ? await resolveMobileAdminViewContext(supabase, observerScope)
+    : null;
+  const targetBranchId =
+    viewContext?.observerScope.mode === "branch"
+      ? viewContext.viewBranchId ?? branchId
+      : null;
   const weekDates = generateWeekDates(weekStart);
   const startAt = `${weekDates[0]}T00:00:00.000Z`;
   const endAt = `${weekDates[weekDates.length - 1]}T23:59:59.999Z`;
 
   const [appointmentsResult, bookingRequestsResult] = await Promise.all([
-    supabase
+    (targetBranchId
+      ? supabase
+          .from("appointments")
+          .select("start_at,status")
+          .eq("org_id", orgId)
+          .eq("branch_id", targetBranchId)
+          .gte("start_at", startAt)
+          .lte("start_at", endAt)
+          .in("status", [...FORECAST_BOOKING_STATUSES])
+      : supabase
       .from("appointments")
       .select("start_at,status")
       .eq("org_id", orgId)
       .gte("start_at", startAt)
       .lte("start_at", endAt)
-      .in("status", [...FORECAST_BOOKING_STATUSES]),
-    supabase
+      .in("status", [...FORECAST_BOOKING_STATUSES])),
+    (targetBranchId
+      ? supabase
+          .from("booking_requests")
+          .select("requested_start_at,status")
+          .eq("org_id", orgId)
+          .eq("branch_id", targetBranchId)
+          .gte("requested_start_at", startAt)
+          .lte("requested_start_at", endAt)
+          .in("status", [...FORECAST_REQUEST_STATUSES])
+      : supabase
       .from("booking_requests")
       .select("requested_start_at,status")
       .eq("org_id", orgId)
       .gte("requested_start_at", startAt)
       .lte("requested_start_at", endAt)
-      .in("status", [...FORECAST_REQUEST_STATUSES]),
+      .in("status", [...FORECAST_REQUEST_STATUSES])),
   ]);
 
   if (appointmentsResult.error) throw appointmentsResult.error;
@@ -662,13 +701,20 @@ export async function listPersonalShiftEntries(userId: string) {
   return (data ?? []).map((row) => mapTimeEntry(row as Record<string, unknown>));
 }
 
-export async function listOwnerShiftEntries() {
+export async function listOwnerShiftEntries(observerScope?: ObserverScopeInput | null) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
+  const viewContext = observerScope
+    ? await resolveMobileAdminViewContext(supabase, observerScope)
+    : null;
+  const targetBranchId =
+    viewContext?.observerScope.mode === "branch"
+      ? viewContext.viewBranchId ?? branchId
+      : null;
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("time_entries")
     .select(
       "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
@@ -678,13 +724,26 @@ export async function listOwnerShiftEntries() {
     .order("clock_in", { ascending: false })
     .limit(30);
 
+  if (targetBranchId) {
+    query = query.eq("branch_id", targetBranchId);
+  }
+
+  const { data, error } = await query;
+
   if (error) throw error;
   return (data ?? []).map((row) => mapTimeEntry(row as Record<string, unknown>));
 }
 
-export async function listShiftLeaveRequests(opts?: { userId?: string; status?: LeaveRequestStatus }) {
+export async function listShiftLeaveRequests(opts?: { userId?: string; status?: LeaveRequestStatus; observerScope?: ObserverScopeInput | null }) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
+  const viewContext = opts?.observerScope
+    ? await resolveMobileAdminViewContext(supabase, opts.observerScope)
+    : null;
+  const targetBranchId =
+    viewContext?.observerScope.mode === "branch"
+      ? viewContext.viewBranchId ?? branchId
+      : null;
 
   let query = supabase
     .from("shift_leave_requests")
@@ -695,6 +754,7 @@ export async function listShiftLeaveRequests(opts?: { userId?: string; status?: 
 
   if (opts?.userId) query = query.eq("staff_user_id", opts.userId);
   if (opts?.status) query = query.eq("status", opts.status);
+  if (targetBranchId) query = query.eq("branch_id", targetBranchId);
 
   const { data, error } = await query;
   if (error) throw error;

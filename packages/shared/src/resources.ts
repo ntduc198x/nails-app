@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 export type MobileAdminResourceType = "CHAIR" | "TABLE" | "ROOM";
 
@@ -8,6 +8,12 @@ export type MobileAdminResource = {
   name: string;
   type: MobileAdminResourceType;
   active: boolean;
+  branchId: string | null;
+};
+
+export type MobileAdminResourceListOptions = {
+  activeOnly?: boolean;
+  observerScope?: ObserverScopeInput | null;
 };
 
 function normalizeResourceRow(row: Record<string, unknown>): MobileAdminResource {
@@ -16,20 +22,28 @@ function normalizeResourceRow(row: Record<string, unknown>): MobileAdminResource
     name: String(row.name ?? "-"),
     type: (String(row.type ?? "CHAIR") as MobileAdminResourceType),
     active: row.active !== false,
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
   };
 }
 
 export async function listResourcesForMobile(
   client: SharedSupabaseClient,
-  options?: { activeOnly?: boolean },
+  options?: MobileAdminResourceListOptions,
 ): Promise<MobileAdminResource[]> {
   const { orgId } = await ensureOrgContext(client);
+  const viewContext = options?.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
 
   let query = client
     .from("resources")
-    .select("id,name,type,active")
+    .select("id,name,type,active,branch_id")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
+
+  if (viewContext?.observerScope.mode === "branch" && viewContext.viewBranchId) {
+    query = query.eq("branch_id", viewContext.viewBranchId);
+  }
 
   if (options?.activeOnly) {
     query = query.eq("active", true);

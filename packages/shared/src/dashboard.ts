@@ -1,8 +1,13 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { resolveMobileAdminViewContext } from "./org";
 import { getAuthenticatedUserSummary } from "./session";
 
 export type MobileDashboardSnapshot = {
+  viewMode: "org" | "branch";
+  branchId: string | null;
+  branchName: string | null;
+  scopeLabel: string;
+  comparedToOrg?: boolean;
   appointmentsToday: number;
   waiting: number;
   active: number;
@@ -15,8 +20,10 @@ export type MobileDashboardSnapshot = {
 
 export async function getDashboardSnapshotForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileDashboardSnapshot> {
-  const { orgId } = await ensureOrgContext(client);
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
+  const { orgId, viewBranchId } = view;
   const authUser = await getAuthenticatedUserSummary(client);
 
   const now = new Date();
@@ -28,20 +35,26 @@ export async function getDashboardSnapshotForMobile(
   const fromIso = start.toISOString();
   const toIso = end.toISOString();
 
-  const appointmentsRes =
+  let appointmentsQuery =
     authUser?.role === "TECH"
-      ? await client
+      ? client
           .from("appointments")
           .select("id,status,start_at,staff_user_id")
           .eq("org_id", orgId)
           .gte("start_at", fromIso)
           .lt("start_at", toIso)
-      : await client
+      : client
           .from("appointments")
           .select("id,status,start_at,staff_user_id,customers(name)")
           .eq("org_id", orgId)
           .gte("start_at", fromIso)
           .lt("start_at", toIso);
+
+  if (viewBranchId) {
+    appointmentsQuery = appointmentsQuery.eq("branch_id", viewBranchId);
+  }
+
+  const appointmentsRes = await appointmentsQuery;
 
   if (appointmentsRes.error) {
     throw appointmentsRes.error;
@@ -90,13 +103,19 @@ export async function getDashboardSnapshotForMobile(
 
   let tickets: Array<{ id: string; totals_json?: { grand_total?: number } | null }> = [];
   if (authUser?.role !== "TECH") {
-    const ticketsRes = await client
+    let ticketsQuery = client
       .from("tickets")
       .select("id,totals_json")
       .eq("org_id", orgId)
       .eq("status", "CLOSED")
       .gte("created_at", fromIso)
       .lt("created_at", toIso);
+
+    if (viewBranchId) {
+      ticketsQuery = ticketsQuery.eq("branch_id", viewBranchId);
+    }
+
+    const ticketsRes = await ticketsQuery;
 
     if (ticketsRes.error) {
       throw ticketsRes.error;
@@ -118,6 +137,11 @@ export async function getDashboardSnapshotForMobile(
   const revenue = tickets.reduce((sum, ticket) => sum + Number(ticket.totals_json?.grand_total ?? 0), 0);
 
   return {
+    viewMode: view.observerScope.mode,
+    branchId: view.viewBranchId,
+    branchName: view.branchName,
+    scopeLabel: view.scopeLabel,
+    comparedToOrg: view.observerScope.mode === "branch",
     appointmentsToday: appointments.length,
     waiting: waitingRows.length,
     active: checkingInRows.length,

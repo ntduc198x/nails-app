@@ -37,6 +37,7 @@ import {
   type StaffShiftProfileRecord,
 } from "@/src/features/admin/shifts/data";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useSession } from "@/src/providers/session-provider";
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
@@ -200,6 +201,7 @@ function RoleChip({
 export default function AdminManageTeamScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const { role: currentRole } = useSession();
+  const observer = useAdminObserverScope();
   const [rows, setRows] = useState<TeamMemberRow[]>([]);
   const [inviteRows, setInviteRows] = useState<TeamInviteCodeRow[]>([]);
   const [shiftProfiles, setShiftProfiles] = useState<StaffShiftProfileRecord[]>([]);
@@ -217,6 +219,10 @@ export default function AdminManageTeamScreen() {
   const [roleDrafts, setRoleDrafts] = useState<Record<string, AppRole>>({});
   const [profileDrafts, setProfileDrafts] = useState<Record<string, StaffShiftProfileRecord>>({});
   const canManageProfiles = canManageShiftPlans(currentRole);
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -235,8 +241,8 @@ export default function AdminManageTeamScreen() {
       setProfileSchemaMissing(false);
 
       const [teamRows, invites, profileRowsRaw] = await Promise.all([
-        listTeamMembersForMobile(mobileSupabase),
-        listTeamInviteCodesForMobile(mobileSupabase),
+        listTeamMembersForMobile(mobileSupabase, { observerScope: observer.observerScope }),
+        listTeamInviteCodesForMobile(mobileSupabase, { observerScope: observer.observerScope }),
         canManageProfiles
           ? loadStaffShiftProfiles().catch((nextError) => {
               if (isMissingStaffShiftProfilesSchema(nextError)) {
@@ -274,14 +280,15 @@ export default function AdminManageTeamScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canManageProfiles, rows.length]);
+  }, [canManageProfiles, observer.observerScope, rows.length]);
 
   useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void load(true);
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [load]);
+  }, [load, observer.isReady]);
 
   const roleStats = useMemo(() => {
     const stats = new Map<AppRole, number>();
@@ -363,6 +370,10 @@ export default function AdminManageTeamScreen() {
 
   async function saveShiftProfile(member: TeamMemberRow) {
     if (!mobileSupabase || !canManageProfiles || profileSchemaMissing || profileBusyUserId) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật cấu hình nhân sự.");
+      return;
+    }
     const nextProfile = getWorkingShiftProfile(member);
     if (!nextProfile) return;
 
@@ -385,6 +396,10 @@ export default function AdminManageTeamScreen() {
 
   async function createInvite() {
     if (!mobileSupabase || inviteBusy) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để tạo mã mời.");
+      return;
+    }
     try {
       setInviteBusy(true);
       setError(null);
@@ -399,6 +414,10 @@ export default function AdminManageTeamScreen() {
 
   async function revokeInvite(inviteId: string) {
     if (!mobileSupabase) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thu hồi mã mời.");
+      return;
+    }
     try {
       setError(null);
       await revokeTeamInviteCodeForMobile(mobileSupabase, inviteId);
@@ -410,6 +429,10 @@ export default function AdminManageTeamScreen() {
 
   async function saveName(userId: string) {
     if (!mobileSupabase || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật nhân sự.");
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
@@ -428,6 +451,10 @@ export default function AdminManageTeamScreen() {
 
   async function saveRole(rowId: string) {
     if (!mobileSupabase || submitting) return;
+    if (observerReadOnly) {
+      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật vai trò.");
+      return;
+    }
     const current = rows.find((row) => row.id === rowId);
     const nextRole = roleDrafts[rowId];
     if (!current || !nextRole || current.role === nextRole) return;
@@ -463,6 +490,8 @@ export default function AdminManageTeamScreen() {
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage="Đang quan sát dữ liệu nhân sự theo scope đã chọn. Các thao tác mời, đổi vai trò và chỉnh cấu hình chỉ mở ở chi nhánh làm việc."
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>

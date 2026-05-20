@@ -169,6 +169,7 @@ export default function AdminSchedulingScreen() {
     role,
     staffOptions,
     user,
+    observerViewContext,
     customerCrmByPhone,
     loading,
     mutating,
@@ -198,6 +199,9 @@ export default function AdminSchedulingScreen() {
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
   const keyboardVisible = useKeyboardVisible();
+  const observerReadOnly =
+    observerViewContext?.observerScope.mode === "org" ||
+    (observerViewContext?.viewBranchId != null && observerViewContext.viewBranchId !== observerViewContext.workingBranchId);
   // Parse date input (dd/mm/yyyy)
   function parseDateInput(value: string) {
     const [dd, mm, yyyy] = value.split("/");
@@ -357,6 +361,11 @@ export default function AdminSchedulingScreen() {
           />
         }
       >
+        {observerReadOnly ? (
+          <View style={styles.inlineNotice}>
+            <Text style={styles.inlineNoticeText}>Observer mode chỉ dùng để xem. Muốn tạo hoặc sửa lịch, hãy quay về chi nhánh làm việc hiện tại.</Text>
+          </View>
+        ) : null}
 
         <View style={[styles.header, styles.hiddenHeader]}>
           <View style={styles.headerCopy}>
@@ -453,7 +462,7 @@ export default function AdminSchedulingScreen() {
             </View>
           </View>
 
-          <Pressable disabled={mutating} onPress={() => void handleCreateAppointment()} style={styles.primaryButton}>
+          <Pressable disabled={mutating || observerReadOnly} onPress={() => void handleCreateAppointment()} style={[styles.primaryButton, observerReadOnly ? styles.primaryButtonDisabled : null]}>
             <Text style={styles.primaryButtonText}>{mutating ? "Đang tạo..." : "Tạo lịch nhanh"}</Text>
           </Pressable>
         </View>
@@ -847,6 +856,20 @@ const styles = StyleSheet.create({
     gap: 13,
     padding: 14,
   },
+  inlineNotice: {
+    backgroundColor: "#FFF5E7",
+    borderColor: "#F0D9B7",
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  inlineNoticeText: {
+    color: "#8A5B21",
+    fontSize: 12,
+    lineHeight: 18,
+    fontWeight: "600",
+  },
   fieldShell: {
     alignItems: "center",
     backgroundColor: "#fffdfa",
@@ -984,6 +1007,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 46,
     marginTop: 2,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.45,
   },
   primaryButtonText: {
     color: "#fff",

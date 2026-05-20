@@ -1,6 +1,6 @@
 import type { AppRole } from "./auth";
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 import { getOrCreateRole } from "./session";
 
 export type TeamMemberRow = {
@@ -10,6 +10,7 @@ export type TeamMemberRow = {
   displayName: string;
   email: string | null;
   phone: string | null;
+  branchId: string | null;
 };
 
 export type InviteCodeRole = "PARTNER" | "MANAGER" | "RECEPTION" | "ACCOUNTANT" | "TECH";
@@ -18,6 +19,7 @@ export type TeamInviteCodeRow = {
   id: string;
   code: string;
   allowedRole: InviteCodeRole;
+  branchId: string | null;
   expiresAt: string;
   usedCount: number;
   maxUses: number;
@@ -37,6 +39,7 @@ function normalizeTeamMemberRow(row: Record<string, unknown>): TeamMemberRow {
       : String(row.user_id ?? "").slice(0, 8),
     email: typeof row.email === "string" ? row.email : null,
     phone: typeof row.phone === "string" ? row.phone : null,
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
   };
 }
 
@@ -45,6 +48,7 @@ function normalizeInviteCodeRow(row: Record<string, unknown>): TeamInviteCodeRow
     id: String(row.id ?? ""),
     code: String(row.code ?? ""),
     allowedRole: String(row.allowed_role ?? "TECH") as InviteCodeRole,
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
     expiresAt: String(row.expires_at ?? ""),
     usedCount: Number(row.used_count ?? 0),
     maxUses: Number(row.max_uses ?? 0),
@@ -75,6 +79,7 @@ async function requireOwner(client: SharedSupabaseClient) {
 
 export async function listTeamMembersForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<TeamMemberRow[]> {
   const {
     data: { session },
@@ -84,17 +89,22 @@ export async function listTeamMembersForMobile(
     return [];
   }
 
-  const rpc = await client.rpc("list_team_members_secure_v2");
-  if (!rpc.error && rpc.data) {
-    return (rpc.data as Array<Record<string, unknown>>).map(normalizeTeamMemberRow);
-  }
-
   const { orgId } = await ensureOrgContext(client);
-  const { data, error } = await client
+  const viewContext = options?.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
+
+  let roleQuery = client
     .from("user_roles")
-    .select("id,user_id,role")
+    .select("id,user_id,role,branch_id")
     .eq("org_id", orgId)
     .order("role", { ascending: true });
+
+  if (viewContext?.observerScope.mode === "branch" && viewContext.viewBranchId) {
+    roleQuery = roleQuery.eq("branch_id", viewContext.viewBranchId);
+  }
+
+  const { data, error } = await roleQuery;
 
   if (error) {
     throw error;
@@ -134,6 +144,7 @@ export async function listTeamMembersForMobile(
     displayName: profileMap.get(String(row.user_id ?? ""))?.displayName ?? String(row.user_id ?? "").slice(0, 8),
     email: profileMap.get(String(row.user_id ?? ""))?.email ?? null,
     phone: profileMap.get(String(row.user_id ?? ""))?.phone ?? null,
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
   }));
 }
 
@@ -188,14 +199,24 @@ export async function updateTeamMemberDisplayNameForMobile(
 
 export async function listTeamInviteCodesForMobile(
   client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<TeamInviteCodeRow[]> {
   await requireOwner(client);
+  const viewContext = options?.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
 
-  const { data, error } = await client
+  let query = client
     .from("invite_codes")
-    .select("id,code,allowed_role,expires_at,used_count,max_uses,used_at,revoked_at,note,created_at")
+    .select("id,code,allowed_role,branch_id,expires_at,used_count,max_uses,used_at,revoked_at,note,created_at")
     .order("created_at", { ascending: false })
     .limit(20);
+
+  if (viewContext?.observerScope.mode === "branch" && viewContext.viewBranchId) {
+    query = query.eq("branch_id", viewContext.viewBranchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     throw error;

@@ -86,6 +86,7 @@ export default function AdminCheckoutScreen() {
     createCheckout,
     reload,
     loading,
+    observerViewContext,
     role,
     techShiftOpen,
     busyTargetId,
@@ -103,6 +104,9 @@ export default function AdminCheckoutScreen() {
   const [lastReceiptToken, setLastReceiptToken] = useState<string | null>(null);
   const keyboardVisible = useKeyboardVisible();
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
+  const observerReadOnly =
+    observerViewContext?.observerScope.mode === "org" ||
+    (observerViewContext?.viewBranchId != null && observerViewContext.viewBranchId !== observerViewContext.workingBranchId);
 
   // Removed useFocusEffect to prevent layout shift when returning to screen
   // Data is loaded via useAdminOperations hook
@@ -211,6 +215,12 @@ export default function AdminCheckoutScreen() {
           showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={palette.brown} colors={[palette.brown]} />}
         >
+          {observerReadOnly ? (
+            <View style={styles.noticeCard}>
+              <Text style={styles.noticeText}>Observer mode chỉ để xem. Muốn thanh toán hoặc đóng ticket, hãy quay về chi nhánh làm việc hiện tại.</Text>
+            </View>
+          ) : null}
+
           <View style={[styles.header, styles.hiddenHeader]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>Thanh toán</Text>
@@ -414,8 +424,8 @@ export default function AdminCheckoutScreen() {
                 </View>
 
                 <Pressable
-                  style={[styles.primaryButton, (mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0) && styles.primaryButtonDisabled]}
-                  disabled={mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
+                  style={[styles.primaryButton, (observerReadOnly || mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0) && styles.primaryButtonDisabled]}
+                  disabled={observerReadOnly || mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
                   onPress={() => void handleCreateCheckout()}
                 >
                   <Text style={styles.primaryButtonText}>{busyTargetId === selectedAppointment.id ? "Đang thanh toán..." : "Thanh toán"}</Text>
@@ -447,6 +457,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 28, lineHeight: 32, fontWeight: "800", color: palette.text, letterSpacing: -0.6 },
   headerSubtitle: { marginTop: 4, fontSize: 13, lineHeight: 18, color: palette.muted },
   card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 15, gap: 12 },
+  noticeCard: { backgroundColor: "#FFF5E7", borderColor: "#F0D9B7", borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
+  noticeText: { color: "#8A5B21", fontSize: 12, lineHeight: 18, fontWeight: "600" },
   cardTitle: { fontSize: 15, lineHeight: 19, fontWeight: "700", color: palette.text },
   pillRow: { gap: 10, paddingRight: 6 },
   customerPill: { minWidth: 108, maxWidth: 150, height: 42, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, gap: 8 },

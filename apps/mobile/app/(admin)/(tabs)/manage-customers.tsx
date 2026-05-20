@@ -22,6 +22,7 @@ import {
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 
 const palette = {
@@ -316,6 +317,7 @@ function normalizeDuplicateCandidatesForRender(candidates: SafeCustomerDuplicate
 
 export default function AdminManageCustomersScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "RECEPTION"]);
+  const observer = useAdminObserverScope();
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
   const [duplicateCandidates, setDuplicateCandidates] = useState<SafeCustomerDuplicateCandidate[]>([]);
@@ -339,6 +341,10 @@ export default function AdminManageCustomersScreen() {
   const [showDormantSheet, setShowDormantSheet] = useState(false);
   const [customerListExpanded, setCustomerListExpanded] = useState(true);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -362,9 +368,9 @@ export default function AdminManageCustomersScreen() {
           source,
           vipOnly,
           dormantDays,
-        }),
-        listCustomersCrmForMobile(mobileSupabase),
-        getCrmDashboardMetricsForMobile(mobileSupabase),
+        }, { observerScope: observer.observerScope }),
+        listCustomersCrmForMobile(mobileSupabase, undefined, { observerScope: observer.observerScope }),
+        getCrmDashboardMetricsForMobile(mobileSupabase, { observerScope: observer.observerScope }),
         listSafeCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
       ]);
 
@@ -378,14 +384,15 @@ export default function AdminManageCustomersScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dormantDays, rows.length, search, source, status, vipOnly]);
+  }, [dormantDays, observer.observerScope, rows.length, search, source, status, vipOnly]);
 
   useEffect(() => {
+    if (!observer.isReady) return;
     const timeoutId = setTimeout(() => {
       void load(true);
     }, 0);
     return () => clearTimeout(timeoutId);
-  }, [load]);
+  }, [load, observer.isReady]);
 
   const sourceOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -433,6 +440,10 @@ export default function AdminManageCustomersScreen() {
     if (!mobileSupabase) {
       return;
     }
+    if (observerReadOnly) {
+      Alert.alert("Đang ở chế độ quan sát", "Hãy quay về chi nhánh làm việc để thực hiện merge hồ sơ khách.");
+      return;
+    }
 
     const pairKey = `${candidate.canonicalCustomerId}:${duplicateCustomerId}`;
     try {
@@ -465,6 +476,8 @@ export default function AdminManageCustomersScreen() {
       currentKey="customers"
       group="insights"
       showBackButton={false}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage="Đang quan sát dữ liệu CRM theo scope đã chọn. Các thao tác merge hồ sơ chỉ mở khi quay về chi nhánh làm việc."
     >
 
       <View style={styles.metricGrid}>

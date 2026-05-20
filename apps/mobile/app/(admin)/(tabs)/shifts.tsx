@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import {
@@ -240,8 +241,14 @@ function replaceProfile(profiles: StaffShiftProfileRecord[], nextProfile: StaffS
 
 export default function AdminShiftsScreen() {
   const { isHydrated, role, user } = useSession();
+  const observer = useAdminObserverScope();
   const canManage = canManageShiftPlans(role);
   const todayKey = useMemo(() => toDateKey(new Date()), []);
+  const observerReadOnly =
+    observer.viewContext?.observerScope.mode === "org" ||
+    (observer.viewContext?.observerScope.mode === "branch"
+      && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const observerOrgMode = observer.viewContext?.observerScope.mode === "org";
 
   const [weekStart, setWeekStart] = useState(() => toDateKey(startOfWeek(new Date())));
   const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
@@ -272,7 +279,7 @@ export default function AdminShiftsScreen() {
 
   const loadData = useCallback(
     async (force = false) => {
-      if (!mobileSupabase || !isHydrated || !user?.id) {
+      if (!mobileSupabase || !isHydrated || !user?.id || !observer.isReady) {
         setLoading(false);
         return;
       }
@@ -285,38 +292,38 @@ export default function AdminShiftsScreen() {
         setPlanSchemaMissing(false);
         setProfileSchemaMissing(false);
 
-        const teamPromise = listTeamMembersForMobile(mobileSupabase);
-        const profilesPromise = loadStaffShiftProfiles().catch((nextError) => {
+        const teamPromise = listTeamMembersForMobile(mobileSupabase, { observerScope: observer.observerScope });
+        const profilesPromise = loadStaffShiftProfiles(observer.observerScope).catch((nextError) => {
           if (isMissingStaffShiftProfilesSchema(nextError)) {
             setProfileSchemaMissing(true);
             return [];
           }
           throw nextError;
         });
-        const draftPromise = loadShiftPlanWeek(weekStart).catch((nextError) => {
+        const draftPromise = loadShiftPlanWeek(weekStart, { observerScope: observer.observerScope }).catch((nextError) => {
           if (isMissingShiftPlansSchema(nextError)) {
             setPlanSchemaMissing(true);
             return null;
           }
           throw nextError;
         });
-        const publishedPromise = loadShiftPlanWeek(weekStart, { publishedOnly: true }).catch((nextError) => {
+        const publishedPromise = loadShiftPlanWeek(weekStart, { publishedOnly: true, observerScope: observer.observerScope }).catch((nextError) => {
           if (isMissingShiftPlansSchema(nextError)) {
             setPlanSchemaMissing(true);
             return null;
           }
           throw nextError;
         });
-        const forecastPromise = loadWeeklyShiftForecast(weekStart).catch(() => {
+        const forecastPromise = loadWeeklyShiftForecast(weekStart, observer.observerScope).catch(() => {
           return generateWeekDates(weekStart).reduce<Record<string, number>>((acc, dateKey) => {
             acc[dateKey] = 0;
             return acc;
           }, {});
         });
-        const ownerEntriesPromise = canManage ? listOwnerShiftEntries() : Promise.resolve([]);
-        const ownerLeavesPromise = canManage ? listShiftLeaveRequests() : Promise.resolve([]);
+        const ownerEntriesPromise = canManage ? listOwnerShiftEntries(observer.observerScope) : Promise.resolve([]);
+        const ownerLeavesPromise = canManage ? listShiftLeaveRequests({ observerScope: observer.observerScope }) : Promise.resolve([]);
         const personalEntriesPromise = listPersonalShiftEntries(user.id);
-        const personalLeavesPromise = listShiftLeaveRequests({ userId: user.id });
+        const personalLeavesPromise = listShiftLeaveRequests({ userId: user.id, observerScope: observer.observerScope });
 
         const [
           rows,
@@ -376,7 +383,7 @@ export default function AdminShiftsScreen() {
         setRefreshing(false);
       }
     },
-    [canManage, isHydrated, user, weekStart],
+    [canManage, isHydrated, observer.isReady, observer.observerScope, user, weekStart],
   );
 
   useEffect(() => {
@@ -668,8 +675,15 @@ export default function AdminShiftsScreen() {
       showBackButton={false}
       onRefresh={() => void loadData(true)}
       refreshing={refreshing}
+      observerReadOnly={observerReadOnly}
+      observerReadOnlyMessage={
+        observerOrgMode
+          ? "Đang quan sát toàn công ty. Lịch tuần và cấu hình ca chỉ nên chỉnh khi quay về một chi nhánh cụ thể."
+          : "Đang quan sát chi nhánh khác. Các thao tác xuất lịch, duyệt chấm công và chỉnh ca chỉ mở ở chi nhánh làm việc."
+      }
     >
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
+          {observerOrgMode ? <Text style={styles.warnText}>Đang ở scope toàn công ty. Danh sách nhân sự và chấm công đã đổi theo observer, nhưng điều phối lịch tuần nên thực hiện trên từng chi nhánh cụ thể.</Text> : null}
           {planSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `shift_plans`, đang dùng draft tạm trên mobile.</Text> : null}
           {profileSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `staff_shift_profiles`, chức năng nghỉ theo ngày sẽ bị giới hạn.</Text> : null}
 

@@ -14,6 +14,7 @@ import {
   type MobileStaffRevenueRow,
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 type RangeMode = "day" | "week" | "month" | "custom";
@@ -42,6 +43,10 @@ const RANGE_MODE_OPTIONS: Array<{ label: string; value: RangeMode }> = [
 
 function formatVnd(amount: number) {
   return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount || 0);
+}
+
+function formatPercent(value: number) {
+  return `${Math.round((value || 0) * 100)}%`;
 }
 
 function toDateInput(date: Date) {
@@ -190,6 +195,7 @@ function SelectLike({ label, value, onPress }: { label: string; value: string; o
 
 export default function AdminManageReportsScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "ACCOUNTANT"]);
+  const observer = useAdminObserverScope();
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const [customFrom, setCustomFrom] = useState(() => toDateInput(new Date()));
@@ -234,8 +240,12 @@ export default function AdminManageReportsScreen() {
   }, [staffFilter, staffOptions]);
   const staffSelectOptions = useMemo(() => [{ label: "Tất cả nhân viên", value: "ALL" }, ...staffOptions.map((option) => ({ label: option.name, value: option.userId }))], [staffOptions]);
 
+  const benchmarkSummary = breakdown?.orgBenchmark ?? null;
+  const selectedBranchBenchmark = benchmarkSummary?.selectedBranch ?? null;
+  const topBranches = breakdown?.branchRanking?.slice(0, 5) ?? [];
+
   const load = useCallback(async (force = false) => {
-    if (!mobileSupabase) {
+    if (!mobileSupabase || !observer.isReady) {
       setError("Thiếu cấu hình Supabase mobile.");
       setLoading(false);
       return;
@@ -249,12 +259,13 @@ export default function AdminManageReportsScreen() {
       const fromIso = range.from.toISOString();
       const toIso = range.to.toISOString();
 
+      const observerOptions = { observerScope: observer.observerScope };
       const [ticketRows, nextBreakdown, nextStaffRevenue, nextStaffHours, nextStaffOptions] = await Promise.all([
-        listTicketsInRangeForMobile(mobileSupabase, fromIso, toIso),
-        getReportBreakdownForMobile(mobileSupabase, fromIso, toIso).catch(() => null),
-        getStaffRevenueInRangeForMobile(mobileSupabase, fromIso, toIso).catch(() => []),
-        getStaffHoursInRangeForMobile(mobileSupabase, fromIso, toIso).catch(() => []),
-        listReportStaffOptionsForMobile(mobileSupabase).catch(() => []),
+        listTicketsInRangeForMobile(mobileSupabase, fromIso, toIso, observerOptions),
+        getReportBreakdownForMobile(mobileSupabase, fromIso, toIso, observerOptions).catch(() => null),
+        getStaffRevenueInRangeForMobile(mobileSupabase, fromIso, toIso, observerOptions).catch(() => []),
+        getStaffHoursInRangeForMobile(mobileSupabase, fromIso, toIso, observerOptions).catch(() => []),
+        listReportStaffOptionsForMobile(mobileSupabase, observerOptions).catch(() => []),
       ]);
 
       setTickets(ticketRows);
@@ -268,7 +279,7 @@ export default function AdminManageReportsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [range.from, range.to, tickets.length]);
+  }, [observer.isReady, observer.observerScope, range.from, range.to, tickets.length]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -306,7 +317,6 @@ export default function AdminManageReportsScreen() {
       <View style={styles.totalCard}>
         <Text style={styles.totalCardText}>{filteredTickets.length} bill</Text>
       </View>
-
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Điều hướng nhanh</Text>
@@ -327,6 +337,11 @@ export default function AdminManageReportsScreen() {
           <View style={styles.periodPill}>
             <Text style={styles.periodPillText}>{selectedModeLabel}</Text>
           </View>
+          {breakdown?.scopeLabel ? (
+            <View style={styles.periodPill}>
+              <Text style={styles.periodPillText}>{breakdown.scopeLabel}</Text>
+            </View>
+          ) : null}
           <View style={styles.periodPill}>
             <Text style={styles.periodPillText}>{staffFilter === "ALL" ? "Tất cả NV" : "1 NV"}</Text>
           </View>
@@ -405,6 +420,80 @@ export default function AdminManageReportsScreen() {
         <View style={styles.errorCard}>
           <Feather name="alert-circle" size={16} color="#C66043" />
           <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
+
+      {breakdown?.viewMode === "branch" && selectedBranchBenchmark && benchmarkSummary ? (
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>So với toàn công ty</Text>
+            <View style={styles.periodPill}>
+              <Text style={styles.periodPillText}>Hạng #{selectedBranchBenchmark.revenueRank}</Text>
+            </View>
+          </View>
+
+          <View style={styles.metricGrid}>
+            <MetricCard
+              label="Doanh thu branch"
+              value={`${formatVnd(selectedBranchBenchmark.revenue)}d`}
+              tone={selectedBranchBenchmark.revenue >= benchmarkSummary.avgRevenuePerBranch ? "success" : "warning"}
+            />
+            <MetricCard label="TB branch org" value={`${formatVnd(benchmarkSummary.avgRevenuePerBranch)}d`} />
+            <MetricCard
+              label="Check-in branch"
+              value={formatPercent(selectedBranchBenchmark.checkInRate)}
+              tone={selectedBranchBenchmark.checkInRate >= benchmarkSummary.avgCheckInRate ? "success" : "warning"}
+            />
+            <MetricCard
+              label="No-show branch"
+              value={formatPercent(selectedBranchBenchmark.noShowRate)}
+              tone={selectedBranchBenchmark.noShowRate <= benchmarkSummary.avgNoShowRate ? "success" : "warning"}
+            />
+          </View>
+
+          <View style={styles.stack}>
+            <View style={styles.listItemCard}>
+              <View style={styles.listItemCopy}>
+                <Text style={styles.listItemTitle}>Bill / lịch hẹn</Text>
+                <Text style={styles.listItemMeta}>Branch so với mặt bằng org</Text>
+              </View>
+              <Text style={styles.listItemAmount}>
+                {selectedBranchBenchmark.ticketCount} / {selectedBranchBenchmark.appointmentCount}
+              </Text>
+            </View>
+            <View style={styles.listItemCard}>
+              <View style={styles.listItemCopy}>
+                <Text style={styles.listItemTitle}>Giá trị bill trung bình</Text>
+                <Text style={styles.listItemMeta}>Branch {formatVnd(selectedBranchBenchmark.avgTicketValue)}d</Text>
+              </View>
+              <Text style={styles.listItemAmount}>{formatVnd(benchmarkSummary.avgTicketValue)}d</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {breakdown?.viewMode === "org" && topBranches.length ? (
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Xếp hạng chi nhánh</Text>
+            <View style={styles.periodPill}>
+              <Text style={styles.periodPillText}>{benchmarkSummary?.branchCount ?? topBranches.length} chi nhánh</Text>
+            </View>
+          </View>
+
+          <View style={styles.stack}>
+            {topBranches.map((branch) => (
+              <View key={branch.branchId} style={styles.listItemCard}>
+                <View style={styles.listItemCopy}>
+                  <Text style={styles.listItemTitle}>#{branch.revenueRank} {branch.branchName}</Text>
+                  <Text style={styles.listItemMeta}>
+                    {branch.ticketCount} bill • {branch.appointmentCount} lịch • check-in {formatPercent(branch.checkInRate)}
+                  </Text>
+                </View>
+                <Text style={styles.listItemAmount}>{formatVnd(branch.revenue)}d</Text>
+              </View>
+            ))}
+          </View>
         </View>
       ) : null}
 

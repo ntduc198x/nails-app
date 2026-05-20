@@ -29,6 +29,7 @@ import {
   updateAppointmentStatusForMobile,
   updateBookingRequestStatusForMobile,
 } from "@nails/shared";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -253,8 +254,13 @@ async function listResourceOptions(): Promise<ResourceOption[]> {
 
 export function useAdminOperations() {
   const { isHydrated, role, user } = useSession();
+  const observer = useAdminObserverScope();
   const userId = user?.id ?? null;
-  const scopeKey = isHydrated && role && userId ? `${role}:${userId}` : null;
+  const observerScopeKey =
+    observer.viewContext
+      ? `${observer.observerScope.mode}:${observer.observerScope.branchId ?? "org"}`
+      : "pending";
+  const scopeKey = isHydrated && role && userId ? `${role}:${userId}:${observerScopeKey}` : null;
   const [state, setState] = useState<AdminOperationsState>(
     scopeKey && cachedAdminScopeKey === scopeKey ? cachedAdminState : INITIAL_STATE,
   );
@@ -285,14 +291,14 @@ export function useAdminOperations() {
   }, [scopeKey]);
 
   const load = useCallback(async (force = false) => {
-    if (!mobileSupabase || !isHydrated || !role) {
+    if (!mobileSupabase || !isHydrated || !role || !observer.isReady || !observer.viewContext) {
       if (cachedAdminScopeKey !== null) {
         resetAdminStateCache(null);
       }
       return INITIAL_STATE;
     }
 
-    const nextScopeKey = userId ? `${role}:${userId}` : null;
+    const nextScopeKey = userId ? `${role}:${userId}:${observerScopeKey}` : null;
     if (!nextScopeKey) {
       return INITIAL_STATE;
     }
@@ -320,19 +326,22 @@ export function useAdminOperations() {
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
       const canSeeRecentTickets =
         role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
+      const observerOptions = { observerScope: observer.observerScope };
 
       const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
-        getDashboardSnapshotForMobile(mobileSupabase),
-        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase) : Promise.resolve([]),
-        listAppointmentsForMobile(mobileSupabase),
-        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase) : Promise.resolve(null),
+        getDashboardSnapshotForMobile(mobileSupabase, observerOptions),
+        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase, observerOptions) : Promise.resolve([]),
+        listAppointmentsForMobile(mobileSupabase, observerOptions),
+        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase, observerOptions) : Promise.resolve(null),
         listStaffOptions(),
         listResourceOptions(),
-        listServicesForMobile(mobileSupabase),
-        listCheckedInQueueForMobile(mobileSupabase),
-        canSeeRecentTickets ? listRecentTicketsForMobile(mobileSupabase, { limit: 12 }) : Promise.resolve([]),
+        listServicesForMobile(mobileSupabase, observerOptions),
+        listCheckedInQueueForMobile(mobileSupabase, observerOptions),
+        canSeeRecentTickets
+          ? listRecentTicketsForMobile(mobileSupabase, { limit: 12, observerScope: observer.observerScope })
+          : Promise.resolve([]),
         role === "TECH" ? hasOpenShiftForMobile(mobileSupabase).catch(() => false) : Promise.resolve(null),
-        canSeeCrm ? listCustomersCrmForMobile(mobileSupabase).catch(() => []) : Promise.resolve([]),
+        canSeeCrm ? listCustomersCrmForMobile(mobileSupabase, {}, observerOptions).catch(() => []) : Promise.resolve([]),
       ]);
 
       const customerCrmByPhone = Object.fromEntries(
@@ -379,7 +388,7 @@ export function useAdminOperations() {
       inflightAdminLoad = null;
       setLoading(false);
     }
-  }, [isHydrated, role, userId]);
+  }, [isHydrated, observer.isReady, observer.observerScope, observer.viewContext, observerScopeKey, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -611,8 +620,12 @@ export function useAdminOperations() {
     user,
     loading,
     mutating,
+    observerLoading: observer.loading,
+    observerScope: observer.observerScope,
+    observerViewContext: observer.viewContext,
     busyTargetId,
     error,
+    setObserverScope: observer.setObserverScope,
     reload: () => load(true),
     updateBookingRequestStatus,
     saveBookingRequest,

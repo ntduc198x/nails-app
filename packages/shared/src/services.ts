@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 export type MobileAdminService = {
   id: string;
@@ -26,6 +26,10 @@ export type MobileAdminServiceInput = {
   branchId?: string | null;  // Added: branch association
 };
 
+export type MobileAdminServiceListOptions = {
+  observerScope?: ObserverScopeInput | null;
+};
+
 function normalizeServiceRow(row: Record<string, unknown>): MobileAdminService {
   return {
     id: String(row.id ?? ""),
@@ -43,12 +47,18 @@ function normalizeServiceRow(row: Record<string, unknown>): MobileAdminService {
 
 export async function listAdminServicesForMobile(
   client: SharedSupabaseClient,
-  branchId?: string,
+  options?: string | MobileAdminServiceListOptions,
 ): Promise<MobileAdminService[]> {
   const { orgId, branchId: profileBranchId } = await ensureOrgContext(client);
-
-  // Use profile's branch as default if not specified
-  const targetBranchId = branchId ?? profileBranchId;
+  const directBranchId = typeof options === "string" ? options : undefined;
+  const observerScope = typeof options === "object" ? options?.observerScope : undefined;
+  const viewContext = observerScope ? await resolveMobileAdminViewContext(client, observerScope) : null;
+  const targetBranchId =
+    directBranchId !== undefined
+      ? directBranchId
+      : viewContext?.observerScope.mode === "org"
+        ? null
+        : viewContext?.viewBranchId ?? profileBranchId;
 
   let query = client
     .from("services")

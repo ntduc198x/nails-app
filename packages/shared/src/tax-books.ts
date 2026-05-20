@@ -1,4 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { resolveMobileAdminViewContext } from "./org";
 
 export type TaxBookType = "S1A_HKD" | "S2A_HKD" | "S3A_HKD";
 
@@ -19,11 +20,16 @@ export async function buildTaxBookForMobile(
   type: TaxBookType,
   fromIso: string,
   toIso: string,
+  options?: { observerScope?: ObserverScopeInput | null },
 ): Promise<MobileTaxBookRow[]> {
+  const viewContext = options?.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
   const { data, error } = await client.rpc("list_tax_book_rows_secure", {
     p_type: type,
     p_from: fromIso,
     p_to: toIso,
+    p_branch_id: viewContext?.observerScope.mode === "branch" ? viewContext.viewBranchId : null,
   });
 
   if (error) {

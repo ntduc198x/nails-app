@@ -1,5 +1,5 @@
-import type { SharedSupabaseClient } from "./org";
-import { ensureOrgContext } from "./org";
+import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
 type UnknownRow = Record<string, unknown>;
 
@@ -357,29 +357,44 @@ function toPublishedAt(status: MobileAdminContentPost["status"], existingPublish
 
 async function resolveAdminPreviewContext(
   client: SharedSupabaseClient,
-  options: { branchId?: string },
+  options: { branchId?: string; observerScope?: ObserverScopeInput | null },
 ): Promise<{ orgId: string; branchId: string; defaultBranchId: string }> {
   const { orgId, branchId: defaultBranchId } = await ensureOrgContext(client);
+  const viewContext = options.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
   return {
     orgId,
-    branchId: options.branchId?.trim() || defaultBranchId,
+    branchId:
+      options.branchId?.trim()
+      || (viewContext?.observerScope.mode === "branch" ? viewContext.viewBranchId ?? defaultBranchId : defaultBranchId),
     defaultBranchId,
   };
 }
 
 export async function listAdminMerchServicesForMobile(
   client: SharedSupabaseClient,
-  options: { branchId?: string } = {},
+  options: { branchId?: string; observerScope?: ObserverScopeInput | null } = {},
 ): Promise<MobileAdminMerchService[]> {
-  void options;
   const { orgId } = await ensureOrgContext(client);
-  const response = await client
+  const viewContext = options.observerScope
+    ? await resolveMobileAdminViewContext(client, options.observerScope)
+    : null;
+  let responseQuery = client
     .from("services")
     .select(
-      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active",
+      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active,branch_id",
     )
     .eq("org_id", orgId)
     .order("name", { ascending: true });
+
+  if (options.branchId?.trim()) {
+    responseQuery = responseQuery.or(`branch_id.eq.${options.branchId.trim()},branch_id.is.null`);
+  } else if (viewContext?.observerScope.mode === "branch" && viewContext.viewBranchId) {
+    responseQuery = responseQuery.or(`branch_id.eq.${viewContext.viewBranchId},branch_id.is.null`);
+  }
+
+  const response = await responseQuery;
 
   if (response.error) {
     const message = response.error.message || "";
@@ -396,11 +411,19 @@ export async function listAdminMerchServicesForMobile(
       throw response.error;
     }
 
-    const fallback = await client
+    let fallbackQuery = client
       .from("services")
-      .select("id,name,duration_min,base_price,active")
+      .select("id,name,duration_min,base_price,active,branch_id")
       .eq("org_id", orgId)
       .order("name", { ascending: true });
+
+    if (options.branchId?.trim()) {
+      fallbackQuery = fallbackQuery.or(`branch_id.eq.${options.branchId.trim()},branch_id.is.null`);
+    } else if (viewContext?.observerScope.mode === "branch" && viewContext.viewBranchId) {
+      fallbackQuery = fallbackQuery.or(`branch_id.eq.${viewContext.viewBranchId},branch_id.is.null`);
+    }
+
+    const fallback = await fallbackQuery;
 
     if (fallback.error) {
       throw fallback.error;
@@ -466,9 +489,12 @@ export async function updateAdminMerchServiceForMobile(
 
 export async function listAdminContentSnapshotForMobile(
   client: SharedSupabaseClient,
-  options: { branchId?: string; includeServices?: boolean } = {},
+  options: { branchId?: string; includeServices?: boolean; observerScope?: ObserverScopeInput | null } = {},
 ): Promise<MobileAdminContentSnapshot> {
-  const { orgId, branchId, defaultBranchId } = await resolveAdminPreviewContext(client, { branchId: options.branchId });
+  const { orgId, branchId, defaultBranchId } = await resolveAdminPreviewContext(client, {
+    branchId: options.branchId,
+    observerScope: options.observerScope,
+  });
 
   const [branchRes, postsRes, offersRes, storefrontRes, services] = await Promise.all([
     client.from("branches").select("id,name").eq("id", branchId).maybeSingle(),
@@ -495,7 +521,7 @@ export async function listAdminContentSnapshotForMobile(
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    options.includeServices ? listAdminMerchServicesForMobile(client, { branchId }) : Promise.resolve([]),
+    options.includeServices ? listAdminMerchServicesForMobile(client, { branchId, observerScope: options.observerScope }) : Promise.resolve([]),
   ]);
 
   if (postsRes.error) throw postsRes.error;

@@ -31,12 +31,32 @@ type StorefrontSummary = {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   phone: string | null;
   address_line: string | null;
   opening_hours: string | null;
+  cover_image_url: string | null;
+  logo_image_url: string | null;
+  map_url: string | null;
+  messenger_url: string | null;
+  instagram_url: string | null;
   updated_at: string;
   is_active: boolean;
 } | null;
+
+type StorefrontFormState = {
+  name: string;
+  slug: string;
+  description: string;
+  phone: string;
+  addressLine: string;
+  openingHours: string;
+  coverImageUrl: string;
+  logoImageUrl: string;
+  mapUrl: string;
+  messengerUrl: string;
+  instagramUrl: string;
+};
 
 type LandingSummary = {
   publishedPosts: number;
@@ -72,6 +92,20 @@ const emptyForm: FormState = {
   contentType: "trend",
   status: "draft",
   priority: "100",
+};
+
+const emptyStorefrontForm: StorefrontFormState = {
+  name: "",
+  slug: "",
+  description: "",
+  phone: "",
+  addressLine: "",
+  openingHours: "",
+  coverImageUrl: "",
+  logoImageUrl: "",
+  mapUrl: "",
+  messengerUrl: "",
+  instagramUrl: "",
 };
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
@@ -143,6 +177,8 @@ export default function ManageLandingPage() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LandingResponse | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [storefrontForm, setStorefrontForm] = useState<StorefrontFormState>(emptyStorefrontForm);
+  const [storefrontSubmitting, setStorefrontSubmitting] = useState(false);
 
   const canEdit = canAccessManageLanding(role);
 
@@ -160,8 +196,24 @@ export default function ManageLandingPage() {
         return;
       }
 
-      const landingData = await fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts");
+      const [landingData, storefront] = await Promise.all([
+        fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts"),
+        fetchManageLanding<StorefrontSummary>("/api/manage/landing/storefront"),
+      ]);
       setData(landingData);
+      setStorefrontForm({
+        name: storefront?.name ?? "",
+        slug: storefront?.slug ?? "",
+        description: storefront?.description ?? "",
+        phone: storefront?.phone ?? "",
+        addressLine: storefront?.address_line ?? "",
+        openingHours: storefront?.opening_hours ?? "",
+        coverImageUrl: storefront?.cover_image_url ?? "",
+        logoImageUrl: storefront?.logo_image_url ?? "",
+        mapUrl: storefront?.map_url ?? "",
+        messengerUrl: storefront?.messenger_url ?? "",
+        instagramUrl: storefront?.instagram_url ?? "",
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Không tải được landing page hub");
     } finally {
@@ -202,6 +254,25 @@ export default function ManageLandingPage() {
       status: row.status,
       priority: String(row.priority),
     });
+  }
+
+  async function onStorefrontSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (storefrontSubmitting || !canEdit) return;
+
+    try {
+      setStorefrontSubmitting(true);
+      setError(null);
+      await fetchManageLanding("/api/manage/landing/storefront", {
+        method: "PUT",
+        body: JSON.stringify(storefrontForm),
+      });
+      await load({ silent: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không lưu được storefront");
+    } finally {
+      setStorefrontSubmitting(false);
+    }
   }
 
   async function onSubmit(event: React.FormEvent) {
@@ -432,19 +503,67 @@ export default function ManageLandingPage() {
                 <div className="manage-warn-box">Chưa có giao diện quản trị ưu đãi riêng.</div>
               </div>
 
-              <div className="manage-surface space-y-3">
+              <form onSubmit={onStorefrontSubmit} className="manage-surface space-y-3">
                 <div>
                   <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Thông tin cửa tiệm</h3>
-                  <p className="text-sm text-neutral-500">Hub này đang hiển thị storefront summary để kiểm tra nhanh landing hiện tại.</p>
+                  <p className="text-sm text-neutral-500">Chỉnh nhanh storefront đang hiển thị trên landing web.</p>
                 </div>
-                <div className="manage-info-box">
-                  <div className="font-medium text-neutral-900">{summary?.storefront?.name ?? "Chưa có storefront active"}</div>
-                  <div className="mt-1">{summary?.storefront?.phone ?? "Chưa có số điện thoại"}</div>
-                  <div className="mt-1">{summary?.storefront?.address_line ?? "Chưa có địa chỉ"}</div>
-                  <div className="mt-1">{summary?.storefront?.opening_hours ?? "Chưa có giờ mở cửa"}</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Tên cửa tiệm</FieldLabel>
+                    <TextInput value={storefrontForm.name} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, name: e.target.value }))} placeholder="Chạm Beauty" />
+                  </div>
+                  <div>
+                    <FieldLabel>Slug</FieldLabel>
+                    <TextInput value={storefrontForm.slug} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, slug: e.target.value }))} placeholder="cham-beauty" />
+                  </div>
                 </div>
-                <div className="manage-warn-box">Chưa có giao diện quản trị storefront riêng.</div>
-              </div>
+                <div>
+                  <FieldLabel>Mô tả</FieldLabel>
+                  <TextArea value={storefrontForm.description} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, description: e.target.value }))} className="min-h-[84px]" placeholder="Mô tả ngắn cho landing" />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Số điện thoại</FieldLabel>
+                    <TextInput value={storefrontForm.phone} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, phone: e.target.value }))} placeholder="09xxxxxxxx" />
+                  </div>
+                  <div>
+                    <FieldLabel>Giờ mở cửa</FieldLabel>
+                    <TextInput value={storefrontForm.openingHours} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, openingHours: e.target.value }))} placeholder="09:00 - 21:00" />
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel>Địa chỉ</FieldLabel>
+                  <TextArea value={storefrontForm.addressLine} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, addressLine: e.target.value }))} className="min-h-[72px]" placeholder="Địa chỉ hiển thị ở landing" />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Cover image URL</FieldLabel>
+                    <TextInput value={storefrontForm.coverImageUrl} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: e.target.value }))} placeholder="https://..." />
+                  </div>
+                  <div>
+                    <FieldLabel>Logo image URL</FieldLabel>
+                    <TextInput value={storefrontForm.logoImageUrl} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: e.target.value }))} placeholder="https://..." />
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <FieldLabel>Google Map URL</FieldLabel>
+                    <TextInput value={storefrontForm.mapUrl} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, mapUrl: e.target.value }))} placeholder="https://maps.google.com/..." />
+                  </div>
+                  <div>
+                    <FieldLabel>Messenger URL</FieldLabel>
+                    <TextInput value={storefrontForm.messengerUrl} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: e.target.value }))} placeholder="https://m.me/..." />
+                  </div>
+                </div>
+                <div>
+                  <FieldLabel>Instagram URL</FieldLabel>
+                  <TextInput value={storefrontForm.instagramUrl} onChange={(e) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: e.target.value }))} placeholder="https://instagram.com/..." />
+                </div>
+                <button type="submit" disabled={storefrontSubmitting || !canEdit} className="manage-quick-link-accent disabled:cursor-not-allowed disabled:opacity-60">
+                  {storefrontSubmitting ? "Đang lưu storefront..." : "Lưu storefront"}
+                </button>
+              </form>
             </section>
           </>
         )}

@@ -11,8 +11,18 @@ export type ReportTicketRow = {
   totals_json?: { subtotal?: number; vat_total?: number; grand_total?: number };
 };
 
+async function assertCanViewReports() {
+  const role = await getCurrentSessionRole();
+  if (role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "ACCOUNTANT") {
+    return role;
+  }
+
+  throw new Error("FORBIDDEN_REPORTS");
+}
+
 export async function listTicketsInRange(fromIso: string, toIso: string) {
   if (!supabase) return [];
+  await assertCanViewReports();
   const { orgId } = await ensureOrgContext();
 
   const { data, error } = await supabase
@@ -246,6 +256,7 @@ export async function getReportBreakdown(fromIso: string, toIso: string) {
 }
 
 export async function listTimeEntriesInRange(fromIso: string, toIso: string) {
+  await assertCanViewReports();
   if (!supabase) return [];
   const { orgId } = await ensureOrgContext();
 
@@ -264,6 +275,7 @@ export async function listTimeEntriesInRange(fromIso: string, toIso: string) {
 }
 
 export async function getStaffRevenueInRange(fromIso: string, toIso: string) {
+  await assertCanViewReports();
   if (!supabase) return [];
   const { orgId } = await ensureOrgContext();
 

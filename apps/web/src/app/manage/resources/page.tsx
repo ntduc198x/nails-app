@@ -7,7 +7,7 @@ import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createResource, listResources, updateResource } from "@/lib/domain";
 import { canAccessManageSetup } from "@/lib/manage-setup-auth";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ResourceRow = { id: string; name: string; type: "CHAIR" | "TABLE" | "ROOM"; active: boolean };
 
@@ -69,7 +69,7 @@ export default function ResourcesPage() {
   const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
   const canAccessPage = role ? canAccessManageSetup(role) : true;
 
-  async function load(opts?: { silent?: boolean }) {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     try {
       if (opts?.silent) setRefreshing(true);
       setError(null);
@@ -82,11 +82,14 @@ export default function ResourcesPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [load]);
 
   const filteredRows = useMemo(() => {
     const keyword = search.trim().toLowerCase();

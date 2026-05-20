@@ -10,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { buildTaxBookForMobile, type MobileTaxBookRow, type TaxBookType } from "@nails/shared";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -83,6 +83,7 @@ function QuickInfo({ accent = false, label, value }: { accent?: boolean; label: 
 }
 
 export default function AdminManageTaxBooksScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "ACCOUNTANT"]);
   const today = new Date();
   const [bookType] = useState<TaxBookType>("S1A_HKD");
   const [fromDate, setFromDate] = useState(() => toDateInput(today));
@@ -169,6 +170,10 @@ export default function AdminManageTaxBooksScreen() {
     } finally {
       setExporting(false);
     }
+  }
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
   }
 
   return (

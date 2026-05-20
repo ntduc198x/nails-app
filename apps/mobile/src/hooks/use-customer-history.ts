@@ -79,32 +79,29 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
   useEffect(() => {
     let cancelled = false;
 
-    if (!enabled) {
-      setIsLoading(false);
-      return;
-    }
-
-    if (!userId) {
-      setHistoryItems([]);
-      setIsHydrated(true);
-      setIsLoading(false);
-      return;
-    }
+    if (!enabled || !userId) return;
 
     const syncCached = peekCachedValue<CustomerHistoryItem[]>(cacheKey);
     if (syncCached) {
-      setHistoryItems(Array.isArray(syncCached.value) ? syncCached.value : []);
-      setIsHydrated(true);
-      setIsLoading(false);
+      const timeoutId = setTimeout(() => {
+        if (cancelled) return;
+        setHistoryItems(Array.isArray(syncCached.value) ? syncCached.value : []);
+        setIsHydrated(true);
+        setIsLoading(false);
+      }, 0);
 
       if (
         revalidateOnMount &&
         Date.now() - syncCached.updatedAt > HISTORY_FRESH_MS &&
         Date.now() - syncCached.updatedAt <= HISTORY_MAX_STALE_MS
       ) {
-        void refresh({ silent: true, skipFreshCheck: true });
+        setTimeout(() => {
+          void refresh({ silent: true, skipFreshCheck: true });
+        }, 0);
       }
-      return;
+      return () => {
+        clearTimeout(timeoutId);
+      };
     }
 
     const boot = async () => {
@@ -136,6 +133,10 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
     };
   }, [cacheKey, enabled, refresh, revalidateOnMount, userId]);
 
+  const resolvedHistoryItems = enabled && userId ? historyItems : [];
+  const resolvedIsHydrated = enabled && userId ? isHydrated : true;
+  const resolvedIsLoading = enabled && userId ? isLoading : false;
+
   const syncFromCache = useCallback(async () => {
     const syncCached = peekCachedValue<CustomerHistoryItem[]>(cacheKey);
     if (syncCached) {
@@ -152,9 +153,9 @@ export function useCustomerHistory(limit = 24, options: UseCustomerHistoryOption
   }, [cacheKey]);
 
   return {
-    historyItems,
-    isHydrated,
-    isLoading,
+    historyItems: resolvedHistoryItems,
+    isHydrated: resolvedIsHydrated,
+    isLoading: resolvedIsLoading,
     refresh: () => refresh({ force: true }),
     syncFromCache,
   };

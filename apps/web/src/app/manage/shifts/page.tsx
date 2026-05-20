@@ -2,7 +2,7 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
-import { MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
+import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, listUserRoles, type AppRole } from "@/lib/auth";
 import { getRoleLabel } from "@/lib/role-labels";
@@ -60,6 +60,7 @@ import {
   type StaffRole,
 } from "@nails/shared";
 import Link from "next/link";
+import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type TeamRoleRow = {
@@ -396,11 +397,11 @@ function WeekNavigator({
   onChangeWeek: (nextWeekStart: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="rounded-full border border-neutral-200 px-4 py-3 text-sm font-semibold text-neutral-900">
+    <div className="grid w-full gap-3 sm:flex sm:flex-wrap sm:items-center">
+      <div className="rounded-[20px] border border-neutral-200 px-4 py-3 text-center text-sm font-semibold text-neutral-900 sm:rounded-full sm:text-left">
         {formatWeekRange(weekStart)}
       </div>
-      <div className="flex items-center gap-2">
+      <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
         <button
           type="button"
           onClick={() => {
@@ -408,7 +409,7 @@ function WeekNavigator({
             next.setDate(next.getDate() - 7);
             onChangeWeek(toDateKey(next));
           }}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:w-11"
         >
           ‹
         </button>
@@ -419,7 +420,7 @@ function WeekNavigator({
             next.setDate(next.getDate() + 7);
             onChangeWeek(toDateKey(next));
           }}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700"
+          className="inline-flex h-11 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:w-11"
         >
           ›
         </button>
@@ -437,11 +438,11 @@ function WeekNavigator({
 
 function ShiftLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex gap-2 overflow-x-auto pb-2 sm:flex-wrap">
       {DEFAULT_SHIFT_DEFINITIONS.map((definition) => (
         <span
           key={definition.type}
-          className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${shiftThemeClasses(definition.theme)}`}
+          className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${shiftThemeClasses(definition.theme)}`}
         >
           <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white/80 px-2 text-[11px] font-bold">
             {definition.shortCode}
@@ -495,7 +496,7 @@ function QuickShiftEditor({
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           {options.map((definition) => {
             const active = assignment.shiftType === definition.type;
             return (
@@ -547,7 +548,7 @@ function MobilePlannerCards({
 }) {
   return (
     <div className="space-y-4 md:hidden">
-      <div className="flex gap-2 overflow-x-auto pb-2">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2">
         {weekDates.map((dateKey) => {
           const summary = daySummaryMap.get(dateKey);
           const active = selectedDateKey === dateKey;
@@ -556,7 +557,7 @@ function MobilePlannerCards({
               key={dateKey}
               type="button"
               onClick={() => onSelectDate(dateKey)}
-              className={`min-w-[96px] rounded-2xl border px-3 py-3 text-left transition ${
+              className={`min-w-[88px] shrink-0 rounded-2xl border px-3 py-2.5 text-left transition ${
                 active
                   ? "border-[var(--color-primary)] bg-rose-50 text-[var(--color-primary)]"
                   : "border-neutral-200 bg-white text-neutral-700"
@@ -581,7 +582,7 @@ function MobilePlannerCards({
               key={`${employee.id}-${selectedDateKey}`}
               type="button"
               onClick={() => onOpenEditor(employee.id, selectedDateKey)}
-              className="block w-full rounded-[24px] border border-neutral-200 bg-white p-4 text-left shadow-sm"
+              className="block w-full rounded-[24px] border border-neutral-200 bg-white p-3.5 text-left shadow-sm"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -592,7 +593,7 @@ function MobilePlannerCards({
                   {assignment?.shortCode ?? definition.shortCode}
                 </span>
               </div>
-              <div className={`mt-4 rounded-2xl border px-3 py-3 ${classes}`}>
+              <div className={`mt-3 rounded-2xl border px-3 py-2.5 ${classes}`}>
                 <p className="text-sm font-semibold">{assignment?.shiftLabel ?? definition.label}</p>
                 <p className="mt-1 text-xs">
                   {assignment?.startTime && assignment?.endTime ? `${assignment.startTime} - ${assignment.endTime}` : "Nghỉ"}
@@ -603,6 +604,29 @@ function MobilePlannerCards({
         })}
       </div>
     </div>
+  );
+}
+
+function ResponsiveOwnerSection({
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  summary: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className="group"
+    >
+      <summary className="mb-3 flex cursor-pointer list-none items-center justify-between rounded-[28px] border border-neutral-200 bg-white px-4 py-4 text-sm font-semibold text-neutral-900 shadow-sm md:hidden">
+        <span>{summary}</span>
+        <span className="text-lg leading-none text-neutral-400 transition group-open:rotate-180">⌄</span>
+      </summary>
+      <div className="hidden group-open:block md:block">{children}</div>
+    </details>
   );
 }
 
@@ -620,7 +644,7 @@ export default function ManageShiftsPage() {
   const [selectedCell, setSelectedCell] = useState<{ employeeId: string; dateKey: string } | null>(null);
   const [roleFilter, setRoleFilter] = useState<string>(FILTER_ALL);
   const [skillFilter, setSkillFilter] = useState<string>(FILTER_ALL);
-  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [openEntry, setOpenEntry] = useState<ShiftTimeEntryRecord | null>(null);
   const [recentEntries, setRecentEntries] = useState<ShiftTimeEntryRecord[]>([]);
   const [personalBusy, setPersonalBusy] = useState(false);
@@ -1030,6 +1054,13 @@ export default function ManageShiftsPage() {
     }
   }, [currentUserId, refreshPersonalShiftState]);
 
+  const refreshPersonalShiftStateRef = useRef(refreshPersonalShiftState);
+  const refreshOwnerApprovalsRef = useRef(refreshOwnerApprovals);
+  useEffect(() => {
+    refreshPersonalShiftStateRef.current = refreshPersonalShiftState;
+    refreshOwnerApprovalsRef.current = refreshOwnerApprovals;
+  }, [refreshOwnerApprovals, refreshPersonalShiftState]);
+
   const handlePersonalClockOut = useCallback(async () => {
     if (!openEntry) return;
     try {
@@ -1166,7 +1197,7 @@ export default function ManageShiftsPage() {
           if (mounted) setCurrentUserId(userId);
 
           if (userId && !canManageShiftOperations(currentRole)) {
-            await refreshPersonalShiftState(userId);
+            await refreshPersonalShiftStateRef.current(userId);
             if (!mounted) return;
           }
         }
@@ -1187,7 +1218,7 @@ export default function ManageShiftsPage() {
             if (mounted) {
               setStaffProfiles(profiles);
               setProfilesSchemaMissing(false);
-              await refreshOwnerApprovals();
+              await refreshOwnerApprovalsRef.current();
             }
           } catch (nextError) {
             if (mounted && isMissingStaffShiftProfilesSchema(nextError)) {
@@ -1575,9 +1606,38 @@ export default function ManageShiftsPage() {
   return (
     <AppShell>
       <div className="manage-shifts-page space-y-6">
-        <ManageQuickNav items={operationsQuickNav("/manage/shifts")} />
+        <ManageQuickNav items={operationsQuickNav("/manage/shifts")} className="sm:pb-0" />
 
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
+        <div className="md:hidden">
+          {scheduleSchemaMissing || profilesSchemaMissing || (!profilesSchemaMissing && hasIncompleteProfiles) || (status === "published" && lastPublishedAt) ? (
+            <MobileCollapsible summary="Trang thai he thong">
+              <div className="space-y-3">
+                {scheduleSchemaMissing ? (
+                  <ManageAlert tone="warn">
+                    ChÆ°a cÃ³ báº£ng `shift_plans` trong Supabase. HÃ£y cháº¡y file `supabase/shift_plans_2026_04.sql` Ä‘á»ƒ lÆ°u draft/publish tháº­t cho OWNER vÃ  chia lá»‹ch ra cho nhÃ¢n sá»±.
+                  </ManageAlert>
+                ) : null}
+                {profilesSchemaMissing ? (
+                  <ManageAlert tone="warn">
+                    Báº£ng `staff_shift_profiles` chÆ°a cÃ³ trÃªn Supabase. Cáº§n cháº¡y file `supabase/staff_shift_profiles_2026_04.sql` Ä‘á»ƒ lÆ°u skill, availability, nghá»‰ phÃ©p vÃ  max hours tháº­t cho nhÃ¢n sá»±.
+                  </ManageAlert>
+                ) : null}
+                {!profilesSchemaMissing && hasIncompleteProfiles ? (
+                  <ManageAlert tone="warn">
+                    CÃ²n {incompleteProfiles.length} nhÃ¢n sá»± thiáº¿u há»“ sÆ¡ phÃ¢n ca tháº­t. Há»‡ thá»‘ng váº«n cho cháº¡y `Tá»± Ä‘á»™ng xáº¿p ca`, nhÆ°ng nÃªn hoÃ n thiá»‡n `khung giá» lÃ m` vÃ  `ká»¹ nÄƒng` á»Ÿ mÃ n `Team` Ä‘á»ƒ lá»‹ch chÃ­nh xÃ¡c hÆ¡n.
+                  </ManageAlert>
+                ) : null}
+                {status === "published" && lastPublishedAt ? (
+                  <ManageAlert tone="info">
+                    Lá»‹ch Ä‘Ã£ xuáº¥t lÃºc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastPublishedAt))}. NhÃ¢n sá»± sáº½ nhÃ¬n tháº¥y Ä‘Ãºng lá»‹ch nÃ y á»Ÿ mÃ n Shifts.
+                  </ManageAlert>
+                ) : null}
+              </div>
+            </MobileCollapsible>
+          ) : null}
+        </div>
+        <div className="hidden md:block">
         {scheduleSchemaMissing ? (
           <ManageAlert tone="warn">
             Chưa có bảng `shift_plans` trong Supabase. Hãy chạy file `supabase/shift_plans_2026_04.sql` để lưu draft/publish thật cho OWNER và chia lịch ra cho nhân sự.
@@ -1599,8 +1659,321 @@ export default function ManageShiftsPage() {
           </ManageAlert>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)]">
-          <aside className="space-y-4">
+        </div>
+
+        <div className="space-y-3 xl:hidden">
+          <MobileSectionHeader
+            title="Shifts / Owner"
+            description="Mobile uu tien planner, giam sidebar va dong cac khoi phu cho gon."
+          />
+
+          <MobileCollapsible summary="Dieu huong va lich tuan" defaultOpen>
+            <MiniCalendar
+              weekStart={weekStart}
+              visibleMonth={visibleMonth}
+              onJumpToWeek={(dateKey) =>
+                updateWeek(toDateKey(getStartOfWeek(new Date(`${dateKey}T00:00:00`))))
+              }
+              onChangeVisibleMonth={setVisibleMonth}
+            />
+          </MobileCollapsible>
+
+          <MobileCollapsible summary="Rule ap dung">
+            <div className="space-y-3 rounded-[28px] border border-neutral-200 bg-white p-4 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Rule ap dung</p>
+              <div className="space-y-3 text-sm text-neutral-600">
+                <div className="rounded-2xl border border-neutral-200 px-4 py-3">
+                  Khong xep nguoi da xin nghi, ngoai availability hoac vuot max hours.
+                </div>
+                <div className="rounded-2xl border border-neutral-200 px-4 py-3">
+                  Uu tien dung skill, du nguoi khung gio cao diem va cong bang tong gio trong tuan.
+                </div>
+              </div>
+            </div>
+          </MobileCollapsible>
+        </div>
+
+        <div className="space-y-4 md:hidden">
+          <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Planner</p>
+                <h1 className="text-2xl font-semibold tracking-[-0.03em] text-neutral-950">Phân lịch ca</h1>
+              </div>
+
+              <div className="grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => void runAutoSchedule()}
+                  disabled={ownerSaving || !canRunAutoSchedule || profilesSchemaMissing}
+                  className="w-full rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {ownerSaving && status === "draft" ? "Đang lưu..." : "Tự động xếp ca"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePublish()}
+                  disabled={ownerSaving || !draft}
+                  className="w-full rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {ownerSaving && status === "published" ? "Đang xuất lịch..." : "Xuất lịch"}
+                </button>
+                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-semibold text-neutral-700">
+                  {status === "published" ? "Đã xuất lịch" : "Nháp"}
+                </div>
+              </div>
+
+              <WeekNavigator weekStart={weekStart} onChangeWeek={updateWeek} />
+
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((current) => !current)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700"
+              >
+                ⌕ {filtersOpen ? "Ẩn lọc" : "Bộ lọc"}
+              </button>
+
+              {filtersOpen ? (
+                <div className="space-y-3 rounded-[24px] border border-neutral-200 bg-neutral-50 p-3.5">
+                  <ShiftLegend />
+                  <div className="grid gap-3">
+                    <label className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-700">
+                      <span className="whitespace-nowrap">Vai trò</span>
+                      <select
+                        value={roleFilter}
+                        onChange={(event) => setRoleFilter(event.target.value)}
+                        className="min-w-0 bg-transparent text-sm outline-none"
+                      >
+                        <option value={FILTER_ALL}>Tất cả</option>
+                        {SHIFT_ROLE_FILTER_ORDER.filter((entry) => ownerEmployees.some((employee) => employee.role === entry)).map((entry) => (
+                          <option key={entry} value={entry}>
+                            {getRoleLabel(entry)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-700">
+                      <span className="whitespace-nowrap">Kỹ năng</span>
+                      <select
+                        value={skillFilter}
+                        onChange={(event) => setSkillFilter(event.target.value)}
+                        className="min-w-0 bg-transparent text-sm outline-none"
+                      >
+                        <option value={FILTER_ALL}>Tất cả</option>
+                        {allSkills.map((skill) => (
+                          <option key={skill} value={skill}>
+                            {skill}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Coverage</div>
+                  <div className="mt-2 text-lg font-semibold text-neutral-900">{totalAssigned}/{totalDemand}</div>
+                </div>
+                <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Day focus</div>
+                  <div className="mt-2 text-sm font-semibold text-neutral-900">
+                    {activeDaySummary ? formatDateLabel(activeDaySummary.dateKey) : "Chọn ngày"}
+                  </div>
+                </div>
+              </div>
+
+              {selectedEmployee && selectedAssignment ? (
+                <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm text-neutral-600">
+                  Đang sửa: {selectedEmployee.name} · {formatDateLabel(selectedAssignment.dateKey)}
+                </div>
+              ) : null}
+
+              <MobilePlannerCards
+                employees={filteredEmployees}
+                weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
+                selectedDateKey={activePlannerDate}
+                onSelectDate={setSelectedDayDetail}
+                getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
+                onOpenEditor={handleOpenPlannerEditor}
+                daySummaryMap={daySummaryMap}
+              />
+            </div>
+          </section>
+
+          <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Attendance</p>
+                <h3 className="text-lg font-semibold text-neutral-900">Bảng công hôm nay</h3>
+                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
+                  {attendanceSummary.openCount}/{attendanceSummary.totalCount} đang mở ca
+                </div>
+              </div>
+
+              {pendingAttendanceApprovals.length ? (
+                <div className="space-y-3">
+                  {pendingAttendanceApprovals.slice(0, 3).map((entry) => (
+                    <div key={entry.id} className="rounded-3xl border border-amber-200 bg-amber-50 px-3.5 py-3.5">
+                      <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Chờ OWNER xác nhận</p>
+                      <p className="mt-2 text-sm font-semibold text-neutral-900">
+                        {entry.staff_user_id ? teamNameMap.get(entry.staff_user_id) ?? entry.staff_user_id : "Nhân sự"}
+                      </p>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        Mở ca {formatTime(entry.clock_in)}
+                        {entry.scheduled_start ? ` • ${formatTime(entry.scheduled_start)}` : ""}
+                      </p>
+                      <div className="mt-4 flex flex-col gap-3">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          Duyệt
+                        </button>
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                          Từ chối
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                {ownerAttendanceEntries.length ? (
+                  ownerAttendanceEntries.slice(0, 4).map((entry) => (
+                    <div key={entry.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-neutral-900">
+                            {entry.staff_user_id ? teamNameMap.get(entry.staff_user_id) ?? entry.staff_user_id : "Nhân sự"}
+                          </p>
+                          <p className="mt-1 text-xs text-neutral-500">
+                            {new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(new Date(entry.clock_in))}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-neutral-200 px-3 py-1 text-xs font-semibold text-neutral-700">{entry.approval_status}</span>
+                      </div>
+                      <p className="mt-3 text-sm text-neutral-600">Thực tế: {formatTime(entry.clock_in)} - {entry.clock_out ? formatTime(entry.clock_out) : "Đang mở"}</p>
+                    </div>
+                  ))
+                ) : (
+                  <ManageAlert tone="info">Hôm nay chưa có bản ghi mở ca/đóng ca nào.</ManageAlert>
+                )}
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Overview</p>
+                <h3 className="text-lg font-semibold text-neutral-900">Cảnh báo và gợi ý</h3>
+                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
+                  {totalAssigned}/{totalDemand} slot
+                </div>
+              </div>
+
+              {activeDaySummary ? (
+                <div className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                  <p className="text-sm font-semibold text-neutral-900">{formatDateLabel(activeDaySummary.dateKey)}</p>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Đã xếp {activeDaySummary.scheduledCount}/{activeDaySummary.requiredCount} người
+                  </p>
+                  <p className={`mt-2 text-sm font-semibold ${summaryTone(activeDaySummary.status)}`}>
+                    {activeDaySummary.status.toUpperCase()}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                {draft?.conflicts.length ? (
+                  draft.conflicts.slice(0, 3).map((conflict) => (
+                    <div
+                      key={conflict.id}
+                      className={`rounded-3xl border px-3.5 py-3.5 ${
+                        conflict.severity === "high"
+                          ? "border-rose-200 bg-rose-50"
+                          : conflict.severity === "medium"
+                            ? "border-amber-200 bg-amber-50"
+                            : "border-neutral-200 bg-neutral-50"
+                      }`}
+                    >
+                      <p className="text-sm font-semibold text-neutral-900">{conflict.title}</p>
+                      <p className="mt-1 text-sm text-neutral-600">{conflict.message}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleDayDetail(conflict.dateKey)}
+                        className="mt-3 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+                      >
+                        Mở ngày này
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <ManageAlert tone="info">Không có xung đột nghiêm trọng.</ManageAlert>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {draft?.suggestions.length ? (
+                  draft.suggestions.slice(0, 2).map((suggestion) => (
+                    <div key={suggestion.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                      <p className="text-sm font-semibold text-neutral-900">{suggestion.employeeName}</p>
+                      <p className="mt-1 text-sm text-neutral-600">{suggestion.reason}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleSuggestionFocus(suggestion.employeeId, suggestion.dateKey)}
+                        className="mt-3 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+                      >
+                        Mở ô gợi ý
+                      </button>
+                    </div>
+                  ))
+                ) : null}
+              </div>
+            </div>
+          </section>
+
+          <MobileCollapsible summary="Leave và chỉnh tay">
+            <div className="space-y-4">
+              {pendingLeaveApprovals.length ? (
+                <div className="space-y-3">
+                  {pendingLeaveApprovals.slice(0, 3).map((request) => (
+                    <div key={request.id} className="rounded-3xl border border-amber-200 bg-amber-50 px-3.5 py-3.5">
+                      <p className="text-sm font-semibold text-neutral-900">{teamNameMap.get(request.staff_user_id) ?? request.staff_user_id}</p>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"} • {request.scheduled_date ?? "Không rõ ngày"}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <ManageAlert tone="info">Không có yêu cầu nghỉ đang chờ duyệt.</ManageAlert>
+              )}
+
+              <div className="space-y-3">
+                {employeeSummaries.slice(0, 4).map((summary) => (
+                  <div key={summary.employeeId} className="rounded-3xl border border-neutral-200 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-neutral-900">{summary.employeeName}</p>
+                        <p className="mt-1 text-xs text-neutral-500">{getRoleLabel(summary.role)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className={`text-sm font-semibold ${summary.overtimeHours > 0 ? "text-rose-600" : "text-neutral-900"}`}>
+                          {summary.assignedHours}h / {summary.maxWeeklyHours}h
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">{summary.totalShifts} ca</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </MobileCollapsible>
+        </div>
+
+        <div className="hidden gap-6 md:grid xl:grid-cols-[240px_minmax(0,1fr)]">
+          <aside className="hidden space-y-4 xl:block">
             <SidebarMenu onJump={handleSidebarJump} />
             <MiniCalendar
               weekStart={weekStart}
@@ -1623,20 +1996,131 @@ export default function ManageShiftsPage() {
             </div>
           </aside>
 
-          <main className="flex flex-col gap-5">
+          <main className="flex flex-col gap-4 md:gap-5">
+            <ResponsiveOwnerSection summary="Planner" defaultOpen>
             <div ref={plannerSectionRef} className="order-1">
-            <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Shifts / Owner</p>
-                  <h1 className="mt-2 text-4xl font-semibold tracking-[-0.03em] text-neutral-950">Phân lịch ca</h1>
+            <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:hidden">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Planner</p>
+                  <h1 className="text-2xl font-semibold tracking-[-0.03em] text-neutral-950">Phân lịch ca</h1>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
+
+                <div className="grid gap-2">
                   <button
                     type="button"
                     onClick={() => void runAutoSchedule()}
                     disabled={ownerSaving || !canRunAutoSchedule || profilesSchemaMissing}
-                    className="rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {ownerSaving && status === "draft" ? "Đang lưu..." : "Tự động xếp ca"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handlePublish()}
+                    disabled={ownerSaving || !draft}
+                    className="w-full rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {ownerSaving && status === "published" ? "Đang xuất lịch..." : "Xuất lịch"}
+                  </button>
+                  <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-semibold text-neutral-700">
+                    {status === "published" ? "Đã xuất lịch" : "Nháp"}
+                  </div>
+                </div>
+
+                <WeekNavigator weekStart={weekStart} onChangeWeek={updateWeek} />
+
+                <button
+                  type="button"
+                  onClick={() => setFiltersOpen((current) => !current)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700"
+                >
+                  ⌕ {filtersOpen ? "Ẩn lọc" : "Bộ lọc"}
+                </button>
+
+                {filtersOpen ? (
+                  <div className="space-y-3 rounded-[24px] border border-neutral-200 bg-neutral-50 p-3.5">
+                    <ShiftLegend />
+                    <div className="grid gap-3">
+                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-700">
+                        <span className="whitespace-nowrap">Vai trò</span>
+                        <select
+                          value={roleFilter}
+                          onChange={(event) => setRoleFilter(event.target.value)}
+                          className="min-w-0 bg-transparent text-sm outline-none"
+                        >
+                          <option value={FILTER_ALL}>Tất cả</option>
+                          {SHIFT_ROLE_FILTER_ORDER.filter((entry) => ownerEmployees.some((employee) => employee.role === entry)).map((entry) => (
+                            <option key={entry} value={entry}>
+                              {getRoleLabel(entry)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-700">
+                        <span className="whitespace-nowrap">Kỹ năng</span>
+                        <select
+                          value={skillFilter}
+                          onChange={(event) => setSkillFilter(event.target.value)}
+                          className="min-w-0 bg-transparent text-sm outline-none"
+                        >
+                          <option value={FILTER_ALL}>Tất cả</option>
+                          {allSkills.map((skill) => (
+                            <option key={skill} value={skill}>
+                              {skill}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Coverage</div>
+                    <div className="mt-2 text-lg font-semibold text-neutral-900">{totalAssigned}/{totalDemand}</div>
+                  </div>
+                  <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Day focus</div>
+                    <div className="mt-2 text-sm font-semibold text-neutral-900">
+                      {activeDaySummary ? formatDateLabel(activeDaySummary.dateKey) : "Chọn ngày"}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedEmployee && selectedAssignment ? (
+                  <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm text-neutral-600">
+                    Đang sửa: {selectedEmployee.name} · {formatDateLabel(selectedAssignment.dateKey)}
+                  </div>
+                ) : null}
+
+                <div ref={shiftsSectionRef}>
+                  <MobilePlannerCards
+                    employees={filteredEmployees}
+                    weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
+                    selectedDateKey={activePlannerDate}
+                    onSelectDate={setSelectedDayDetail}
+                    getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
+                    onOpenEditor={handleOpenPlannerEditor}
+                    daySummaryMap={daySummaryMap}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="hidden rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:block md:p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Shifts / Owner</p>
+                  <h1 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-neutral-950 md:text-4xl">Phân lịch ca</h1>
+                </div>
+                <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void runAutoSchedule()}
+                    disabled={ownerSaving || !canRunAutoSchedule || profilesSchemaMissing}
+                    className="w-full rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {ownerSaving && status === "draft" ? "Đang lưu..." : "Tự động xếp ca"}
                   </button>
@@ -1647,20 +2131,20 @@ export default function ManageShiftsPage() {
                     type="button"
                     onClick={() => void handlePublish()}
                     disabled={ownerSaving || !draft}
-                    className="rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                   >
                     {ownerSaving && status === "published" ? "Đang xuất lịch..." : "Xuất lịch"}
                   </button>
                 </div>
               </div>
 
-              <div className="mt-6 flex flex-col gap-4 border-t border-neutral-200 pt-5">
+              <div className="mt-5 flex flex-col gap-4 border-t border-neutral-200 pt-4 md:mt-6 md:pt-5">
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                   <WeekNavigator weekStart={weekStart} onChangeWeek={updateWeek} />
                   <button
                     type="button"
                     onClick={() => setFiltersOpen((current) => !current)}
-                    className="inline-flex items-center gap-2 self-start rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700"
+                    className="inline-flex w-full items-center justify-center gap-2 self-start rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-medium text-neutral-700 sm:w-auto"
                   >
                     ⌕ {filtersOpen ? "Ẩn lọc" : "Bộ lọc"}
                   </button>
@@ -1703,14 +2187,14 @@ export default function ManageShiftsPage() {
                 </div>
               </div>
 
-              <div className="mt-5 rounded-[28px] border border-neutral-200 bg-neutral-50 px-4 py-4 text-sm text-neutral-600">
+              <div className="mt-4 rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-sm text-neutral-600 md:mt-5 md:rounded-[28px] md:px-4 md:py-4">
                 {selectedEmployee && selectedAssignment
                   ? `Đang sửa nhanh: ${selectedEmployee.name} · ${formatDateLabel(selectedAssignment.dateKey)}. Panel "Chọn lịch sửa thủ công" đang mở ngay cạnh bảng lịch.`
                   : 'Chạm vào một ô trong bảng để mở panel "Chọn lịch sửa thủ công" ngay cạnh khu phân lịch.'}
               </div>
 
               {hasIncompleteProfiles ? (
-                <div className="mt-3 rounded-[28px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800">
+                <div className="mt-3 hidden rounded-[28px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-800 md:block">
                   <p className="font-semibold">Một số hồ sơ phân ca chưa hoàn thiện</p>
                   <p className="mt-1">
                     Auto schedule vẫn chạy được, nhưng các nhân sự thiếu availability/kỹ năng có thể bị xếp ít hơn hoặc tạo cảnh báo trong phần `Tổng quan điều phối`.
@@ -1835,6 +2319,7 @@ export default function ManageShiftsPage() {
               </div>
             </section>
             </div>
+            </ResponsiveOwnerSection>
 
             {selectedEmployee && selectedAssignment ? (
               <QuickShiftEditor
@@ -1847,22 +2332,83 @@ export default function ManageShiftsPage() {
               />
             ) : null}
 
+            <ResponsiveOwnerSection summary="Attendance">
             <div ref={attendanceSectionRef} className="order-3">
-            <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
+            <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:hidden">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Attendance</p>
+                  <h3 className="text-lg font-semibold text-neutral-900">Bảng công hôm nay</h3>
+                  <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
+                    {attendanceSummary.openCount}/{attendanceSummary.totalCount} đang mở ca
+                  </div>
+                </div>
+
+                {pendingAttendanceApprovals.length ? (
+                  <div className="space-y-3">
+                    {pendingAttendanceApprovals.slice(0, 3).map((entry) => (
+                      <div key={entry.id} className="rounded-3xl border border-amber-200 bg-amber-50 px-3.5 py-3.5">
+                        <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Chờ OWNER xác nhận</p>
+                        <p className="mt-2 text-sm font-semibold text-neutral-900">
+                          {entry.staff_user_id ? teamNameMap.get(entry.staff_user_id) ?? entry.staff_user_id : "Nhân sự"}
+                        </p>
+                        <p className="mt-1 text-sm text-neutral-600">
+                          Mở ca {formatTime(entry.clock_in)}
+                          {entry.scheduled_start ? ` • ${formatTime(entry.scheduled_start)}` : ""}
+                        </p>
+                        <div className="mt-4 flex flex-col gap-3">
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                            Duyệt
+                          </button>
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                            Từ chối
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="space-y-3">
+                  {ownerAttendanceEntries.length ? (
+                    ownerAttendanceEntries.slice(0, 4).map((entry) => (
+                      <div key={entry.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-neutral-900">
+                              {entry.staff_user_id ? teamNameMap.get(entry.staff_user_id) ?? entry.staff_user_id : "Nhân sự"}
+                            </p>
+                            <p className="mt-1 text-xs text-neutral-500">
+                              {new Intl.DateTimeFormat("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(new Date(entry.clock_in))}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-neutral-200 px-3 py-1 text-xs font-semibold text-neutral-700">{entry.approval_status}</span>
+                        </div>
+                        <p className="mt-3 text-sm text-neutral-600">Thực tế: {formatTime(entry.clock_in)} - {entry.clock_out ? formatTime(entry.clock_out) : "Đang mở"}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <ManageAlert tone="info">Hôm nay chưa có bản ghi mở ca/đóng ca nào.</ManageAlert>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            <section className="hidden rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:block md:p-5">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Mở ca / Đóng ca</p>
                   <h3 className="mt-2 text-lg font-semibold text-neutral-900">Bảng công hôm nay</h3>
                 </div>
-                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm font-medium text-neutral-700">
+                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
                   {attendanceSummary.openCount}/{attendanceSummary.totalCount} đang mở ca
                 </div>
               </div>
 
               {pendingAttendanceApprovals.length ? (
-                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="mt-4 grid gap-3">
                   {pendingAttendanceApprovals.map((entry) => (
-                    <div key={entry.id} className="rounded-3xl border border-amber-200 bg-amber-50 px-4 py-4">
+                    <div key={entry.id} className="rounded-3xl border border-amber-200 bg-amber-50 px-3.5 py-3.5 md:px-4 md:py-4">
                       <p className="text-xs uppercase tracking-[0.2em] text-amber-700">Chờ OWNER xác nhận mở ca</p>
                       <p className="mt-2 text-sm font-semibold text-neutral-900">
                         {entry.staff_user_id ? teamNameMap.get(entry.staff_user_id) ?? entry.staff_user_id : "Nhân sự"}
@@ -1871,11 +2417,11 @@ export default function ManageShiftsPage() {
                         Mở ca {formatTime(entry.clock_in)}
                         {entry.scheduled_start ? ` • ca ${formatTime(entry.scheduled_start)} - ${formatTime(entry.scheduled_end ?? entry.scheduled_start)}` : ""}
                       </p>
-                      <div className="mt-4 flex gap-3">
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
                           Duyệt
                         </button>
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60 sm:min-w-[120px]">
                           Từ chối
                         </button>
                       </div>
@@ -1887,7 +2433,7 @@ export default function ManageShiftsPage() {
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {ownerAttendanceEntries.length ? (
                   ownerAttendanceEntries.map((entry) => (
-                    <div key={entry.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-4 py-4">
+                    <div key={entry.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5 md:px-4 md:py-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-neutral-900">
@@ -1909,23 +2455,96 @@ export default function ManageShiftsPage() {
               </div>
             </section>
             </div>
+            </ResponsiveOwnerSection>
 
-            <div className="order-2 grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+            <div className="order-2 grid gap-4 xl:grid-cols-[1.1fr_0.9fr] xl:gap-5">
+              <ResponsiveOwnerSection summary="Overview">
               <div ref={overviewSectionRef}>
-              <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between">
+              <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:hidden">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Overview</p>
+                    <h3 className="text-lg font-semibold text-neutral-900">Cảnh báo và gợi ý</h3>
+                    <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
+                      {totalAssigned}/{totalDemand} slot
+                    </div>
+                  </div>
+
+                  {activeDaySummary ? (
+                    <div className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                      <p className="text-sm font-semibold text-neutral-900">{formatDateLabel(activeDaySummary.dateKey)}</p>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        Đã xếp {activeDaySummary.scheduledCount}/{activeDaySummary.requiredCount} người
+                      </p>
+                      <p className={`mt-2 text-sm font-semibold ${summaryTone(activeDaySummary.status)}`}>
+                        {activeDaySummary.status.toUpperCase()}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <div className="space-y-3">
+                    {draft?.conflicts.length ? (
+                      draft.conflicts.slice(0, 3).map((conflict) => (
+                        <div
+                          key={conflict.id}
+                          className={`rounded-3xl border px-3.5 py-3.5 ${
+                            conflict.severity === "high"
+                              ? "border-rose-200 bg-rose-50"
+                              : conflict.severity === "medium"
+                                ? "border-amber-200 bg-amber-50"
+                                : "border-neutral-200 bg-neutral-50"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-neutral-900">{conflict.title}</p>
+                          <p className="mt-1 text-sm text-neutral-600">{conflict.message}</p>
+                          <button
+                            type="button"
+                            onClick={() => handleDayDetail(conflict.dateKey)}
+                            className="mt-3 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+                          >
+                            Mở ngày này
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <ManageAlert tone="info">Không có xung đột nghiêm trọng.</ManageAlert>
+                    )}
+                  </div>
+
+                  <div className="space-y-3">
+                    {draft?.suggestions.length ? (
+                      draft.suggestions.slice(0, 2).map((suggestion) => (
+                        <div key={suggestion.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5">
+                          <p className="text-sm font-semibold text-neutral-900">{suggestion.employeeName}</p>
+                          <p className="mt-1 text-sm text-neutral-600">{suggestion.reason}</p>
+                          <button
+                            type="button"
+                            onClick={() => handleSuggestionFocus(suggestion.employeeId, suggestion.dateKey)}
+                            className="mt-3 rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+                          >
+                            Mở ô gợi ý
+                          </button>
+                        </div>
+                      ))
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
+              <section className="hidden rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:block md:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Tổng quan điều phối</p>
                     <h3 className="mt-2 text-lg font-semibold text-neutral-900">Cảnh báo và gợi ý điều chỉnh</h3>
                   </div>
-                  <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm font-medium text-neutral-700">
+                  <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
                     {totalAssigned}/{totalDemand} slot
                   </div>
                 </div>
 
                 <div className="mt-4 space-y-3">
                   {activeDaySummary ? (
-                    <div className="rounded-3xl border border-neutral-200 bg-neutral-50 px-4 py-4">
+                    <div className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5 md:px-4 md:py-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-neutral-900">Chi tiết ngày {formatDateLabel(activeDaySummary.dateKey)}</p>
@@ -1949,7 +2568,7 @@ export default function ManageShiftsPage() {
                     draft.conflicts.slice(0, 6).map((conflict) => (
                       <div
                         key={conflict.id}
-                        className={`rounded-3xl border px-4 py-4 ${
+                        className={`rounded-3xl border px-3.5 py-3.5 md:px-4 md:py-4 ${
                           conflict.severity === "high"
                             ? "border-rose-200 bg-rose-50"
                             : conflict.severity === "medium"
@@ -1981,7 +2600,7 @@ export default function ManageShiftsPage() {
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
                     {draft?.suggestions.length ? (
                       draft.suggestions.slice(0, 4).map((suggestion) => (
-                        <div key={suggestion.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-4 py-4">
+                        <div key={suggestion.id} className="rounded-3xl border border-neutral-200 bg-neutral-50 px-3.5 py-3.5 md:px-4 md:py-4">
                           <p className="text-sm font-semibold text-neutral-900">{suggestion.employeeName}</p>
                           <p className="mt-1 text-sm text-neutral-600">{suggestion.reason}</p>
                           <p className="mt-2 text-xs text-neutral-400">
@@ -2003,7 +2622,9 @@ export default function ManageShiftsPage() {
                 </div>
               </section>
               </div>
+              </ResponsiveOwnerSection>
 
+              <ResponsiveOwnerSection summary="Leave va chinh tay">
               <div ref={leaveSectionRef} className="xl:sticky xl:top-24 xl:self-start">
               <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
@@ -2036,11 +2657,11 @@ export default function ManageShiftsPage() {
                           <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700">PENDING</span>
                         </div>
                         {request.note ? <p className="mt-3 text-sm text-neutral-700">{request.note}</p> : null}
-                        <div className="mt-4 flex gap-3">
-                          <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                          <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
                             Duyệt
                           </button>
-                          <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                          <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60 sm:min-w-[120px]">
                             Từ chối
                           </button>
                         </div>
@@ -2061,7 +2682,7 @@ export default function ManageShiftsPage() {
                       <p className="mt-1 text-sm text-neutral-600">Giờ tối đa / tuần: {selectedEmployee.maxWeeklyHours}h</p>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {manualShiftOptions.map((definition) => {
                         const active = selectedAssignment.shiftType === definition.type;
                         return (
@@ -2170,12 +2791,13 @@ export default function ManageShiftsPage() {
                 </div>
               </section>
               </div>
+              </ResponsiveOwnerSection>
             </div>
           </main>
         </div>
       </div>
 
-      <MobileStickyActions>
+      <div className="hidden">
         <button
           type="button"
           onClick={() => void runAutoSchedule()}
@@ -2192,7 +2814,7 @@ export default function ManageShiftsPage() {
         >
           Xuất lịch
         </button>
-      </MobileStickyActions>
+      </div>
       <style jsx global>{`
         .manage-shifts-page button:not(:disabled) {
           cursor: pointer;

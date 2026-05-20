@@ -123,8 +123,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
-  const [notificationsSeenAt, setNotificationsSeenAt] = useState<string | null>(null);
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
+  const [notificationSeenRevision, setNotificationSeenRevision] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -255,12 +255,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!supabase) return;
-    let disposed = false;
 
     async function ensureAppSession() {
       if (!supabase) return;
       const { session, invalidRefreshToken } = await getSafeSupabaseSession();
-      if (invalidRefreshToken || !session?.user || disposed) return;
+      if (invalidRefreshToken || !session?.user) return;
 
       const validation = await validateAppSession();
       if (!validation.valid && validation.reason === "INVALID_TOKEN") {
@@ -272,16 +271,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     void ensureAppSession();
   }, [role]);
-
-  useEffect(() => {
-    if (!email) return;
-    try {
-      const stored = sessionStorage.getItem(`nails.manage.notifications.seenAt.${email}`);
-      setNotificationsSeenAt(stored);
-    } catch {
-      setNotificationsSeenAt(null);
-    }
-  }, [email]);
 
   useEffect(() => {
     if (!["OWNER", "PARTNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;
@@ -304,15 +293,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       clearInterval(id);
     };
   }, [role]);
-
-  useEffect(() => {
-    if (!notificationsOpen || !email) return;
-    const seenAt = new Date().toISOString();
-    setNotificationsSeenAt(seenAt);
-    try {
-      sessionStorage.setItem(`nails.manage.notifications.seenAt.${email}`, seenAt);
-    } catch {}
-  }, [email, notificationsOpen]);
 
   const visibleGroups = useMemo(() => {
     if (role === "TECH") {
@@ -353,6 +333,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [notifications],
   );
 
+  const notificationsSeenAt = useMemo(() => {
+    if (!email) return null;
+    void notificationSeenRevision;
+    try {
+      return sessionStorage.getItem(`nails.manage.notifications.seenAt.${email}`);
+    } catch {
+      return null;
+    }
+  }, [email, notificationSeenRevision]);
+
   const unreadNotificationCount = useMemo(() => {
     const seenAtMs = notificationsSeenAt ? new Date(notificationsSeenAt).getTime() : 0;
     return notifications.filter((item) => {
@@ -371,7 +361,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [notifications],
   );
 
-  const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
+  const resolvedNotificationTab = notificationTab === "action" && !actionNotifications.length ? "feed" : notificationTab;
+  const visibleNotifications = resolvedNotificationTab === "action" ? actionNotifications : feedNotifications;
 
   useEffect(() => {
     if (!supabase) return;
@@ -392,15 +383,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [router, visibleGroups]);
 
   useEffect(() => {
-    setNotificationsOpen(false);
-  }, [pathname]);
-
-  useEffect(() => {
-    if (!notificationsOpen) return;
-    setNotificationTab(actionNotifications.length ? "action" : "feed");
-  }, [actionNotifications.length, notificationsOpen]);
-
-  useEffect(() => {
     if (!loading && !canAccess(role, pathname)) {
       router.replace(visibleGroups[0]?.items[0]?.href ?? getDefaultManageHref(role));
     }
@@ -413,6 +395,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     authCache = null;
     sessionStorage.removeItem("nails.auth.cache");
     router.replace("/login");
+  }
+
+  function closeNotificationsPanel() {
+    setNotificationsOpen(false);
+  }
+
+  function toggleNotificationsPanel() {
+    setNotificationsOpen((current) => {
+      const nextOpen = !current;
+      if (nextOpen) {
+        setNotificationTab(actionNotifications.length ? "action" : "feed");
+        if (email) {
+          const seenAt = new Date().toISOString();
+          try {
+            sessionStorage.setItem(`nails.manage.notifications.seenAt.${email}`, seenAt);
+          } catch {}
+          setNotificationSeenRevision((revision) => revision + 1);
+        }
+      }
+      return nextOpen;
+    });
   }
 
   function renderItemLabel(label: string, href: string) {
@@ -493,7 +496,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               if (group.items.length === 1) {
                 return (
                   <div key={group.label} onMouseEnter={() => setHoveredGroup(group.label)} onMouseLeave={() => setHoveredGroup((current) => (current === group.label ? null : current))}>
-                    <Link href={directHref} className="nav-link rounded-full px-4 py-2 text-sm transition" style={active || hovered ? { background: "var(--color-primary)", color: "#fff" } : { color: "var(--color-text-secondary)" }}>
+                    <Link href={directHref} onClick={closeNotificationsPanel} className="nav-link rounded-full px-4 py-2 text-sm transition" style={active || hovered ? { background: "var(--color-primary)", color: "#fff" } : { color: "var(--color-text-secondary)" }}>
                       {renderItemLabel(group.label, directHref)}
                     </Link>
                   </div>
@@ -502,7 +505,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
               return (
                 <div key={group.label} className="nav-group group relative" onMouseEnter={() => setHoveredGroup(group.label)} onMouseLeave={() => setHoveredGroup((current) => (current === group.label ? null : current))}>
-                  <Link href={directHref} className="nav-group-trigger inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition" style={active || hovered ? { background: "var(--color-primary)", color: "#fff" } : { color: "var(--color-text-secondary)" }}>
+                  <Link href={directHref} onClick={closeNotificationsPanel} className="nav-group-trigger inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm transition" style={active || hovered ? { background: "var(--color-primary)", color: "#fff" } : { color: "var(--color-text-secondary)" }}>
                     <span>{group.label}</span>
                     <span className="text-xs opacity-80">▾</span>
                   </Link>
@@ -512,7 +515,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         {group.items.map((item) => {
                           const itemActive = pathname === item.href;
                           return (
-                            <Link key={item.href} href={item.href} className="rounded-2xl px-4 py-3 transition hover:bg-[#faf7f2]" style={itemActive ? { background: "#fff1f3" } : undefined}>
+                            <Link key={item.href} href={item.href} onClick={closeNotificationsPanel} className="rounded-2xl px-4 py-3 transition hover:bg-[#faf7f2]" style={itemActive ? { background: "#fff1f3" } : undefined}>
                               <p className="text-sm font-semibold" style={{ color: itemActive ? "var(--color-primary)" : "var(--color-text-main)" }}>
                                 {renderItemLabel(item.label, item.href)}
                               </p>
@@ -532,7 +535,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setNotificationsOpen((current) => !current)}
+                onClick={toggleNotificationsPanel}
                 className="inline-flex h-11 w-11 items-center justify-center rounded-full border bg-white text-base transition hover:bg-[#faf7f2]"
                 style={{ borderColor: "var(--color-border)" }}
                 aria-label="Mở thông báo"
@@ -556,7 +559,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setNotificationsOpen(false)}
+                      onClick={closeNotificationsPanel}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full border text-sm text-neutral-500"
                       style={{ borderColor: "var(--color-border)" }}
                       aria-label="Đóng thông báo"
@@ -570,7 +573,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => setNotificationTab("action")}
                       className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                        notificationTab === "action"
+                        resolvedNotificationTab === "action"
                           ? "bg-[var(--color-primary)] text-white"
                           : "border border-neutral-200 bg-white text-neutral-700"
                       }`}
@@ -581,7 +584,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       type="button"
                       onClick={() => setNotificationTab("feed")}
                       className={`rounded-full px-3 py-2 text-xs font-semibold transition ${
-                        notificationTab === "feed"
+                        resolvedNotificationTab === "feed"
                           ? "bg-[var(--color-primary)] text-white"
                           : "border border-neutral-200 bg-white text-neutral-700"
                       }`}
@@ -596,7 +599,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         <Link
                           key={item.id}
                           href={item.href}
-                          onClick={() => setNotificationsOpen(false)}
+                          onClick={closeNotificationsPanel}
                           className={`block rounded-2xl border px-4 py-3 transition hover:bg-[#faf7f2] ${renderNotificationTone(item)}`}
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -622,7 +625,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       ))
                     ) : (
                       <div className="rounded-2xl border border-dashed px-4 py-6 text-center text-sm text-neutral-500" style={{ borderColor: "var(--color-border)" }}>
-                        {notificationTab === "action"
+                        {resolvedNotificationTab === "action"
                           ? "Hiện không có mục nào cần xử lý."
                           : "Chưa có sự kiện nào gần đây."}
                       </div>
@@ -641,7 +644,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <p style={{ color: "var(--color-text-secondary)" }}>{email || "No session"}</p>
                 <p className="font-semibold">{getRoleLabel(role)}</p>
               </div>
-              <Link href="/manage/account" className="btn btn-outline px-3 py-2 text-xs">
+              <Link href="/manage/account" onClick={closeNotificationsPanel} className="btn btn-outline px-3 py-2 text-xs">
                 Hồ sơ
               </Link>
               <button onClick={onLogout} className="btn btn-outline px-3 py-2 text-xs">

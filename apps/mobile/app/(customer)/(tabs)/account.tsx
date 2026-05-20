@@ -27,6 +27,15 @@ import { useCustomerTheme } from "@/src/providers/customer-preferences-provider"
 
 type TabKey = "history" | "favorites" | "info";
 
+function parseTabKey(value?: string | string[]): TabKey | null {
+  const rawValue = Array.isArray(value) ? value[0] : value;
+  if (rawValue === "history" || rawValue === "favorites" || rawValue === "info") {
+    return rawValue;
+  }
+
+  return null;
+}
+
 function formatBirthDateLabel(value: string) {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
@@ -59,6 +68,38 @@ function toDateInputValue(value: Date) {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function getTierGradient(tierKey: string | null | undefined) {
+  switch ((tierKey || "bronze").toLowerCase()) {
+    case "silver":
+      return ["#F3F5F7", "#C9D1DA", "#8A97A6"] as const;
+    case "gold":
+      return ["#FFF3C9", "#E7C86D", "#B8862F"] as const;
+    case "platinum":
+      return ["#FEFEFF", "#DDE3EA", "#AEB8C4"] as const;
+    case "diamond":
+      return ["#E8F7FF", "#86D7F7", "#2E7FBF"] as const;
+    case "bronze":
+    default:
+      return ["#E6B17E", "#C98652", "#8A532C"] as const;
+  }
+}
+
+function getTierIconName(tierKey: string | null | undefined): React.ComponentProps<typeof Feather>["name"] {
+  switch ((tierKey || "bronze").toLowerCase()) {
+    case "silver":
+      return "shield";
+    case "gold":
+      return "star";
+    case "platinum":
+      return "zap";
+    case "diamond":
+      return "hexagon";
+    case "bronze":
+    default:
+      return "award";
+  }
 }
 
 function getHistoryStatusBadgeStyle(status: string, theme: ReturnType<typeof useCustomerTheme>) {
@@ -123,7 +164,9 @@ export default function AccountScreen() {
     useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
   const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership({ autoRefreshOnMount: false });
   const { refresh: refreshLookbook, services, syncFromCache: syncLookbookFromCache } = useLookbookServices(FALLBACK_SERVICES, { autoRefreshOnMount: false });
-  const [activeTab, setActiveTab] = useState<TabKey>("history");
+  const [manualTab, setManualTab] = useState<TabKey | null>(null);
+  const routeTab = parseTabKey(params.tab);
+  const currentTab = manualTab ?? routeTab ?? "history";
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -167,13 +210,6 @@ export default function AccountScreen() {
     };
   }, [favoriteIds]);
 
-  useEffect(() => {
-    const rawTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
-    if (rawTab === "history" || rawTab === "favorites" || rawTab === "info") {
-      setActiveTab(rawTab);
-    }
-  }, [params.tab]);
-
   const displayAvatar = useMemo(() => {
     if (avatarUri?.trim()) {
       return avatarUri.trim();
@@ -182,6 +218,10 @@ export default function AccountScreen() {
     const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || "Customer");
     return `https://ui-avatars.com/api/?name=${seed}&background=B4937D&color=FFFFFF&size=256`;
   }, [avatarUri, form.name, user?.email]);
+
+  const membershipThemeKey = currentTier?.themeKey || currentTier?.code || "bronze";
+  const membershipCardGradient = getTierGradient(membershipThemeKey);
+  const membershipIconName = getTierIconName(membershipThemeKey);
 
   const membershipBlurb = useMemo(() => {
     if (!currentTier && nextTier) {
@@ -213,7 +253,7 @@ export default function AccountScreen() {
     return parts.length
       ? `Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
       : `Mục tiêu tiếp theo là ${nextTier.name}.`;
-  }, [currentTier?.name, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
+  }, [currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
 
   const summary = useMemo(() => {
     const totalSpent = historyItems.reduce((sum, item) => {
@@ -321,15 +361,13 @@ export default function AccountScreen() {
         setForm((current) => ({ ...current, email: user?.email ?? "" }));
       }
     }
-  }, [user?.displayName, user?.email, user?.id]);
-
-  useEffect(() => {
-    void loadProfile({ forceRemote: false });
-  }, [loadProfile]);
+  }, [user]);
 
   useFocusEffect(
     useCallback(() => {
+      void loadProfile({ forceRemote: false });
       void syncTimelineFromCache();
+      void refreshTimeline();
       syncLookbookFromCache();
       if (!favoritesHydrated) {
         void refreshFavorites();
@@ -337,7 +375,7 @@ export default function AccountScreen() {
       if (!services.length) {
         void refreshLookbook();
       }
-    }, [favoritesHydrated, refreshFavorites, refreshLookbook, services.length, syncLookbookFromCache, syncTimelineFromCache]),
+    }, [favoritesHydrated, loadProfile, refreshFavorites, refreshLookbook, refreshTimeline, services.length, syncLookbookFromCache, syncTimelineFromCache]),
   );
 
   const handleRefresh = useCallback(async () => {
@@ -580,7 +618,7 @@ export default function AccountScreen() {
       </View>
 
       <View style={styles.profileHero}>
-        <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()}>
+        <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()} disabled={isUploadingAvatar}>
           <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: displayAvatar }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
           <View style={styles.cameraBadge}>
             <Feather color={theme.colors.textSoft} name="camera" size={15} />
@@ -592,7 +630,7 @@ export default function AccountScreen() {
       </View>
 
       <LinearGradient
-        colors={["#FAEEDF", "#F4E0C8"]}
+        colors={membershipCardGradient}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
         style={styles.membershipCard}
@@ -603,8 +641,8 @@ export default function AccountScreen() {
           <Text style={styles.membershipHint}>{membershipBlurb}</Text>
         </View>
         <View style={styles.membershipAwardWrap}>
-          <LinearGradient colors={["#C89B76", "#9F7453"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
-            <Feather color="#FFF7F0" name="award" size={18} />
+          <LinearGradient colors={membershipCardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
+            <Feather color="#FFF7F0" name={membershipIconName} size={18} />
           </LinearGradient>
         </View>
       </LinearGradient>
@@ -619,9 +657,9 @@ export default function AccountScreen() {
 
       <SurfaceCard style={styles.tabsCard}>
         {TABS.map((tab) => {
-          const active = tab.key === activeTab;
+          const active = tab.key === currentTab;
           return (
-            <Pressable key={tab.key} onPress={() => setActiveTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
+            <Pressable key={tab.key} onPress={() => setManualTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
               <Feather color={active ? theme.colors.text : theme.colors.textSoft} name={tab.icon} size={14} />
               <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
             </Pressable>
@@ -629,7 +667,7 @@ export default function AccountScreen() {
         })}
       </SurfaceCard>
 
-      {activeTab === "history" ? (
+      {currentTab === "history" ? (
         <View style={styles.cardList}>
           {historyItems.map((item) => {
             const badgeStyle = getHistoryStatusBadgeStyle(item.status, theme);
@@ -671,7 +709,7 @@ export default function AccountScreen() {
         </View>
       ) : null}
 
-      {activeTab === "favorites" ? (
+      {currentTab === "favorites" ? (
         <View style={styles.cardList}>
           {favoriteServices.map((service) => (
             <Pressable
@@ -710,7 +748,7 @@ export default function AccountScreen() {
         </View>
       ) : null}
 
-      {activeTab === "info" ? (
+      {currentTab === "info" ? (
         <SurfaceCard style={styles.formCard}>
           <EditableField styles={styles} label={strings.profileName} value={form.name} onChangeText={(value) => setForm((current) => ({ ...current, name: value }))} />
           <DatePickerField

@@ -26,7 +26,7 @@ import {
   updateTeamMemberRoleForMobile,
 } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { ManageScreenShell, manageStyles } from "@/src/features/admin/manage-ui";
+import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import {
   canManageShiftPlans,
   createEmptyStaffShiftProfile,
@@ -198,6 +198,7 @@ function RoleChip({
 }
 
 export default function AdminManageTeamScreen() {
+  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const { role: currentRole } = useSession();
   const [rows, setRows] = useState<TeamMemberRow[]>([]);
   const [inviteRows, setInviteRows] = useState<TeamInviteCodeRow[]>([]);
@@ -449,6 +450,10 @@ export default function AdminManageTeamScreen() {
   }
 
   const latestInvite = inviteRows[0] ?? null;
+
+  if (!isHydrated || !allowed) {
+    return <View style={manageStyles.loadingState} />;
+  }
 
   return (
     <ManageScreenShell

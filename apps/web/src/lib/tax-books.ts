@@ -1,4 +1,4 @@
-import { getTicketDetail, listTicketsInRange, listTimeEntriesInRange } from "@/lib/reporting";
+import { supabase } from "@/lib/supabase";
 
 export type TaxBookType = "S1A_HKD" | "S2A_HKD" | "S3A_HKD";
 
@@ -9,49 +9,32 @@ export type TaxBookRow = {
 };
 
 function buildServiceCustomerDescription(serviceNames: string[], customerName?: string | null) {
-  const serviceLabel = serviceNames.length > 0 ? serviceNames.join(" + ") : "Dịch vụ";
-  const customerLabel = customerName?.trim() ? customerName.trim() : "khách lẻ";
+  const serviceLabel = serviceNames.length > 0 ? serviceNames.join(" + ") : "Dich vu";
+  const customerLabel = customerName?.trim() ? customerName.trim() : "khach le";
   return `${serviceLabel} - ${customerLabel}`;
 }
 
 export async function buildTaxBook(type: TaxBookType, fromIso: string, toIso: string): Promise<TaxBookRow[]> {
-  if (type === "S1A_HKD" || type === "S2A_HKD") {
-    const tickets = (await listTicketsInRange(fromIso, toIso)).filter((t) => t.status === "CLOSED");
-    const details = await Promise.all(
-      tickets.map(async (t) => {
-        try {
-          const detail = await getTicketDetail(t.id);
-          const serviceNames = [...new Set((detail.items ?? []).map((item) => item.service_name).filter(Boolean))];
-          const description = buildServiceCustomerDescription(serviceNames, detail.customer?.name ?? null);
-          return {
-            ticket: t,
-            description,
-          };
-        } catch {
-          return {
-            ticket: t,
-            description: buildServiceCustomerDescription([], null),
-          };
-        }
-      }),
-    );
-
-    return details.map(({ ticket, description }) => ({
-      date: ticket.created_at,
-      description: type === "S1A_HKD" ? description : `VAT - ${description}`,
-      amount: Number(type === "S1A_HKD" ? ticket.totals_json?.grand_total ?? 0 : ticket.totals_json?.vat_total ?? 0),
-    }));
+  if (!supabase) {
+    throw new Error("Supabase chua cau hinh");
   }
 
-  const entries = await listTimeEntriesInRange(fromIso, toIso);
-  return (entries as Array<{ staff_user_id: string; effective_clock_in: string; effective_clock_out: string | null }>).map((e) => {
-    const start = new Date(e.effective_clock_in).getTime();
-    const end = e.effective_clock_out ? new Date(e.effective_clock_out).getTime() : Date.now();
-    const mins = Math.max(0, Math.round((end - start) / 60000));
-    return {
-      date: e.effective_clock_in,
-      description: `Công thợ ${e.staff_user_id.slice(0, 8)} (${mins} phút)`,
-      amount: 0,
-    };
+  const { data, error } = await supabase.rpc("list_tax_book_rows_secure", {
+    p_type: type,
+    p_from: fromIso,
+    p_to: toIso,
   });
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as Array<{ date?: string | null; description?: string | null; amount?: number | null }>).map((row) => ({
+    date: typeof row.date === "string" ? row.date : new Date().toISOString(),
+    description:
+      typeof row.description === "string" && row.description.trim().length > 0
+        ? row.description
+        : buildServiceCustomerDescription([], null),
+    amount: Number(row.amount ?? 0),
+  }));
 }

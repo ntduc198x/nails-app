@@ -2,9 +2,11 @@
 import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
 import { supabase } from "@/lib/supabase";
 import {
+  buildRoleSignUpAuthData,
   consumeInviteCodeWithClient,
   getAuthenticatedUserSummary,
   isCustomerRole,
+  normalizeInviteCode,
   type AuthenticatedUserSummary,
 } from "@nails/shared";
 
@@ -122,14 +124,19 @@ export async function signUpWithRole(input: {
     throw new Error("Thiếu cấu hình Supabase.");
   }
 
+  const authData = buildRoleSignUpAuthData(input.name);
+  const displayName = authData.display_name;
+  const inviteCode = normalizeInviteCode(input.inviteCode);
+
+  if (input.registrationMode === "ADMIN" && !inviteCode) {
+    throw new Error("Vui lòng nhập mã mời quản trị.");
+  }
+
   const { data, error } = await supabase.auth.signUp({
     email: input.email.trim(),
     password: input.password,
     options: {
-      data: {
-        display_name: input.name.trim(),
-        registration_mode: input.registrationMode,
-      },
+      data: authData,
     },
   });
 
@@ -143,17 +150,11 @@ export async function signUpWithRole(input: {
   }
 
   if (input.registrationMode === "ADMIN") {
-    const inviteCode = input.inviteCode?.trim().toUpperCase();
-    if (!inviteCode) {
-      await supabase.auth.signOut();
-      throw new Error("Vui lòng nhập mã mời quản trị.");
-    }
-
     try {
       await consumeInviteCodeWithClient(supabase, {
         code: inviteCode,
         userId,
-        displayName: input.name.trim(),
+        displayName,
       });
     } catch (error) {
       await supabase.auth.signOut();
@@ -174,7 +175,6 @@ export async function signInWithGoogleCustomer(nextPath = "/") {
   }
 
   const redirectTo = buildAuthCallbackUrl(nextPath);
-  console.log("[Auth] signInWithGoogleCustomer redirectTo:", redirectTo);
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -188,7 +188,6 @@ export async function signInWithGoogleCustomer(nextPath = "/") {
   });
 
   if (error) {
-    console.error("[Auth] signInWithOAuth error:", error);
     throw error;
   }
 }
@@ -203,34 +202,24 @@ export async function completeGoogleAuthFromCode(nextPath?: string | null) {
     throw new Error("Không xác định được URL callback.");
   }
 
-  console.log("[Auth] Callback URL:", currentUrl);
-  console.log("[Auth] Search:", window.location.search);
-  console.log("[Auth] Hash:", window.location.hash);
-
   const url = new URL(currentUrl);
 
   // Check for error from OAuth provider
   const errorParam = url.searchParams.get("error");
   if (errorParam) {
     const errorDesc = url.searchParams.get("error_description") || errorParam;
-    console.error("[Auth] OAuth error:", errorParam, errorDesc);
     throw new Error(`Lỗi OAuth: ${errorDesc}`);
   }
 
   // Try to find code in query params first
-  let code = url.searchParams.get("code");
-  let accessToken = url.hash.includes("access_token=") ? 
+  const code = url.searchParams.get("code");
+  const accessToken = url.hash.includes("access_token=") ? 
     url.hash.split("access_token=")[1]?.split("&")[0] : null;
-
-  console.log("[Auth] Found code:", code ? "yes: " + code.substring(0, 20) + "..." : "no");
-  console.log("[Auth] Found fragment token:", accessToken ? "yes: " + accessToken.substring(0, 20) + "..." : "no");
 
   if (!code && !accessToken) {
     // Check if Supabase stored the session via detectSessionInUrl
-    console.log("[Auth] No code/token found, checking Supabase session...");
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData?.session) {
-      console.log("[Auth] Session found in storage:", sessionData.session.user?.email);
       await ensureCustomerMetadata();
       const summary = await bootstrapAuthenticatedBrowserUser();
       return {
@@ -243,13 +232,10 @@ export async function completeGoogleAuthFromCode(nextPath?: string | null) {
 
   // For code-based flow, exchange code for session
   if (code) {
-    console.log("[Auth] Exchanging code for session...");
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
-      console.error("[Auth] Code exchange error:", error);
       throw error;
     }
-    console.log("[Auth] Code exchange successful");
   }
 
   await ensureCustomerMetadata();

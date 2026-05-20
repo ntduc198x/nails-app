@@ -52,6 +52,11 @@ export const mobileEnv = {
   supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? "",
   supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "",
   apiBaseUrl: resolvedApiBaseUrl,
+  webApiBaseUrl:
+    normalizeApiBaseUrl(process.env.EXPO_PUBLIC_WEB_API_BASE_URL) ||
+    normalizeApiBaseUrl(process.env.EXPO_PUBLIC_BOOKING_API_BASE_URL) ||
+    normalizeApiBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ||
+    "",
   passwordResetUrl: process.env.EXPO_PUBLIC_PASSWORD_RESET_URL?.trim() ?? "",
   defaultOrgId: process.env.EXPO_PUBLIC_DEFAULT_ORG_ID?.trim() ?? "",
   defaultBranchId: process.env.EXPO_PUBLIC_DEFAULT_BRANCH_ID?.trim() ?? "",

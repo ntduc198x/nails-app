@@ -6,6 +6,7 @@
   "types": "./src/index.ts",
   "sideEffects": false,
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.0",
     "zod": "^4.3.6"
   }
 }

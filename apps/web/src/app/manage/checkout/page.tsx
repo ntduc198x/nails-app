@@ -7,7 +7,7 @@ import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-na
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createCheckout, hasOpenShift, listCheckedInAppointments, listRecentTickets, listServices } from "@/lib/domain";
 import { formatVnd } from "@/lib/mock-data";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 type ServiceRow = { id: string; name: string; base_price: number; vat_rate: number; featured_in_lookbook?: boolean | null; active?: boolean | null };
 type TicketRow = { id: string; status: string; totals_json?: { grand_total?: number }; created_at: string; customers?: { name: string } | { name: string }[] | null; receipts?: { public_token: string; expires_at: string }[] };
@@ -47,25 +47,6 @@ type CheckedInAppointment = {
     | null;
 };
 type RangeMode = "day" | "week" | "month" | "custom";
-
-function MobileCollapsible({
-  summary,
-  children,
-}: {
-  summary: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-3 rounded-3xl border border-neutral-200 bg-white/95 p-4 shadow-[0_18px_60px_-28px_rgba(15,23,42,0.3)]">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-neutral-900">Chi tiet bill</h3>
-        <span className="text-xs text-neutral-500">{summary}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
 
 function mapCheckoutError(message: string) {
   if (message.includes("INVALID_SERVICES")) return "Dịch vụ không hợp lệ hoặc đã bị xóa.";
@@ -139,8 +120,14 @@ export default function CheckoutPage() {
   const [toDate, setToDate] = useState(toDateInputValue(today));
   const [showLookbook, setShowLookbook] = useState(false);
 
-  const [customerName, setCustomerName] = useState("");
-  const [appointmentId, setAppointmentId] = useState<string | null>(null);
+  const [customerName, setCustomerName] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("customer") ?? "";
+  });
+  const [appointmentId, setAppointmentId] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("appointmentId");
+  });
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [lines, setLines] = useState<Array<{ serviceId: string; qty: number }>>([{ serviceId: "", qty: 1 }]);
   const customerSectionRef = useRef<HTMLDivElement | null>(null);
@@ -156,7 +143,7 @@ export default function CheckoutPage() {
     return { from: startOfDay(new Date(fromDate)), to: endOfDay(new Date(toDate)) };
   }, [fromDate, rangeMode, toDate]);
 
-  const load = useCallback(async () => {
+  async function load() {
     const isInitial = services.length === 0 && tickets.length === 0;
     try {
       if (isInitial) setLoading(true); else setRefreshing(true);
@@ -179,18 +166,16 @@ export default function CheckoutPage() {
     } finally {
       if (isInitial) setLoading(false); else setRefreshing(false);
     }
-  }, [range.from, range.to, services.length, tickets.length]);
+  }
+
+  const loadEvent = useEffectEvent(load);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const qs = new URLSearchParams(window.location.search);
-      const customer = qs.get("customer");
-      const appointment = qs.get("appointmentId");
-      if (customer) setCustomerName(customer);
-      if (appointment) setAppointmentId(appointment);
-    }
-    void load();
-  }, [load]);
+    const timeoutId = window.setTimeout(() => {
+      void loadEvent();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [range.from, range.to]);
 
   const estimatedTotal = useMemo(() => {
     let subtotal = 0; let vat = 0;

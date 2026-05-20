@@ -1,6 +1,6 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
@@ -22,7 +22,6 @@ import type {
   MobileAdminContentPostInput,
   MobileAdminContentSnapshot,
   MobileAdminMerchService,
-  MobileAdminOffer,
   MobileAdminOfferInput,
   MobileAdminStorefrontGalleryItem,
   MobileAdminStorefrontGalleryItemInput,
@@ -40,9 +39,7 @@ import {
   createAdminStorefrontGalleryItemForMobile,
   createAdminStorefrontProductForMobile,
   createAdminStorefrontTeamMemberForMobile,
-  deleteAdminStorefrontGalleryItemForMobile,
   deleteAdminStorefrontProductForMobile,
-  deleteAdminStorefrontTeamMemberForMobile,
   ensureOrgContext,
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
@@ -59,7 +56,7 @@ import { AdminKeyboardAwareScrollView, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, ge
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { getCacheAgeMs, hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
+import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 
 const palette = {
   border: "#EADFD3",
@@ -226,10 +223,6 @@ function parseMetadata(text: string) {
   return JSON.parse(trimmed) as Record<string, unknown>;
 }
 
-function stringifyMetadata(metadata: Record<string, unknown>) {
-  return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
-}
-
 function isLandingService(service: MobileAdminMerchService) {
   return service.active && service.featuredInLookbook;
 }
@@ -274,72 +267,6 @@ async function prewarmContentDetailCache(snapshot: MobileAdminContentSnapshot) {
 
 async function prewarmServiceDetailCache(services: MobileAdminMerchService[]) {
   await Promise.all(services.map((service) => writeCachedValue(`${SERVICE_DETAIL_CACHE_PREFIX}${service.id}`, service)));
-}
-
-function emptyOfferForm(): OfferFormState {
-  return {
-    title: "",
-    description: "",
-    imageUrl: "",
-    badge: "",
-    startsAt: "",
-    endsAt: "",
-    isActive: true,
-    packageTier: "REGULAR",
-    packageOrder: "0",
-    metadataText: "",
-  };
-}
-
-function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
-  const packageTier = typeof offer.metadata.packageTier === "string" && OFFER_PACKAGE_TIERS.includes(offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number])
-    ? offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number]
-    : "REGULAR";
-  const packageOrder = Number(offer.metadata.packageOrder ?? offer.metadata.displayOrder ?? 0);
-
-  return {
-    id: offer.id,
-    title: offer.title,
-    description: offer.description,
-    imageUrl: offer.imageUrl ?? "",
-    badge: offer.badge ?? "",
-    startsAt: offer.startsAt ?? "",
-    endsAt: offer.endsAt ?? "",
-    isActive: offer.isActive,
-    packageTier,
-    packageOrder: String(Number.isFinite(packageOrder) ? packageOrder : 0),
-    metadataText: stringifyMetadata(offer.metadata),
-  };
-}
-
-function emptyPostForm(): PostFormState {
-  return {
-    title: "",
-    summary: "",
-    body: "",
-    coverImageUrl: "",
-    contentType: "trend",
-    status: "draft",
-    priority: "100",
-    metadataText: "",
-  };
-}
-
-function buildPostForm(post: MobileAdminContentPost): PostFormState {
-  return {
-    id: post.id,
-    title: post.title,
-    summary: post.summary,
-    body: post.body,
-    coverImageUrl: post.coverImageUrl ?? "",
-    contentType: post.contentType,
-    status: post.status,
-    priority: String(post.priority),
-    metadataText: stringifyMetadata(post.metadata),
-    publishedAt: post.publishedAt,
-    sourcePlatform: post.sourcePlatform,
-    sourceMessageId: post.sourceMessageId,
-  };
 }
 
 function buildStorefrontForm(snapshot: MobileAdminContentSnapshot | null): StorefrontFormState {
@@ -697,8 +624,8 @@ export default function AdminManageContentScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<ContentTab>("home");
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
-  const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
-  const [defaultBranchId, setDefaultBranchId] = useState<string | null>(null);
+  const [, setBranchOptions] = useState<BranchOption[]>([]);
+  const [, setDefaultBranchId] = useState<string | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [services, setServices] = useState<MobileAdminMerchService[]>([]);
@@ -707,7 +634,7 @@ export default function AdminManageContentScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [homeServiceQuery, setHomeServiceQuery] = useState("");
-  const [exploreFeaturedQuery, setExploreFeaturedQuery] = useState("");
+  const [exploreFeaturedQuery] = useState("");
   const [exploreRegularQuery, setExploreRegularQuery] = useState("");
   const [homeServicesExpanded, setHomeServicesExpanded] = useState(true);
   const [exploreFeaturedExpanded, setExploreFeaturedExpanded] = useState(false);
@@ -724,7 +651,6 @@ export default function AdminManageContentScreen() {
   const [teamForm, setTeamForm] = useState<TeamFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
   const [galleryForm, setGalleryForm] = useState<GalleryFormState | null>(null);
-  const hasFocusedOnceRef = useRef(false);
   const loadSnapshotRef = useRef<() => Promise<void>>(async () => {});
   const loadServicesRef = useRef<(force?: boolean) => Promise<void>>(async () => {});
   const loadBranchOptionsRef = useRef<() => Promise<void>>(async () => {});

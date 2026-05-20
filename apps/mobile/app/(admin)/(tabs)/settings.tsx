@@ -1,10 +1,10 @@
 import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
-import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ensureOrgContext } from "@nails/shared";
-import { canSelectAdminBranch, getAdminNavHref, getAdminProfileDestination, isOwnerRole } from "@/src/features/admin/navigation";
-import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
+import { canSelectAdminBranch, getAdminNavHref } from "@/src/features/admin/navigation";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { upsertAndVerifyAdminProfile } from "@/src/lib/admin-profile";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
@@ -40,12 +40,6 @@ export default function AdminSettingsScreen() {
   const [editingField, setEditingField] = useState<EditField>(null);
   const [editValue, setEditValue] = useState("");
   const [branchModalOpen, setBranchModalOpen] = useState(false);
-
-  useEffect(() => {
-    if (role === undefined) return;
-    if (isOwnerRole(role)) return;
-    router.replace("/shifts");
-  }, [role]);
 
   useEffect(() => {
     async function loadProfileData() {
@@ -212,7 +206,7 @@ export default function AdminSettingsScreen() {
     <View style={styles.screen}>
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={() => router.replace(getAdminProfileDestination(role))}>
+          <Pressable style={styles.headerButton} onPress={() => router.replace(role === "OWNER" || role === "PARTNER" ? "/manage" : "/shifts")}>
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle}>Cài đặt cá nhân</Text>

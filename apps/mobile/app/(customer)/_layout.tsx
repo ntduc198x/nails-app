@@ -24,7 +24,9 @@ class CustomerRenderBoundary extends Component<{ children: ReactNode }, Customer
     };
   }
 
-  componentDidCatch(_error: Error, _errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    void error;
+    void errorInfo;
     // Keep the fallback UI visible in production builds.
   }
 

@@ -56,7 +56,10 @@ export default function SettingsScreen() {
   }, []);
 
   useEffect(() => {
-    void loadCacheSize();
+    const timeoutId = setTimeout(() => {
+      void loadCacheSize();
+    }, 0);
+    return () => clearTimeout(timeoutId);
   }, [loadCacheSize]);
 
   useEffect(() => {

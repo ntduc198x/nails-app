@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
+import { verifyTelegramInternalRequest } from "@/lib/route-secrets";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramChatId = process.env.TELEGRAM_BOOKING_CHAT_ID;
-const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
+const bookingAlertMediaUrl = process.env.BOOKING_TELEGRAM_ALERT_MEDIA_URL?.trim() || "";
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
 
 function getSupabase() {
@@ -83,30 +83,28 @@ function buildBookingMessageText(payload: {
 
   const lines = payload.conflict
     ? [
-        "🔔 ═══════════════════",
-        "<b>⚠️ BOOKING MỚI BỊ TRÙNG LỊCH</b>",
-        "─────────────────────",
-        `👤 Khách: <b>${safeCustomerName}</b>`,
-        `📞 SĐT: <b>${safePhone}</b>`,
-        `💅 DV: ${safeService}`,
-        `🕐 Hẹn: ${whenText}`,
-        `📝 Ghi chú: ${safeNote}`,
-        "─────────────────────",
-        `⚠️ Trùng khung giờ với <b>${payload.conflict.overlapCount}</b> lịch hiện có`,
+        "<b>Có khách mới kìa các Sếp ơi.</b>",
+        "",
+        `👤 <b>Khách:</b> ${safeCustomerName}`,
+        `📞 <b>SĐT:</b> ${safePhone}`,
+        `💅 <b>Dịch vụ:</b> ${safeService}`,
+        `🕐 <b>Giờ hẹn:</b> ${whenText}`,
+        `📝 <b>Ghi chú:</b> ${safeNote}`,
+        "",
+        `⚠️ <b>Trùng lịch:</b> ${payload.conflict.overlapCount} lịch hiện có`,
         ...(payload.conflict.appointment ?? []).slice(0, 3).map((item) => `• ${escapeHtml(pickCustomerName(item.customers))} — ${formatViDateTime(item.start_at)}`),
       ]
     : [
-        "🔔 ═══════════════════",
-        "<b>🆕 BOOKING MỚI!</b>",
-        "─────────────────────",
-        `👤 Khách: <b>${safeCustomerName}</b>`,
-        `📞 SĐT: <b>${safePhone}</b>`,
-        `💅 DV: ${safeService}`,
-        `🕐 Hẹn: ${whenText}`,
-        `📝 Ghi chú: ${safeNote}`,
-        "─────────────────────",
+        "<b>Có khách mới kìa các Sếp ơi.</b>",
+        "",
+        `👤 <b>Khách:</b> ${safeCustomerName}`,
+        `📞 <b>SĐT:</b> ${safePhone}`,
+        `💅 <b>Dịch vụ:</b> ${safeService}`,
+        `🕐 <b>Giờ hẹn:</b> ${whenText}`,
+        `📝 <b>Ghi chú:</b> ${safeNote}`,
+        payload.nearbyWarning ? "" : null,
         payload.nearbyWarning
-          ? `⚠️ Cảnh báo sát lịch: có <b>${payload.nearbyWarning.nearbyCount}</b> khách trong khoảng ±${NEARBY_WARNING_MINUTES} phút`
+          ? `⚠️ <b>Cảnh báo sát lịch:</b> có ${payload.nearbyWarning.nearbyCount} khách trong khoảng ±${NEARBY_WARNING_MINUTES} phút`
           : null,
         ...(payload.nearbyWarning?.appointment ?? []).slice(0, 2).map((item) => `• ${escapeHtml(pickCustomerName(item.customers))} — ${formatViDateTime(item.start_at)}`),
       ];
@@ -121,7 +119,7 @@ function buildBookingActionKeyboard(payload: { bookingId: string }) {
         { text: "✅ Xác nhận", callback_data: `booking:confirm:${payload.bookingId}` },
         { text: "❌ Hủy", callback_data: `booking:cancel:${payload.bookingId}` },
       ],
-      [{ text: "📅 Dời lịch", callback_data: `booking:reschedule:${payload.bookingId}` }],
+      [{ text: "📅 Đổi lịch", callback_data: `booking:reschedule:${payload.bookingId}` }],
     ],
   };
 }
@@ -144,22 +142,35 @@ async function sendTelegramBookingMessageV2(payload: {
 }) {
   if (!telegramBotToken || !telegramChatId) throw new Error("Thiếu TELEGRAM_BOT_TOKEN hoặc TELEGRAM_BOOKING_CHAT_ID");
 
-  const res = await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
+  const method = bookingAlertMediaUrl ? "sendAnimation" : "sendMessage";
+  const body = bookingAlertMediaUrl
+    ? {
+        chat_id: telegramChatId,
+        animation: bookingAlertMediaUrl,
+        caption: buildBookingMessageText(payload),
+        parse_mode: "HTML",
+        reply_markup: buildBookingActionKeyboard({
+          bookingId: payload.bookingId,
+        }),
+      }
+    : {
+        chat_id: telegramChatId,
+        text: buildBookingMessageText(payload),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+        reply_markup: buildBookingActionKeyboard({
+          bookingId: payload.bookingId,
+        }),
+      };
+
+  const res = await fetch(`https://api.telegram.org/bot${telegramBotToken}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: telegramChatId,
-      text: buildBookingMessageText(payload),
-      parse_mode: "HTML",
-      disable_web_page_preview: true,
-      reply_markup: buildBookingActionKeyboard({
-        bookingId: payload.bookingId,
-      }),
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
-    throw new Error(`Telegram sendMessage failed: ${await res.text()}`);
+    throw new Error(`Telegram ${method} failed: ${await res.text()}`);
   }
 
   return {
@@ -232,30 +243,6 @@ export async function processTelegramBookingNotification(body: unknown) {
       if (bookingError) throw bookingError;
       if (!bookingRow?.id) throw new Error("Không đọc được booking request sau khi claim.");
 
-      const requestedEndAt = bookingRow.requested_end_at ?? addMinutes(bookingRow.requested_start_at, 60);
-      await rebalanceOpenBookingRequests({ client: supabase, orgId: bookingRow.org_id });
-      const snapshot = await getBookingWindowCapacitySnapshot({
-        client: supabase,
-        orgId: bookingRow.org_id,
-        startAt: bookingRow.requested_start_at,
-        endAt: requestedEndAt,
-        excludeBookingRequestId: bookingId,
-      });
-      const overlapCount = snapshot.overlapCount;
-
-      const nearbyAppointments = await listNearbyAppointments(supabase, bookingRow.org_id, bookingRow.requested_start_at);
-      const nearbyCount = nearbyAppointments.length;
-      const { data: refreshedBooking, error: refreshedBookingError } = await supabase
-        .from("booking_requests")
-        .select("status")
-        .eq("id", bookingId)
-        .maybeSingle();
-
-      if (refreshedBookingError) throw refreshedBookingError;
-
-      const hasConflict = refreshedBooking?.status === "NEEDS_RESCHEDULE" || !snapshot.allowed;
-      const hasNearbyWarning = !hasConflict && nearbyCount >= snapshot.maxSimultaneous;
-
       const sent = await sendTelegramBookingMessageV2({
         bookingId,
         customerName: bookingRow.customer_name,
@@ -263,18 +250,12 @@ export async function processTelegramBookingNotification(body: unknown) {
         requestedService: bookingRow.requested_service,
         note: bookingRow.note,
         requestedStartAt: bookingRow.requested_start_at,
-        conflict: hasConflict
+        conflict: bookingRow.status === "NEEDS_RESCHEDULE"
           ? {
-              appointment: snapshot.overlaps.map((item) => ({ id: item.id, start_at: item.start_at, customers: item.customers })),
-              overlapCount,
+              overlapCount: 0,
             }
           : null,
-        nearbyWarning: hasNearbyWarning
-          ? {
-              appointment: nearbyAppointments.map((item) => ({ id: item.id, start_at: item.start_at, customers: item.customers })),
-              nearbyCount,
-            }
-          : null,
+        nearbyWarning: null,
       });
 
       const messageId = sent.telegram.result?.message_id ?? null;
@@ -298,15 +279,8 @@ export async function processTelegramBookingNotification(body: unknown) {
         chatId,
         debug: {
           bookingId,
-          conflict: hasConflict,
-          overlapCount,
-          maxSimultaneous: snapshot.maxSimultaneous,
-          nearbyWarning: hasNearbyWarning,
-          nearbyCount,
           callbackData: sent.debug,
           bookingRow,
-          capacitySnapshot: snapshot,
-          nearbyAppointments,
           updatedRow: updateRes.data ?? null,
           updateError: updateRes.error ? {
             message: updateRes.error.message,
@@ -333,6 +307,11 @@ export async function processTelegramBookingNotification(body: unknown) {
 }
 
 export async function POST(req: Request) {
+  const verification = verifyTelegramInternalRequest(req);
+  if (!verification.ok) {
+    return NextResponse.json({ ok: false, error: verification.error }, { status: verification.status });
+  }
+
   const body = await req.json();
   return processTelegramBookingNotification(body);
 }

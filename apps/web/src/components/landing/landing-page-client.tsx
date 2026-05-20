@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { AppLazyImage } from "@/components/app-lazy-image";
 import { DeferredRender } from "@/components/deferred-render";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import type { HomeFeedPayload } from "@/lib/landing-content";
+import { supabase } from "@/lib/supabase";
 import { getCurrentAuthenticatedSummary } from "@/lib/web-auth";
 import { AuthModal } from "@/components/landing/auth-modal";
 import { ManageDateTimePicker } from "@/components/manage-datetime-picker";
@@ -155,6 +156,10 @@ function getProfileInitials(summary: AuthenticatedUserSummary | null) {
   return source.slice(0, 2).toUpperCase();
 }
 
+function getBookingPrefillName(summary: AuthenticatedUserSummary | null) {
+  return (summary?.displayName ?? summary?.email ?? "").trim();
+}
+
 function chunkItems<T>(items: T[], chunkSize: number) {
   if (chunkSize <= 0) return [items];
   return Array.from({ length: Math.ceil(items.length / chunkSize) }, (_, index) =>
@@ -176,6 +181,11 @@ function chunkItemsLoopFilled<T>(items: T[], chunkSize: number) {
     }
     return filled;
   });
+}
+
+function normalizeCarouselSlide(slide: number, totalSlides: number) {
+  if (totalSlides <= 0) return 0;
+  return slide % totalSlides;
 }
 
 function LandingMobileCarousel<T>({
@@ -309,12 +319,111 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   const [storyDesktopSlide, setStoryDesktopSlide] = useState(0);
   const [productDesktopSlide, setProductDesktopSlide] = useState(0);
 
-  useEffect(() => {
-    void getCurrentAuthenticatedSummary()
-      .then((summary) => setCurrentUser(summary))
-      .catch(() => setCurrentUser(null))
-      .finally(() => setAuthResolved(true));
+  const syncAuthenticatedBookingContext = useCallback(async () => {
+    if (!supabase) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+
+    if (!user) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const fallbackSummary: AuthenticatedUserSummary = {
+      id: user.id,
+      email: user.email ?? null,
+      displayName:
+        typeof user.user_metadata?.display_name === "string"
+          ? user.user_metadata.display_name
+          : typeof user.user_metadata?.full_name === "string"
+            ? user.user_metadata.full_name
+            : typeof user.user_metadata?.name === "string"
+              ? user.user_metadata.name
+              : user.email ?? null,
+      role: "USER",
+    };
+
+    const summary = (await getCurrentAuthenticatedSummary()) ?? fallbackSummary;
+    setCurrentUser(summary);
+
+    const fallbackName = getBookingPrefillName(summary);
+    const fallbackPhone =
+      typeof user.user_metadata?.phone === "string" && user.user_metadata.phone.trim() ? user.user_metadata.phone.trim() : "";
+
+    setBookingState((current) => ({
+      ...current,
+      customerName: current.customerName.trim() ? current.customerName : fallbackName,
+      customerPhone: current.customerPhone.trim() ? current.customerPhone : fallbackPhone,
+    }));
+
+    try {
+      const { data, error } = await supabase.from("profiles").select("display_name,phone").eq("user_id", user.id).maybeSingle();
+      if (error) throw error;
+
+      const profileName = String(data?.display_name ?? "").trim();
+      const profilePhone = String(data?.phone ?? "").trim();
+
+      setBookingState((current) => ({
+        ...current,
+        customerName: current.customerName.trim() ? current.customerName : (profileName || fallbackName),
+        customerPhone: current.customerPhone.trim() ? current.customerPhone : (profilePhone || fallbackPhone),
+      }));
+    } catch {
+      // Keep auth metadata fallback when profile fetch is unavailable.
+    }
+
+    try {
+      const { data: customerAccount, error: customerAccountError } = await supabase
+        .from("customer_accounts")
+        .select("customer_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (customerAccountError) throw customerAccountError;
+
+      const customerId = typeof customerAccount?.customer_id === "string" ? customerAccount.customer_id : "";
+      if (!customerId) return;
+
+      const { data: customer, error: customerError } = await supabase
+        .from("customers")
+        .select("full_name,name,phone")
+        .eq("id", customerId)
+        .maybeSingle();
+      if (customerError) throw customerError;
+
+      const customerName = String(customer?.full_name ?? customer?.name ?? "").trim();
+      const customerPhone = String(customer?.phone ?? "").trim();
+
+      setBookingState((current) => ({
+        ...current,
+        customerName: current.customerName.trim() ? current.customerName : (customerName || fallbackName),
+        customerPhone: current.customerPhone.trim() ? current.customerPhone : customerPhone,
+      }));
+    } catch {
+      // Keep earlier fallbacks when customer link is unavailable.
+    }
   }, []);
+
+  useEffect(() => {
+    void syncAuthenticatedBookingContext().finally(() => setAuthResolved(true));
+  }, [syncAuthenticatedBookingContext]);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      void syncAuthenticatedBookingContext();
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, [syncAuthenticatedBookingContext]);
 
   const storefront = explore.storefront;
   const featuredServices = useMemo(
@@ -322,7 +431,9 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
     [explore.featuredServices, homeFeed.lookbook],
   );
   const serviceDesktopSlides = useMemo(() => chunkItemsLoopFilled(featuredServices, 4), [featuredServices]);
-  const serviceMobileSlides = useMemo(() => chunkItems(featuredServices, 2), [featuredServices]);
+  const serviceMobileSlides = useMemo(() => chunkItems(featuredServices, 1), [featuredServices]);
+  const activeServiceDesktopSlide = normalizeCarouselSlide(serviceDesktopSlide, serviceDesktopSlides.length);
+  const activeServiceMobileSlide = normalizeCarouselSlide(serviceMobileSlide, serviceMobileSlides.length);
   useEffect(() => {
     if (serviceDesktopSlides.length <= 1) return;
 
@@ -333,20 +444,19 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
     return () => window.clearInterval(intervalId);
   }, [serviceDesktopSlides.length]);
 
-  useEffect(() => {
-    if (serviceDesktopSlide >= serviceDesktopSlides.length) {
-      setServiceDesktopSlide(0);
-    }
-  }, [serviceDesktopSlide, serviceDesktopSlides.length]);
-
   const stories = useMemo(() => homeFeed.contentPosts.slice(0, 3), [homeFeed.contentPosts]);
   const products = useMemo(() => explore.products.slice(0, 8), [explore.products]);
   const testimonials = FALLBACK_TESTIMONIALS;
   const storyDesktopSlides = useMemo(() => chunkItemsLoopFilled(stories, 3), [stories]);
   const productDesktopSlides = useMemo(() => chunkItemsLoopFilled(products, 4), [products]);
-  const storyMobileSlides = useMemo(() => chunkItems(stories, 2), [stories]);
-  const productMobileSlides = useMemo(() => chunkItems(products, 2), [products]);
-  const testimonialMobileSlides = useMemo(() => chunkItems(testimonials, 2), [testimonials]);
+  const storyMobileSlides = useMemo(() => chunkItems(stories, 1), [stories]);
+  const productMobileSlides = useMemo(() => chunkItems(products, 1), [products]);
+  const testimonialMobileSlides = useMemo(() => chunkItems(testimonials, 1), [testimonials]);
+  const activeStoryDesktopSlide = normalizeCarouselSlide(storyDesktopSlide, storyDesktopSlides.length);
+  const activeStoryMobileSlide = normalizeCarouselSlide(storyMobileSlide, storyMobileSlides.length);
+  const activeProductDesktopSlide = normalizeCarouselSlide(productDesktopSlide, productDesktopSlides.length);
+  const activeProductMobileSlide = normalizeCarouselSlide(productMobileSlide, productMobileSlides.length);
+  const activeTestimonialMobileSlide = normalizeCarouselSlide(testimonialMobileSlide, testimonialMobileSlides.length);
 
   useEffect(() => {
     if (serviceMobileSlides.length <= 1) return;
@@ -407,42 +517,6 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
     return () => window.clearInterval(intervalId);
   }, [testimonialMobileSlides.length]);
-
-  useEffect(() => {
-    if (serviceMobileSlide >= serviceMobileSlides.length) {
-      setServiceMobileSlide(0);
-    }
-  }, [serviceMobileSlide, serviceMobileSlides.length]);
-
-  useEffect(() => {
-    if (storyMobileSlide >= storyMobileSlides.length) {
-      setStoryMobileSlide(0);
-    }
-  }, [storyMobileSlide, storyMobileSlides.length]);
-
-  useEffect(() => {
-    if (storyDesktopSlide >= storyDesktopSlides.length) {
-      setStoryDesktopSlide(0);
-    }
-  }, [storyDesktopSlide, storyDesktopSlides.length]);
-
-  useEffect(() => {
-    if (productMobileSlide >= productMobileSlides.length) {
-      setProductMobileSlide(0);
-    }
-  }, [productMobileSlide, productMobileSlides.length]);
-
-  useEffect(() => {
-    if (productDesktopSlide >= productDesktopSlides.length) {
-      setProductDesktopSlide(0);
-    }
-  }, [productDesktopSlide, productDesktopSlides.length]);
-
-  useEffect(() => {
-    if (testimonialMobileSlide >= testimonialMobileSlides.length) {
-      setTestimonialMobileSlide(0);
-    }
-  }, [testimonialMobileSlide, testimonialMobileSlides.length]);
 
   const heroImage =
     REFERENCE_HERO_IMAGE ??
@@ -548,6 +622,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       });
 
       setBookingState(initialBookingState);
+      void syncAuthenticatedBookingContext();
       setBookingMessage("Đã gửi yêu cầu đặt lịch thành công. Chạm Beauty sẽ sớm xác nhận với bạn.");
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : "Không gửi được yêu cầu đặt lịch.");
@@ -699,7 +774,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
           <div id="pricing" className="landing-showcase__services-carousel landing-showcase__services-carousel--desktop">
             <LandingDesktopCarousel
               items={featuredServices}
-              slide={serviceDesktopSlide}
+              slide={activeServiceDesktopSlide}
               onSelectSlide={setServiceDesktopSlide}
               labelPrefix="Xem slide dịch vụ"
               getItemKey={(service) => service.id}
@@ -736,7 +811,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={featuredServices}
-            slide={serviceMobileSlide}
+            slide={activeServiceMobileSlide}
             onSelectSlide={setServiceMobileSlide}
             labelPrefix="Xem slide dịch vụ"
             getItemKey={(service) => service.id}
@@ -791,7 +866,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingDesktopCarousel
             items={stories}
-            slide={storyDesktopSlide}
+            slide={activeStoryDesktopSlide}
             onSelectSlide={setStoryDesktopSlide}
             labelPrefix="Xem slide blog"
             getItemKey={(post) => post.id}
@@ -822,7 +897,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={stories}
-            slide={storyMobileSlide}
+            slide={activeStoryMobileSlide}
             onSelectSlide={setStoryMobileSlide}
             labelPrefix="Xem slide blog"
             getItemKey={(post) => post.id}
@@ -857,7 +932,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingDesktopCarousel
             items={products}
-            slide={productDesktopSlide}
+            slide={activeProductDesktopSlide}
             onSelectSlide={setProductDesktopSlide}
             labelPrefix="Xem slide sản phẩm"
             getItemKey={(product) => product.id}
@@ -869,7 +944,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={products}
-            slide={productMobileSlide}
+            slide={activeProductMobileSlide}
             onSelectSlide={setProductMobileSlide}
             labelPrefix="Xem slide sản phẩm"
             getItemKey={(product) => product.id}
@@ -894,7 +969,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
 
           <LandingMobileCarousel
             items={testimonials}
-            slide={testimonialMobileSlide}
+            slide={activeTestimonialMobileSlide}
             onSelectSlide={setTestimonialMobileSlide}
             labelPrefix="Xem slide cảm nhận"
             getItemKey={(testimonial) => testimonial.id}
@@ -1062,7 +1137,10 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       <AuthModal
         open={authOpen}
         nextPath="/"
-        onAuthenticated={(summary) => setCurrentUser(summary)}
+        onAuthenticated={(summary) => {
+          setCurrentUser(summary);
+          void syncAuthenticatedBookingContext();
+        }}
         onClose={() => setAuthOpen(false)}
       />
     </>

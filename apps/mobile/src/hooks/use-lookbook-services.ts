@@ -44,7 +44,7 @@ export function useLookbookServices(
   const [source, setSource] = useState<LookbookSource>(
     initialCached?.source ?? (allowFallback && fallbackServices.length ? "fallback" : "empty"),
   );
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(autoRefreshOnMount);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -185,10 +185,7 @@ export function useLookbookServices(
   }, [loadServices]);
 
   useEffect(() => {
-    if (!autoRefreshOnMount) {
-      setIsLoading(false);
-      return;
-    }
+    if (!autoRefreshOnMount) return;
 
     let cancelled = false;
     const timeoutId = setTimeout(() => {

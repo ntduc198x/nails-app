@@ -508,7 +508,6 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
 
 export function useAdminNotifications(role: AppRole | null | undefined, email?: string | null, userId?: string | null) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
-  const [bookingQueueCount, setBookingQueueCount] = useState(0);
   const [seenAt, setSeenAt] = useState<string | null>(null);
   const [dismissedActionIds, setDismissedActionIds] = useState<string[]>([]);
 
@@ -560,15 +559,18 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
   }, [enabled, role, userId]);
 
   useEffect(() => {
-    void loadSeenAt();
-    void loadDismissedActionIds();
+    const timeoutId = setTimeout(() => {
+      void loadSeenAt();
+      void loadDismissedActionIds();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
   }, [loadDismissedActionIds, loadSeenAt]);
 
   useEffect(() => {
-    if (!enabled) {
-      setNotifications([]);
-      return;
-    }
+    if (!enabled) return;
 
     let disposed = false;
     async function run() {
@@ -599,10 +601,7 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
       ).length,
     [actionNotifications],
   );
-
-  useEffect(() => {
-    setBookingQueueCount(openBookingActionCount);
-  }, [openBookingActionCount]);
+  const bookingQueueCount = openBookingActionCount;
 
   const nonBookingActionCount = useMemo(
     () =>
@@ -617,20 +616,20 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
   );
 
   const actionOpenCount = actionNotifications.length;
-
+  const visibleNotifications = useMemo(() => (enabled ? notifications : []), [enabled, notifications]);
   const feedNotifications = useMemo(
-    () => notifications.filter((item) => !item.actionRequired),
-    [notifications],
+    () => visibleNotifications.filter((item) => !item.actionRequired),
+    [visibleNotifications],
   );
 
   const unreadCount = useMemo(() => {
     const seenAtMs = seenAt ? new Date(seenAt).getTime() : 0;
-    return notifications.filter((item) => {
+    return visibleNotifications.filter((item) => {
       if (item.resolvedAt) return false;
       if (item.actionRequired) return !dismissedActionIds.includes(item.id);
       return new Date(item.createdAt).getTime() > seenAtMs;
     }).length;
-  }, [dismissedActionIds, notifications, seenAt]);
+  }, [dismissedActionIds, seenAt, visibleNotifications]);
 
   const badgeCount = actionOpenCount > 0 ? actionOpenCount : unreadCount;
 
@@ -689,7 +688,7 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
   );
 
   return {
-    notifications,
+    notifications: visibleNotifications,
     actionNotifications,
     feedNotifications,
     unreadCount,

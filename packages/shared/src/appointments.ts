@@ -1,6 +1,5 @@
 import type { SharedSupabaseClient } from "./org";
 import { ensureOrgContext } from "./org";
-import { getAuthenticatedUserSummary } from "./session";
 
 export type MobileAppointmentSummary = {
   id: string;
@@ -15,6 +14,7 @@ export type MobileAppointmentSummary = {
 };
 
 export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW";
+export const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 
 type AppointmentMutationInput = {
   customerName: string;
@@ -37,37 +37,46 @@ type AppointmentRow = {
   customers?: { name?: unknown; phone?: unknown }[] | { name?: unknown; phone?: unknown } | null;
 };
 
+export function canCheckInAppointmentAt(startAt: string, now = new Date()): boolean {
+  const scheduledAtMs = new Date(startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) {
+    return false;
+  }
+
+  const windowMs = APPOINTMENT_CHECK_IN_WINDOW_MINUTES * 60 * 1000;
+  return nowMs >= scheduledAtMs - windowMs && nowMs <= scheduledAtMs + windowMs;
+}
+
+export function assertAppointmentCheckInWindow(startAt: string, now = new Date()) {
+  if (!canCheckInAppointmentAt(startAt, now)) {
+    throw new Error("Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.");
+  }
+}
+
+function normalizeAppointmentStatusMutationError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
+    return new Error("Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.");
+  }
+  if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) {
+    return new Error("Trạng thái lịch hẹn không hợp lệ cho thao tác này.");
+  }
+  return error instanceof Error ? error : new Error(message || "Thao tác lịch hẹn thất bại.");
+}
+
 export async function listAppointmentsForMobile(client: SharedSupabaseClient): Promise<MobileAppointmentSummary[]> {
   const { orgId } = await ensureOrgContext(client);
-  const authUser = await getAuthenticatedUserSummary(client);
-  const isTech = authUser?.role === "TECH";
+  const result = await client
+    .from("appointments")
+    .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
+    .eq("org_id", orgId)
+    .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+    .order("start_at", { ascending: true })
+    .limit(300);
 
-  let data: AppointmentRow[] | null = null;
-  let error: { message?: string } | null = null;
-
-  if (isTech) {
-    const result = await client
-      .from("appointments")
-      .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at")
-      .eq("org_id", orgId)
-      .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-      .order("start_at", { ascending: true })
-      .limit(300);
-
-    data = (result.data ?? []) as AppointmentRow[];
-    error = result.error;
-  } else {
-    const result = await client
-      .from("appointments")
-      .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
-      .eq("org_id", orgId)
-      .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-      .order("start_at", { ascending: true })
-      .limit(300);
-
-    data = (result.data ?? []) as AppointmentRow[];
-    error = result.error;
-  }
+  let data: AppointmentRow[] | null = (result.data ?? []) as AppointmentRow[];
+  let error: { message?: string } | null = result.error;
 
   if (error?.message?.includes("checked_in_at")) {
     const fallback = await client
@@ -108,6 +117,25 @@ export async function updateAppointmentStatusForMobile(
   status: AppointmentStatus,
 ) {
   const { orgId } = await ensureOrgContext(client);
+
+  if (status === "CHECKED_IN") {
+    const { data: currentAppointment, error: currentAppointmentError } = await client
+      .from("appointments")
+      .select("start_at,status")
+      .eq("id", appointmentId)
+      .eq("org_id", orgId)
+      .single();
+
+    if (currentAppointmentError) {
+      throw currentAppointmentError;
+    }
+
+    if (currentAppointment.status !== "BOOKED") {
+      throw new Error("Chỉ có lịch chờ check-in mới được check-in.");
+    }
+
+    assertAppointmentCheckInWindow(String(currentAppointment.start_at ?? ""));
+  }
 
   if (status === "CANCELLED") {
     const {
@@ -161,7 +189,7 @@ export async function updateAppointmentStatusForMobile(
     .eq("org_id", orgId);
 
   if (error) {
-    throw error;
+    throw normalizeAppointmentStatusMutationError(error);
   }
 }
 

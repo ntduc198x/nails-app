@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { addMinutesToIso, AdminBottomNavDock, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";

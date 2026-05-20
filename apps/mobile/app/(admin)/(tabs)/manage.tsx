@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
+import { filterManageScreenItemsForRole, MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
 import { AdminBottomNavDock, AdminHeaderActions, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP } from "@/src/features/admin/ui";
@@ -24,8 +24,9 @@ export default function AdminManageHubScreen() {
     return <View style={styles.screen} />;
   }
 
-  const insightItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "insights");
-  const setupItems = MANAGE_SCREEN_ITEMS.filter((item) => item.group === "setup");
+  const visibleItems = filterManageScreenItemsForRole(role, MANAGE_SCREEN_ITEMS);
+  const insightItems = visibleItems.filter((item) => item.group === "insights");
+  const setupItems = visibleItems.filter((item) => item.group === "setup");
 
   return (
     <View style={styles.screen}>

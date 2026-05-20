@@ -9,7 +9,7 @@ import {
 } from "@/src/lib/customer-booking-timeline-store";
 
 export function useCustomerBookingTimeline(options: { historyLimit?: number; upcomingLimit?: number } = {}) {
-  const { user } = useSession();
+  const { isHydrated: sessionHydrated, user } = useSession();
   const config = useMemo(
     () => ({
       userId: user?.id ?? null,
@@ -26,11 +26,24 @@ export function useCustomerBookingTimeline(options: { historyLimit?: number; upc
   );
 
   useEffect(() => {
+    if (!sessionHydrated) {
+      return;
+    }
     void bootCustomerBookingTimeline(config);
-  }, [config]);
+  }, [config, sessionHydrated]);
 
-  const refresh = useCallback(() => refreshCustomerBookingTimeline(config, { silent: true }), [config]);
-  const syncFromCache = useCallback(() => syncCustomerBookingTimelineFromCache(config), [config]);
+  const refresh = useCallback(() => {
+    if (!sessionHydrated) {
+      return Promise.resolve();
+    }
+    return refreshCustomerBookingTimeline(config, { silent: true });
+  }, [config, sessionHydrated]);
+  const syncFromCache = useCallback(() => {
+    if (!sessionHydrated && config.userId) {
+      return Promise.resolve();
+    }
+    return syncCustomerBookingTimelineFromCache(config);
+  }, [config, sessionHydrated]);
 
   return {
     historyItems: state.historyItems,

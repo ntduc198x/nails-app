@@ -4,7 +4,7 @@ import { AppShell } from "@/components/app-shell";
 import { getOrCreateRole, type AppRole } from "@/lib/auth";
 import { getRoleLabel } from "@/lib/role-labels";
 import { supabase } from "@/lib/supabase";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type ProfileRow = {
   user_id: string;
@@ -74,7 +74,7 @@ export default function AccountPage() {
 
   const profileName = profileData.displayName.trim() || email.split("@")[0] || "User";
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -118,11 +118,14 @@ export default function AccountPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    void load();
-  }, []);
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [load]);
 
   async function onSaveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -371,7 +374,7 @@ export default function AccountPage() {
                 <div className="rounded-2xl bg-neutral-50 p-3 text-xs text-neutral-600">
                   <b>Cách liên kết:</b>
                   <ol className="mt-1 list-decimal pl-4 space-y-0.5">
-                    <li>Bấm "Tạo mã liên kết" bên dưới</li>
+                    <li>Bấm &quot;Tạo mã liên kết&quot; bên dưới</li>
                     <li>Mở bot hoặc chat Telegram đã cấu hình → gửi <code className="bg-neutral-200 px-1 rounded">/link MÃ</code></li>
                     <li>Ví dụ: <code className="bg-neutral-200 px-1 rounded">/link 482910</code></li>
                   </ol>

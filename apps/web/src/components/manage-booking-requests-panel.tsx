@@ -215,7 +215,10 @@ export function ManageBookingRequestsPanel({
   }, []);
 
   useEffect(() => {
-    void load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [load]);
 
   const rescheduleRows = useMemo(() => rows.filter((row) => row.status === "NEEDS_RESCHEDULE"), [rows]);
@@ -233,12 +236,6 @@ export function ManageBookingRequestsPanel({
     if (!selectedRow) return null;
     return crmByPhone.get(normalizePhone(selectedRow.customer_phone) ?? "") ?? null;
   }, [crmByPhone, selectedRow]);
-
-  useEffect(() => {
-    if (!selectedRow) return;
-    setBookingAt(toInputValue(new Date(selectedRow.requested_start_at)));
-    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
-  }, [selectedRow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -297,6 +294,14 @@ export function ManageBookingRequestsPanel({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function selectRow(rowId: string | null) {
+    setSelectedId(rowId);
+    const nextRow = rows.find((row) => row.id === rowId) ?? null;
+    if (!nextRow) return;
+    setBookingAt(toInputValue(new Date(nextRow.requested_start_at)));
+    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
   async function onDelete(id: string) {
@@ -383,7 +388,7 @@ export function ManageBookingRequestsPanel({
       <section className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => setSelectedId(newRows[0]?.id ?? null)}
+          onClick={() => selectRow(newRows[0]?.id ?? null)}
           className="cursor-pointer rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-left transition hover:bg-neutral-100"
         >
           <div className="flex items-center justify-between gap-2">
@@ -393,7 +398,7 @@ export function ManageBookingRequestsPanel({
         </button>
         <button
           type="button"
-          onClick={() => setSelectedId(rescheduleRows[0]?.id ?? null)}
+          onClick={() => selectRow(rescheduleRows[0]?.id ?? null)}
           className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left transition hover:bg-amber-100"
         >
           <div className="flex items-center justify-between gap-2">
@@ -427,7 +432,7 @@ export function ManageBookingRequestsPanel({
                     row={row}
                     crm={crmByPhone.get(normalizePhone(row.customer_phone) ?? "") ?? null}
                     active={selectedId === row.id}
-                    onClick={() => setSelectedId(row.id)}
+                    onClick={() => selectRow(row.id)}
                   />
                 ))
               )}
@@ -456,7 +461,7 @@ export function ManageBookingRequestsPanel({
                     row={row}
                     crm={crmByPhone.get(normalizePhone(row.customer_phone) ?? "") ?? null}
                     active={selectedId === row.id}
-                    onClick={() => setSelectedId(row.id)}
+                    onClick={() => selectRow(row.id)}
                   />
                 ))
               )}

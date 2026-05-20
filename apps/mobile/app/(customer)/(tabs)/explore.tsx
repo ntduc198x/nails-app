@@ -42,7 +42,6 @@ export default function ExploreScreen() {
   const activeServiceIndexRef = useRef(0);
   const {
     storefront,
-    stats,
     featuredServices,
     products,
     team,

@@ -1594,7 +1594,7 @@ export default function ManageShiftsPage() {
             {openEntry ? "Đóng ca" : "Mở ca"}
           </button>
         </MobileStickyActions>
-        <style jsx global>{`
+        <style>{`
           .manage-shifts-page button:not(:disabled) {
             cursor: pointer;
           }
@@ -2815,7 +2815,7 @@ export default function ManageShiftsPage() {
           Xuất lịch
         </button>
       </div>
-      <style jsx global>{`
+      <style>{`
         .manage-shifts-page button:not(:disabled) {
           cursor: pointer;
         }

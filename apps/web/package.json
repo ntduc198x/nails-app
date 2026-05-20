@@ -10,6 +10,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@alloc/quick-lru": "^5.2.0",
+    "@babel/runtime": "^7.29.2",
+    "@fast-csv/format": "^5.0.7",
+    "@fast-csv/parse": "^5.0.7",
     "@nails/shared": "0.1.0",
     "@supabase/supabase-js": "^2.106.0",
     "exceljs": "^4.4.0",

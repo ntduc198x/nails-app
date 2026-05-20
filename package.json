@@ -28,13 +28,14 @@
     "mobile:env": "node scripts/check-mobile-env.mjs",
     "mobile:ios": "npm run ios --workspace @nails/mobile",
     "mobile:lint": "npm run lint --workspace @nails/mobile",
-    "mobile:typecheck": "npm run typecheck --workspace @nails/mobile"
+    "mobile:typecheck": "npm run typecheck --workspace @nails/mobile",
+    "services:seed:priceboard": "node scripts/seed-services-from-priceboard.mjs"
   },
-  "dependencies": {},
   "overrides": {
     "@expo/metro-config": {
       "postcss": "8.5.10"
     },
+    "expo-font": "~14.0.11",
     "next": {
       "postcss": "8.5.10"
     },
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "eslint-config-next": "^16.2.6",
-    "next": "^16.2.6"
+    "next": "^16.2.6",
+    "ws": "^8.20.1"
   }
 }

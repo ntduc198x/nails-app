@@ -26,9 +26,13 @@ export const reportsQuickNav = (activeHref: string): ManageQuickNavItem[] => [
 
 export function ManageQuickNav({ items, className = "" }: { items: ManageQuickNavItem[]; className?: string }) {
   return (
-    <div className={`flex flex-wrap gap-2 ${className}`.trim()}>
+    <div className={`flex gap-2 overflow-x-auto pb-1 sm:flex-wrap ${className}`.trim()}>
       {items.map((item) => (
-        <Link key={`${item.href}-${item.label}`} href={item.href} className={item.accent ? "manage-quick-link-accent" : "manage-quick-link"}>
+        <Link
+          key={`${item.href}-${item.label}`}
+          href={item.href}
+          className={`${item.accent ? "manage-quick-link-accent" : "manage-quick-link"} shrink-0 whitespace-nowrap`}
+        >
           {item.label}
         </Link>
       ))}

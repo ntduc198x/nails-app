@@ -69,6 +69,8 @@ export default function CustomerDetailPage() {
     return `Nhắc chăm sóc khách ${detail.customer.full_name} - ${detail.customer.phone ?? "chưa có SĐT"}.\nGhi chú: ${detail.customer.care_note ?? "chưa có"}\nFollow-up: ${detail.customer.next_follow_up_at ? formatDateTime(detail.customer.next_follow_up_at) : "chưa đặt"}`;
   }, [detail]);
 
+  const tagPreview = useMemo(() => tagsText.split(",").map((item) => item.trim()).filter(Boolean).slice(0, 8), [tagsText]);
+
   async function onSave() {
     if (!detail) return;
 
@@ -237,34 +239,83 @@ export default function CustomerDetailPage() {
                 </div>
               </div>
 
-              <div className="manage-surface space-y-3 p-4 md:p-5">
-                <h3 className="text-sm font-semibold text-neutral-900">Ghi chú chăm sóc</h3>
-                <textarea
-                  className="input min-h-32 py-3 text-sm"
-                  value={careNote}
-                  onChange={(e) => setCareNote(e.target.value)}
-                  placeholder="Lưu ý phục vụ, thói quen, sở thích, lưu ý follow-up..."
-                />
-                <input
-                  className="input py-2.5 text-sm"
-                  value={tagsText}
-                  onChange={(e) => setTagsText(e.target.value)}
-                  placeholder="Tag, phân cách bằng dấu phẩy. Ví dụ: gel định kỳ, high value"
-                />
-                <input
-                  className="input py-2.5 text-sm"
-                  type="datetime-local"
-                  value={followUpAt}
-                  onChange={(e) => setFollowUpAt(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => void onSave()}
-                  disabled={saving}
-                  className="cursor-pointer rounded-2xl bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {saving ? "Đang lưu..." : "Lưu ghi chú CRM"}
-                </button>
+              <div className="manage-surface p-4 md:p-5">
+                <div className="rounded-[28px] border border-neutral-200 bg-[linear-gradient(180deg,rgba(250,248,243,0.98),rgba(255,255,255,0.98))] p-4 shadow-[0_16px_40px_rgba(15,23,42,0.06)] md:p-5">
+                  <div className="flex flex-col gap-3 rounded-[24px] border border-white/80 bg-white/75 p-4 backdrop-blur md:flex-row md:items-start md:justify-between">
+                    <div className="space-y-1.5">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-400">Care panel</div>
+                      <h3 className="text-base font-semibold text-neutral-900">Ghi chú chăm sóc</h3>
+                      <p className="max-w-sm text-sm leading-6 text-neutral-500">
+                        Gói gọn thói quen, lưu ý phục vụ và lịch follow-up để lần chăm sóc tiếp theo nhanh, đúng ngữ cảnh hơn.
+                      </p>
+                    </div>
+                    <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] md:min-w-[170px]">
+                      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">Follow-up</div>
+                      <div className="mt-1.5 font-semibold text-neutral-900">
+                        {followUpAt ? formatDateTime(new Date(followUpAt).toISOString()) : "Chưa đặt lịch"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    <label className="block space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Ghi chú chính</span>
+                      <textarea
+                        className="input min-h-36 rounded-none border-neutral-200 bg-white/90 px-4 py-3 text-sm leading-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                        value={careNote}
+                        onChange={(e) => setCareNote(e.target.value)}
+                        placeholder="Vi du: khach thich mau nude, uu tien thợ Linh, hay dat lich sau 19:00, can nhac goi sau 3 tuan."
+                      />
+                    </label>
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Tags CRM</span>
+                      <input
+                        className="input rounded-[20px] border-neutral-200 bg-white/90 py-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                        value={tagsText}
+                        onChange={(e) => setTagsText(e.target.value)}
+                        placeholder="Tag, phân cách bằng dấu phẩy. Ví dụ: gel định kỳ, high value"
+                      />
+                    </label>
+
+                    {tagPreview.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {tagPreview.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <label className="block space-y-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-neutral-500">Lịch follow-up</span>
+                      <input
+                        className="input rounded-[20px] border-neutral-200 bg-white/90 py-3 text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+                        type="datetime-local"
+                        value={followUpAt}
+                        onChange={(e) => setFollowUpAt(e.target.value)}
+                      />
+                    </label>
+
+                    <div className="flex flex-col gap-3 border-t border-neutral-200/80 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs leading-5 text-neutral-500">
+                        CRM note sẽ được dùng để nhắc đội ngũ chăm sóc và làm ngữ cảnh cho các lần follow-up tiếp theo.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void onSave()}
+                        disabled={saving}
+                        className="cursor-pointer rounded-[20px] bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white shadow-[0_14px_30px_rgba(15,23,42,0.18)] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {saving ? "Đang lưu..." : "Lưu ghi chú CRM"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </section>

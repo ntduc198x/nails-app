@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { AppLazyImage } from "@/components/app-lazy-image";
 import { DeferredRender } from "@/components/deferred-render";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import type { HomeFeedPayload } from "@/lib/landing-content";
+import { supabase } from "@/lib/supabase";
 import { getCurrentAuthenticatedSummary } from "@/lib/web-auth";
 import { AuthModal } from "@/components/landing/auth-modal";
 import { ManageDateTimePicker } from "@/components/manage-datetime-picker";
@@ -153,6 +154,10 @@ function getProfileInitials(summary: AuthenticatedUserSummary | null) {
     return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
   }
   return source.slice(0, 2).toUpperCase();
+}
+
+function getBookingPrefillName(summary: AuthenticatedUserSummary | null) {
+  return (summary?.displayName ?? summary?.email ?? "").trim();
 }
 
 function chunkItems<T>(items: T[], chunkSize: number) {
@@ -314,12 +319,111 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   const [storyDesktopSlide, setStoryDesktopSlide] = useState(0);
   const [productDesktopSlide, setProductDesktopSlide] = useState(0);
 
-  useEffect(() => {
-    void getCurrentAuthenticatedSummary()
-      .then((summary) => setCurrentUser(summary))
-      .catch(() => setCurrentUser(null))
-      .finally(() => setAuthResolved(true));
+  const syncAuthenticatedBookingContext = useCallback(async () => {
+    if (!supabase) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+
+    if (!user) {
+      setCurrentUser(null);
+      return;
+    }
+
+    const fallbackSummary: AuthenticatedUserSummary = {
+      id: user.id,
+      email: user.email ?? null,
+      displayName:
+        typeof user.user_metadata?.display_name === "string"
+          ? user.user_metadata.display_name
+          : typeof user.user_metadata?.full_name === "string"
+            ? user.user_metadata.full_name
+            : typeof user.user_metadata?.name === "string"
+              ? user.user_metadata.name
+              : user.email ?? null,
+      role: "USER",
+    };
+
+    const summary = (await getCurrentAuthenticatedSummary().catch(() => null)) ?? fallbackSummary;
+    setCurrentUser(summary);
+
+    const fallbackName = getBookingPrefillName(summary);
+    const fallbackPhone =
+      typeof user.user_metadata?.phone === "string" && user.user_metadata.phone.trim() ? user.user_metadata.phone.trim() : "";
+
+    setBookingState((current) => ({
+      ...current,
+      customerName: current.customerName.trim() ? current.customerName : fallbackName,
+      customerPhone: current.customerPhone.trim() ? current.customerPhone : fallbackPhone,
+    }));
+
+    try {
+      const { data, error } = await supabase.from("profiles").select("display_name,phone").eq("user_id", user.id).maybeSingle();
+      if (error) throw error;
+
+      const profileName = String(data?.display_name ?? "").trim();
+      const profilePhone = String(data?.phone ?? "").trim();
+
+      setBookingState((current) => ({
+        ...current,
+        customerName: current.customerName.trim() ? current.customerName : (profileName || fallbackName),
+        customerPhone: current.customerPhone.trim() ? current.customerPhone : (profilePhone || fallbackPhone),
+      }));
+    } catch {
+      // Keep auth metadata fallback when profile fetch is unavailable.
+    }
+
+    try {
+      const { data: customerAccount, error: customerAccountError } = await supabase
+        .from("customer_accounts")
+        .select("customer_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (customerAccountError) throw customerAccountError;
+
+      const customerId = typeof customerAccount?.customer_id === "string" ? customerAccount.customer_id : "";
+      if (!customerId) return;
+
+      const { data: customer, error: customerError } = await supabase
+        .from("customers")
+        .select("full_name,name,phone")
+        .eq("id", customerId)
+        .maybeSingle();
+      if (customerError) throw customerError;
+
+      const customerName = String(customer?.full_name ?? customer?.name ?? "").trim();
+      const customerPhone = String(customer?.phone ?? "").trim();
+
+      setBookingState((current) => ({
+        ...current,
+        customerName: current.customerName.trim() ? current.customerName : (customerName || fallbackName),
+        customerPhone: current.customerPhone.trim() ? current.customerPhone : customerPhone,
+      }));
+    } catch {
+      // Keep earlier fallbacks when customer link is unavailable.
+    }
   }, []);
+
+  useEffect(() => {
+    void syncAuthenticatedBookingContext().finally(() => setAuthResolved(true));
+  }, [syncAuthenticatedBookingContext]);
+
+  useEffect(() => {
+    if (!supabase) return;
+
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      void syncAuthenticatedBookingContext();
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, [syncAuthenticatedBookingContext]);
 
   const storefront = explore.storefront;
   const featuredServices = useMemo(
@@ -518,6 +622,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       });
 
       setBookingState(initialBookingState);
+      void syncAuthenticatedBookingContext();
       setBookingMessage("Đã gửi yêu cầu đặt lịch thành công. Chạm Beauty sẽ sớm xác nhận với bạn.");
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : "Không gửi được yêu cầu đặt lịch.");
@@ -1032,7 +1137,10 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       <AuthModal
         open={authOpen}
         nextPath="/"
-        onAuthenticated={(summary) => setCurrentUser(summary)}
+        onAuthenticated={(summary) => {
+          setCurrentUser(summary);
+          void syncAuthenticatedBookingContext();
+        }}
         onClose={() => setAuthOpen(false)}
       />
     </>

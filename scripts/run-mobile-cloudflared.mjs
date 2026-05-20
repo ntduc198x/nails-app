@@ -3,6 +3,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { getJavaBinPath, resolveJavaHome } from "./mobile-runtime.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,23 +15,6 @@ let expo;
 let cloudflared;
 let announcedUrl = false;
 let restartingExpo = false;
-
-function resolveJavaHome() {
-  if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) {
-    return process.env.JAVA_HOME;
-  }
-
-  const candidates = process.platform === "win32"
-    ? [
-        "D:\\Program Files\\Android\\Android Studio\\jbr",
-        "C:\\Program Files\\Android\\Android Studio\\jbr",
-        "D:\\Program Files\\Android\\Android Studio\\jre",
-        "C:\\Program Files\\Android\\Android Studio\\jre",
-      ]
-    : [];
-
-  return candidates.find((candidate) => fs.existsSync(candidate));
-}
 
 function waitForPort(targetPort, timeoutMs = 120000) {
   const startedAt = Date.now();
@@ -59,7 +43,7 @@ function waitForPort(targetPort, timeoutMs = 120000) {
 }
 
 const javaHome = resolveJavaHome();
-const javaBinPath = javaHome ? path.join(javaHome, "bin") : null;
+const javaBinPath = getJavaBinPath(javaHome);
 
 function startExpo(proxyUrl = "") {
   const existingNodeOptions = process.env.NODE_OPTIONS ?? "";

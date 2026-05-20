@@ -1,82 +1,42 @@
 # Nails App Monorepo
 
-Monorepo nay da duoc tach ro thanh 3 khu vuc chinh de khi len GitHub co the nhin ngay:
+Monorepo nay gom 3 phan chinh:
 
-- `apps/web`: web app Next.js
-- `apps/mobile`: mobile app Expo / React Native
-- `packages/shared`: logic va type dung chung
+- `apps/web`: Next.js web app
+- `apps/mobile`: Expo / React Native mobile app
+- `packages/shared`: shared contracts, types, va helpers
 
-## Cau truc thu muc
-
-```text
-nails-app/
-  apps/
-    mobile/   # Expo app
-    web/      # Next.js app
-  packages/
-    shared/   # domain logic, types, helpers dung chung
-  scripts/    # script chay web/mobile, build helper
-  supabase/   # SQL, patch, schema va tai lieu DB
-```
-
-## Chay local
-
-### Web
+## Bat dau nhanh
 
 ```bash
-cd D:\Code\nails-app
 npm install
 npm run dev
 ```
 
-Web app se chay bang source trong `apps/web`.
-
-### Mobile
+Mobile lane:
 
 ```bash
-cd D:\Code\nails-app
-npm install
 npm run mobile:go:cloudflare
 ```
 
-## Script chinh
-
-### Root scripts
+## Lenh chinh
 
 - `npm run dev`: chay web app
 - `npm run build`: build web app
-- `npm run start`: start web app
 - `npm run lint`: lint web + mobile
 - `npm run typecheck`: typecheck web + mobile
+- `npm run services:seed:priceboard`: seed lai bang `services` tu bang gia mau
 
-### Web scripts
+## Tai lieu
 
-- `npm run web:dev`
-- `npm run web:build`
-- `npm run web:start`
-- `npm run web:lint`
-- `npm run web:typecheck`
-
-### Mobile scripts
-
-- `npm run mobile:start`
-- `npm run mobile:go:lan`
-- `npm run mobile:go:cloudflare`
-- `npm run mobile:android`
-- `npm run mobile:ios`
-- `npm run mobile:lint`
-- `npm run mobile:typecheck`
-
-## Bien moi truong
-
-Hien tai root `.env.local` van duoc dung de de van hanh dong bo.
-
-- Web scripts doc env tu root `.env` / `.env.local`
-- Mobile van doc env theo lane Expo nhu hien tai
+- [docs/README.md](D:/Code/debug/nails-app/docs/README.md): chi muc tai lieu
+- [repository-summary.md](D:/Code/debug/nails-app/docs/architecture/repository-summary.md): tong quan ky thuat
+- [sop.md](D:/Code/debug/nails-app/docs/operations/sop.md): van hanh, backup, release, troubleshooting
+- [expo-dev-operations.md](D:/Code/debug/nails-app/docs/operations/expo-dev-operations.md): Expo/Cloudflare mobile dev
+- [supabase/README.md](D:/Code/debug/nails-app/supabase/README.md): cau truc SQL, patches, migrations, seeds
 
 ## Ghi chu
 
-- Web da duoc dua vao `apps/web`, khong con nam lon xon o root nua
-- Root package chi dong vai tro workspace orchestrator
-- Neu can review source web, vao thang `apps/web/src`
-- Neu can review source mobile, vao thang `apps/mobile/app` va `apps/mobile/src`
+- Root package chi dong vai tro workspace orchestrator.
+- Root `.env` / `.env.local` van la nguon env chinh cho web va mobile scripts.
+- Source web nam trong `apps/web/src`; source mobile nam trong `apps/mobile/app` va `apps/mobile/src`.

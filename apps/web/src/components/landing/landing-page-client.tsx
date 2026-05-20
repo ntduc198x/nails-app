@@ -410,7 +410,21 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   }, []);
 
   useEffect(() => {
-    void syncAuthenticatedBookingContext().finally(() => setAuthResolved(true));
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        await syncAuthenticatedBookingContext();
+      } finally {
+        if (!cancelled) {
+          setAuthResolved(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [syncAuthenticatedBookingContext]);
 
   useEffect(() => {

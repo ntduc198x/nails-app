@@ -1,91 +1,65 @@
 # Supabase SQL layout
 
-## Canonical bootstrap for a brand new project
+## Root entry points
 
 - `bootstrap.sql`
-  - the one-shot file for a fresh Supabase project
-  - already includes:
-    - core schema / RLS / RPC from `deploy.sql`
-    - CRM patch from `crm_patch_2026_04.sql`
-    - latest booking conversion patch from `fix_convert_booking_request_secure.sql`
-    - self-contained device + app session setup from `app_sessions.sql`
-    - customer content feed table + RLS from `customer_content_feed_2026_04.sql`
-    - default workspace bootstrap and auto-bind trigger for new `auth.users`
-
-## Core and patch files
-
+  - one-shot file for a fresh Supabase project
+  - already includes core schema, CRM, booking conversion hardening, app sessions, customer content feed, and default workspace bootstrap
 - `deploy.sql`
   - legacy core schema deploy
-  - keeps schema, RLS, base RPC, Telegram tables, landing booking core
-- `crm_patch_2026_04.sql`
-  - CRM/customer retention layer
-- `fix_convert_booking_request_secure.sql`
-  - latest safe version of booking-to-appointment conversion
+  - keeps schema, RLS, base RPC, Telegram tables, and landing booking core
 - `app_sessions.sql`
-  - self-contained single-device + app-session layer
-  - now includes `device_sessions`, `app_sessions`, `online_users`, and related RPCs
-- `auth_runtime_patch_2026_05_user_roles_conflict.sql`
-  - runtime fix for auth/login `42P10`
-  - removes invalid `ON CONFLICT (user_id, org_id, role)` from auth role bootstrap path
-- `fresh_project_patch.sql`
-  - default org/branch bootstrap
-  - auto-create `profiles` + first role on `auth.users` insert
-- `customer_explore_storefront_2026_04.sql`
-  - storefront/domain patch for customer Explore
-  - adds `storefront_*` tables and expands `services` with explicit Home/Explore metadata
-- `customer_content_feed_2026_04.sql`
-  - creates `customer_content_posts`
-  - enables published content feed for customer Home and Telegram content ingestion
-- `customer_mobile_schema_2026_04.sql`
-  - creates `customer_accounts` and customer-facing mobile tables
-  - includes `link_customer_account_by_phone()`
-- `customer_mobile_runtime_patch_2026_05.sql`
-  - runtime-safe fix for `link_customer_account_by_phone()`
-  - removes dependency on `ON CONFLICT (user_id)` for drifted environments
-- `shift_plans_2026_04.sql`
-  - persists weekly owner shift drafts/published schedules as JSON
-  - lets staff read the published schedule from the same source of truth
-- `staff_shift_profiles_2026_04.sql`
-  - persists real shift profile data for each staff member
-  - stores skills, weekly availability, leave dates, and weekly-hour limits for owner scheduling
+  - self-contained single-device and app-session layer
+- `crm_patch_2026_04.sql`
+  - CRM and customer-retention layer
+- `config.toml`
+  - Supabase local config
+
+## Directory layout
+
+- `migrations/`
+  - ordered migration files for the newer branch-scoping work
+- `patches/auth/`
+  - auth bootstrap and runtime fixes
+- `patches/core/`
+  - core booking and service-scope fixes
+- `patches/customer/`
+  - customer identity, feed, explore, membership, notifications, and push patches
+- `patches/admin/`
+  - admin notification lifecycle patches
+- `patches/staff/`
+  - staff profiles, shifts, attendance, and scheduling support
+- `patches/telegram/`
+  - Telegram tables and booking/invite related patches
+- `seeds/`
+  - optional sample or data-backfill SQL for lookbook, storefront, membership, and priceboard imports
+- `remote-schema/`
+  - schema snapshots pulled from remote environments
+- `functions/`
+  - Supabase Edge Functions
 
 ## Recommended usage
 
 For a brand new Supabase project:
 
-1. Open SQL Editor in Supabase
-2. Run `bootstrap.sql`
-3. Create the first auth user
-4. The first user is auto-bound to the default org/branch and gets role `OWNER`
+1. Open SQL Editor in Supabase.
+2. Run `bootstrap.sql`.
+3. Create the first auth user.
+4. The first user is auto-bound to the default org/branch and gets role `OWNER`.
 
 For selective patching on an existing project:
 
-1. `crm_patch_2026_04.sql`
-2. `fix_convert_booking_request_secure.sql`
-3. `app_sessions.sql`
-4. `auth_runtime_patch_2026_05_user_roles_conflict.sql` if login/signup hits `42P10` on `user_roles`
-5. `fresh_project_patch.sql`
-6. `auth_workspace_patch_2026_04.sql`
-7. `customer_mobile_schema_2026_04.sql`
-8. `customer_mobile_runtime_patch_2026_05.sql` if login hits customer account linking errors on an existing DB
-9. `customer_explore_storefront_2026_04.sql`
-10. `customer_content_feed_2026_04.sql`
-11. `shift_plans_2026_04.sql`
-12. `staff_shift_profiles_2026_04.sql`
+1. Run `crm_patch_2026_04.sql` if CRM/customer retention tables are missing.
+2. Run `patches/core/fix_convert_booking_request_secure.sql` for the secure booking conversion path.
+3. Run `app_sessions.sql` for device and app session support.
+4. Run `patches/auth/auth_runtime_patch_2026_05_user_roles_conflict.sql` if auth hits `42P10` on `user_roles`.
+5. Run `patches/auth/fresh_project_patch.sql` for default org/branch bootstrap.
+6. Run the needed files from `patches/customer/` for customer mobile, feed, explore, identity, or membership capabilities.
+7. Run the needed files from `patches/staff/` for scheduling and shift support.
+8. Run the needed files from `patches/telegram/` if Telegram bot flows or invite scope need repair.
 
-`auth_workspace_patch_2026_04.sql`
-- fixes new auth users being bound to the placeholder default org when a real org already exists
-- supports `registration_mode=USER` so customer signups stop receiving admin roles
+## Notes
 
-`auth_repair_cleanup_2026_04.sql`
-- one-off cleanup for the known broken duplicate auth user
-- use when Supabase Auth admin endpoints fail with `Database error finding/loading user`
-
-## Optional seed files
-
-- `lookbook_trend_seed.sql`
-  - sample lookbook services
-- `update_services_from_priceboard.sql`
-  - priceboard-to-services seed/update
-
-Run these only after the core bootstrap is already in place.
+- `bootstrap.sql` and `deploy.sql` still embed sections named after older standalone SQL files. That is expected.
+- The patch folders are organized for navigation. They are not an execution order by themselves.
+- Run seed files only after the core bootstrap and required schema patches are already in place.

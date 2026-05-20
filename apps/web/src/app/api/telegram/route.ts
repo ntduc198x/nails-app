@@ -16,33 +16,11 @@ function getSupabase() {
   });
 }
 
-function addMinutes(iso: string, minutes: number) {
-  return new Date(new Date(iso).getTime() + minutes * 60 * 1000).toISOString();
-}
-
 function formatViDateTime(iso: string) {
   return new Date(iso).toLocaleString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
     hour12: false,
   });
-}
-
-async function listNearbyAppointments(supabase: ReturnType<typeof getSupabase>, orgId: string, startAt: string) {
-  const from = addMinutes(startAt, -NEARBY_WARNING_MINUTES);
-  const to = addMinutes(startAt, NEARBY_WARNING_MINUTES);
-
-  const { data, error } = await supabase
-    .from("appointments")
-    .select("id,start_at,end_at,status,customers(name)")
-    .eq("org_id", orgId)
-    .gte("start_at", from)
-    .lte("start_at", to)
-    .in("status", ["BOOKED", "CHECKED_IN", "IN_SERVICE"])
-    .order("start_at", { ascending: true })
-    .limit(10);
-
-  if (error) throw error;
-  return (data ?? []) as Array<{ id: string; start_at: string; end_at: string; status: string; customers?: { name?: string } | { name?: string }[] | null }>;
 }
 
 function pickCustomerName(customers: { name?: string } | { name?: string }[] | null | undefined) {

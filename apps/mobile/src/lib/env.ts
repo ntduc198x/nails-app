@@ -1,5 +1,15 @@
 import Constants from "expo-constants";
 
+function readLegacyDebuggerHost() {
+  const manifest = Constants.manifest;
+  if (!manifest || typeof manifest !== "object") {
+    return "";
+  }
+
+  const debuggerHost = Reflect.get(manifest, "debuggerHost");
+  return typeof debuggerHost === "string" ? debuggerHost : "";
+}
+
 function normalizeApiBaseUrl(rawValue: string | undefined) {
   const value = rawValue?.trim() ?? "";
   if (!value) {
@@ -27,7 +37,7 @@ function deriveLocalApiBaseUrl() {
   const hostUri =
     Constants.expoConfig?.hostUri ||
     Constants.manifest2?.extra?.expoClient?.hostUri ||
-    Constants.manifest?.debuggerHost ||
+    readLegacyDebuggerHost() ||
     "";
 
   if (!hostUri) {

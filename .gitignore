@@ -17,10 +17,15 @@
 /.next/
 /apps/web/.next/
 /out/
+/artifacts/
+/tmp/
+/.expo/
+/.codex-tmp/
 /apps/mobile/.expo/
 /apps/mobile/dist/
 /apps/mobile/node_modules/
 /apps/web/node_modules/
+/apps/mobile/android/app/src/debug/*.apk
 
 # production
 /build
@@ -28,6 +33,7 @@
 # misc
 .DS_Store
 *.pem
+*.patch
 
 # debug
 npm-debug.log*

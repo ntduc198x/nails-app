@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import {
   createPublicBookingRequest,
   createPublicBookingRequestForMobile,
@@ -44,8 +44,8 @@ const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
 });
 
 function getDateLabel(date: Date, index: number) {
-  if (index === 0) return "Hôm nay";
-  if (index === 1) return "Ngày mai";
+  if (index === 0) return "HÃ´m nay";
+  if (index === 1) return "NgÃ y mai";
 
   return date.toLocaleDateString("vi-VN", {
     weekday: "short",
@@ -86,34 +86,34 @@ function normalizeBookingErrorMessage(message: string) {
     lower.includes("profiles") ||
     lower.includes("user_id_fkey")
   ) {
-    return "Ưu đãi này chưa sẵn sàng để dùng trên tài khoản của bạn. Bạn vui lòng mở Hồ sơ kiểm tra lại số điện thoại hoặc chọn ưu đãi khác, bên em sẽ hỗ trợ ngay nếu cần.";
+    return "Æ¯u Ä‘Ã£i nÃ y chÆ°a sáºµn sÃ ng Ä‘á»ƒ dÃ¹ng trÃªn tÃ i khoáº£n cá»§a báº¡n. Báº¡n vui lÃ²ng má»Ÿ Há»“ sÆ¡ kiá»ƒm tra láº¡i sá»‘ Ä‘iá»‡n thoáº¡i hoáº·c chá»n Æ°u Ä‘Ã£i khÃ¡c, bÃªn em sáº½ há»— trá»£ ngay náº¿u cáº§n.";
   }
 
   if (lower.includes("offer_already_used_or_reserved")) {
-    return "Ưu đãi này vừa được giữ chỗ hoặc đã được sử dụng rồi. Bạn vui lòng chọn ưu đãi khác giúp em nhé.";
+    return "Æ¯u Ä‘Ã£i nÃ y vá»«a Ä‘Æ°á»£c giá»¯ chá»— hoáº·c Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng rá»“i. Báº¡n vui lÃ²ng chá»n Æ°u Ä‘Ã£i khÃ¡c giÃºp em nhÃ©.";
   }
 
   if (lower.includes("offer_not_available")) {
-    return "Ưu đãi này hiện không còn khả dụng nữa. Bạn vui lòng chọn ưu đãi khác giúp em nhé.";
+    return "Æ¯u Ä‘Ã£i nÃ y hiá»‡n khÃ´ng cÃ²n kháº£ dá»¥ng ná»¯a. Báº¡n vui lÃ²ng chá»n Æ°u Ä‘Ã£i khÃ¡c giÃºp em nhÃ©.";
   }
 
   if (lower.includes("offer_requires_linked_customer")) {
-    return "Tài khoản của bạn chưa liên kết đủ thông tin thành viên để dùng ưu đãi này. Vui lòng kiểm tra lại hồ sơ trước khi đặt lịch.";
+    return "TÃ i khoáº£n cá»§a báº¡n chÆ°a liÃªn káº¿t Ä‘á»§ thÃ´ng tin thÃ nh viÃªn Ä‘á»ƒ dÃ¹ng Æ°u Ä‘Ã£i nÃ y. Vui lÃ²ng kiá»ƒm tra láº¡i há»“ sÆ¡ trÆ°á»›c khi Ä‘áº·t lá»‹ch.";
   }
 
   if (lower.includes("customer_name_required")) {
-    return "Vui lòng nhập tên khách hàng.";
+    return "Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.";
   }
 
   if (lower.includes("customer_phone_required")) {
-    return "Vui lòng nhập số điện thoại.";
+    return "Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.";
   }
 
   if (lower.includes("requested_start_required") || lower.includes("invalid_time_range")) {
-    return "Vui lòng chọn lại ngày giờ đặt lịch hợp lệ.";
+    return "Vui lÃ²ng chá»n láº¡i ngÃ y giá» Ä‘áº·t lá»‹ch há»£p lá»‡.";
   }
 
-  return normalized || "Không thể gửi yêu cầu đặt lịch lúc này. Bạn vui lòng thử lại sau ít phút.";
+  return normalized || "KhÃ´ng thá»ƒ gá»­i yÃªu cáº§u Ä‘áº·t lá»‹ch lÃºc nÃ y. Báº¡n vui lÃ²ng thá»­ láº¡i sau Ã­t phÃºt.";
 }
 
 function inferFieldErrors(message: string): GuestBookingFieldErrors {
@@ -136,21 +136,21 @@ function isValidWorkingSlot(timeValue: string) {
 
 function validateRequestedDateTime(dateValue: string, timeValue: string) {
   if (!dateValue || !timeValue) {
-    return "Vui lòng chọn ngày giờ đặt lịch hợp lệ.";
+    return "Vui lÃ²ng chá»n ngÃ y giá» Ä‘áº·t lá»‹ch há»£p lá»‡.";
   }
 
   if (!isValidWorkingSlot(timeValue)) {
-    return "Khung giờ đã chọn nằm ngoài giờ làm việc của salon.";
+    return "Khung giá» Ä‘Ã£ chá»n náº±m ngoÃ i giá» lÃ m viá»‡c cá»§a salon.";
   }
 
   const requestedAt = new Date(toIsoDateTime(dateValue, timeValue));
   if (Number.isNaN(requestedAt.getTime())) {
-    return "Ngày giờ đặt lịch không hợp lệ.";
+    return "NgÃ y giá» Ä‘áº·t lá»‹ch khÃ´ng há»£p lá»‡.";
   }
 
   const now = new Date();
   if (requestedAt.getTime() <= now.getTime()) {
-    return "Không thể đặt lịch ở thời điểm quá khứ.";
+    return "KhÃ´ng thá»ƒ Ä‘áº·t lá»‹ch á»Ÿ thá»i Ä‘iá»ƒm quÃ¡ khá»©.";
   }
 
   return null;
@@ -274,7 +274,7 @@ export function useGuestBooking() {
         const typedPhone = normalizePhone(values.customerPhone);
         const canonicalPhone = normalizePhone(linkedPhone);
         if (canonicalPhone && typedPhone && canonicalPhone !== typedPhone) {
-          const mismatchMessage = "Số điện thoại đặt lịch phải khớp với số trong tài khoản cá nhân.";
+          const mismatchMessage = "Sá»‘ Ä‘iá»‡n thoáº¡i Ä‘áº·t lá»‹ch pháº£i khá»›p vá»›i sá»‘ trong tÃ i khoáº£n cÃ¡ nhÃ¢n.";
           setFieldErrors({ customerPhone: mismatchMessage });
           setSubmitError(mismatchMessage);
           return;
@@ -307,7 +307,7 @@ export function useGuestBooking() {
             });
 
             if (conflict && typeof conflict.requested_start_at === "string") {
-              const conflictMessage = `Bạn đã có lịch đặt vào ${formatBookingDateTime(conflict.requested_start_at)}. Nếu cần đổi lịch, bạn vui lòng liên hệ trực tiếp với tiệm để được hỗ trợ nhanh nhất.`;
+              const conflictMessage = `Báº¡n Ä‘Ã£ cÃ³ lá»‹ch Ä‘áº·t vÃ o ${formatBookingDateTime(conflict.requested_start_at)}. Náº¿u cáº§n Ä‘á»•i lá»‹ch, báº¡n vui lÃ²ng liÃªn há»‡ trá»±c tiáº¿p vá»›i tiá»‡m Ä‘á»ƒ Ä‘Æ°á»£c há»— trá»£ nhanh nháº¥t.`;
               setSubmitError(conflictMessage);
               return;
             }
@@ -346,50 +346,37 @@ export function useGuestBooking() {
       }
 
       const bookingApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
+      let result;
 
-      const precheckResult = bookingApiBaseUrl
-        ? await precheckPublicBookingRequest(parsed.data, {
+      if (bookingApiBaseUrl) {
+        try {
+          result = await createPublicBookingRequest(parsed.data, {
             baseUrl: bookingApiBaseUrl,
-          })
-        : {
-            bookingRequestId: null,
-            bookingRequestStatus: null,
-            data: null,
-            telegramNotification: null,
-            successMessage: "Đã gửi yêu cầu thành công",
-          };
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const shouldFallbackToRpc = Boolean(mobileSupabase) && (
+            message.startsWith("BOOKING_API_NON_JSON") ||
+            message.includes("Failed to fetch") ||
+            message.includes("Network request failed")
+          );
 
-      setSuccessResult(precheckResult);
+          if (shouldFallbackToRpc && mobileSupabase) {
+            result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+          } else {
+            throw error;
+          }
+        }
+      } else if (mobileSupabase) {
+        result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+      } else {
+        result = await createPublicBookingRequest(parsed.data);
+      }
+
+      setSuccessResult(result);
       setIsSubmitting(false);
 
       void (async () => {
-        let result;
-
-        if (bookingApiBaseUrl) {
-          try {
-            result = await createPublicBookingRequest(parsed.data, {
-              baseUrl: bookingApiBaseUrl,
-            });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            const shouldFallbackToRpc = Boolean(mobileSupabase) && (
-              message.startsWith("BOOKING_API_NON_JSON") ||
-              message.includes("Failed to fetch") ||
-              message.includes("Network request failed")
-            );
-
-            if (shouldFallbackToRpc && mobileSupabase) {
-              result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
-            } else {
-              throw error;
-            }
-          }
-        } else if (mobileSupabase) {
-          result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
-        } else {
-          result = await createPublicBookingRequest(parsed.data);
-        }
-
         if (user?.id && result.bookingRequestId) {
           const hasAppliedOffer = Boolean(parsed.data.appliedOfferId || parsed.data.appliedOfferClaimId || parsed.data.appliedOfferCode);
 
@@ -461,3 +448,4 @@ export function useGuestBooking() {
     values,
   };
 }
+

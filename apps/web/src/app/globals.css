@@ -3937,6 +3937,10 @@ img {
     padding-top: 54px;
   }
 
+  .landing-showcase__section {
+    padding: 56px 0;
+  }
+
   .landing-showcase__topbar-inner {
     padding: 5px 0 4px;
   }
@@ -3957,11 +3961,21 @@ img {
   }
 
   .landing-showcase__hero-copy h1 {
-    font-size: 64px;
+    font-size: 52px;
+  }
+
+  .landing-showcase__hero-copy p,
+  .landing-showcase__section-heading p,
+  .landing-showcase__story-copy p,
+  .landing-showcase__booking p,
+  .landing-showcase__story-card-body p,
+  .landing-showcase__service-body p {
+    font-size: 13px;
+    line-height: 1.7;
   }
 
   .landing-showcase__hero-visual {
-    min-height: 320px;
+    min-height: 280px;
     border-radius: 24px 24px 24px 36px;
   }
 
@@ -4066,6 +4080,7 @@ img {
 
   .landing-showcase__mobile-carousel-slide {
     gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .landing-showcase__story-visual {
@@ -4117,6 +4132,10 @@ img {
 @media (max-width: 420px) {
   .landing-showcase {
     padding-top: 50px;
+  }
+
+  .landing-showcase__section {
+    padding: 44px 0;
   }
 
   .landing-showcase__topbar-inner {

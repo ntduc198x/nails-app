@@ -431,7 +431,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
     [explore.featuredServices, homeFeed.lookbook],
   );
   const serviceDesktopSlides = useMemo(() => chunkItemsLoopFilled(featuredServices, 4), [featuredServices]);
-  const serviceMobileSlides = useMemo(() => chunkItems(featuredServices, 2), [featuredServices]);
+  const serviceMobileSlides = useMemo(() => chunkItems(featuredServices, 1), [featuredServices]);
   const activeServiceDesktopSlide = normalizeCarouselSlide(serviceDesktopSlide, serviceDesktopSlides.length);
   const activeServiceMobileSlide = normalizeCarouselSlide(serviceMobileSlide, serviceMobileSlides.length);
   useEffect(() => {
@@ -449,9 +449,9 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   const testimonials = FALLBACK_TESTIMONIALS;
   const storyDesktopSlides = useMemo(() => chunkItemsLoopFilled(stories, 3), [stories]);
   const productDesktopSlides = useMemo(() => chunkItemsLoopFilled(products, 4), [products]);
-  const storyMobileSlides = useMemo(() => chunkItems(stories, 2), [stories]);
-  const productMobileSlides = useMemo(() => chunkItems(products, 2), [products]);
-  const testimonialMobileSlides = useMemo(() => chunkItems(testimonials, 2), [testimonials]);
+  const storyMobileSlides = useMemo(() => chunkItems(stories, 1), [stories]);
+  const productMobileSlides = useMemo(() => chunkItems(products, 1), [products]);
+  const testimonialMobileSlides = useMemo(() => chunkItems(testimonials, 1), [testimonials]);
   const activeStoryDesktopSlide = normalizeCarouselSlide(storyDesktopSlide, storyDesktopSlides.length);
   const activeStoryMobileSlide = normalizeCarouselSlide(storyMobileSlide, storyMobileSlides.length);
   const activeProductDesktopSlide = normalizeCarouselSlide(productDesktopSlide, productDesktopSlides.length);

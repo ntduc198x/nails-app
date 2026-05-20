@@ -32,12 +32,32 @@ type StorefrontSummary = {
   id: string;
   name: string;
   slug: string;
+  description: string | null;
   phone: string | null;
   address_line: string | null;
   opening_hours: string | null;
+  cover_image_url: string | null;
+  logo_image_url: string | null;
+  map_url: string | null;
+  messenger_url: string | null;
+  instagram_url: string | null;
   updated_at: string;
   is_active: boolean;
 } | null;
+
+type StorefrontFormState = {
+  name: string;
+  slug: string;
+  description: string;
+  phone: string;
+  addressLine: string;
+  openingHours: string;
+  coverImageUrl: string;
+  logoImageUrl: string;
+  mapUrl: string;
+  messengerUrl: string;
+  instagramUrl: string;
+};
 
 type LandingSummary = {
   publishedPosts: number;
@@ -73,6 +93,20 @@ const emptyForm: FormState = {
   contentType: "trend",
   status: "draft",
   priority: "100",
+};
+
+const emptyStorefrontForm: StorefrontFormState = {
+  name: "",
+  slug: "",
+  description: "",
+  phone: "",
+  addressLine: "",
+  openingHours: "",
+  coverImageUrl: "",
+  logoImageUrl: "",
+  mapUrl: "",
+  messengerUrl: "",
+  instagramUrl: "",
 };
 
 function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
@@ -273,8 +307,24 @@ export default function ManageLandingPage() {
         return;
       }
 
-      const landingData = await fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts");
+      const [landingData, storefront] = await Promise.all([
+        fetchManageLanding<LandingResponse>("/api/manage/landing/content-posts"),
+        fetchManageLanding<StorefrontSummary>("/api/manage/landing/storefront"),
+      ]);
       setData(landingData);
+      setStorefrontForm({
+        name: storefront?.name ?? "",
+        slug: storefront?.slug ?? "",
+        description: storefront?.description ?? "",
+        phone: storefront?.phone ?? "",
+        addressLine: storefront?.address_line ?? "",
+        openingHours: storefront?.opening_hours ?? "",
+        coverImageUrl: storefront?.cover_image_url ?? "",
+        logoImageUrl: storefront?.logo_image_url ?? "",
+        mapUrl: storefront?.map_url ?? "",
+        messengerUrl: storefront?.messenger_url ?? "",
+        instagramUrl: storefront?.instagram_url ?? "",
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Khong tai duoc landing page hub");
     } finally {
@@ -318,6 +368,25 @@ export default function ManageLandingPage() {
       priority: String(row.priority),
     });
     setMobileEditorOpen(true);
+  }
+
+  async function onStorefrontSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    if (storefrontSubmitting || !canEdit) return;
+
+    try {
+      setStorefrontSubmitting(true);
+      setError(null);
+      await fetchManageLanding("/api/manage/landing/storefront", {
+        method: "PUT",
+        body: JSON.stringify(storefrontForm),
+      });
+      await load({ silent: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Không lưu được storefront");
+    } finally {
+      setStorefrontSubmitting(false);
+    }
   }
 
   async function onSubmit(event: React.FormEvent) {
@@ -586,7 +655,7 @@ export default function ManageLandingPage() {
                 <div className="manage-warn-box">Chua co giao dien quan tri uu dai rieng.</div>
               </div>
 
-              <div className="manage-surface space-y-3">
+              <form onSubmit={onStorefrontSubmit} className="manage-surface space-y-3">
                 <div>
                   <h3 className="text-sm font-semibold text-neutral-900 md:text-base">Thong tin cua tiem</h3>
                   <p className="text-sm text-neutral-500">

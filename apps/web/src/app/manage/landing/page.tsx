@@ -286,9 +286,11 @@ export default function ManageLandingPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [storefrontSubmitting, setStorefrontSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LandingResponse | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [storefrontForm, setStorefrontForm] = useState<StorefrontFormState>(emptyStorefrontForm);
   const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
 
   const canEdit = canAccessManageLanding(role);
@@ -671,7 +673,7 @@ export default function ManageLandingPage() {
                   <div className="mt-1">{summary?.storefront?.opening_hours ?? "Chua co gio mo cua"}</div>
                 </div>
                 <div className="manage-warn-box">Chua co giao dien quan tri storefront rieng.</div>
-              </div>
+              </form>
             </section>
           </>
         )}

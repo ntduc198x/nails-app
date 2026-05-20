@@ -349,7 +349,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       role: "USER",
     };
 
-    const summary = (await getCurrentAuthenticatedSummary().catch(() => null)) ?? fallbackSummary;
+    const summary = (await getCurrentAuthenticatedSummary()) ?? fallbackSummary;
     setCurrentUser(summary);
 
     const fallbackName = getBookingPrefillName(summary);

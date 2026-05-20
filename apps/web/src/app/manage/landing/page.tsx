@@ -610,7 +610,9 @@ export default function ManageLandingPage() {
                   </p>
                 </div>
                 <div className="grid gap-3">
-                  <div className="manage-info-box">Home: {summary?.featuredInHome ?? 0} • Explore: {summary?.featuredInExplore ?? 0}</div>
+                  <div className="manage-info-box">
+                    Home: {summary?.featuredInHome ?? 0} | Explore: {summary?.featuredInExplore ?? 0}
+                  </div>
                   <div className="manage-info-box">Uu dai active: {summary?.activeOffers ?? 0}</div>
                 </div>
                 <div className="manage-info-box">
@@ -637,7 +639,7 @@ export default function ManageLandingPage() {
                   </p>
                 </div>
                 <div className="manage-info-box">
-                  Home: {summary?.featuredInHome ?? 0} • Explore: {summary?.featuredInExplore ?? 0}
+                  Home: {summary?.featuredInHome ?? 0} | Explore: {summary?.featuredInExplore ?? 0}
                 </div>
                 <Link href="/manage/services" className="manage-quick-link-accent">
                   Mo quan tri dich vu

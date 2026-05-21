@@ -16,6 +16,7 @@ import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import {
   buildAutoScheduleResult,
+  createShiftSlotSnapshot,
   buildDefaultWeekDemands,
   DEFAULT_SHIFT_DEFINITIONS,
   generateDraftSchedule,
@@ -27,7 +28,10 @@ import {
   type AutoScheduleDemand,
   type AutoScheduleEmployee,
   type AutoScheduleResult,
+  type EffectiveShiftSlot,
+  type ShiftChangeRequestRecord,
   type ShiftDefinition,
+  type ShiftRequestKind,
   type ShiftType,
   type StaffRole,
   type TeamMemberRow,
@@ -36,22 +40,28 @@ import {
   applyApprovedDayOffToAssignments,
   canManageShiftPlans,
   closeShiftEntryIfAllowed,
+  createManualShiftOverride,
   createEmptyStaffShiftProfile,
   createShiftCheckIn,
-  getTodayAssignmentFromPlan,
+  getEffectiveShiftSlotsForDate,
   isMissingShiftPlansSchema,
   isMissingStaffShiftProfilesSchema,
+  listEffectiveShiftSlots,
   listOwnerShiftEntries,
   listPersonalShiftEntries,
+  listShiftChangeRequests,
   listShiftLeaveRequests,
   loadShiftPlanWeek,
   loadStaffShiftProfiles,
   loadWeeklyShiftForecast,
   normalizeStaffShiftProfiles,
+  removeManualShiftOverride,
+  reviewShiftChangeRequest,
   reviewShiftCheckIn,
   reviewShiftLeaveRequest,
   saveShiftPlanWeek,
   saveStaffShiftProfile,
+  submitShiftChangeRequest,
   submitDayOffRequest,
   type ShiftLeaveRequestRecord,
   type ShiftPlanRecord,
@@ -143,25 +153,134 @@ function getShiftColors(definition: ShiftDefinition) {
   return { bg: "#F5F1EC", text: "#73665C", border: "#E3D8CC" };
 }
 
-function getAssignmentForUserOnDate(plan: ShiftPlanRecord | null, userId: string | null | undefined, dateKey: string) {
-  if (!plan || !userId) return null;
+function looksLikeUserId(value: string | null | undefined) {
+  const normalized = value?.trim() ?? "";
   return (
-    plan.result.assignments.find(
-      (assignment) => assignment.employeeId === userId && assignment.dateKey === dateKey && assignment.shiftType !== "OFF",
-    ) ?? null
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized) ||
+    /^[0-9a-f]{8}$/i.test(normalized)
   );
+}
+
+function looksLikeGenericTeamName(value: string | null | undefined) {
+  const normalized = value?.trim() ?? "";
+  return (
+    looksLikePlaceholderName(normalized) ||
+    /^(nh\u00e2n s\u1ef1|nhan su|staff)\s+\d+$/i.test(normalized) ||
+    /^user$/i.test(normalized)
+  );
+}
+
+function looksLikePlaceholderName(value: string | null | undefined) {
+  const normalized = value?.trim() ?? "";
+  return /^nhân sự\s+\d+$/i.test(normalized) || /^staff\s+\d+$/i.test(normalized);
+}
+
+function resolveTeamMemberName(row: TeamMemberRow, index: number) {
+  const displayName = row.displayName?.trim() ?? "";
+  if (displayName && !looksLikeUserId(displayName) && !looksLikeGenericTeamName(displayName)) return displayName;
+  const emailName = row.email?.split("@")[0]?.trim() ?? "";
+  if (emailName) return emailName;
+  const phoneName = row.phone?.trim() ?? "";
+  if (phoneName) return phoneName;
+  return `Nhân sự ${index + 1}`;
+}
+
+function getPersonDisplayName(
+  userId: string,
+  namesByUserId: Map<string, string>,
+  fallbackName?: string | null,
+) {
+  const mappedName = namesByUserId.get(userId)?.trim();
+  const normalizedFallback = fallbackName?.trim() ?? "";
+  const fallbackLooksLikeId =
+    !normalizedFallback ||
+    normalizedFallback === userId ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalizedFallback) ||
+    looksLikeGenericTeamName(normalizedFallback);
+
+  if (mappedName) return mappedName;
+  if (!fallbackLooksLikeId) return normalizedFallback;
+  return userId;
+}
+
+function resolvePlannerDisplayName(row: TeamMemberRow, index: number) {
+  const baseName = resolveTeamMemberName(row, index);
+  if (baseName && !looksLikeGenericTeamName(baseName) && !/^user$/i.test(baseName.trim())) {
+    return baseName;
+  }
+
+  const phoneName = row.phone?.trim() ?? "";
+  if (phoneName) return phoneName;
+
+  const emailName = row.email?.split("@")[0]?.trim() ?? "";
+  if (emailName) return emailName;
+
+  return baseName;
+}
+
+function hydrateSlotNames(slots: EffectiveShiftSlot[], namesByUserId: Map<string, string>) {
+  return slots.map((slot) => ({
+    ...slot,
+    holderName: getPersonDisplayName(slot.holderUserId, namesByUserId, slot.holderName),
+  }));
+}
+
+function hydrateSlotSnapshotNames<T extends { holderUserId: string; holderName?: string | null }>(
+  slots: T[],
+  namesByUserId: Map<string, string>,
+) {
+  return slots.map((slot) => ({
+    ...slot,
+    holderName: getPersonDisplayName(slot.holderUserId, namesByUserId, slot.holderName),
+  }));
+}
+
+function isSchedulableTeamRole(role: TeamMemberRow["role"]) {
+  return role !== "OWNER" && role !== "PARTNER" && role !== "USER";
+}
+
+function augmentTeamDirectoryRows(
+  rows: TeamMemberRow[],
+  options: {
+    currentUserId: string | null;
+    currentRole: TeamMemberRow["role"] | null | undefined;
+    currentUserEmail: string | null | undefined;
+    currentUserDisplayName: string | null | undefined;
+    branchId: string | null;
+  },
+) {
+  if (!options.currentUserId || rows.some((row) => row.userId === options.currentUserId)) {
+    return rows;
+  }
+
+  const fallbackDisplayName = options.currentUserDisplayName?.trim()
+    || options.currentUserEmail?.split("@")[0]?.trim()
+    || options.currentUserId.slice(0, 8);
+
+  return [
+    {
+      id: `session:${options.currentUserId}`,
+      userId: options.currentUserId,
+      role: (options.currentRole ?? "USER") as TeamMemberRow["role"],
+      displayName: fallbackDisplayName,
+      email: options.currentUserEmail ?? null,
+      phone: null,
+      branchId: options.branchId,
+    },
+    ...rows,
+  ];
 }
 
 function buildEmployeeList(rows: TeamMemberRow[], profiles: StaffShiftProfileRecord[]) {
   const profileMap = new Map(profiles.map((item) => [item.userId, item]));
   return rows
-    .filter((row) => row.role !== "OWNER" && row.role !== "PARTNER" && row.role !== "USER")
+    .filter((row) => isSchedulableTeamRole(row.role))
     .map<AutoScheduleEmployee>((row, index) => {
       const role = row.role as StaffRole;
       const profile = profileMap.get(row.userId) ?? createEmptyStaffShiftProfile(row.userId, role);
       return {
         id: row.userId,
-        name: row.displayName?.trim() || row.email?.split("@")[0] || `Nhân sự ${index + 1}`,
+        name: resolvePlannerDisplayName(row, index),
         role,
         skills: profile.skills,
         availability: profile.availability,
@@ -188,6 +307,24 @@ function createOffAssignment(dateKey: string, employee: AutoScheduleEmployee): A
     hours: 0,
     source: "system",
     score: 0,
+    matchedSkills: [],
+  };
+}
+
+function createAssignmentFromEffectiveSlot(slot: EffectiveShiftSlot): AutoScheduleAssignment {
+  return {
+    employeeId: slot.holderUserId,
+    employeeName: slot.holderName?.trim() || slot.holderUserId,
+    role: "TECH",
+    dateKey: slot.dateKey,
+    shiftType: slot.shiftType,
+    shiftLabel: slot.shiftLabel,
+    shortCode: getShiftDefinition(slot.shiftType).shortCode,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    hours: getShiftDefinition(slot.shiftType).hours,
+    source: slot.source === "OVERRIDE_ADD" ? "manual" : "auto",
+    score: 100,
     matchedSkills: [],
   };
 }
@@ -243,7 +380,16 @@ export default function AdminShiftsScreen() {
   const { isHydrated, role, user } = useSession();
   const observer = useAdminObserverScope();
   const canManage = canManageShiftPlans(role);
+  const userId = user?.id ?? null;
   const todayKey = useMemo(() => toDateKey(new Date()), []);
+  const observerScopeMode = observer.viewContext?.observerScope.mode ?? observer.observerScope.mode;
+  const observerScopeBranchId = observer.viewContext?.observerScope.branchId ?? observer.observerScope.branchId ?? null;
+  const observerScope = useMemo(
+    () => ({ mode: observerScopeMode, branchId: observerScopeBranchId }),
+    [observerScopeBranchId, observerScopeMode],
+  );
+  const currentUserEmail = user?.email ?? null;
+  const currentUserDisplayName = user?.displayName ?? null;
   const observerReadOnly =
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
@@ -267,19 +413,60 @@ export default function AdminShiftsScreen() {
   const [forecast, setForecast] = useState<Record<string, number>>({});
   const [ownerEntries, setOwnerEntries] = useState<ShiftTimeEntryRecord[]>([]);
   const [ownerLeaveRequests, setOwnerLeaveRequests] = useState<ShiftLeaveRequestRecord[]>([]);
+  const [ownerShiftChangeRequests, setOwnerShiftChangeRequests] = useState<ShiftChangeRequestRecord[]>([]);
   const [personalEntries, setPersonalEntries] = useState<ShiftTimeEntryRecord[]>([]);
+  const [personalEffectiveSlots, setPersonalEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
+  const [ownerEffectiveSlots, setOwnerEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
+  const [todayEffectiveSlots, setTodayEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
+  const [selectedTodaySlotKey, setSelectedTodaySlotKey] = useState("");
+  const [shiftRequestKind, setShiftRequestKind] = useState<ShiftRequestKind>("PICKUP");
+  const [selectedRequestTargetKey, setSelectedRequestTargetKey] = useState("");
+  const [selectedRequestSourceKey, setSelectedRequestSourceKey] = useState("");
+  const [shiftRequestNote, setShiftRequestNote] = useState("");
   const [selectedCell, setSelectedCell] = useState<SelectedCell | null>(null);
 
-  const employees = useMemo(() => buildEmployeeList(teamRows, profiles), [teamRows, profiles]);
+  const teamDirectoryRows = useMemo(
+    () =>
+      augmentTeamDirectoryRows(teamRows, {
+        currentUserId: userId,
+        currentRole: role,
+        currentUserEmail,
+        currentUserDisplayName,
+        branchId: observerScope.mode === "branch" ? observerScope.branchId : null,
+      }),
+    [currentUserDisplayName, currentUserEmail, observerScope.branchId, observerScope.mode, role, teamRows, userId],
+  );
+  const schedulableTeamRows = useMemo(
+    () => teamDirectoryRows.filter((row) => isSchedulableTeamRole(row.role)),
+    [teamDirectoryRows],
+  );
+  const schedulableEmployees = useMemo(
+    () => buildEmployeeList(schedulableTeamRows, profiles),
+    [profiles, schedulableTeamRows],
+  );
   const assignmentMap = useMemo(
     () => new Map((draftResult?.assignments ?? []).map((assignment) => [`${assignment.employeeId}:${assignment.dateKey}`, assignment])),
     [draftResult],
   );
-  const teamNameMap = useMemo(() => new Map(teamRows.map((row) => [row.userId, row.displayName])), [teamRows]);
+  const teamNameMap = useMemo(
+    () =>
+      new Map(
+        teamDirectoryRows.map((row, index) => [
+          row.userId,
+          resolvePlannerDisplayName(row, index),
+        ]),
+      ),
+    [teamDirectoryRows],
+  );
+  const resolveDisplayName = useCallback(
+    (userId: string | null | undefined, fallbackName?: string | null) =>
+      userId ? getPersonDisplayName(userId, teamNameMap, fallbackName) : "Nhân sự",
+    [teamNameMap],
+  );
 
   const loadData = useCallback(
     async (force = false) => {
-      if (!mobileSupabase || !isHydrated || !user?.id || !observer.isReady) {
+      if (!mobileSupabase || !isHydrated || !userId || !observer.isReady) {
         setLoading(false);
         return;
       }
@@ -292,38 +479,48 @@ export default function AdminShiftsScreen() {
         setPlanSchemaMissing(false);
         setProfileSchemaMissing(false);
 
-        const teamPromise = listTeamMembersForMobile(mobileSupabase, { observerScope: observer.observerScope });
-        const profilesPromise = loadStaffShiftProfiles(observer.observerScope).catch((nextError) => {
+        const teamPromise = listTeamMembersForMobile(mobileSupabase, { observerScope });
+        const profilesPromise = loadStaffShiftProfiles(observerScope).catch((nextError) => {
           if (isMissingStaffShiftProfilesSchema(nextError)) {
             setProfileSchemaMissing(true);
             return [];
           }
           throw nextError;
         });
-        const draftPromise = loadShiftPlanWeek(weekStart, { observerScope: observer.observerScope }).catch((nextError) => {
+        const draftPromise = loadShiftPlanWeek(weekStart, { observerScope }).catch((nextError) => {
           if (isMissingShiftPlansSchema(nextError)) {
             setPlanSchemaMissing(true);
             return null;
           }
           throw nextError;
         });
-        const publishedPromise = loadShiftPlanWeek(weekStart, { publishedOnly: true, observerScope: observer.observerScope }).catch((nextError) => {
+        const publishedPromise = loadShiftPlanWeek(weekStart, { publishedOnly: true, observerScope }).catch((nextError) => {
           if (isMissingShiftPlansSchema(nextError)) {
             setPlanSchemaMissing(true);
             return null;
           }
           throw nextError;
         });
-        const forecastPromise = loadWeeklyShiftForecast(weekStart, observer.observerScope).catch(() => {
+        const forecastPromise = loadWeeklyShiftForecast(weekStart, observerScope).catch(() => {
           return generateWeekDates(weekStart).reduce<Record<string, number>>((acc, dateKey) => {
             acc[dateKey] = 0;
             return acc;
           }, {});
         });
-        const ownerEntriesPromise = canManage ? listOwnerShiftEntries(observer.observerScope) : Promise.resolve([]);
-        const ownerLeavesPromise = canManage ? listShiftLeaveRequests({ observerScope: observer.observerScope }) : Promise.resolve([]);
-        const personalEntriesPromise = listPersonalShiftEntries(user.id);
-        const personalLeavesPromise = listShiftLeaveRequests({ userId: user.id, observerScope: observer.observerScope });
+        const ownerEntriesPromise = canManage ? listOwnerShiftEntries(observerScope) : Promise.resolve([]);
+        const ownerLeavesPromise = canManage ? listShiftLeaveRequests({ observerScope }) : Promise.resolve([]);
+        const ownerShiftChangePromise = canManage ? listShiftChangeRequests({ observerScope }) : Promise.resolve([]);
+        const personalEntriesPromise = listPersonalShiftEntries(userId);
+        const personalLeavesPromise = listShiftLeaveRequests({ userId, observerScope });
+        const personalWeekSlotsPromise = listEffectiveShiftSlots(weekStart, { userId, observerScope });
+        const ownerWeekSlotsPromise = canManage
+          ? listEffectiveShiftSlots(weekStart, { observerScope })
+          : Promise.resolve([]);
+        const todayWeekStart = toDateKey(startOfWeek(new Date(`${todayKey}T00:00:00`)));
+        const personalTodaySlotsPromise =
+          todayWeekStart === weekStart
+            ? personalWeekSlotsPromise
+            : listEffectiveShiftSlots(todayWeekStart, { userId, observerScope });
 
         const [
           rows,
@@ -333,8 +530,12 @@ export default function AdminShiftsScreen() {
           forecast,
           nextOwnerEntries,
           nextOwnerLeaves,
+          nextOwnerShiftChanges,
           nextPersonalEntries,
           nextPersonalLeaves,
+          nextPersonalWeekSlots,
+          nextOwnerWeekSlots,
+          nextPersonalTodayWeekSlots,
         ] = await Promise.all([
           teamPromise,
           profilesPromise,
@@ -343,17 +544,33 @@ export default function AdminShiftsScreen() {
           forecastPromise,
           ownerEntriesPromise,
           ownerLeavesPromise,
+          ownerShiftChangePromise,
           personalEntriesPromise,
           personalLeavesPromise,
+          personalWeekSlotsPromise,
+          ownerWeekSlotsPromise,
+          personalTodaySlotsPromise,
         ]);
 
+        const directoryRows = augmentTeamDirectoryRows(rows, {
+          currentUserId: userId,
+          currentRole: role,
+          currentUserEmail,
+          currentUserDisplayName,
+          branchId: observerScope.mode === "branch" ? observerScope.branchId : null,
+        });
+        const schedulableRows = directoryRows.filter((row) => isSchedulableTeamRole(row.role));
         const nextFallbackRoles = new Map(
-          rows
-            .filter((row) => row.role !== "OWNER" && row.role !== "PARTNER" && row.role !== "USER")
-            .map((row) => [row.userId, row.role as StaffRole]),
+          schedulableRows.map((row) => [row.userId, row.role as StaffRole]),
+        );
+        const nextTeamNameMap = new Map(
+          directoryRows.map((row, index) => [
+            row.userId,
+            resolvePlannerDisplayName(row, index),
+          ]),
         );
         const normalizedProfiles = normalizeStaffShiftProfiles(profileRowsRaw as never[], nextFallbackRoles);
-        const nextEmployees = buildEmployeeList(rows, normalizedProfiles);
+        const nextEmployees = buildEmployeeList(schedulableRows, normalizedProfiles);
         const basePlan = nextDraftPlan ?? nextPublishedPlan;
         const nextDemands = basePlan?.demands ?? buildDefaultWeekDemands({ weekStart, employees: nextEmployees, forecast });
         const baseResult = basePlan?.result ?? generateDraftSchedule({ weekStart, employees: nextEmployees, demands: nextDemands });
@@ -366,7 +583,7 @@ export default function AdminShiftsScreen() {
           assignments: assignmentsWithApprovedLeave,
         });
 
-        setTeamRows(rows);
+        setTeamRows(directoryRows);
         setProfiles(normalizedProfiles);
         setDraftPlan(nextDraftPlan);
         setPublishedPlan(nextPublishedPlan);
@@ -375,7 +592,20 @@ export default function AdminShiftsScreen() {
         setForecast(forecast);
         setOwnerEntries(nextOwnerEntries as ShiftTimeEntryRecord[]);
         setOwnerLeaveRequests(nextOwnerLeaves as ShiftLeaveRequestRecord[]);
+        setOwnerShiftChangeRequests(nextOwnerShiftChanges as ShiftChangeRequestRecord[]);
         setPersonalEntries(nextPersonalEntries);
+        setPersonalEffectiveSlots(hydrateSlotNames(nextPersonalWeekSlots, nextTeamNameMap));
+        setOwnerEffectiveSlots(hydrateSlotNames(nextOwnerWeekSlots, nextTeamNameMap));
+        const nextTodaySlots = getEffectiveShiftSlotsForDate(
+          hydrateSlotNames(nextPersonalTodayWeekSlots, nextTeamNameMap),
+          userId,
+          todayKey,
+        );
+        setTodayEffectiveSlots(nextTodaySlots);
+        setSelectedTodaySlotKey((current) => {
+          if (nextTodaySlots.some((slot) => `${slot.dateKey}:${slot.shiftType}` === current)) return current;
+          return nextTodaySlots[0] ? `${nextTodaySlots[0].dateKey}:${nextTodaySlots[0].shiftType}` : "";
+        });
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu ca làm.");
       } finally {
@@ -383,7 +613,7 @@ export default function AdminShiftsScreen() {
         setRefreshing(false);
       }
     },
-    [canManage, isHydrated, observer.isReady, observer.observerScope, user, weekStart],
+    [canManage, currentUserDisplayName, currentUserEmail, isHydrated, observer.isReady, observerScope, role, todayKey, userId, weekStart],
   );
 
   useEffect(() => {
@@ -410,19 +640,21 @@ export default function AdminShiftsScreen() {
     () => ownerLeaveRequests.filter((item) => item.status === "PENDING"),
     [ownerLeaveRequests],
   );
-  const todayPublishedAssignment = useMemo(
-    () => getTodayAssignmentFromPlan(publishedPlan, user?.id ?? "", todayKey),
-    [publishedPlan, todayKey, user?.id],
-  );
-  const todayDraftAssignment = useMemo(
-    () => getTodayAssignmentFromPlan(draftPlan, user?.id ?? "", todayKey),
-    [draftPlan, todayKey, user?.id],
+  const pendingOwnerShiftChanges = useMemo(
+    () => ownerShiftChangeRequests.filter((item) => item.status === "PENDING"),
+    [ownerShiftChangeRequests],
   );
   const activePersonalEntry = useMemo(
     () => personalEntries.find((item) => item.clock_out === null) ?? null,
     [personalEntries],
   );
-  const visibleTodayAssignment = todayPublishedAssignment ?? todayDraftAssignment;
+  const selectedTodaySlot = useMemo(
+    () => todayEffectiveSlots.find((slot) => `${slot.dateKey}:${slot.shiftType}` === selectedTodaySlotKey) ?? todayEffectiveSlots[0] ?? null,
+    [selectedTodaySlotKey, todayEffectiveSlots],
+  );
+  const visibleTodayAssignment = selectedTodaySlot ? createAssignmentFromEffectiveSlot(selectedTodaySlot) : null;
+  const todayPublishedAssignment = visibleTodayAssignment;
+  const todayDraftAssignment = null;
   const todayShiftColors = useMemo(
     () => getShiftColors(getShiftDefinition(visibleTodayAssignment?.shiftType ?? "OFF")),
     [visibleTodayAssignment],
@@ -442,13 +674,28 @@ export default function AdminShiftsScreen() {
       ? "Bạn đã được xếp lịch, nhưng ca này chưa được xuất lịch chính thức."
       : "Hôm nay chưa có ca nào được xuất lịch cho bạn.";
   const selectedEmployee = useMemo(
-    () => employees.find((employee) => employee.id === currentSelectedCell?.employeeId) ?? null,
-    [currentSelectedCell?.employeeId, employees],
+    () => schedulableEmployees.find((employee) => employee.id === currentSelectedCell?.employeeId) ?? null,
+    [currentSelectedCell?.employeeId, schedulableEmployees],
   );
   const selectedProfile = useMemo(
     () => (selectedEmployee ? profiles.find((item) => item.userId === selectedEmployee.id) ?? null : null),
     [profiles, selectedEmployee],
   );
+  const selectedEffectiveAssignments = useMemo(() => {
+    if (!currentSelectedCell) return [];
+    return ownerEffectiveSlots
+      .filter((slot) => slot.holderUserId === currentSelectedCell.employeeId && slot.dateKey === currentSelectedCell.dateKey)
+      .map((slot) => createAssignmentFromEffectiveSlot(slot));
+  }, [currentSelectedCell, ownerEffectiveSlots]);
+  const selectedManualOverrides = useMemo(() => {
+    if (!currentSelectedCell) return [];
+    return ownerEffectiveSlots.filter(
+      (slot) =>
+        slot.holderUserId === currentSelectedCell.employeeId &&
+        slot.dateKey === currentSelectedCell.dateKey &&
+        slot.overrideId,
+    );
+  }, [currentSelectedCell, ownerEffectiveSlots]);
   const selectedAssignment = useMemo(() => {
     if (!currentSelectedCell || !selectedEmployee) return null;
     return (
@@ -468,37 +715,64 @@ export default function AdminShiftsScreen() {
   const totalConflicts = draftResult?.conflicts.length ?? 0;
   const selectedDayAssignments = useMemo(
     () =>
-      employees.map((employee) => ({
+      schedulableEmployees.map((employee) => ({
         employee,
         assignment:
           assignmentMap.get(`${employee.id}:${currentSelectedDateKey}`) ??
           createOffAssignment(currentSelectedDateKey, employee),
       })),
-    [assignmentMap, currentSelectedDateKey, employees],
+    [assignmentMap, currentSelectedDateKey, schedulableEmployees],
   );
   const selectedDaySummary = useMemo(
     () => draftResult?.daySummaries.find((item) => item.dateKey === currentSelectedDateKey) ?? null,
     [currentSelectedDateKey, draftResult],
   );
   const selectedPersonalAssignment = useMemo(
-    () =>
-      getAssignmentForUserOnDate(publishedPlan, user?.id, currentSelectedDateKey) ??
-      getAssignmentForUserOnDate(draftPlan, user?.id, currentSelectedDateKey),
-    [currentSelectedDateKey, draftPlan, publishedPlan, user?.id],
+    () => {
+      const selectedSlot =
+        getEffectiveShiftSlotsForDate(personalEffectiveSlots, user?.id ?? "", currentSelectedDateKey)[0] ?? null;
+      return selectedSlot ? createAssignmentFromEffectiveSlot(selectedSlot) : null;
+    },
+    [currentSelectedDateKey, personalEffectiveSlots, user?.id],
   );
   const personalWeekAssignments = useMemo(
     () =>
       weekDates.map((dateKey) => {
-        const publishedAssignment = getAssignmentForUserOnDate(publishedPlan, user?.id, dateKey);
-        const draftAssignment = getAssignmentForUserOnDate(draftPlan, user?.id, dateKey);
         return {
           dateKey,
-          assignment: publishedAssignment ?? draftAssignment,
-          published: Boolean(publishedAssignment),
+          assignments: getEffectiveShiftSlotsForDate(personalEffectiveSlots, user?.id ?? "", dateKey).map((slot) =>
+            createAssignmentFromEffectiveSlot(slot),
+          ),
         };
       }),
-    [draftPlan, publishedPlan, user?.id, weekDates],
+    [personalEffectiveSlots, user?.id, weekDates],
   );
+  const hasPersonalPublishedSchedule = useMemo(
+    () => personalWeekAssignments.some((entry) => entry.assignments.length > 0),
+    [personalWeekAssignments],
+  );
+  const ownRequestSourceSlots = useMemo(
+    () => personalEffectiveSlots.filter((slot) => slot.holderUserId === (user?.id ?? "")),
+    [personalEffectiveSlots, user?.id],
+  );
+  const requestableTargetSlots = useMemo(
+    () =>
+      hydrateSlotSnapshotNames(
+        (publishedPlan?.result.assignments ?? [])
+          .map((assignment) => createShiftSlotSnapshot(assignment, weekStart))
+          .filter((slot): slot is NonNullable<ReturnType<typeof createShiftSlotSnapshot>> => !!slot),
+        teamNameMap,
+      )
+        .filter((slot) => slot.holderUserId !== (user?.id ?? "")),
+    [publishedPlan, teamNameMap, user?.id, weekStart],
+  );
+  const personalEntriesForCurrentWeek = useMemo(
+    () => personalEntries.filter((entry) => !entry.scheduled_date || weekDates.includes(entry.scheduled_date)),
+    [personalEntries, weekDates],
+  );
+  const shouldShowManagerPersonalCard = canManage
+    && (role === "OWNER" || role === "PARTNER")
+    && (personalEffectiveSlots.length > 0 || personalEntriesForCurrentWeek.length > 0);
 
   async function persistDraft(nextDraft: AutoScheduleResult, status: "draft" | "published") {
     if (planSchemaMissing) {
@@ -521,7 +795,7 @@ export default function AdminShiftsScreen() {
     if (!canManage || saving) return;
     try {
       setSaving(true);
-      const nextDraft = generateDraftSchedule({ weekStart, employees, demands });
+      const nextDraft = generateDraftSchedule({ weekStart, employees: schedulableEmployees, demands });
       await persistDraft(nextDraft, "draft");
     } catch (nextError) {
       Alert.alert("Không thể tự động xếp ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
@@ -547,7 +821,7 @@ export default function AdminShiftsScreen() {
     if (!selectedCell || !draftResult || saving) return;
     try {
       setSaving(true);
-      const nextDraft = buildManualDraft(draftResult, employees, demands, selectedCell.employeeId, selectedCell.dateKey, shiftType);
+      const nextDraft = buildManualDraft(draftResult, schedulableEmployees, demands, selectedCell.employeeId, selectedCell.dateKey, shiftType);
       await persistDraft(nextDraft, "draft");
       setSelectedCell(null);
     } catch (nextError) {
@@ -572,7 +846,7 @@ export default function AdminShiftsScreen() {
       await saveStaffShiftProfile(nextProfile);
       setProfiles((current) => replaceProfile(current, nextProfile));
       if (!hasLeave && draftResult) {
-        const nextDraft = buildManualDraft(draftResult, employees, demands, selectedEmployee.id, selectedAssignment.dateKey, "OFF");
+        const nextDraft = buildManualDraft(draftResult, schedulableEmployees, demands, selectedEmployee.id, selectedAssignment.dateKey, "OFF");
         await persistDraft(nextDraft, "draft");
       }
       setSelectedCell(null);
@@ -607,10 +881,103 @@ export default function AdminShiftsScreen() {
     }
   }
 
-  async function handleCheckIn() {
+  async function handleCreateEffectiveOverride(shiftType: ShiftType) {
+    if (!selectedCell || saving) return;
+    const definition = getShiftDefinition(shiftType);
+    if (shiftType === "OFF" || !definition.startTime || !definition.endTime) return;
+
     try {
       setSaving(true);
-      await createShiftCheckIn();
+      await createManualShiftOverride({
+        weekStart,
+        staffUserId: selectedCell.employeeId,
+        action: "ADD",
+        observerScope,
+        slot: {
+          weekStart,
+          dateKey: selectedCell.dateKey,
+          shiftType,
+          shiftLabel: definition.label,
+          startTime: definition.startTime,
+          endTime: definition.endTime,
+          holderUserId: selectedCell.employeeId,
+          holderName: teamNameMap.get(selectedCell.employeeId) ?? selectedCell.employeeId,
+        },
+      });
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể thêm override", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemoveEffectiveOverride(overrideId: string) {
+    try {
+      setSaving(true);
+      await removeManualShiftOverride(overrideId, observerScope);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể gỡ override", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleApproveShiftChange(requestId: string, approve: boolean) {
+    try {
+      setSaving(true);
+      await reviewShiftChangeRequest(requestId, approve, undefined, observerScope);
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể duyệt đổi ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSubmitShiftChange() {
+    const resolvedTarget =
+      requestableTargetSlots.find((slot) => `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestTargetKey) ?? null;
+    const resolvedSource =
+      shiftRequestKind === "SWAP"
+        ? ownRequestSourceSlots.find((slot) => `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestSourceKey) ?? null
+        : null;
+
+    if (!resolvedTarget) {
+      Alert.alert("Thiếu ca đích", "Hãy chọn ca đích đã publish.");
+      return;
+    }
+    if (shiftRequestKind === "SWAP" && !resolvedSource) {
+      Alert.alert("Thiếu ca nguồn", "Xin đổi ca cần chọn ca nguồn của bạn.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await submitShiftChangeRequest({
+        requestKind: shiftRequestKind,
+        targetSlot: resolvedTarget,
+        sourceSlot: resolvedSource,
+        note: shiftRequestNote,
+        observerScope,
+      });
+      setShiftRequestNote("");
+      setSelectedRequestTargetKey("");
+      setSelectedRequestSourceKey("");
+      await loadData(true);
+    } catch (nextError) {
+      Alert.alert("Không thể gửi yêu cầu", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleCheckIn() {
+    if (!selectedTodaySlot) return;
+    try {
+      setSaving(true);
+      await createShiftCheckIn(selectedTodaySlot);
       await loadData(true);
     } catch (nextError) {
       Alert.alert("Không thể mở ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
@@ -690,7 +1057,15 @@ export default function AdminShiftsScreen() {
           <View style={styles.sectionCard}>
             <View style={styles.rowBetween}>
               <Text style={styles.sectionTitle}>Tuần làm việc</Text>
-              <Text style={styles.badgeText}>{draftPlan?.status === "published" || publishedPlan ? "Đã có lịch" : "Chưa xuất lịch"}</Text>
+              <Text style={styles.badgeText}>
+                {canManage
+                  ? draftPlan?.status === "published" || publishedPlan
+                    ? "Đã có lịch"
+                    : "Chưa xuất lịch"
+                  : hasPersonalPublishedSchedule
+                    ? "Đã có lịch"
+                    : "Chưa có ca"}
+              </Text>
             </View>
             <View style={styles.weekNavRow}>
               <Pressable style={styles.iconRound} onPress={() => handleWeekChange(-7)}>
@@ -751,7 +1126,10 @@ export default function AdminShiftsScreen() {
                 const summary = draftResult?.daySummaries.find((item) => item.dateKey === dateKey);
                 const active = currentSelectedDateKey === dateKey;
                 const personalAssignment = !canManage
-                  ? getAssignmentForUserOnDate(publishedPlan, user?.id, dateKey) ?? getAssignmentForUserOnDate(draftPlan, user?.id, dateKey)
+                  ? (() => {
+                      const slot = getEffectiveShiftSlotsForDate(personalEffectiveSlots, user?.id ?? "", dateKey)[0] ?? null;
+                      return slot ? createAssignmentFromEffectiveSlot(slot) : null;
+                    })()
                   : null;
                 return (
                   <Pressable key={dateKey} style={[styles.dayChip, active ? styles.dayChipActive : null]} onPress={() => handleSelectedDateChange(dateKey)}>
@@ -834,6 +1212,37 @@ export default function AdminShiftsScreen() {
             </View>
           ) : null}
 
+          {canManage ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Yêu cầu đổi / nhận ca</Text>
+              {pendingOwnerShiftChanges.length ? (
+                <View style={styles.cardStack}>
+                  {pendingOwnerShiftChanges.map((request) => (
+                    <View key={request.id} style={styles.reviewCard}>
+                      <Text style={styles.reviewTitle}>{resolveDisplayName(request.requester_user_id)}</Text>
+                      <Text style={styles.reviewMeta}>
+                        {request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"} • {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel}
+                      </Text>
+                      <Text style={styles.reviewMeta}>
+                        Holder hiện tại: {resolveDisplayName(request.target_slot_json.holderUserId, request.target_slot_json.holderName)}
+                      </Text>
+                      <View style={styles.actionsRow}>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveShiftChange(request.id, true)} disabled={saving}>
+                          <Text style={styles.approveText}>Duyệt</Text>
+                        </Pressable>
+                        <Pressable style={styles.rejectButton} onPress={() => void handleApproveShiftChange(request.id, false)} disabled={saving}>
+                          <Text style={styles.rejectText}>Từ chối</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.emptyText}>Không có yêu cầu đổi hoặc nhận ca đang chờ duyệt.</Text>
+              )}
+            </View>
+          ) : null}
+
           {!canManage ? (
             <View style={styles.sectionCard}>
               <Text style={styles.sectionTitle}>Lịch của tôi trong tuần</Text>
@@ -843,7 +1252,9 @@ export default function AdminShiftsScreen() {
                   : "Chọn từng ngày để xem rõ bạn được xếp ca sáng, ca chiều hay cả ngày."}
               </Text>
               <View style={styles.cardStack}>
-                {personalWeekAssignments.map(({ dateKey, assignment, published }) => {
+                {personalWeekAssignments.map(({ dateKey, assignments }) => {
+                  const assignment = assignments[0] ?? null;
+                  const published = Boolean(assignment);
                   const definition = getShiftDefinition(assignment?.shiftType ?? "OFF");
                   const colors = getShiftColors(definition);
                   const active = currentSelectedDateKey === dateKey;
@@ -894,7 +1305,7 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {pendingOwnerEntries.map((entry) => (
                     <View key={entry.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{teamNameMap.get(entry.staff_user_id ?? "") ?? "Nhân sự"}</Text>
+                      <Text style={styles.reviewTitle}>{resolveDisplayName(entry.staff_user_id)}</Text>
                       <Text style={styles.reviewMeta}>
                         Mở ca {formatTime(entry.clock_in)} • Dự kiến {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
                       </Text>
@@ -922,7 +1333,7 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {pendingOwnerLeaves.map((request) => (
                     <View key={request.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{teamNameMap.get(request.staff_user_id) ?? request.staff_user_id}</Text>
+                      <Text style={styles.reviewTitle}>{resolveDisplayName(request.staff_user_id)}</Text>
                       <Text style={styles.reviewMeta}>
                         {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"} • {request.scheduled_date ?? "Chưa rõ ngày"}
                       </Text>
@@ -941,6 +1352,54 @@ export default function AdminShiftsScreen() {
               ) : (
                 <Text style={styles.emptyText}>Không có yêu cầu nghỉ nào đang chờ duyệt.</Text>
               )}
+            </View>
+          ) : null}
+
+          {shouldShowManagerPersonalCard ? (
+            <View style={styles.sectionCard}>
+              <Text style={styles.sectionTitle}>Ca của tôi / chấm công của tôi</Text>
+              <Text style={styles.sectionSubtitle}>
+                Tóm tắt riêng ca hiệu lực và bản ghi chấm công của bạn trong tuần này.
+              </Text>
+              {personalEffectiveSlots.length ? (
+                <View style={styles.cardStack}>
+                  {personalWeekAssignments
+                    .filter((entry) => entry.assignments.length > 0)
+                    .map(({ dateKey, assignments }) => {
+                      const assignment = assignments[0];
+                      const colors = getShiftColors(getShiftDefinition(assignment.shiftType));
+                      return (
+                        <View
+                          key={`manager-personal-slot-${dateKey}-${assignment.shiftType}`}
+                          style={[styles.personCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
+                        >
+                          <View style={styles.personCopy}>
+                            <Text style={styles.personName}>{formatDayChip(dateKey)}</Text>
+                            <Text style={styles.personShiftHours}>
+                              {assignment.shiftLabel} • {assignment.startTime} - {assignment.endTime}
+                            </Text>
+                          </View>
+                          <View style={[styles.shiftBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                            <Text style={[styles.shiftBadgeText, { color: colors.text }]}>{assignment.shortCode}</Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                </View>
+              ) : null}
+              {personalEntriesForCurrentWeek.length ? (
+                <View style={styles.cardStack}>
+                  {personalEntriesForCurrentWeek.map((entry) => (
+                    <View key={`manager-personal-entry-${entry.id}`} style={styles.reviewCard}>
+                      <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
+                      <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
+                      <Text style={styles.reviewMeta}>
+                        Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
             </View>
           ) : null}
 
@@ -1014,6 +1473,35 @@ export default function AdminShiftsScreen() {
                     </View>
                   </View>
                   <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
+                  {todayEffectiveSlots.length > 1 ? (
+                    <View style={{ gap: 8 }}>
+                      <Text style={styles.reviewMeta}>Chọn đúng ca để mở ca</Text>
+                      <View style={styles.cardStack}>
+                        {todayEffectiveSlots.map((slot) => {
+                          const active = `${slot.dateKey}:${slot.shiftType}` === selectedTodaySlotKey;
+                          const colors = getShiftColors(getShiftDefinition(slot.shiftType));
+                          return (
+                            <Pressable
+                              key={`${slot.dateKey}:${slot.shiftType}`}
+                              style={[
+                                styles.personCard,
+                                { backgroundColor: colors.bg, borderColor: active ? c.primary : colors.border },
+                              ]}
+                              onPress={() => setSelectedTodaySlotKey(`${slot.dateKey}:${slot.shiftType}`)}
+                            >
+                              <View style={styles.personCopy}>
+                                <Text style={styles.personName}>{slot.shiftLabel}</Text>
+                                <Text style={styles.personShiftHours}>{slot.startTime} - {slot.endTime}</Text>
+                              </View>
+                              <View style={[styles.shiftBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
+                                <Text style={[styles.shiftBadgeText, { color: colors.text }]}>{slot.shiftType}</Text>
+                              </View>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
               {todayPublishedAssignment ? (
@@ -1026,6 +1514,71 @@ export default function AdminShiftsScreen() {
                   </Pressable>
                 </View>
               ) : null}
+              <View style={styles.reviewCard}>
+                <Text style={styles.reviewTitle}>Xin nhận / đổi ca</Text>
+                <Text style={styles.reviewMeta}>
+                  Chọn ca đã publish của người khác để xin nhận, hoặc chọn thêm ca nguồn của bạn để đổi.
+                </Text>
+                <View style={styles.actionsRow}>
+                  <Pressable
+                    style={shiftRequestKind === "PICKUP" ? styles.approveButton : styles.secondaryButton}
+                    onPress={() => setShiftRequestKind("PICKUP")}
+                  >
+                    <Text style={shiftRequestKind === "PICKUP" ? styles.approveText : styles.secondaryButtonText}>Xin nhận ca</Text>
+                  </Pressable>
+                  <Pressable
+                    style={shiftRequestKind === "SWAP" ? styles.approveButton : styles.secondaryButton}
+                    onPress={() => setShiftRequestKind("SWAP")}
+                  >
+                    <Text style={shiftRequestKind === "SWAP" ? styles.approveText : styles.secondaryButtonText}>Xin đổi ca</Text>
+                  </Pressable>
+                </View>
+                {shiftRequestKind === "SWAP" ? (
+                  <View style={styles.cardStack}>
+                    {ownRequestSourceSlots.map((slot) => {
+                      const active = `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestSourceKey;
+                      return (
+                        <Pressable
+                          key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}
+                          style={[styles.personCard, active ? { borderColor: c.primary } : null]}
+                          onPress={() => setSelectedRequestSourceKey(`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`)}
+                        >
+                          <View style={styles.personCopy}>
+                            <Text style={styles.personName}>Ca nguồn: {slot.shiftLabel}</Text>
+                            <Text style={styles.personShiftHours}>{slot.dateKey} • {slot.startTime} - {slot.endTime}</Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ) : null}
+                <View style={styles.cardStack}>
+                  {requestableTargetSlots.slice(0, 6).map((slot) => {
+                    const active = `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestTargetKey;
+                    return (
+                      <Pressable
+                        key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}
+                        style={[styles.personCard, active ? { borderColor: c.primary } : null]}
+                        onPress={() => setSelectedRequestTargetKey(`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`)}
+                      >
+                        <View style={styles.personCopy}>
+                          <Text style={styles.personName}>{slot.shiftLabel}</Text>
+                          <Text style={styles.personShiftHours}>
+                            {slot.dateKey} • {slot.startTime} - {slot.endTime} • {resolveDisplayName(slot.holderUserId, slot.holderName)}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Pressable
+                  style={[styles.primaryButton, saving ? styles.buttonDisabled : null]}
+                  onPress={() => void handleSubmitShiftChange()}
+                  disabled={saving || !selectedRequestTargetKey || (shiftRequestKind === "SWAP" && !selectedRequestSourceKey)}
+                >
+                  <Text style={styles.primaryButtonText}>Gửi yêu cầu</Text>
+                </Pressable>
+              </View>
               <View style={styles.cardStack}>
                 {personalEntries.length ? (
                   personalEntries.map((entry) => (
@@ -1076,6 +1629,44 @@ export default function AdminShiftsScreen() {
                   );
                 })}
               </View>
+              {canManage ? (
+                <View style={styles.cardStack}>
+                  <Text style={styles.reviewTitle}>Điều chỉnh hiệu lực ngay</Text>
+                  {selectedEffectiveAssignments.length ? (
+                    selectedEffectiveAssignments.map((assignment, index) => (
+                      <View key={`${assignment.dateKey}:${assignment.shiftType}:${index}`} style={styles.reviewCard}>
+                        <Text style={styles.reviewTitle}>{assignment.shiftLabel}</Text>
+                        <Text style={styles.reviewMeta}>{assignment.startTime} - {assignment.endTime}</Text>
+                        {selectedManualOverrides[index]?.overrideId ? (
+                          <Pressable
+                            style={styles.secondaryButton}
+                            onPress={() => void handleRemoveEffectiveOverride(selectedManualOverrides[index].overrideId as string)}
+                          >
+                            <Text style={styles.secondaryButtonText}>Gỡ override</Text>
+                          </Pressable>
+                        ) : null}
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.emptyText}>Ngày này chưa có ca hiệu lực cho nhân sự đã chọn.</Text>
+                  )}
+                  <View style={styles.optionsGrid}>
+                    {DEFAULT_SHIFT_DEFINITIONS.filter((item) => item.type !== "OFF").map((option) => {
+                      const colors = getShiftColors(option);
+                      return (
+                        <Pressable
+                          key={`effective-${option.type}`}
+                          style={[styles.optionCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
+                          onPress={() => void handleCreateEffectiveOverride(option.type)}
+                        >
+                          <Text style={[styles.optionTitle, { color: colors.text }]}>{option.label}</Text>
+                          <Text style={[styles.optionSub, { color: colors.text }]}>{option.startTime} - {option.endTime}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : null}
               {selectedProfile && !profileSchemaMissing ? (
                 <Pressable style={styles.leaveToggle} onPress={() => void handleToggleLeave()}>
                   <Feather name="calendar" size={16} color={c.text} />

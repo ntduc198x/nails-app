@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Href } from "expo-router";
-import { ensureOrgContext, type AppRole } from "@nails/shared";
+import { ensureOrgContext, resolveMobileAdminViewContext, type AppRole, type ObserverScopeInput } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 export type ManageNotificationKind =
@@ -42,6 +42,7 @@ type PendingAttendanceRow = {
   staff_user_id: string;
   clock_in: string;
   scheduled_start?: string | null;
+  branch_id?: string | null;
 };
 
 type PendingLeaveRow = {
@@ -51,6 +52,7 @@ type PendingLeaveRow = {
   scheduled_date?: string | null;
   requested_at: string;
   requested_end_at?: string | null;
+  branch_id?: string | null;
 };
 
 type BookingNotificationRow = {
@@ -61,6 +63,7 @@ type BookingNotificationRow = {
   status: "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED";
   created_at: string;
   source?: string | null;
+  branch_id?: string | null;
 };
 
 type MembershipNotificationRow = {
@@ -70,6 +73,7 @@ type MembershipNotificationRow = {
   body: string;
   kind: string;
   sent_at: string;
+  branch_id?: string | null;
 };
 
 type AppointmentNotificationRow = {
@@ -78,6 +82,7 @@ type AppointmentNotificationRow = {
   start_at: string;
   checked_in_at?: string | null;
   updated_at?: string | null;
+  branch_id?: string | null;
   customers?: { name?: string | null; full_name?: string | null } | Array<{ name?: string | null; full_name?: string | null }> | null;
 };
 
@@ -92,6 +97,7 @@ type ShiftPlanNotificationRow = {
   id: string;
   week_start: string;
   published_at: string | null;
+  branch_id?: string | null;
   assignments_json?: Array<{ employeeId?: string | null }> | null;
 };
 
@@ -189,64 +195,88 @@ async function loadProfileNameMap(userIds: string[]) {
   );
 }
 
-async function listPendingAttendance(orgId: string) {
+async function listPendingAttendance(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as PendingAttendanceRow[];
 
-  const { data, error } = await mobileSupabase
+  let query = mobileSupabase
     .from("time_entries")
-    .select("id,staff_user_id,clock_in,scheduled_start")
+    .select("id,staff_user_id,clock_in,scheduled_start,branch_id")
     .eq("org_id", orgId)
     .eq("approval_status", "PENDING")
     .order("clock_in", { ascending: false })
     .limit(6);
 
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+
+  const { data, error } = await query;
+
   if (error) return [] as PendingAttendanceRow[];
   return (data ?? []) as PendingAttendanceRow[];
 }
 
-async function listPendingLeaveRequests(orgId: string) {
+async function listPendingLeaveRequests(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as PendingLeaveRow[];
 
-  const { data, error } = await mobileSupabase
+  let query = mobileSupabase
     .from("shift_leave_requests")
-    .select("id,staff_user_id,request_type,scheduled_date,requested_at,requested_end_at")
+    .select("id,staff_user_id,request_type,scheduled_date,requested_at,requested_end_at,branch_id")
     .eq("org_id", orgId)
     .eq("status", "PENDING")
     .order("requested_at", { ascending: false })
     .limit(6);
 
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+
+  const { data, error } = await query;
+
   if (error) return [] as PendingLeaveRow[];
   return (data ?? []) as PendingLeaveRow[];
 }
 
-async function listOpenBookingRequests(orgId: string) {
+async function listOpenBookingRequests(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as BookingNotificationRow[];
 
-  const { data, error } = await mobileSupabase
+  let query = mobileSupabase
     .from("booking_requests")
-    .select("id,customer_name,requested_service,requested_start_at,status,created_at,source")
+    .select("id,customer_name,requested_service,requested_start_at,status,created_at,source,branch_id")
     .eq("org_id", orgId)
     .in("status", ["NEW", "NEEDS_RESCHEDULE", "EXPIRED_UNCONFIRMED"])
     .order("created_at", { ascending: false })
     .limit(8);
 
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+
+  const { data, error } = await query;
+
   if (error) return [] as BookingNotificationRow[];
   return (data ?? []) as BookingNotificationRow[];
 }
 
-async function listRecentAppointmentEvents(orgId: string) {
+async function listRecentAppointmentEvents(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as AppointmentNotificationRow[];
 
   const recentEventSinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const checkedInSinceIso = new Date(Date.now() - ADMIN_NOTIFICATION_RULES.staleCheckedInDays * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await mobileSupabase
+  let query = mobileSupabase
     .from("appointments")
-    .select("id,status,start_at,checked_in_at,updated_at,customers(name,full_name)")
+    .select("id,status,start_at,checked_in_at,updated_at,branch_id,customers(name,full_name)")
     .eq("org_id", orgId)
     .in("status", ["BOOKED", "CHECKED_IN", "DONE"])
     .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso})`)
     .order("updated_at", { ascending: false })
     .limit(24);
+
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) return [] as AppointmentNotificationRow[];
 
@@ -261,29 +291,41 @@ async function listRecentAppointmentEvents(orgId: string) {
     .map((row) => row.id);
 
   if (staleIds.length > 0) {
-    await mobileSupabase
+    let updateQuery = mobileSupabase
       .from("appointments")
       .update({ status: "CANCELLED" })
       .eq("org_id", orgId)
       .in("id", staleIds)
       .eq("status", "CHECKED_IN");
+
+    if (branchId) {
+      updateQuery = updateQuery.eq("branch_id", branchId);
+    }
+
+    await updateQuery;
   }
 
   return rows.filter((row) => !staleIds.includes(row.id));
 }
 
-async function listRecentPublishedShiftPlans(orgId: string) {
+async function listRecentPublishedShiftPlans(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as ShiftPlanNotificationRow[];
 
   const sinceIso = new Date(Date.now() - ADMIN_NOTIFICATION_RULES.recentShiftPublishedHours * 60 * 60 * 1000).toISOString();
-  const { data, error } = await mobileSupabase
+  let query = mobileSupabase
     .from("shift_plans")
-    .select("id,week_start,published_at,assignments_json")
+    .select("id,week_start,published_at,assignments_json,branch_id")
     .eq("org_id", orgId)
     .eq("status", "published")
     .gte("published_at", sinceIso)
     .order("published_at", { ascending: false })
     .limit(4);
+
+  if (branchId) {
+    query = query.eq("branch_id", branchId);
+  }
+
+  const { data, error } = await query;
 
   if (error) return [] as ShiftPlanNotificationRow[];
   return (data ?? []) as ShiftPlanNotificationRow[];
@@ -304,6 +346,29 @@ async function listRecentMembershipNotifications(orgId: string) {
 
   if (error) return [] as MembershipNotificationRow[];
   return (data ?? []) as MembershipNotificationRow[];
+}
+
+async function loadCustomerBranchMembershipSet(
+  orgId: string,
+  branchId: string,
+  customerIds: string[],
+) {
+  if (!mobileSupabase || customerIds.length === 0) return new Set<string>();
+
+  const { data, error } = await mobileSupabase
+    .from("customer_branches")
+    .select("customer_id")
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .in("customer_id", customerIds);
+
+  if (error) return new Set<string>();
+
+  return new Set(
+    ((data ?? []) as Array<{ customer_id: string | null }>).flatMap((row) =>
+      typeof row.customer_id === "string" ? [row.customer_id] : [],
+    ),
+  );
 }
 
 async function loadAdminNotificationStates(orgId: string) {
@@ -327,10 +392,16 @@ function isManageNotificationItem(
   return value !== null;
 }
 
-export async function loadManageNotificationsForMobile(role: AppRole, userId?: string | null) {
+export async function loadManageNotificationsForMobile(
+  role: AppRole,
+  userId?: string | null,
+  observerScope?: ObserverScopeInput | null,
+) {
   if (!mobileSupabase) return [] as ManageNotificationItem[];
 
   const { orgId } = await ensureOrgContext(mobileSupabase);
+  const viewContext = observerScope ? await resolveMobileAdminViewContext(mobileSupabase, observerScope) : null;
+  const branchId = viewContext?.observerScope.mode === "branch" ? viewContext.viewBranchId : null;
   const canApproveShift = role === "OWNER" || role === "PARTNER" || role === "MANAGER";
   const canSeeBookings = role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const canSeeAppointments =
@@ -339,14 +410,19 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
     role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
 
   const [pendingAttendance, pendingLeaveRequests, bookingRequests, appointmentEvents, publishedShiftPlans, membershipNotifications, stateMap] = await Promise.all([
-    canApproveShift ? listPendingAttendance(orgId) : Promise.resolve([] as PendingAttendanceRow[]),
-    canApproveShift ? listPendingLeaveRequests(orgId) : Promise.resolve([] as PendingLeaveRow[]),
-    canSeeBookings ? listOpenBookingRequests(orgId) : Promise.resolve([] as BookingNotificationRow[]),
-    canSeeAppointments ? listRecentAppointmentEvents(orgId) : Promise.resolve([] as AppointmentNotificationRow[]),
-    shouldSeeShiftPublished ? listRecentPublishedShiftPlans(orgId) : Promise.resolve([] as ShiftPlanNotificationRow[]),
+    canApproveShift ? listPendingAttendance(orgId, branchId) : Promise.resolve([] as PendingAttendanceRow[]),
+    canApproveShift ? listPendingLeaveRequests(orgId, branchId) : Promise.resolve([] as PendingLeaveRow[]),
+    canSeeBookings ? listOpenBookingRequests(orgId, branchId) : Promise.resolve([] as BookingNotificationRow[]),
+    canSeeAppointments ? listRecentAppointmentEvents(orgId, branchId) : Promise.resolve([] as AppointmentNotificationRow[]),
+    shouldSeeShiftPublished ? listRecentPublishedShiftPlans(orgId, branchId) : Promise.resolve([] as ShiftPlanNotificationRow[]),
     role === "OWNER" || role === "PARTNER" || role === "MANAGER" ? listRecentMembershipNotifications(orgId) : Promise.resolve([] as MembershipNotificationRow[]),
     loadAdminNotificationStates(orgId),
   ]);
+
+  const membershipBranchCustomerIds =
+    branchId && membershipNotifications.length > 0
+      ? await loadCustomerBranchMembershipSet(orgId, branchId, membershipNotifications.map((row) => row.customer_id))
+      : new Set<string>();
 
   const nameMap = await loadProfileNameMap([
     ...new Set([
@@ -493,19 +569,24 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
     })),
     ...appointmentNotifications,
     ...shiftPublishedNotifications,
-    ...membershipNotifications.map<ManageNotificationItem>((row) => ({
-      id: `membership-${row.id}`,
-      kind: row.title.includes("lên hạng") ? ("customer_membership_upgrade" as const) : ("customer_membership_offer" as const),
-      title: row.title,
-      message: row.body,
-      href: {
-        pathname: "/manage-content",
-        params: { tab: "membership-feed", customerId: row.customer_id },
-      },
-      createdAt: row.sent_at,
-      actionRequired: false,
-      severity: row.title.includes("lên hạng") ? "success" : "info",
-    })),
+    ...membershipNotifications
+      .filter((row) => {
+        if (!branchId) return true;
+        return membershipBranchCustomerIds.has(row.customer_id);
+      })
+      .map<ManageNotificationItem>((row) => ({
+        id: `membership-${row.id}`,
+        kind: row.title.includes("lên hạng") ? ("customer_membership_upgrade" as const) : ("customer_membership_offer" as const),
+        title: row.title,
+        message: row.body,
+        href: {
+          pathname: "/manage-content",
+          params: { tab: "membership-feed", customerId: row.customer_id },
+        },
+        createdAt: row.sent_at,
+        actionRequired: false,
+        severity: row.title.includes("lên hạng") ? "success" : "info",
+      })),
   ];
 
   const hydratedNotifications = notifications.map((item) => {
@@ -528,7 +609,12 @@ export async function loadManageNotificationsForMobile(role: AppRole, userId?: s
     .slice(0, 12);
 }
 
-export function useAdminNotifications(role: AppRole | null | undefined, email?: string | null, userId?: string | null) {
+export function useAdminNotifications(
+  role: AppRole | null | undefined,
+  email?: string | null,
+  userId?: string | null,
+  observerScope?: ObserverScopeInput | null,
+) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
   const [seenAt, setSeenAt] = useState<string | null>(null);
   const [dismissedActionIds, setDismissedActionIds] = useState<string[]>([]);
@@ -573,12 +659,12 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
     }
 
     try {
-      const rows = await loadManageNotificationsForMobile(role, userId);
+      const rows = await loadManageNotificationsForMobile(role, userId, observerScope);
       setNotifications(rows);
     } catch {
       setNotifications([]);
     }
-  }, [enabled, role, userId]);
+  }, [enabled, observerScope, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -596,7 +682,7 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
 
     let disposed = false;
     async function run() {
-      const rows = await loadManageNotificationsForMobile(role as AppRole, userId);
+      const rows = await loadManageNotificationsForMobile(role as AppRole, userId, observerScope);
       if (!disposed) setNotifications(rows);
     }
 
@@ -609,7 +695,7 @@ export function useAdminNotifications(role: AppRole | null | undefined, email?: 
       disposed = true;
       clearInterval(id);
     };
-  }, [enabled, role, userId]);
+  }, [enabled, observerScope, role, userId]);
 
   const actionNotifications = useMemo(
     () => notifications.filter((item) => item.actionRequired && !item.resolvedAt),

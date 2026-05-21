@@ -34,6 +34,7 @@ import {
 import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
 import { isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
 
@@ -592,6 +593,7 @@ export function AdminHeaderActions({
 }) {
   const router = useRouter();
   const { role, user } = useSession();
+  const observer = useAdminObserverScope();
   const canOpenSettings = role != null && role !== "USER";
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
@@ -602,7 +604,7 @@ export function AdminHeaderActions({
     badgeCount,
     feedNotifications,
     markSeen,
-  } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id);
+  } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id, observer.observerScope);
 
   useEffect(() => {
     if (!notificationsOpen) return;

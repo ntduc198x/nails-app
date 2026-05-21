@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
+  MobileAdminContentBranchOverview,
   MobileAdminContentPost,
   MobileAdminContentPostInput,
   MobileAdminContentSnapshot,
@@ -289,6 +290,22 @@ function buildStorefrontForm(snapshot: MobileAdminContentSnapshot | null): Store
     highlightsText: storefront?.highlights.join("\n") ?? "",
     isActive: storefront?.isActive ?? false,
   };
+}
+
+function formatOverviewMetric(value: number, singular: string, plural = singular) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
+function buildBranchOverviewSubtitle(branch: MobileAdminContentBranchOverview) {
+  if (!branch.storefrontId) {
+    return "Chưa có storefront cho chi nhánh này.";
+  }
+
+  if (branch.storefrontActive) {
+    return `${branch.storefrontName ?? "Storefront"} đang hiển thị cho khách.`;
+  }
+
+  return `${branch.storefrontName ?? "Storefront"} đã tạo nhưng đang tắt hiển thị.`;
 }
 
 function emptyTeamForm(): TeamFormState {
@@ -652,6 +669,8 @@ export default function AdminManageContentScreen() {
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const isOrgOverview = snapshot?.viewMode === "org";
+  const orgOverview = snapshot?.orgOverview ?? null;
 
   function guardObserverWrite(actionLabel: string) {
     if (!observerReadOnly) {
@@ -863,6 +882,19 @@ export default function AdminManageContentScreen() {
     const products = snapshot?.products ?? [];
     return productsExpanded ? products : products.slice(0, EXPLORE_PRODUCTS_PREVIEW_COUNT);
   }, [productsExpanded, snapshot?.products]);
+
+  const overviewBranches = useMemo(() => {
+    const workingBranchId = observer.viewContext?.workingBranchId ?? null;
+    return [...(orgOverview?.branches ?? [])].sort((left, right) => {
+      const leftPriority = left.branchId === workingBranchId ? 0 : 1;
+      const rightPriority = right.branchId === workingBranchId ? 0 : 1;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+
+      return left.branchName.localeCompare(right.branchName, "vi");
+    });
+  }, [observer.viewContext?.workingBranchId, orgOverview?.branches]);
 
   async function pickAndUploadImage(
     folder: "offers" | "posts" | "storefront" | "gallery" | "products",
@@ -1320,7 +1352,135 @@ export default function AdminManageContentScreen() {
         </>
       ) : (
         <>
-          <SectionCard title="Hồ sơ tiệm" subtitle={`Đang chỉnh cho ${snapshot?.branchName ?? "hiện tại"}.`} actionLabel={snapshot?.storefront?.isActive ? "Đang hiển thị" : "Bật hiển thị"} onActionPress={snapshot?.storefront ? () => {
+          {isOrgOverview ? (
+            <>
+              <SectionCard
+                title="Tổng quan storefront"
+                titleBadge={String(orgOverview?.totalBranches ?? 0)}
+                subtitle="Org mode chỉ quan sát. Mỗi card cho biết mức hoàn thiện storefront và nội dung của từng chi nhánh."
+              >
+                <View style={styles.inlineNotice}>
+                  <Feather name="eye" size={16} color={palette.accent} />
+                  <Text style={styles.inlineNoticeText}>
+                    Đổi observer sang một chi nhánh cụ thể nếu cần sửa storefront, sản phẩm, gallery hoặc nhân sự của chi nhánh đó.
+                  </Text>
+                </View>
+
+                <View style={styles.exploreBottomGrid}>
+                  <View style={styles.exploreSummaryCard}>
+                    <View style={[styles.exploreSummaryIcon, { backgroundColor: "#FFF2D9" }]}>
+                      <Feather name="grid" size={22} color="#F2A300" />
+                    </View>
+                    <View style={styles.exploreSummaryCopy}>
+                      <View style={styles.exploreSummaryTitleRow}>
+                        <Text style={styles.exploreSummaryTitle}>Chi nhánh có storefront</Text>
+                        <CountBadge value={`${orgOverview?.activeStorefrontCount ?? 0}/${orgOverview?.totalBranches ?? 0}`} />
+                      </View>
+                      <Text style={styles.exploreSummarySubtitle}>
+                        {formatOverviewMetric(orgOverview?.storefrontCount ?? 0, "storefront", "storefront")} đã được tạo, trong đó {formatOverviewMetric(orgOverview?.activeStorefrontCount ?? 0, "chi nhánh", "chi nhánh")} đang bật hiển thị.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.exploreSummaryCard}>
+                    <View style={[styles.exploreSummaryIcon, { backgroundColor: "#EAF2FF" }]}>
+                      <Feather name="package" size={22} color="#2B7FFF" />
+                    </View>
+                    <View style={styles.exploreSummaryCopy}>
+                      <View style={styles.exploreSummaryTitleRow}>
+                        <Text style={styles.exploreSummaryTitle}>Dịch vụ branch-scoped</Text>
+                        <CountBadge value={String(orgOverview?.serviceCount ?? 0)} />
+                      </View>
+                      <Text style={styles.exploreSummarySubtitle}>
+                        {formatOverviewMetric(orgOverview?.featuredServiceCount ?? 0, "dịch vụ nổi bật", "dịch vụ nổi bật")} và {formatOverviewMetric(orgOverview?.sharedServiceCount ?? 0, "dịch vụ dùng chung", "dịch vụ dùng chung")} đang áp dụng toàn org.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.exploreSummaryCard}>
+                    <View style={[styles.exploreSummaryIcon, { backgroundColor: "#FDEEEE" }]}>
+                      <Feather name="shopping-bag" size={22} color={palette.danger} />
+                    </View>
+                    <View style={styles.exploreSummaryCopy}>
+                      <View style={styles.exploreSummaryTitleRow}>
+                        <Text style={styles.exploreSummaryTitle}>Sản phẩm & gallery</Text>
+                        <CountBadge value={String(orgOverview?.productCount ?? 0)} />
+                      </View>
+                      <Text style={styles.exploreSummarySubtitle}>
+                        {formatOverviewMetric(orgOverview?.featuredProductCount ?? 0, "sản phẩm nổi bật", "sản phẩm nổi bật")} và {formatOverviewMetric(orgOverview?.galleryCount ?? 0, "ảnh gallery", "ảnh gallery")} đang phân bổ theo từng chi nhánh.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.exploreSummaryCard}>
+                    <View style={[styles.exploreSummaryIcon, { backgroundColor: "#EEF8F1" }]}>
+                      <Feather name="users" size={22} color="#2C9B5F" />
+                    </View>
+                    <View style={styles.exploreSummaryCopy}>
+                      <View style={styles.exploreSummaryTitleRow}>
+                        <Text style={styles.exploreSummaryTitle}>Nhân sự hiển thị</Text>
+                        <CountBadge value={String(orgOverview?.visibleTeamCount ?? 0)} />
+                      </View>
+                      <Text style={styles.exploreSummarySubtitle}>
+                        Toàn org hiện có {formatOverviewMetric(orgOverview?.visibleTeamCount ?? 0, "nhân sự hiển thị", "nhân sự hiển thị")}, cùng {formatOverviewMetric(orgOverview?.offerCount ?? 0, "ưu đãi", "ưu đãi")} và {formatOverviewMetric(orgOverview?.postCount ?? 0, "bài feed", "bài feed")} dùng chung.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              </SectionCard>
+
+              <SectionCard
+                title="Theo từng chi nhánh"
+                titleBadge={String(overviewBranches.length)}
+                subtitle="Card nào còn trống storefront hoặc thiếu nội dung thì nên đổi scope sang chi nhánh đó để hoàn thiện."
+              >
+                <View style={styles.listColumn}>
+                  {overviewBranches.map((branch) => {
+                    const isWorkingBranch = branch.branchId === observer.viewContext?.workingBranchId;
+                    return (
+                      <View key={branch.branchId} style={styles.branchCard}>
+                        <View style={styles.branchHeader}>
+                          <View style={styles.exploreSummaryIcon}>
+                            <Feather name={branch.storefrontActive ? "home" : "alert-circle"} size={22} color={branch.storefrontActive ? palette.accent : palette.danger} />
+                          </View>
+                          <View style={styles.branchCopy}>
+                            <Text style={styles.branchTitle}>
+                              {branch.branchName}
+                              {isWorkingBranch ? " · Chi nhánh chính" : ""}
+                            </Text>
+                            <Text style={styles.branchSubtitle}>{buildBranchOverviewSubtitle(branch)}</Text>
+                          </View>
+                        </View>
+                        <View style={styles.branchMetricsRow}>
+                          <View style={styles.branchMetricPill}>
+                            <Text style={styles.branchMetricValue}>{branch.serviceCount}</Text>
+                            <Text style={styles.branchMetricLabel}>Dịch vụ</Text>
+                          </View>
+                          <View style={styles.branchMetricPill}>
+                            <Text style={styles.branchMetricValue}>{branch.productCount}</Text>
+                            <Text style={styles.branchMetricLabel}>Sản phẩm</Text>
+                          </View>
+                          <View style={styles.branchMetricPill}>
+                            <Text style={styles.branchMetricValue}>{branch.galleryCount}</Text>
+                            <Text style={styles.branchMetricLabel}>Gallery</Text>
+                          </View>
+                          <View style={styles.branchMetricPill}>
+                            <Text style={styles.branchMetricValue}>{branch.visibleTeamCount}</Text>
+                            <Text style={styles.branchMetricLabel}>Nhân sự</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.helperText}>
+                          {formatOverviewMetric(branch.featuredServiceCount, "dịch vụ nổi bật", "dịch vụ nổi bật")} và {formatOverviewMetric(branch.featuredProductCount, "sản phẩm nổi bật", "sản phẩm nổi bật")} đang được bật cho chi nhánh này.
+                        </Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </SectionCard>
+            </>
+          ) : (
+            <>
+              <SectionCard title="Hồ sơ tiệm" subtitle={`Đang chỉnh cho ${snapshot?.branchName ?? "hiện tại"}.`} actionLabel={snapshot?.storefront?.isActive ? "Đang hiển thị" : "Bật hiển thị"} onActionPress={snapshot?.storefront ? () => {
             if (!mobileSupabase) return;
             void (async () => {
               setSaving(true);
@@ -1511,6 +1671,8 @@ export default function AdminManageContentScreen() {
               <Feather name="chevron-right" size={20} color="#A7988A" />
             </Pressable>
           </View>
+            </>
+          )}
         </>
       )}
 
@@ -1918,6 +2080,32 @@ const styles = StyleSheet.create({
   branchCopy: { flex: 1, gap: 4 },
   branchTitle: { fontSize: 17, lineHeight: 24, fontWeight: "800", color: palette.text },
   branchSubtitle: { fontSize: 14, lineHeight: 22, color: palette.sub },
+  branchMetricsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  branchMetricPill: {
+    minWidth: 88,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: "#FFFCF9",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 2,
+  },
+  branchMetricValue: {
+    fontSize: 18,
+    lineHeight: 22,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  branchMetricLabel: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: palette.sub,
+  },
   chip: {
     minHeight: 44,
     minWidth: 132,

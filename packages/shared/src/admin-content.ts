@@ -187,10 +187,43 @@ export type MobileAdminStorefrontGalleryItemInput = {
   isActive?: boolean;
 };
 
+export type MobileAdminContentBranchOverview = {
+  branchId: string;
+  branchName: string;
+  storefrontId: string | null;
+  storefrontName: string | null;
+  storefrontActive: boolean;
+  serviceCount: number;
+  featuredServiceCount: number;
+  productCount: number;
+  featuredProductCount: number;
+  visibleTeamCount: number;
+  galleryCount: number;
+};
+
+export type MobileAdminContentOrgOverview = {
+  totalBranches: number;
+  storefrontCount: number;
+  activeStorefrontCount: number;
+  serviceCount: number;
+  sharedServiceCount: number;
+  featuredServiceCount: number;
+  productCount: number;
+  featuredProductCount: number;
+  visibleTeamCount: number;
+  galleryCount: number;
+  postCount: number;
+  offerCount: number;
+  branches: MobileAdminContentBranchOverview[];
+};
+
 export type MobileAdminContentSnapshot = {
+  viewMode: "org" | "branch";
+  scopeLabel: string;
   branchId: string;
   branchName: string;
   isDefaultBranchView: boolean;
+  orgOverview: MobileAdminContentOrgOverview | null;
   storefront: MobileAdminStorefrontProfile | null;
   posts: MobileAdminContentPost[];
   offers: MobileAdminOffer[];
@@ -358,17 +391,31 @@ function toPublishedAt(status: MobileAdminContentPost["status"], existingPublish
 async function resolveAdminPreviewContext(
   client: SharedSupabaseClient,
   options: { branchId?: string; observerScope?: ObserverScopeInput | null },
-): Promise<{ orgId: string; branchId: string; defaultBranchId: string }> {
+): Promise<{
+  orgId: string;
+  branchId: string;
+  defaultBranchId: string;
+  scopeLabel: string;
+  viewMode: "org" | "branch";
+  viewBranchId: string | null;
+  branches: { id: string; name: string }[];
+}> {
   const { orgId, branchId: defaultBranchId } = await ensureOrgContext(client);
   const viewContext = options.observerScope
     ? await resolveMobileAdminViewContext(client, options.observerScope)
     : null;
+  const branchId =
+    options.branchId?.trim()
+    || (viewContext?.observerScope.mode === "branch" ? viewContext.viewBranchId ?? defaultBranchId : defaultBranchId);
+
   return {
     orgId,
-    branchId:
-      options.branchId?.trim()
-      || (viewContext?.observerScope.mode === "branch" ? viewContext.viewBranchId ?? defaultBranchId : defaultBranchId),
+    branchId,
     defaultBranchId,
+    scopeLabel: viewContext?.scopeLabel ?? "Chi nhánh",
+    viewMode: viewContext?.observerScope.mode ?? "branch",
+    viewBranchId: viewContext?.viewBranchId ?? branchId,
+    branches: viewContext?.branches ?? [],
   };
 }
 
@@ -491,13 +538,15 @@ export async function listAdminContentSnapshotForMobile(
   client: SharedSupabaseClient,
   options: { branchId?: string; includeServices?: boolean; observerScope?: ObserverScopeInput | null } = {},
 ): Promise<MobileAdminContentSnapshot> {
-  const { orgId, branchId, defaultBranchId } = await resolveAdminPreviewContext(client, {
+  const { orgId, branchId, defaultBranchId, scopeLabel, viewMode, viewBranchId, branches } = await resolveAdminPreviewContext(client, {
     branchId: options.branchId,
     observerScope: options.observerScope,
   });
 
   const [branchRes, postsRes, offersRes, storefrontRes, services] = await Promise.all([
-    client.from("branches").select("id,name").eq("id", branchId).maybeSingle(),
+    viewMode === "branch"
+      ? client.from("branches").select("id,name").eq("id", branchId).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
     client
       .from("customer_content_posts")
       .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id")
@@ -511,22 +560,178 @@ export async function listAdminContentSnapshotForMobile(
       .eq("org_id", orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false }),
-    client
-      .from("storefront_profile")
-      .select(
-        "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,updated_at",
-      )
-      .eq("org_id", orgId)
-      .eq("branch_id", branchId)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    viewMode === "branch"
+      ? client
+          .from("storefront_profile")
+          .select(
+            "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,updated_at",
+          )
+          .eq("org_id", orgId)
+          .eq("branch_id", branchId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
     options.includeServices ? listAdminMerchServicesForMobile(client, { branchId, observerScope: options.observerScope }) : Promise.resolve([]),
   ]);
 
   if (postsRes.error) throw postsRes.error;
   if (offersRes.error) throw offersRes.error;
   if (storefrontRes.error) throw storefrontRes.error;
+
+  const posts = (postsRes.data ?? []).map((row) => normalizePost(row as UnknownRow));
+  const offers = (offersRes.data ?? [])
+    .map((row) => normalizeOffer(row as UnknownRow))
+    .sort((left, right) => {
+      const leftTier = getOfferPackageTier(left.metadata);
+      const rightTier = getOfferPackageTier(right.metadata);
+      const leftTierIndex = OFFER_PACKAGE_TIERS.indexOf(leftTier as (typeof OFFER_PACKAGE_TIERS)[number]);
+      const rightTierIndex = OFFER_PACKAGE_TIERS.indexOf(rightTier as (typeof OFFER_PACKAGE_TIERS)[number]);
+      if (leftTierIndex !== rightTierIndex) return leftTierIndex - rightTierIndex;
+
+      const orderDelta = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
+      if (orderDelta !== 0) return orderDelta;
+
+      return left.title.localeCompare(right.title, "vi");
+    });
+
+  if (viewMode === "org") {
+    const [storefrontListRes, storefrontProductsRes, storefrontTeamRes, storefrontGalleryRes, branchServicesRes] = await Promise.all([
+      client
+        .from("storefront_profile")
+        .select("id,branch_id,name,is_active,updated_at")
+        .eq("org_id", orgId)
+        .order("updated_at", { ascending: false }),
+      client
+        .from("storefront_products")
+        .select("id,storefront_id,is_active,is_featured"),
+      client
+        .from("storefront_team_members")
+        .select("id,storefront_id,is_visible"),
+      client
+        .from("storefront_gallery")
+        .select("id,storefront_id,is_active"),
+      client
+        .from("services")
+        .select("id,branch_id,active,featured_in_lookbook,featured_in_home,featured_in_explore")
+        .eq("org_id", orgId),
+    ]);
+
+    if (storefrontListRes.error) throw storefrontListRes.error;
+    if (storefrontProductsRes.error) throw storefrontProductsRes.error;
+    if (storefrontTeamRes.error) throw storefrontTeamRes.error;
+    if (storefrontGalleryRes.error) throw storefrontGalleryRes.error;
+    if (branchServicesRes.error) throw branchServicesRes.error;
+
+    const storefrontRows = (storefrontListRes.data ?? []) as UnknownRow[];
+    const productRows = (storefrontProductsRes.data ?? []) as UnknownRow[];
+    const teamRows = (storefrontTeamRes.data ?? []) as UnknownRow[];
+    const galleryRows = (storefrontGalleryRes.data ?? []) as UnknownRow[];
+    const serviceRows = (branchServicesRes.data ?? []) as UnknownRow[];
+
+    const storefrontByBranchId = new Map<string, UnknownRow>();
+    for (const row of storefrontRows) {
+      const storefrontBranchId = typeof row.branch_id === "string" ? row.branch_id : null;
+      if (storefrontBranchId && !storefrontByBranchId.has(storefrontBranchId)) {
+        storefrontByBranchId.set(storefrontBranchId, row);
+      }
+    }
+
+    const activeBranchServices = serviceRows.filter((row) => row.active !== false && typeof row.branch_id === "string");
+    const activeSharedServices = serviceRows.filter((row) => row.active !== false && typeof row.branch_id !== "string");
+    const featuredBranchServices = activeBranchServices.filter((row) =>
+      Boolean(row.featured_in_lookbook) || Boolean(row.featured_in_home) || Boolean(row.featured_in_explore));
+
+    const productCountByStorefrontId = new Map<string, number>();
+    const featuredProductCountByStorefrontId = new Map<string, number>();
+    for (const row of productRows) {
+      const storefrontId = typeof row.storefront_id === "string" ? row.storefront_id : null;
+      if (!storefrontId || row.is_active === false) continue;
+      productCountByStorefrontId.set(storefrontId, (productCountByStorefrontId.get(storefrontId) ?? 0) + 1);
+      if (row.is_featured) {
+        featuredProductCountByStorefrontId.set(
+          storefrontId,
+          (featuredProductCountByStorefrontId.get(storefrontId) ?? 0) + 1,
+        );
+      }
+    }
+
+    const visibleTeamCountByStorefrontId = new Map<string, number>();
+    for (const row of teamRows) {
+      const storefrontId = typeof row.storefront_id === "string" ? row.storefront_id : null;
+      if (!storefrontId || row.is_visible === false) continue;
+      visibleTeamCountByStorefrontId.set(storefrontId, (visibleTeamCountByStorefrontId.get(storefrontId) ?? 0) + 1);
+    }
+
+    const galleryCountByStorefrontId = new Map<string, number>();
+    for (const row of galleryRows) {
+      const storefrontId = typeof row.storefront_id === "string" ? row.storefront_id : null;
+      if (!storefrontId || row.is_active === false) continue;
+      galleryCountByStorefrontId.set(storefrontId, (galleryCountByStorefrontId.get(storefrontId) ?? 0) + 1);
+    }
+
+    const serviceCountByBranchId = new Map<string, number>();
+    const featuredServiceCountByBranchId = new Map<string, number>();
+    for (const row of activeBranchServices) {
+      const serviceBranchId = typeof row.branch_id === "string" ? row.branch_id : null;
+      if (!serviceBranchId) continue;
+      serviceCountByBranchId.set(serviceBranchId, (serviceCountByBranchId.get(serviceBranchId) ?? 0) + 1);
+      if (Boolean(row.featured_in_lookbook) || Boolean(row.featured_in_home) || Boolean(row.featured_in_explore)) {
+        featuredServiceCountByBranchId.set(
+          serviceBranchId,
+          (featuredServiceCountByBranchId.get(serviceBranchId) ?? 0) + 1,
+        );
+      }
+    }
+
+    const orgOverview: MobileAdminContentOrgOverview = {
+      totalBranches: branches.length,
+      storefrontCount: storefrontRows.length,
+      activeStorefrontCount: storefrontRows.filter((row) => row.is_active !== false).length,
+      serviceCount: activeBranchServices.length,
+      sharedServiceCount: activeSharedServices.length,
+      featuredServiceCount: featuredBranchServices.length,
+      productCount: productRows.filter((row) => row.is_active !== false).length,
+      featuredProductCount: productRows.filter((row) => row.is_active !== false && Boolean(row.is_featured)).length,
+      visibleTeamCount: teamRows.filter((row) => row.is_visible !== false).length,
+      galleryCount: galleryRows.filter((row) => row.is_active !== false).length,
+      postCount: posts.length,
+      offerCount: offers.length,
+      branches: branches.map((branch) => {
+        const storefrontRow = storefrontByBranchId.get(branch.id);
+        const storefrontId = typeof storefrontRow?.id === "string" ? storefrontRow.id : null;
+        return {
+          branchId: branch.id,
+          branchName: branch.name,
+          storefrontId,
+          storefrontName: typeof storefrontRow?.name === "string" ? storefrontRow.name : null,
+          storefrontActive: storefrontRow?.is_active !== false && Boolean(storefrontId),
+          serviceCount: serviceCountByBranchId.get(branch.id) ?? 0,
+          featuredServiceCount: featuredServiceCountByBranchId.get(branch.id) ?? 0,
+          productCount: storefrontId ? productCountByStorefrontId.get(storefrontId) ?? 0 : 0,
+          featuredProductCount: storefrontId ? featuredProductCountByStorefrontId.get(storefrontId) ?? 0 : 0,
+          visibleTeamCount: storefrontId ? visibleTeamCountByStorefrontId.get(storefrontId) ?? 0 : 0,
+          galleryCount: storefrontId ? galleryCountByStorefrontId.get(storefrontId) ?? 0 : 0,
+        };
+      }),
+    };
+
+    return {
+      viewMode,
+      scopeLabel,
+      branchId: viewBranchId ?? defaultBranchId,
+      branchName: branches.find((branch) => branch.id === viewBranchId)?.name ?? "Toàn công ty",
+      isDefaultBranchView: false,
+      orgOverview,
+      storefront: null,
+      posts,
+      offers,
+      products: [],
+      team: [],
+      gallery: [],
+      services,
+    };
+  }
 
   const storefront = normalizeStorefront(storefrontRes.data as UnknownRow | null | undefined);
   const storefrontId = storefront?.id ?? null;
@@ -556,25 +761,15 @@ export async function listAdminContentSnapshotForMobile(
   if (galleryRes?.error) throw galleryRes.error;
 
   return {
+    viewMode,
+    scopeLabel,
     branchId,
     branchName: normalizeBranchName(branchRes.data as UnknownRow | null | undefined),
     isDefaultBranchView: branchId === defaultBranchId,
+    orgOverview: null,
     storefront,
-    posts: (postsRes.data ?? []).map((row) => normalizePost(row as UnknownRow)),
-    offers: (offersRes.data ?? [])
-      .map((row) => normalizeOffer(row as UnknownRow))
-      .sort((left, right) => {
-        const leftTier = getOfferPackageTier(left.metadata);
-        const rightTier = getOfferPackageTier(right.metadata);
-        const leftTierIndex = OFFER_PACKAGE_TIERS.indexOf(leftTier as (typeof OFFER_PACKAGE_TIERS)[number]);
-        const rightTierIndex = OFFER_PACKAGE_TIERS.indexOf(rightTier as (typeof OFFER_PACKAGE_TIERS)[number]);
-        if (leftTierIndex !== rightTierIndex) return leftTierIndex - rightTierIndex;
-
-        const orderDelta = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
-        if (orderDelta !== 0) return orderDelta;
-
-        return left.title.localeCompare(right.title, "vi");
-      }),
+    posts,
+    offers,
     products: (productsRes?.data ?? []).map((row) => normalizeProduct(row as UnknownRow)),
     team: (teamRes?.data ?? []).map((row) => normalizeTeamMember(row as UnknownRow)),
     gallery: (galleryRes?.data ?? []).map((row) => normalizeGalleryItem(row as UnknownRow)),

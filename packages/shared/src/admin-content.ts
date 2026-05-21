@@ -948,6 +948,8 @@ export async function upsertAdminStorefrontProfileForMobile(
   client: SharedSupabaseClient,
   input: MobileAdminStorefrontProfileInput,
 ): Promise<MobileAdminStorefrontProfile> {
+  const storefrontSelect =
+    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active";
   const { orgId, branchId } = await ensureOrgContext(client);
   const payload = {
     org_id: orgId,
@@ -979,9 +981,7 @@ export async function upsertAdminStorefrontProfileForMobile(
     : client.from("storefront_profile").insert(payload);
 
   const { data, error } = await query
-    .select(
-      "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active",
-    )
+    .select(storefrontSelect)
     .single();
 
   if (error) throw error;
@@ -1009,6 +1009,21 @@ export async function setActiveAdminStorefrontProfileForMobile(
     .eq("branch_id", branchId);
 
   if (enableTarget.error) throw enableTarget.error;
+}
+
+export async function deleteAdminStorefrontProfileForMobile(
+  client: SharedSupabaseClient,
+  storefrontId: string,
+): Promise<void> {
+  const { orgId, branchId } = await ensureOrgContext(client);
+  const { error } = await client
+    .from("storefront_profile")
+    .delete()
+    .eq("id", storefrontId)
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId);
+
+  if (error) throw error;
 }
 
 export async function createAdminStorefrontTeamMemberForMobile(

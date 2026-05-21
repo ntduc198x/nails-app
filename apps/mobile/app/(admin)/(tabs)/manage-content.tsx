@@ -40,6 +40,7 @@ import {
   createAdminStorefrontGalleryItemForMobile,
   createAdminStorefrontProductForMobile,
   createAdminStorefrontTeamMemberForMobile,
+  deleteAdminStorefrontProfileForMobile,
   deleteAdminStorefrontProductForMobile,
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
@@ -1080,6 +1081,22 @@ export default function AdminManageContentScreen() {
     }
   }
 
+  async function deleteStorefront() {
+    if (!mobileSupabase || !snapshot?.storefront?.id) return;
+
+    await deleteAdminStorefrontProfileForMobile(mobileSupabase, snapshot.storefront.id);
+    setStorefrontEditorOpen(false);
+    setStorefrontForm(buildStorefrontForm(null));
+  }
+
+  function confirmDeleteStorefront() {
+    return confirmTask(
+      "Xóa storefront",
+      "Storefront, sản phẩm, gallery và nhân sự gắn với tiệm này sẽ bị xóa khỏi chi nhánh.",
+      deleteStorefront,
+    );
+  }
+
   async function saveTeamMember() {
     if (!mobileSupabase || !teamForm || !snapshot?.storefront?.id) return;
     if (guardObserverWrite("Lưu nhân sự")) return;
@@ -1544,7 +1561,16 @@ export default function AdminManageContentScreen() {
             <View style={styles.storefrontActionRow}>
               <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải ảnh bìa</Text></Pressable>
               <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải logo</Text></Pressable>
-            <Pressable style={styles.storefrontSaveButton} onPress={() => setStorefrontEditorOpen(true)}><Text style={styles.storefrontSaveText}>Sửa hồ sơ tiệm</Text></Pressable>
+              {snapshot?.storefront?.id ? (
+                <Pressable
+                  style={[styles.storefrontGhostButton, styles.storefrontDangerButton]}
+                  onPress={() => void confirmDeleteStorefront()}
+                >
+                  <Feather name="trash-2" size={18} color={palette.danger} />
+                  <Text style={[styles.storefrontGhostText, styles.storefrontDangerText]}>Xóa</Text>
+                </Pressable>
+              ) : null}
+              <Pressable style={styles.storefrontSaveButton} onPress={() => setStorefrontEditorOpen(true)}><Text style={styles.storefrontSaveText}>Sửa hồ sơ tiệm</Text></Pressable>
             </View>
 
             <View style={styles.storefrontPreviewRow}>
@@ -1702,6 +1728,14 @@ export default function AdminManageContentScreen() {
           <ModalTextAreaField icon="award" label="Điểm nổi bật" placeholder="Mỗi dòng 1 ý nổi bật" value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
           <View style={styles.inlineButtons}>
             <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
+            {snapshot?.storefront?.id ? (
+              <Pressable
+                style={[styles.secondaryButton, styles.modalDeleteButton]}
+                onPress={() => void confirmDeleteStorefront()}
+              >
+                <Text style={[styles.secondaryButtonText, styles.modalDeleteButtonText]}>Xóa storefront</Text>
+              </Pressable>
+            ) : null}
             <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ tiệm</Text></Pressable>
           </View>
         </View>
@@ -2231,6 +2265,7 @@ const styles = StyleSheet.create({
   },
   storefrontActionRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 10,
     alignItems: "center",
   },
@@ -2250,6 +2285,13 @@ const styles = StyleSheet.create({
     color: palette.text,
     fontSize: 13,
     fontWeight: "800",
+  },
+  storefrontDangerButton: {
+    borderColor: "#F1CFC7",
+    backgroundColor: "#FFF7F5",
+  },
+  storefrontDangerText: {
+    color: palette.danger,
   },
   storefrontSaveButton: {
     flex: 1,
@@ -2645,6 +2687,8 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
   secondaryButton: { minHeight: 42, borderRadius: 14, borderWidth: 1, borderColor: "#E4D7C8", backgroundColor: "#FFF9F3", alignItems: "center", justifyContent: "center", paddingHorizontal: 14 },
   secondaryButtonText: { color: palette.accent, fontSize: 13, fontWeight: "700" },
+  modalDeleteButton: { borderColor: "#F1CFC7", backgroundColor: "#FFF7F5" },
+  modalDeleteButtonText: { color: palette.danger },
   helperTitle: { fontSize: 16, lineHeight: 20, fontWeight: "800", color: palette.text },
   helperText: { fontSize: 12, lineHeight: 18, color: palette.sub },
 });

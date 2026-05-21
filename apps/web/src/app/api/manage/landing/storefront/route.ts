@@ -7,17 +7,37 @@ type StorefrontInput = {
   id?: string | null;
   name?: string;
   slug?: string;
+  category?: string | null;
   description?: string | null;
   phone?: string | null;
   addressLine?: string | null;
   openingHours?: string | null;
   coverImageUrl?: string | null;
   logoImageUrl?: string | null;
+  rating?: number | null;
+  reviewsLabel?: string | null;
   mapUrl?: string | null;
   messengerUrl?: string | null;
   instagramUrl?: string | null;
+  highlights?: string[] | null;
   isActive?: boolean;
 };
+
+const STOREFRONT_SELECT =
+  "id,name,slug,category,description,phone,address_line,opening_hours,cover_image_url,logo_image_url,rating,reviews_label,map_url,messenger_url,instagram_url,highlights,is_active,updated_at";
+const DEFAULT_STOREFRONT_NAME = "Cham Beauty";
+const AUTH_ERRORS = {
+  missingBearerToken: "Missing bearer token",
+  invalidSession: "Invalid session",
+  missingRoleContext: "Missing role context",
+  forbidden: "Forbidden",
+} as const;
+const STOREFRONT_ERRORS = {
+  missingBranch: "Chưa có chi nhánh mặc định để lưu storefront.",
+  saveFailed: "Không lưu được storefront.",
+  notFound: "Không tìm thấy storefront để xóa.",
+  deleteFailed: "Không xóa được storefront.",
+} as const;
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization");
@@ -41,32 +61,59 @@ function pickHighestPriorityRole(rows: Array<{ role?: string | null }>) {
     .sort((left, right) => (ROLE_PRIORITY[left.role] ?? 99) - (ROLE_PRIORITY[right.role] ?? 99))[0]?.role;
 }
 
+function errorResponse(error: string, status: number) {
+  return NextResponse.json({ ok: false, error }, { status });
+}
+
+function storefrontPayload(body: StorefrontInput, orgId: string, branchId: string) {
+  return {
+    org_id: orgId,
+    branch_id: branchId,
+    name: body.name?.trim() || DEFAULT_STOREFRONT_NAME,
+    slug: normalizeSlug(body.slug, body.name),
+    category: body.category?.trim() || null,
+    description: body.description?.trim() || null,
+    phone: body.phone?.trim() || null,
+    address_line: body.addressLine?.trim() || null,
+    opening_hours: body.openingHours?.trim() || null,
+    cover_image_url: body.coverImageUrl?.trim() || null,
+    logo_image_url: body.logoImageUrl?.trim() || null,
+    rating: body.rating == null ? null : Number(body.rating),
+    reviews_label: body.reviewsLabel?.trim() || null,
+    map_url: body.mapUrl?.trim() || null,
+    messenger_url: body.messengerUrl?.trim() || null,
+    instagram_url: body.instagramUrl?.trim() || null,
+    highlights: Array.isArray(body.highlights) ? body.highlights.filter((item) => typeof item === "string") : [],
+    is_active: body.isActive ?? true,
+  };
+}
+
 async function requireLandingManager(req: Request) {
   const token = getBearerToken(req);
   if (!token) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Missing bearer token" }, { status: 401 }) };
+    return { ok: false as const, response: errorResponse(AUTH_ERRORS.missingBearerToken, 401) };
   }
 
   const supabase = createServiceRoleClient();
   const userRes = await supabase.auth.getUser(token);
   const user = userRes.data.user;
   if (userRes.error || !user) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: userRes.error?.message ?? "Invalid session" }, { status: 401 }) };
+    return { ok: false as const, response: errorResponse(userRes.error?.message ?? AUTH_ERRORS.invalidSession, 401) };
   }
 
   const roleRes = await supabase.from("user_roles").select("org_id,role").eq("user_id", user.id);
   if (roleRes.error || !roleRes.data?.length) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: roleRes.error?.message ?? "Missing role context" }, { status: 403 }) };
+    return { ok: false as const, response: errorResponse(roleRes.error?.message ?? AUTH_ERRORS.missingRoleContext, 403) };
   }
 
   const orgId = String(roleRes.data[0]?.org_id ?? "");
   const role = pickHighestPriorityRole(roleRes.data) as AppRole | undefined;
   if (!orgId || !role) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Missing role context" }, { status: 403 }) };
+    return { ok: false as const, response: errorResponse(AUTH_ERRORS.missingRoleContext, 403) };
   }
 
   if (!canAccessManageLanding(role)) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 }) };
+    return { ok: false as const, response: errorResponse(AUTH_ERRORS.forbidden, 403) };
   }
 
   return { ok: true as const, supabase, orgId, role: role as LandingManagerRole };
@@ -81,13 +128,27 @@ function normalizeSlug(value?: string | null, fallbackName?: string | null) {
   return slug || "storefront";
 }
 
+async function findLatestStorefrontId(supabase: ReturnType<typeof createServiceRoleClient>, orgId: string) {
+  const existing = await supabase
+    .from("storefront_profile")
+    .select("id")
+    .eq("org_id", orgId)
+    .order("is_active", { ascending: false })
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existing.error) throw existing.error;
+  return existing.data?.id ?? null;
+}
+
 export async function GET(req: Request) {
   const auth = await requireLandingManager(req);
   if (!auth.ok) return auth.response;
 
   const result = await auth.supabase
     .from("storefront_profile")
-    .select("id,name,slug,description,phone,address_line,opening_hours,cover_image_url,logo_image_url,map_url,messenger_url,instagram_url,is_active,updated_at")
+    .select(STOREFRONT_SELECT)
     .eq("org_id", auth.orgId)
     .order("is_active", { ascending: false })
     .order("updated_at", { ascending: false })
@@ -95,7 +156,7 @@ export async function GET(req: Request) {
     .maybeSingle();
 
   if (result.error) {
-    return NextResponse.json({ ok: false, error: result.error.message }, { status: 500 });
+    return errorResponse(result.error.message, 500);
   }
 
   return NextResponse.json({ ok: true, data: result.data ?? null });
@@ -130,50 +191,45 @@ export async function PUT(req: Request) {
     if (fallbackBranchRes.error) throw fallbackBranchRes.error;
 
     const resolvedBranchId = profileBranchRes.data?.default_branch_id ?? fallbackBranchRes.data?.id ?? null;
-
     if (!resolvedBranchId) {
-      throw new Error("Chưa có chi nhánh mặc định để lưu storefront.");
+      throw new Error(STOREFRONT_ERRORS.missingBranch);
     }
 
-    const payload = {
-      org_id: auth.orgId,
-      branch_id: resolvedBranchId,
-      name: body.name?.trim() || "Chạm Beauty",
-      slug: normalizeSlug(body.slug, body.name),
-      description: body.description?.trim() || null,
-      phone: body.phone?.trim() || null,
-      address_line: body.addressLine?.trim() || null,
-      opening_hours: body.openingHours?.trim() || null,
-      cover_image_url: body.coverImageUrl?.trim() || null,
-      logo_image_url: body.logoImageUrl?.trim() || null,
-      map_url: body.mapUrl?.trim() || null,
-      messenger_url: body.messengerUrl?.trim() || null,
-      instagram_url: body.instagramUrl?.trim() || null,
-      is_active: body.isActive ?? true,
-    };
+    const payload = storefrontPayload(body, auth.orgId, resolvedBranchId);
 
-    const existing = await auth.supabase
-      .from("storefront_profile")
-      .select("id")
-      .eq("org_id", auth.orgId)
-      .order("is_active", { ascending: false })
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existing.error) throw existing.error;
-
-    const query = existing.data?.id
-      ? auth.supabase.from("storefront_profile").update(payload).eq("id", existing.data.id).eq("org_id", auth.orgId)
+    const existingId = await findLatestStorefrontId(auth.supabase, auth.orgId);
+    const query = existingId
+      ? auth.supabase.from("storefront_profile").update(payload).eq("id", existingId).eq("org_id", auth.orgId)
       : auth.supabase.from("storefront_profile").insert(payload);
 
-    const result = await query
-      .select("id,name,slug,description,phone,address_line,opening_hours,cover_image_url,logo_image_url,map_url,messenger_url,instagram_url,is_active,updated_at")
-      .single();
-
+    const result = await query.select(STOREFRONT_SELECT).single();
     if (result.error) throw result.error;
+
     return NextResponse.json({ ok: true, data: result.data });
   } catch (error) {
-    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : "Không lưu được storefront" }, { status: 400 });
+    return errorResponse(error instanceof Error ? error.message : STOREFRONT_ERRORS.saveFailed, 400);
+  }
+}
+
+export async function DELETE(req: Request) {
+  const auth = await requireLandingManager(req);
+  if (!auth.ok) return auth.response;
+
+  try {
+    const existingId = await findLatestStorefrontId(auth.supabase, auth.orgId);
+    if (!existingId) {
+      return errorResponse(STOREFRONT_ERRORS.notFound, 404);
+    }
+
+    const result = await auth.supabase
+      .from("storefront_profile")
+      .delete()
+      .eq("id", existingId)
+      .eq("org_id", auth.orgId);
+
+    if (result.error) throw result.error;
+    return NextResponse.json({ ok: true, data: null });
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : STOREFRONT_ERRORS.deleteFailed, 400);
   }
 }

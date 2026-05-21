@@ -19,3 +19,4 @@ export * from "./customer-explore";
 export * from "./customer-personalization";
 export * from "./admin-content";
 export * from "./auto-schedule";
+export * from "./shifts";

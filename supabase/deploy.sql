@@ -547,7 +547,9 @@ returns table (
   user_id uuid,
   role text,
   display_name text,
-  email text
+  email text,
+  phone text,
+  branch_id uuid
 )
 language sql
 security definer
@@ -557,10 +559,31 @@ as $$
     ur.id,
     ur.user_id,
     ur.role::text,
-    coalesce(nullif(trim(p.display_name), ''), left(ur.user_id::text, 8)) as display_name,
-    nullif(trim(p.email), '') as email
+    coalesce(
+      case
+        when nullif(trim(p.display_name), '') is not null
+          and lower(trim(p.display_name)) <> 'user'
+          and trim(p.display_name) !~* '^(nhân sự|staff)\s+\d+$'
+        then trim(p.display_name)
+        else null
+      end,
+      nullif(trim(coalesce(
+        au.raw_user_meta_data ->> 'display_name',
+        au.raw_user_meta_data ->> 'full_name',
+        au.raw_user_meta_data ->> 'name'
+      )), ''),
+      nullif(split_part(coalesce(nullif(trim(p.email), ''), au.email, ''), '@', 1), ''),
+      left(ur.user_id::text, 8)
+    ) as display_name,
+    coalesce(nullif(trim(p.email), ''), nullif(trim(au.email), '')) as email,
+    coalesce(
+      nullif(trim(p.phone), ''),
+      nullif(trim(coalesce(au.phone, au.raw_user_meta_data ->> 'phone', '')), '')
+    ) as phone,
+    ur.branch_id
   from public.user_roles ur
   left join public.profiles p on p.user_id = ur.user_id
+  left join auth.users au on au.id = ur.user_id
   where ur.org_id = public.my_org_id()
     and (
       ur.branch_id is null

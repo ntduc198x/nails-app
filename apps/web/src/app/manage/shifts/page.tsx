@@ -7,17 +7,23 @@ import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-na
 import { getCurrentSessionRole, listUserRoles, type AppRole } from "@/lib/auth";
 import { getRoleLabel } from "@/lib/role-labels";
 import {
-  applyApprovedDayOffToAssignments,
   closeShiftEntryIfAllowed,
+  createManualShiftOverride,
   createShiftCheckIn,
   describeShiftWindow,
+  getEffectiveShiftSlotsForDate,
   getTodayAssignmentFromPlan,
+  listEffectiveShiftSlots,
   listOwnerShiftEntries,
   listPersonalShiftEntries,
+  listShiftChangeRequests,
   listShiftLeaveRequests,
   loadPublishedShiftWindowForUser,
+  removeManualShiftOverride,
+  reviewShiftChangeRequest,
   reviewShiftCheckIn,
   reviewShiftLeaveRequest,
+  submitShiftChangeRequest,
   submitDayOffRequest,
   submitEarlyLeaveRequest,
   syncExpiredShiftEntries,
@@ -43,9 +49,11 @@ import {
 } from "@/lib/shift-staff-profiles";
 import { supabase } from "@/lib/supabase";
 import {
+  createShiftSlotSnapshot,
   DEFAULT_SHIFT_DEFINITIONS,
   buildAutoScheduleResult,
   buildDefaultWeekDemands,
+  type EffectiveShiftSlot,
   generateDraftSchedule,
   getRecommendedShiftTypesForDate,
   generateWeekDates,
@@ -55,6 +63,7 @@ import {
   type AutoScheduleEmployee,
   type AutoScheduleResult,
   type ServiceSkill,
+  type ShiftChangeRequestRecord,
   type ShiftDefinition,
   type ShiftType,
   type StaffRole,
@@ -269,6 +278,27 @@ function createOffAssignment(dateKey: string, employeeName = "Bạn"): AutoSched
   };
 }
 
+function createAssignmentFromEffectiveSlot(slot: EffectiveShiftSlot): AutoScheduleAssignment {
+  const definition =
+    DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === slot.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3];
+
+  return {
+    employeeId: slot.holderUserId,
+    employeeName: slot.holderName ?? "Bạn",
+    role: "TECH",
+    dateKey: slot.dateKey,
+    shiftType: slot.shiftType,
+    shiftLabel: slot.shiftLabel,
+    shortCode: definition.shortCode,
+    startTime: slot.startTime,
+    endTime: slot.endTime,
+    hours: definition.hours,
+    source: slot.source === "OVERRIDE_ADD" ? "manual" : "auto",
+    score: 100,
+    matchedSkills: [],
+  };
+}
+
 function getAssignmentTheme(assignment: AutoScheduleAssignment | null | undefined) {
   const definition =
     DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === assignment?.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3];
@@ -473,7 +503,7 @@ function QuickShiftEditor({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 bg-neutral-950/30 backdrop-blur-[2px] lg:hidden" onClick={onClose}>
+    <div className="fixed inset-0 z-40 bg-neutral-950/30 backdrop-blur-[2px] md:hidden" onClick={onClose}>
       <div
         data-shift-editor-modal="true"
         className="absolute inset-x-4 bottom-24 rounded-[28px] border border-neutral-200 bg-white p-4 shadow-[0_24px_80px_rgba(15,23,42,0.16)]"
@@ -526,6 +556,539 @@ function QuickShiftEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+// Kept as reference for future modal-based flows; desktop now uses the sticky side panel.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function OwnerShiftEditModal({
+  employee,
+  assignment,
+  effectiveSlots,
+  competingSlots,
+  manualOptions,
+  overridesProfile,
+  ownerSaving,
+  onClose,
+  onPickManualShift,
+  onCreateOverride,
+  onTransferShift,
+  onRemoveOverride,
+}: {
+  employee: AutoScheduleEmployee;
+  assignment: AutoScheduleAssignment;
+  effectiveSlots: EffectiveShiftSlot[];
+  competingSlots: EffectiveShiftSlot[];
+  manualOptions: ShiftDefinition[];
+  overridesProfile: boolean;
+  ownerSaving: boolean;
+  onClose: () => void;
+  onPickManualShift: (shiftType: ShiftType) => void | Promise<void>;
+  onCreateOverride: (shiftType: Exclude<ShiftType, "OFF">) => void | Promise<void>;
+  onTransferShift: (slot: EffectiveShiftSlot) => void | Promise<void>;
+  onRemoveOverride: (overrideId: string) => void | Promise<void>;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 hidden bg-neutral-950/40 px-4 py-6 backdrop-blur-[3px] md:block" onClick={onClose}>
+      <div
+        data-shift-editor-modal="true"
+        className="mx-auto flex max-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-neutral-200 bg-[#fcfaf7] shadow-[0_30px_120px_rgba(15,23,42,0.24)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="border-b border-neutral-200 bg-white px-6 py-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-neutral-400">Sửa lịch thủ công</p>
+              <h3 className="mt-2 text-2xl font-semibold text-neutral-950">{employee.name}</h3>
+              <p className="mt-1 text-sm text-neutral-600">
+                {formatDateLabel(assignment.dateKey)} · {getRoleLabel(employee.role)} · Ca draft hiện tại: {assignment.shiftLabel}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-neutral-200 bg-white text-xl text-neutral-500"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-5 overflow-y-auto px-6 py-6 lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-5">
+            <section className="rounded-[28px] border border-sky-200 bg-sky-50/70 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Lịch hiệu lực ngay</h4>
+                  <p className="mt-1 text-xs text-neutral-600">Thêm, gỡ hoặc chuyển holder mà không sửa lịch tuần đã publish.</p>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-sky-700">
+                  {effectiveSlots.length ? `${effectiveSlots.length} ca hiệu lực` : "Chưa có ca"}
+                </span>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {effectiveSlots.length ? (
+                  effectiveSlots.map((slot) => (
+                    <div key={`${slot.dateKey}:${slot.shiftType}:${slot.overrideId ?? "published"}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          {slot.startTime} - {slot.endTime} · {slot.source === "OVERRIDE_ADD" ? "Override" : "Published"}
+                        </p>
+                      </div>
+                      {slot.overrideId ? (
+                        <button
+                          type="button"
+                          onClick={() => void onRemoveOverride(slot.overrideId as string)}
+                          disabled={ownerSaving}
+                          className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                        >
+                          Gỡ override
+                        </button>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <ManageAlert tone="info">Ngày này hiện chưa có ca hiệu lực cho nhân sự được chọn.</ManageAlert>
+                )}
+              </div>
+
+              {competingSlots.length ? (
+                <div className="mt-4 space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">Ca đang thuộc người khác</p>
+                  {competingSlots.map((slot) => (
+                    <div key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} className="flex items-center justify-between gap-3 rounded-2xl border border-white/80 bg-white px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          {slot.startTime} - {slot.endTime} · {slot.holderName ?? slot.holderUserId}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void onTransferShift(slot)}
+                        disabled={ownerSaving}
+                        className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                      >
+                        Chuyển holder
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                {DEFAULT_SHIFT_DEFINITIONS.filter((definition) => definition.type !== "OFF").map((definition) => (
+                  <button
+                    key={`effective-${definition.type}`}
+                    type="button"
+                    onClick={() => void onCreateOverride(definition.type as Exclude<ShiftType, "OFF">)}
+                    disabled={ownerSaving}
+                    className="rounded-2xl border border-sky-200 bg-white px-3 py-3 text-left text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                  >
+                    {definition.label}
+                    <span className="mt-1 block text-xs font-medium text-neutral-500">
+                      {definition.startTime} - {definition.endTime}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="rounded-[28px] border border-neutral-200 bg-white p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Chỉnh lịch tuần draft</h4>
+                  <p className="mt-1 text-xs text-neutral-500">Đổi ca trực tiếp trong tuần đang lập lịch, rồi publish khi đã kiểm tra xong.</p>
+                </div>
+                <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${shiftThemeClasses((DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === assignment.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3]).theme)}`}>
+                  {assignment.shortCode}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {manualOptions.map((definition) => {
+                  const active = assignment.shiftType === definition.type;
+                  return (
+                    <button
+                      key={definition.type}
+                      type="button"
+                      onClick={() => void onPickManualShift(definition.type)}
+                      disabled={ownerSaving}
+                      className={`rounded-3xl border px-4 py-4 text-left transition disabled:opacity-60 ${
+                        active ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]/15" : "border-neutral-200"
+                      } ${shiftThemeClasses(definition.theme)}`}
+                    >
+                      <p className="text-sm font-semibold">{definition.label}</p>
+                      <p className="mt-1 text-xs">
+                        {definition.startTime && definition.endTime ? `${definition.startTime} - ${definition.endTime}` : "Không xếp ca"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+
+          <div className="space-y-5">
+            <section className="rounded-[28px] border border-neutral-200 bg-white p-5">
+              <h4 className="text-sm font-semibold text-neutral-900">Ngữ cảnh nhân sự</h4>
+              <div className="mt-4 grid gap-3">
+                <div className="rounded-2xl bg-neutral-50 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Kỹ năng</p>
+                  <p className="mt-2 text-sm text-neutral-700">
+                    {employee.skills.length ? employee.skills.join(", ") : "Vận hành / hỗ trợ"}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-neutral-50 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Khung giờ tối đa</p>
+                  <p className="mt-2 text-sm text-neutral-700">{employee.maxWeeklyHours}h / tuần</p>
+                </div>
+                <div className="rounded-2xl bg-neutral-50 px-4 py-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Ngày đang sửa</p>
+                  <p className="mt-2 text-sm text-neutral-700">{formatDateLabel(assignment.dateKey)}</p>
+                </div>
+              </div>
+            </section>
+
+            {overridesProfile ? (
+              <ManageAlert tone="warn">
+                Ca hiện tại đang là ngoại lệ so với availability cố định của nhân sự này. Kiểm tra lại trước khi publish.
+              </ManageAlert>
+            ) : (
+              <ManageAlert tone="info">
+                Các lựa chọn đã được lọc theo availability hiện có để bạn sửa nhanh ngay tại chỗ.
+              </ManageAlert>
+            )}
+
+            {employee.leaveDateKeys.includes(assignment.dateKey) ? (
+              <ManageAlert tone="warn">
+                Nhân sự này đang có ngày xin nghỉ vào {formatDateLabel(assignment.dateKey)}. Nếu vẫn xếp ca, nên xác nhận lại thủ công.
+              </ManageAlert>
+            ) : null}
+
+            <div className="rounded-[28px] border border-neutral-200 bg-white p-5">
+              <h4 className="text-sm font-semibold text-neutral-900">Lưu ý khi sửa tay</h4>
+              <ul className="mt-3 space-y-2 text-sm text-neutral-600">
+                <li>Override hiệu lực áp dụng ngay lên lịch đã publish.</li>
+                <li>Chỉnh lịch tuần draft chỉ có hiệu lực sau khi publish lại.</li>
+                <li>Nếu thay đổi là cố định cho nhiều tuần, nên cập nhật availability ở màn `Team`.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DesktopDayEditorPanel({
+  dateKey,
+  daySummary,
+  dayAssignments,
+  selectedEmployee,
+  selectedAssignment,
+  selectedProfile,
+  selectedEffectiveSlots,
+  competingSlots,
+  manualOptions,
+  assignmentOverridesProfile,
+  selectedEmployeeVisible,
+  ownerSaving,
+  profileSaving,
+  profilesSchemaMissing,
+  onSelectEmployee,
+  onPickManualShift,
+  onCreateOverride,
+  onTransferShift,
+  onRemoveOverride,
+  onToggleLeaveDate,
+  onSaveProfile,
+  onClearSelection,
+  onClearFilters,
+}: {
+  dateKey: string;
+  daySummary: AutoScheduleDaySummary | null;
+  dayAssignments: Array<{ employee: AutoScheduleEmployee; assignment: AutoScheduleAssignment }>;
+  selectedEmployee: AutoScheduleEmployee | null;
+  selectedAssignment: AutoScheduleAssignment | null;
+  selectedProfile: StaffShiftProfileRecord | null;
+  selectedEffectiveSlots: EffectiveShiftSlot[];
+  competingSlots: EffectiveShiftSlot[];
+  manualOptions: ShiftDefinition[];
+  assignmentOverridesProfile: boolean;
+  selectedEmployeeVisible: boolean;
+  ownerSaving: boolean;
+  profileSaving: boolean;
+  profilesSchemaMissing: boolean;
+  onSelectEmployee: (employeeId: string, dateKey: string) => void;
+  onPickManualShift: (shiftType: ShiftType) => void | Promise<void>;
+  onCreateOverride: (shiftType: Exclude<ShiftType, "OFF">) => void | Promise<void>;
+  onTransferShift: (slot: EffectiveShiftSlot) => void | Promise<void>;
+  onRemoveOverride: (overrideId: string) => void | Promise<void>;
+  onToggleLeaveDate: (dateKey: string) => void;
+  onSaveProfile: () => void | Promise<void>;
+  onClearSelection: () => void;
+  onClearFilters: () => void;
+}) {
+  const hasVisibleEmployees = dayAssignments.length > 0;
+
+  return (
+    <aside className="sticky top-24 space-y-4 rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Chi tiết ngày</p>
+          <h3 className="mt-2 text-lg font-semibold text-neutral-950">{formatDateLabel(dateKey)}</h3>
+          <p className="mt-1 text-sm text-neutral-600">
+            {daySummary
+              ? `Đã xếp ${daySummary.scheduledCount}/${daySummary.requiredCount} người.`
+              : "Chọn ngày từ planner, conflict hoặc suggestion để xem và chỉnh ngay tại đây."}
+          </p>
+        </div>
+        {selectedAssignment ? (
+          <button
+            type="button"
+            onClick={onClearSelection}
+            className="rounded-full border border-neutral-200 px-3 py-2 text-xs font-semibold text-neutral-700"
+          >
+            Bỏ chọn ô
+          </button>
+        ) : null}
+      </div>
+
+      {daySummary ? (
+        <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Đã xếp</p>
+              <p className="mt-2 text-lg font-semibold text-neutral-950">{daySummary.scheduledCount}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Cần</p>
+              <p className="mt-2 text-lg font-semibold text-neutral-950">{daySummary.requiredCount}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">Thiếu</p>
+              <p className={`mt-2 text-lg font-semibold ${daySummary.shortageCount > 0 ? "text-rose-600" : "text-emerald-700"}`}>
+                {daySummary.shortageCount}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 space-y-1 text-sm text-neutral-600">
+            <p>Trạng thái: <span className={`font-semibold ${summaryTone(daySummary.status)}`}>{daySummary.status.toUpperCase()}</span></p>
+            <p>Kỹ năng còn thiếu: {daySummary.missingSkills.length ? daySummary.missingSkills.join(", ") : "Không có"}</p>
+          </div>
+        </div>
+      ) : null}
+
+      {!hasVisibleEmployees ? (
+        <div className="rounded-3xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-sm text-neutral-600">
+          <p className="font-semibold text-neutral-900">Bộ lọc hiện tại đang ẩn toàn bộ nhân sự.</p>
+          <p className="mt-1">Bỏ lọc vai trò/kỹ năng để xem danh sách người trong ngày và chỉnh ca thủ công.</p>
+          <button
+            type="button"
+            onClick={onClearFilters}
+            className="mt-4 rounded-full border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900"
+          >
+            Xóa bộ lọc
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-semibold text-neutral-900">Nhân sự trong ngày</p>
+            <p className="text-xs uppercase tracking-[0.16em] text-neutral-400">{dayAssignments.length} người đang hiển thị</p>
+          </div>
+          <div className="space-y-2">
+            {dayAssignments.map(({ employee, assignment }) => {
+              const definition =
+                DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === assignment.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3];
+              const active = selectedAssignment?.employeeId === employee.id && selectedAssignment.dateKey === assignment.dateKey;
+              return (
+                <button
+                  key={`${employee.id}:${assignment.dateKey}`}
+                  type="button"
+                  onClick={() => onSelectEmployee(employee.id, assignment.dateKey)}
+                  className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                    active ? "border-[var(--color-primary)] bg-[var(--color-primary)]/5" : "border-neutral-200 bg-white"
+                  }`}
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-neutral-900">{employee.name}</p>
+                    <p className="mt-1 text-xs text-neutral-500">{getRoleLabel(employee.role)}</p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${shiftThemeClasses(definition.theme)}`}>
+                    {assignment.shortCode}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {selectedAssignment && !selectedEmployeeVisible ? (
+        <ManageAlert tone="warn">
+          Nhân sự đang chọn hiện bị ẩn bởi bộ lọc hiện tại. Bỏ lọc để tiếp tục chỉnh ca cho người này.
+        </ManageAlert>
+      ) : null}
+
+      {selectedEmployee && selectedAssignment && selectedEmployeeVisible ? (
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+            <p className="text-sm font-semibold text-neutral-900">{selectedEmployee.name}</p>
+            <p className="mt-1 text-sm text-neutral-600">
+              {getRoleLabel(selectedEmployee.role)} · {selectedAssignment.shiftLabel}
+            </p>
+            <p className="mt-1 text-sm text-neutral-600">
+              Kỹ năng: {selectedEmployee.skills.length ? selectedEmployee.skills.join(", ") : "Vận hành / hỗ trợ"}
+            </p>
+          </div>
+
+          <div className="space-y-3 rounded-3xl border border-sky-200 bg-sky-50 p-4">
+            <div>
+              <h4 className="text-sm font-semibold text-neutral-900">Điều chỉnh hiệu lực ngay</h4>
+              <p className="mt-1 text-xs text-neutral-600">Override áp dụng ngay lên lịch đã publish.</p>
+            </div>
+            {selectedEffectiveSlots.length ? (
+              <div className="space-y-2">
+                {selectedEffectiveSlots.map((slot) => (
+                  <div key={`${slot.dateKey}:${slot.shiftType}:${slot.overrideId ?? "published"}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {slot.startTime} - {slot.endTime} · {slot.source === "OVERRIDE_ADD" ? "Override" : "Published"}
+                      </p>
+                    </div>
+                    {slot.overrideId ? (
+                      <button
+                        type="button"
+                        onClick={() => void onRemoveOverride(slot.overrideId as string)}
+                        disabled={ownerSaving}
+                        className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                      >
+                        Gỡ
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <ManageAlert tone="info">Ngày này hiện chưa có ca hiệu lực cho nhân sự đang chọn.</ManageAlert>
+            )}
+            {competingSlots.length ? (
+              <div className="space-y-2">
+                {competingSlots.map((slot) => (
+                  <div key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                      <p className="mt-1 text-xs text-neutral-500">
+                        {slot.startTime} - {slot.endTime} · {slot.holderName ?? slot.holderUserId}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void onTransferShift(slot)}
+                      disabled={ownerSaving}
+                      className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                    >
+                      Chuyển holder
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className="grid grid-cols-1 gap-2">
+              {DEFAULT_SHIFT_DEFINITIONS.filter((definition) => definition.type !== "OFF").map((definition) => (
+                <button
+                  key={`effective-${definition.type}`}
+                  type="button"
+                  onClick={() => void onCreateOverride(definition.type as Exclude<ShiftType, "OFF">)}
+                  disabled={ownerSaving}
+                  className="rounded-2xl border border-sky-200 bg-white px-3 py-3 text-left text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                >
+                  {definition.label}
+                  <span className="mt-1 block text-xs font-medium text-neutral-500">
+                    {definition.startTime} - {definition.endTime}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            {manualOptions.map((definition) => {
+              const active = selectedAssignment.shiftType === definition.type;
+              return (
+                <button
+                  key={definition.type}
+                  type="button"
+                  onClick={() => void onPickManualShift(definition.type)}
+                  disabled={ownerSaving}
+                  className={`rounded-3xl border px-4 py-4 text-left transition disabled:opacity-60 ${
+                    active ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]/15" : "border-neutral-200"
+                  } ${shiftThemeClasses(definition.theme)}`}
+                >
+                  <p className="text-sm font-semibold">{definition.label}</p>
+                  <p className="mt-1 text-xs">
+                    {definition.startTime && definition.endTime
+                      ? `${definition.startTime} - ${definition.endTime}`
+                      : "Không xếp ca"}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {assignmentOverridesProfile ? (
+            <ManageAlert tone="warn">
+              Ca hiện tại đang là ngoại lệ so với availability cố định của nhân sự này.
+            </ManageAlert>
+          ) : null}
+
+          {selectedEmployee.leaveDateKeys.includes(selectedAssignment.dateKey) ? (
+            <ManageAlert tone="warn">
+              Nhân sự này đang có ngày xin nghỉ vào {formatDateLabel(selectedAssignment.dateKey)}.
+            </ManageAlert>
+          ) : null}
+
+          {selectedProfile ? (
+            <div className="rounded-3xl border border-neutral-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-neutral-900">Đánh dấu nghỉ theo ngày</h4>
+                  <p className="mt-1 text-xs text-neutral-500">Chỉ áp dụng cho ngày đang chọn.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void onSaveProfile()}
+                  disabled={profileSaving || profilesSchemaMissing}
+                  className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                >
+                  {profileSaving ? "Đang lưu..." : "Lưu"}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => onToggleLeaveDate(selectedAssignment.dateKey)}
+                className={`mt-4 w-full rounded-2xl border px-4 py-3 text-left text-sm font-semibold ${
+                  selectedProfile.leaveDateKeys.includes(selectedAssignment.dateKey)
+                    ? "border-rose-300 bg-rose-50 text-rose-700"
+                    : "border-neutral-200 bg-neutral-50 text-neutral-700"
+                }`}
+              >
+                {selectedProfile.leaveDateKeys.includes(selectedAssignment.dateKey)
+                  ? `Bỏ đánh dấu nghỉ ${formatDateLabel(selectedAssignment.dateKey)}`
+                  : `Đánh dấu nghỉ ${formatDateLabel(selectedAssignment.dateKey)}`}
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : hasVisibleEmployees ? (
+        <ManageAlert tone="info">Chọn một nhân sự trong danh sách trên để chỉnh draft shift, override và leave marker.</ManageAlert>
+      ) : null}
+    </aside>
   );
 }
 
@@ -657,9 +1220,19 @@ export default function ManageShiftsPage() {
   const [forecast, setForecast] = useState<Record<string, number>>(() => createEmptyForecast(weekStart));
   const [selectedDayDetail, setSelectedDayDetail] = useState<string | null>(null);
   const [ownerAttendanceEntries, setOwnerAttendanceEntries] = useState<ShiftTimeEntryRecord[]>([]);
+  const [ownerEffectiveSlots, setOwnerEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
   const [shiftWindow, setShiftWindow] = useState<ShiftWindow | null>(null);
+  const [personalEffectiveSlots, setPersonalEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
+  const [todayEffectiveSlots, setTodayEffectiveSlots] = useState<EffectiveShiftSlot[]>([]);
+  const [selectedTodaySlotKey, setSelectedTodaySlotKey] = useState<string>("");
   const [personalLeaveRequests, setPersonalLeaveRequests] = useState<ShiftLeaveRequestRecord[]>([]);
   const [ownerLeaveRequests, setOwnerLeaveRequests] = useState<ShiftLeaveRequestRecord[]>([]);
+  const [personalShiftChangeRequests, setPersonalShiftChangeRequests] = useState<ShiftChangeRequestRecord[]>([]);
+  const [ownerShiftChangeRequests, setOwnerShiftChangeRequests] = useState<ShiftChangeRequestRecord[]>([]);
+  const [shiftRequestKind, setShiftRequestKind] = useState<"SWAP" | "PICKUP">("PICKUP");
+  const [selectedRequestTargetKey, setSelectedRequestTargetKey] = useState("");
+  const [selectedRequestSourceKey, setSelectedRequestSourceKey] = useState("");
+  const [shiftRequestNote, setShiftRequestNote] = useState("");
   const [dayOffNote, setDayOffNote] = useState("");
   const [earlyLeaveNote, setEarlyLeaveNote] = useState("");
   const [earlyLeaveTime, setEarlyLeaveTime] = useState("");
@@ -670,6 +1243,20 @@ export default function ManageShiftsPage() {
   const shiftsSectionRef = useRef<HTMLDivElement | null>(null);
   const attendanceSectionRef = useRef<HTMLDivElement | null>(null);
   const leaveSectionRef = useRef<HTMLDivElement | null>(null);
+
+  const focusManualEditPanel = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      if (window.innerWidth >= 1280) return;
+      leaveSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const openOwnerEditorContext = useCallback((dateKey: string, employeeId?: string | null) => {
+    setSelectedDayDetail(dateKey);
+    setSelectedCell(employeeId ? { employeeId, dateKey } : null);
+    focusManualEditPanel();
+  }, [focusManualEditPanel]);
 
   const ownerEmployees = useMemo(() => createOwnerEmployees(rawTeamRows, staffProfiles), [rawTeamRows, staffProfiles]);
   const allSkills = useMemo(() => getAllSkills(ownerEmployees), [ownerEmployees]);
@@ -759,6 +1346,10 @@ export default function ManageShiftsPage() {
     if (!selectedCell) return null;
     return ownerEmployees.find((employee) => employee.id === selectedCell.employeeId) ?? null;
   }, [ownerEmployees, selectedCell]);
+  const selectedEmployeeVisible = useMemo(
+    () => (selectedCell ? filteredEmployees.some((employee) => employee.id === selectedCell.employeeId) : false),
+    [filteredEmployees, selectedCell],
+  );
   const selectedProfile = useMemo(() => {
     if (!selectedEmployee) return null;
     return staffProfiles.find((profile) => profile.userId === selectedEmployee.id)
@@ -778,28 +1369,75 @@ export default function ManageShiftsPage() {
     if (!selectedAssignment) return false;
     return !recommendedShiftTypes.includes(selectedAssignment.shiftType);
   }, [recommendedShiftTypes, selectedAssignment]);
-
-  const personalAssignments = useMemo(() => {
-    if (!publishedPlan?.result.weekDates?.length || !currentUserId) return [];
-    return applyApprovedDayOffToAssignments(
-      publishedPlan.result.weekDates.map((dateKey) => {
-        const assignment =
-          publishedPlan.result.assignments.find(
-            (item) => item.employeeId === currentUserId && item.dateKey === dateKey,
-          ) ?? createOffAssignment(dateKey);
-        return assignment;
-      }),
-      personalLeaveRequests,
+  const selectedEffectiveSlots = useMemo(() => {
+    if (!selectedCell) return [];
+    return ownerEffectiveSlots
+      .filter((slot) => slot.dateKey === selectedCell.dateKey && slot.holderUserId === selectedCell.employeeId)
+      .sort((left, right) => left.startTime.localeCompare(right.startTime));
+  }, [ownerEffectiveSlots, selectedCell]);
+  const competingEffectiveSlots = useMemo(() => {
+    if (!selectedCell) return [];
+    return ownerEffectiveSlots.filter(
+      (slot) => slot.dateKey === selectedCell.dateKey && slot.holderUserId !== selectedCell.employeeId,
     );
-  }, [currentUserId, personalLeaveRequests, publishedPlan]);
+  }, [ownerEffectiveSlots, selectedCell]);
+
+  const approvedDayOffDateKeys = useMemo(
+    () =>
+      new Set(
+        personalLeaveRequests
+          .filter((request) => request.request_type === "DAY_OFF" && request.status === "APPROVED" && request.scheduled_date)
+          .map((request) => request.scheduled_date as string),
+      ),
+    [personalLeaveRequests],
+  );
+
+  const personalSlotsByDate = useMemo(() => {
+    const grouped = new Map<string, AutoScheduleAssignment[]>();
+    for (const slot of personalEffectiveSlots) {
+      const next = grouped.get(slot.dateKey) ?? [];
+      next.push(createAssignmentFromEffectiveSlot(slot));
+      grouped.set(slot.dateKey, next.sort((left, right) => left.startTime.localeCompare(right.startTime)));
+    }
+    return grouped;
+  }, [personalEffectiveSlots]);
+  const hasPersonalPublishedSchedule = useMemo(
+    () => Array.from(personalSlotsByDate.values()).some((assignments) => assignments.length > 0),
+    [personalSlotsByDate],
+  );
 
   const todayDateKey = useMemo(() => toDateKey(now), [now]);
+  const selectedTodaySlot = useMemo(
+    () => todayEffectiveSlots.find((slot) => `${slot.dateKey}:${slot.shiftType}` === selectedTodaySlotKey) ?? todayEffectiveSlots[0] ?? null,
+    [selectedTodaySlotKey, todayEffectiveSlots],
+  );
   const todayAssignment = useMemo(() => {
+    if (selectedTodaySlot) {
+      return {
+        shiftLabel: selectedTodaySlot.shiftLabel,
+        startTime: selectedTodaySlot.startTime,
+        endTime: selectedTodaySlot.endTime,
+        shortCode: selectedTodaySlot.shiftType,
+      };
+    }
     if (!currentUserId) return null;
     return getTodayAssignmentFromPlan(publishedPlan, currentUserId, todayDateKey);
-  }, [currentUserId, publishedPlan, todayDateKey]);
+  }, [currentUserId, publishedPlan, selectedTodaySlot, todayDateKey]);
+  const activeShiftWindow = useMemo(() => {
+    if (!selectedTodaySlot) return shiftWindow;
+    const scheduledStart = new Date(`${selectedTodaySlot.dateKey}T${selectedTodaySlot.startTime}:00`);
+    const scheduledEnd = new Date(`${selectedTodaySlot.dateKey}T${selectedTodaySlot.endTime}:00`);
+    return {
+      weekStart: selectedTodaySlot.weekStart,
+      dateKey: selectedTodaySlot.dateKey,
+      slot: selectedTodaySlot,
+      scheduledStartIso: scheduledStart.toISOString(),
+      scheduledEndIso: scheduledEnd.toISOString(),
+      lateGraceUntilIso: new Date(scheduledStart.getTime() + 10 * 60_000).toISOString(),
+    } satisfies ShiftWindow;
+  }, [selectedTodaySlot, shiftWindow]);
 
-  const shiftWindowState = useMemo(() => describeShiftWindow(shiftWindow, now), [now, shiftWindow]);
+  const shiftWindowState = useMemo(() => describeShiftWindow(activeShiftWindow, now), [activeShiftWindow, now]);
 
   const pendingAttendanceApprovals = useMemo(
     () => ownerAttendanceEntries.filter((entry) => entry.approval_status === "PENDING"),
@@ -809,6 +1447,27 @@ export default function ManageShiftsPage() {
   const pendingLeaveApprovals = useMemo(
     () => ownerLeaveRequests.filter((request) => request.status === "PENDING"),
     [ownerLeaveRequests],
+  );
+  const pendingShiftChangeApprovals = useMemo(
+    () => ownerShiftChangeRequests.filter((request) => request.status === "PENDING"),
+    [ownerShiftChangeRequests],
+  );
+
+  const currentWeekPublishedSlots = useMemo(() => {
+    if (!publishedPlan) return [];
+    return publishedPlan.result.assignments
+      .map((assignment) => createShiftSlotSnapshot(assignment, publishedPlan.weekStart))
+      .filter((slot): slot is NonNullable<ReturnType<typeof createShiftSlotSnapshot>> => !!slot);
+  }, [publishedPlan]);
+
+  const requestableTargetSlots = useMemo(
+    () => currentWeekPublishedSlots.filter((slot) => slot.holderUserId !== currentUserId),
+    [currentUserId, currentWeekPublishedSlots],
+  );
+
+  const ownRequestSourceSlots = useMemo(
+    () => currentWeekPublishedSlots.filter((slot) => slot.holderUserId === currentUserId),
+    [currentUserId, currentWeekPublishedSlots],
   );
 
   const approvedDayOffToday = useMemo(
@@ -866,6 +1525,16 @@ export default function ManageShiftsPage() {
   const activeDaySummary = useMemo(
     () => draft?.daySummaries.find((summary) => summary.dateKey === selectedDayDetail) ?? null,
     [draft?.daySummaries, selectedDayDetail],
+  );
+  const activeDayAssignments = useMemo(
+    () =>
+      filteredEmployees.map((employee) => ({
+        employee,
+        assignment:
+          draftMatrix.get(`${employee.id}:${activePlannerDate}`) ??
+          createOffAssignment(activePlannerDate, employee.name),
+      })),
+    [activePlannerDate, draftMatrix, filteredEmployees],
   );
   const attendanceSummary = useMemo(() => {
     const openCount = ownerAttendanceEntries.filter((entry) => entry.clock_out === null).length;
@@ -990,21 +1659,15 @@ export default function ManageShiftsPage() {
   }, [draft, persistOwnerPlan]);
 
   const handleDayDetail = useCallback((dateKey: string) => {
-    setSelectedDayDetail(dateKey);
-    const firstEmployee = filteredEmployees[0];
-    if (firstEmployee) {
-      setSelectedCell({ employeeId: firstEmployee.id, dateKey });
-    }
-  }, [filteredEmployees]);
+    openOwnerEditorContext(dateKey);
+  }, [openOwnerEditorContext]);
 
   const handleSuggestionFocus = useCallback((employeeId: string, dateKey: string) => {
-    setSelectedDayDetail(dateKey);
-    setSelectedCell({ employeeId, dateKey });
-  }, []);
+    openOwnerEditorContext(dateKey, employeeId);
+  }, [openOwnerEditorContext]);
   const handleOpenPlannerEditor = useCallback((employeeId: string, dateKey: string) => {
-    setSelectedDayDetail(dateKey);
-    setSelectedCell({ employeeId, dateKey });
-  }, []);
+    openOwnerEditorContext(dateKey, employeeId);
+  }, [openOwnerEditorContext]);
 
   const handleSidebarJump = useCallback((target: "overview" | "planner" | "shifts" | "check" | "leave") => {
     const sectionMap = {
@@ -1020,29 +1683,56 @@ export default function ManageShiftsPage() {
 
   const refreshPersonalShiftState = useCallback(async (userId: string) => {
     await syncExpiredShiftEntries();
-    const [entries, requests, nextWindow] = await Promise.all([
+    const viewedWeekStart = weekStart;
+    const today = new Date();
+    const todayDateKey = toDateKey(today);
+    const todayWeekStart = toDateKey(getStartOfWeek(today));
+    const viewedWeekSlotsPromise = listEffectiveShiftSlots(viewedWeekStart, { userId });
+    const todayWeekSlotsPromise =
+      viewedWeekStart === todayWeekStart ? viewedWeekSlotsPromise : listEffectiveShiftSlots(todayWeekStart, { userId });
+
+    const [entries, requests, nextWindow, viewedWeekSlots, todayWeekSlots, changeRequests] = await Promise.all([
       listPersonalShiftEntries(userId),
       listShiftLeaveRequests({ userId }),
-      loadPublishedShiftWindowForUser(userId, new Date()),
+      loadPublishedShiftWindowForUser(userId, today),
+      viewedWeekSlotsPromise,
+      todayWeekSlotsPromise,
+      listShiftChangeRequests({ userId }),
     ]);
 
     setRecentEntries(entries);
     setOpenEntry(entries.find((entry) => entry.clock_out === null && entry.approval_status !== "REJECTED") ?? null);
     setPersonalLeaveRequests(requests);
     setShiftWindow(nextWindow);
-  }, []);
+    setPersonalEffectiveSlots(viewedWeekSlots);
+    const nextTodaySlots = getEffectiveShiftSlotsForDate(todayWeekSlots, userId, todayDateKey);
+    setTodayEffectiveSlots(nextTodaySlots);
+    setSelectedTodaySlotKey((current) => {
+      if (nextTodaySlots.some((slot) => `${slot.dateKey}:${slot.shiftType}` === current)) return current;
+      return nextTodaySlots[0] ? `${nextTodaySlots[0].dateKey}:${nextTodaySlots[0].shiftType}` : "";
+    });
+    setPersonalShiftChangeRequests(changeRequests);
+  }, [weekStart]);
 
   const refreshOwnerApprovals = useCallback(async () => {
     await syncExpiredShiftEntries();
-    const [entries, requests] = await Promise.all([listOwnerShiftEntries(), listShiftLeaveRequests()]);
+    const [entries, requests, changeRequests, effectiveSlots] = await Promise.all([
+      listOwnerShiftEntries(),
+      listShiftLeaveRequests(),
+      listShiftChangeRequests(),
+      listEffectiveShiftSlots(weekStart),
+    ]);
     setOwnerAttendanceEntries(entries);
     setOwnerLeaveRequests(requests);
-  }, []);
+    setOwnerShiftChangeRequests(changeRequests);
+    setOwnerEffectiveSlots(effectiveSlots);
+  }, [weekStart]);
 
   const handlePersonalClockIn = useCallback(async () => {
     try {
       setPersonalBusy(true);
-      const nextEntry = await createShiftCheckIn();
+      if (!selectedTodaySlot) throw new Error("Hãy chọn ca cụ thể trước khi mở ca.");
+      const nextEntry = await createShiftCheckIn(selectedTodaySlot);
       setOpenEntry(nextEntry);
       if (currentUserId) {
         await refreshPersonalShiftState(currentUserId);
@@ -1052,7 +1742,7 @@ export default function ManageShiftsPage() {
     } finally {
       setPersonalBusy(false);
     }
-  }, [currentUserId, refreshPersonalShiftState]);
+  }, [currentUserId, refreshPersonalShiftState, selectedTodaySlot]);
 
   const refreshPersonalShiftStateRef = useRef(refreshPersonalShiftState);
   const refreshOwnerApprovalsRef = useRef(refreshOwnerApprovals);
@@ -1137,6 +1827,151 @@ export default function ManageShiftsPage() {
     }
   }, [refreshOwnerApprovals]);
 
+  const handleSubmitShiftChangeRequest = useCallback(async () => {
+    const targetSlot = requestableTargetSlots.find(
+      (slot) => `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestTargetKey,
+    );
+    if (!targetSlot) {
+      setError("Hãy chọn ca đích cần đổi/nhận.");
+      return;
+    }
+
+    const sourceSlot =
+      shiftRequestKind === "SWAP"
+        ? ownRequestSourceSlots.find((slot) => `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestSourceKey) ?? null
+        : null;
+    if (shiftRequestKind === "SWAP" && !sourceSlot) {
+      setError("Xin đổi ca cần chọn ca nguồn của bạn.");
+      return;
+    }
+
+    try {
+      setPersonalBusy(true);
+      await submitShiftChangeRequest({
+        requestKind: shiftRequestKind,
+        targetSlot,
+        sourceSlot,
+        note: shiftRequestNote,
+      });
+      setShiftRequestNote("");
+      setSelectedRequestTargetKey("");
+      setSelectedRequestSourceKey("");
+      if (currentUserId) {
+        await refreshPersonalShiftState(currentUserId);
+      }
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Không thể gửi yêu cầu đổi/nhận ca.");
+    } finally {
+      setPersonalBusy(false);
+    }
+  }, [
+    currentUserId,
+    ownRequestSourceSlots,
+    refreshPersonalShiftState,
+    requestableTargetSlots,
+    selectedRequestSourceKey,
+    selectedRequestTargetKey,
+    shiftRequestKind,
+    shiftRequestNote,
+  ]);
+
+  const handleReviewShiftChangeRequest = useCallback(async (requestId: string, approve: boolean) => {
+    try {
+      setOwnerSaving(true);
+      await reviewShiftChangeRequest(requestId, approve);
+      await Promise.all([refreshOwnerApprovals(), currentUserId ? refreshPersonalShiftState(currentUserId) : Promise.resolve()]);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Không thể duyệt yêu cầu đổi/nhận ca.");
+    } finally {
+      setOwnerSaving(false);
+    }
+  }, [currentUserId, refreshOwnerApprovals, refreshPersonalShiftState]);
+
+  const handleCreateEffectiveOverride = useCallback(async (shiftType: ShiftType) => {
+    if (!selectedCell) return;
+    const definition = DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === shiftType);
+    if (!definition || shiftType === "OFF" || !definition.startTime || !definition.endTime) return;
+
+    try {
+      setOwnerSaving(true);
+      await createManualShiftOverride({
+        weekStart,
+        staffUserId: selectedCell.employeeId,
+        action: "ADD",
+        slot: {
+          weekStart,
+          dateKey: selectedCell.dateKey,
+          shiftType,
+          shiftLabel: definition.label,
+          startTime: definition.startTime,
+          endTime: definition.endTime,
+          holderUserId: selectedCell.employeeId,
+          holderName: teamNameMap.get(selectedCell.employeeId) ?? selectedCell.employeeId,
+        },
+      });
+      await refreshOwnerApprovals();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Không thể thêm override hiệu lực.");
+    } finally {
+      setOwnerSaving(false);
+    }
+  }, [refreshOwnerApprovals, selectedCell, teamNameMap, weekStart]);
+
+  const handleTransferEffectiveShift = useCallback(async (slot: EffectiveShiftSlot) => {
+    if (!selectedCell) return;
+
+    try {
+      setOwnerSaving(true);
+      await createManualShiftOverride({
+        weekStart,
+        staffUserId: slot.holderUserId,
+        action: "REMOVE",
+        slot: {
+          weekStart: slot.weekStart,
+          dateKey: slot.dateKey,
+          shiftType: slot.shiftType,
+          shiftLabel: slot.shiftLabel,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          holderUserId: slot.holderUserId,
+          holderName: slot.holderName,
+        },
+      });
+      await createManualShiftOverride({
+        weekStart,
+        staffUserId: selectedCell.employeeId,
+        action: "ADD",
+        slot: {
+          weekStart: slot.weekStart,
+          dateKey: slot.dateKey,
+          shiftType: slot.shiftType,
+          shiftLabel: slot.shiftLabel,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          holderUserId: selectedCell.employeeId,
+          holderName: teamNameMap.get(selectedCell.employeeId) ?? selectedCell.employeeId,
+        },
+      });
+      await refreshOwnerApprovals();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Không thể chuyển holder hiệu lực.");
+    } finally {
+      setOwnerSaving(false);
+    }
+  }, [refreshOwnerApprovals, selectedCell, teamNameMap, weekStart]);
+
+  const handleRemoveEffectiveOverride = useCallback(async (overrideId: string) => {
+    try {
+      setOwnerSaving(true);
+      await removeManualShiftOverride(overrideId);
+      await refreshOwnerApprovals();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Không thể gỡ override hiệu lực.");
+    } finally {
+      setOwnerSaving(false);
+    }
+  }, [refreshOwnerApprovals]);
+
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       setNow(new Date());
@@ -1167,6 +2002,7 @@ export default function ManageShiftsPage() {
       const target = event.target;
       if (!(target instanceof Element)) return;
       if (target.closest('[data-shift-editor-modal="true"]')) return;
+      if (plannerSectionRef.current?.contains(target)) return;
       if (shiftsSectionRef.current?.contains(target)) return;
       if (leaveSectionRef.current?.contains(target)) return;
       setSelectedCell(null);
@@ -1370,7 +2206,10 @@ export default function ManageShiftsPage() {
   }
 
   if (!canManageShiftOperations(role)) {
-    const scheduledHours = personalAssignments.reduce((sum, item) => sum + item.hours, 0);
+    const scheduledHours = Array.from(personalSlotsByDate.entries()).reduce((sum, [dateKey, assignments]) => {
+      if (approvedDayOffDateKeys.has(dateKey)) return sum;
+      return sum + assignments.reduce((daySum, assignment) => daySum + assignment.hours, 0);
+    }, 0);
 
     return (
       <AppShell>
@@ -1400,16 +2239,18 @@ export default function ManageShiftsPage() {
             <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
               <ShiftLegend />
               <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm font-medium text-neutral-700">
-                {publishedPlan ? `${scheduledHours}h / tuần đã phân` : "Chưa có lịch được publish"}
+                {hasPersonalPublishedSchedule ? `${scheduledHours}h / tuần hiệu lực` : "Chưa có ca được publish"}
               </div>
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-7">
               {(publishedPlan?.result.weekDates ?? generateWeekDates(weekStart)).map((dateKey) => {
-                const assignment =
-                  personalAssignments.find((item) => item.dateKey === dateKey) ?? createOffAssignment(dateKey);
+                const dayAssignments = approvedDayOffDateKeys.has(dateKey)
+                  ? [createOffAssignment(dateKey)]
+                  : personalSlotsByDate.get(dateKey) ?? [createOffAssignment(dateKey)];
+                const primaryAssignment = dayAssignments[0];
                 const definition =
-                  DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === assignment.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3];
+                  DEFAULT_SHIFT_DEFINITIONS.find((item) => item.type === primaryAssignment.shiftType) ?? DEFAULT_SHIFT_DEFINITIONS[3];
                 const isToday = dateKey === todayDateKey;
                 return (
                   <div
@@ -1422,16 +2263,20 @@ export default function ManageShiftsPage() {
                         <p className="mt-1 text-sm font-semibold">{formatDateLabel(dateKey)}</p>
                       </div>
                       <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/80 px-2 text-[11px] font-bold">
-                        {assignment.shortCode}
+                        {primaryAssignment.shortCode}
                       </span>
                     </div>
-                    <div className="mt-8">
-                      <p className="text-base font-semibold">{assignment.shiftLabel}</p>
-                      <p className="mt-1 text-sm">
-                        {assignment.startTime && assignment.endTime
-                          ? `${assignment.startTime} - ${assignment.endTime}`
-                          : "Nghỉ"}
-                      </p>
+                    <div className="mt-6 space-y-2">
+                      {dayAssignments.map((assignment, index) => (
+                        <div key={`${assignment.dateKey}:${assignment.shiftType}:${index}`} className="rounded-2xl bg-white/60 px-3 py-2">
+                          <p className="text-base font-semibold">{assignment.shiftLabel}</p>
+                          <p className="mt-1 text-sm">
+                            {assignment.startTime && assignment.endTime
+                              ? `${assignment.startTime} - ${assignment.endTime}`
+                              : "Nghỉ"}
+                          </p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -1445,9 +2290,24 @@ export default function ManageShiftsPage() {
               <div className="mt-4 space-y-3">
                 {todayAssignment ? (
                   <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
-                    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">Ca đã publish</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-neutral-500">
+                      {todayEffectiveSlots.length > 1 ? "Các ca hiệu lực hôm nay" : "Ca hiệu lực hôm nay"}
+                    </p>
                     <p className="mt-2 text-lg font-semibold text-neutral-900">{todayAssignment.shiftLabel}</p>
                     <p className="mt-1 text-sm text-neutral-600">{todayAssignment.startTime} - {todayAssignment.endTime}</p>
+                    {todayEffectiveSlots.length > 1 ? (
+                      <select
+                        value={selectedTodaySlotKey}
+                        onChange={(event) => setSelectedTodaySlotKey(event.target.value)}
+                        className="mt-3 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                      >
+                        {todayEffectiveSlots.map((slot) => (
+                          <option key={`${slot.dateKey}:${slot.shiftType}`} value={`${slot.dateKey}:${slot.shiftType}`}>
+                            {slot.shiftLabel} • {slot.startTime} - {slot.endTime}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
                     <p className="mt-2 text-sm text-neutral-500">
                       {shiftWindowState.canCheckIn
                         ? shiftWindowState.withinGrace
@@ -1501,6 +2361,71 @@ export default function ManageShiftsPage() {
                     className="min-h-[96px] w-full rounded-3xl border border-neutral-200 px-4 py-3 text-sm outline-none"
                   />
                 ) : null}
+                <div className="rounded-3xl border border-neutral-200 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-semibold text-neutral-900">Xin đổi / nhận ca</h4>
+                    <select
+                      value={shiftRequestKind}
+                      onChange={(event) => setShiftRequestKind(event.target.value === "SWAP" ? "SWAP" : "PICKUP")}
+                      className="rounded-full border border-neutral-200 px-3 py-2 text-xs font-semibold"
+                    >
+                      <option value="PICKUP">Xin nhận ca</option>
+                      <option value="SWAP">Xin đổi ca</option>
+                    </select>
+                  </div>
+                  {shiftRequestKind === "SWAP" ? (
+                    <select
+                      value={selectedRequestSourceKey}
+                      onChange={(event) => setSelectedRequestSourceKey(event.target.value)}
+                      className="mt-3 w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                    >
+                      <option value="">Chọn ca nguồn của bạn</option>
+                      {ownRequestSourceSlots.map((slot) => (
+                        <option key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} value={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}>
+                          {slot.dateKey} • {slot.shiftLabel} • {slot.startTime} - {slot.endTime}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <select
+                    value={selectedRequestTargetKey}
+                    onChange={(event) => setSelectedRequestTargetKey(event.target.value)}
+                    className="mt-3 w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">Chọn ca đích đã publish</option>
+                    {requestableTargetSlots.map((slot) => (
+                      <option key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} value={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}>
+                        {slot.dateKey} • {slot.shiftLabel} • {slot.holderName ?? slot.holderUserId}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={shiftRequestNote}
+                    onChange={(event) => setShiftRequestNote(event.target.value)}
+                    placeholder="Ghi chú cho OWNER/PARTNER (tùy chọn)"
+                    className="mt-3 min-h-[88px] w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitShiftChangeRequest()}
+                    disabled={personalBusy || !selectedRequestTargetKey || (shiftRequestKind === "SWAP" && !selectedRequestSourceKey)}
+                    className="mt-3 inline-flex rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                  >
+                    Gửi yêu cầu
+                  </button>
+                  {personalShiftChangeRequests.length ? (
+                    <div className="mt-3 space-y-2">
+                      {personalShiftChangeRequests.slice(0, 3).map((request) => (
+                        <div key={request.id} className="rounded-2xl bg-neutral-50 px-3 py-2 text-sm">
+                          <p className="font-medium text-neutral-900">{request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"}</p>
+                          <p className="text-neutral-600">
+                            {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel} • {request.status}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </section>
 
@@ -1610,22 +2535,22 @@ export default function ManageShiftsPage() {
               <div className="space-y-3">
                 {scheduleSchemaMissing ? (
                   <ManageAlert tone="warn">
-                    ChÆ°a cÃ³ báº£ng `shift_plans` trong Supabase. HÃ£y cháº¡y file `supabase/shift_plans_2026_04.sql` Ä‘á»ƒ lÆ°u draft/publish tháº­t cho OWNER vÃ  chia lá»‹ch ra cho nhÃ¢n sá»±.
+                    Chưa có bảng `shift_plans` trong Supabase. Hãy chạy file `supabase/shift_plans_2026_04.sql` để lưu draft/publish thật cho OWNER và chia lịch ra cho nhân sự.
                   </ManageAlert>
                 ) : null}
                 {profilesSchemaMissing ? (
                   <ManageAlert tone="warn">
-                    Báº£ng `staff_shift_profiles` chÆ°a cÃ³ trÃªn Supabase. Cáº§n cháº¡y file `supabase/staff_shift_profiles_2026_04.sql` Ä‘á»ƒ lÆ°u skill, availability, nghá»‰ phÃ©p vÃ  max hours tháº­t cho nhÃ¢n sá»±.
+                    Bảng `staff_shift_profiles` chưa có trên Supabase. Cần chạy file `supabase/staff_shift_profiles_2026_04.sql` để lưu skill, availability, nghỉ phép và max hours thật cho nhân sự.
                   </ManageAlert>
                 ) : null}
                 {!profilesSchemaMissing && hasIncompleteProfiles ? (
                   <ManageAlert tone="warn">
-                    CÃ²n {incompleteProfiles.length} nhÃ¢n sá»± thiáº¿u há»“ sÆ¡ phÃ¢n ca tháº­t. Há»‡ thá»‘ng váº«n cho cháº¡y `Tá»± Ä‘á»™ng xáº¿p ca`, nhÆ°ng nÃªn hoÃ n thiá»‡n `khung giá» lÃ m` vÃ  `ká»¹ nÄƒng` á»Ÿ mÃ n `Team` Ä‘á»ƒ lá»‹ch chÃ­nh xÃ¡c hÆ¡n.
+                    Còn {incompleteProfiles.length} nhân sự thiếu hồ sơ phân ca thật. Hệ thống vẫn cho chạy `Tự động xếp ca`, nhưng nên hoàn thiện `khung giờ làm` và `kỹ năng` ở màn `Team` để lịch chính xác hơn.
                   </ManageAlert>
                 ) : null}
                 {status === "published" && lastPublishedAt ? (
                   <ManageAlert tone="info">
-                    Lá»‹ch Ä‘Ã£ xuáº¥t lÃºc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastPublishedAt))}. NhÃ¢n sá»± sáº½ nhÃ¬n tháº¥y Ä‘Ãºng lá»‹ch nÃ y á»Ÿ mÃ n Shifts.
+                    Lịch đã xuất lúc {new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(new Date(lastPublishedAt))}. Nhân sự sẽ nhìn thấy đúng lịch này ở màn Shifts.
                   </ManageAlert>
                 ) : null}
               </div>
@@ -1659,10 +2584,9 @@ export default function ManageShiftsPage() {
         <div className="space-y-3 xl:hidden">
           <MobileSectionHeader
             title="Shifts / Owner"
-            description="Mobile uu tien planner, giam sidebar va dong cac khoi phu cho gon."
           />
 
-          <MobileCollapsible summary="Dieu huong va lich tuan" defaultOpen>
+          <MobileCollapsible summary="Điều hướng và lịch tuần" defaultOpen>
             <MiniCalendar
               weekStart={weekStart}
               visibleMonth={visibleMonth}
@@ -1673,7 +2597,7 @@ export default function ManageShiftsPage() {
             />
           </MobileCollapsible>
 
-          <MobileCollapsible summary="Rule ap dung">
+          <MobileCollapsible summary="Rule áp dụng">
             <div className="space-y-3 rounded-[28px] border border-neutral-200 bg-white p-4 shadow-sm">
               <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Rule ap dung</p>
               <div className="space-y-3 text-sm text-neutral-600">
@@ -2197,17 +3121,18 @@ export default function ManageShiftsPage() {
                 </div>
               ) : null}
 
-              <div ref={shiftsSectionRef} className="mt-5">
-                <MobilePlannerCards
-                  employees={filteredEmployees}
-                  weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
-                  selectedDateKey={activePlannerDate}
-                  onSelectDate={setSelectedDayDetail}
-                  getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
-                  onOpenEditor={handleOpenPlannerEditor}
-                  daySummaryMap={daySummaryMap}
-                />
-                <div className="hidden overflow-x-auto md:block 2xl:overflow-visible">
+              <div ref={shiftsSectionRef} className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-start">
+                <div>
+                  <MobilePlannerCards
+                    employees={filteredEmployees}
+                    weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
+                    selectedDateKey={activePlannerDate}
+                    onSelectDate={setSelectedDayDetail}
+                    getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
+                    onOpenEditor={handleOpenPlannerEditor}
+                    daySummaryMap={daySummaryMap}
+                  />
+                  <div className="hidden overflow-x-auto md:block 2xl:overflow-visible">
                   <div className="min-w-[840px] 2xl:min-w-0">
                   <div className="grid grid-cols-[148px_repeat(7,minmax(92px,1fr))] rounded-t-[28px] border border-neutral-200 bg-white">
                     <div className="sticky left-0 z-10 border-r border-neutral-200 bg-white px-3 py-3 text-sm font-semibold text-neutral-700">
@@ -2257,10 +3182,7 @@ export default function ManageShiftsPage() {
                           <div key={`${employee.id}-${dateKey}`} className="border-r border-neutral-200 p-1.5 xl:p-2 last:border-r-0">
                             <button
                               type="button"
-                              onClick={() => {
-                                setSelectedCell({ employeeId: employee.id, dateKey });
-                                setSelectedDayDetail(dateKey);
-                              }}
+                              onClick={() => handleOpenPlannerEditor(employee.id, dateKey)}
                               className={`flex min-h-[72px] w-full flex-col items-start justify-between rounded-[18px] border px-2.5 py-2 text-left shadow-sm transition ${
                                 selected ? "ring-2 ring-[var(--color-primary)]/30" : ""
                               } ${shiftThemeClasses(definition.theme)}`}
@@ -2310,6 +3232,37 @@ export default function ManageShiftsPage() {
                     ))}
                   </div>
                   </div>
+                </div>
+                </div>
+                <div className="hidden xl:block">
+                  <DesktopDayEditorPanel
+                    dateKey={activePlannerDate}
+                    daySummary={activeDaySummary}
+                    dayAssignments={activeDayAssignments}
+                    selectedEmployee={selectedEmployee}
+                    selectedAssignment={selectedAssignment}
+                    selectedProfile={selectedProfile}
+                    selectedEffectiveSlots={selectedEffectiveSlots}
+                    competingSlots={competingEffectiveSlots}
+                    manualOptions={manualShiftOptions}
+                    assignmentOverridesProfile={selectedAssignmentOverridesProfile}
+                    selectedEmployeeVisible={selectedEmployeeVisible}
+                    ownerSaving={ownerSaving}
+                    profileSaving={profileSaving}
+                    profilesSchemaMissing={profilesSchemaMissing}
+                    onSelectEmployee={handleOpenPlannerEditor}
+                    onPickManualShift={handleManualShiftChange}
+                    onCreateOverride={handleCreateEffectiveOverride}
+                    onTransferShift={handleTransferEffectiveShift}
+                    onRemoveOverride={handleRemoveEffectiveOverride}
+                    onToggleLeaveDate={toggleSelectedLeaveDate}
+                    onSaveProfile={saveSelectedProfile}
+                    onClearSelection={() => setSelectedCell(null)}
+                    onClearFilters={() => {
+                      setRoleFilter(FILTER_ALL);
+                      setSkillFilter(FILTER_ALL);
+                    }}
+                  />
                 </div>
               </div>
             </section>
@@ -2620,7 +3573,7 @@ export default function ManageShiftsPage() {
               </ResponsiveOwnerSection>
 
               <ResponsiveOwnerSection summary="Leave va chinh tay">
-              <div ref={leaveSectionRef} className="xl:sticky xl:top-24 xl:self-start">
+              <div ref={leaveSectionRef} className="xl:hidden">
               <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -2636,6 +3589,41 @@ export default function ManageShiftsPage() {
                     </button>
                   ) : null}
                 </div>
+
+                {pendingShiftChangeApprovals.length ? (
+                  <div className="mt-5 space-y-3">
+                    {pendingShiftChangeApprovals.map((request) => (
+                      <div key={request.id} className="rounded-3xl border border-sky-200 bg-sky-50 px-4 py-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-neutral-900">{teamNameMap.get(request.requester_user_id) ?? request.requester_user_id}</p>
+                            <p className="mt-1 text-sm text-neutral-600">
+                              {request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"} • {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel}
+                            </p>
+                          </div>
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-sky-700">PENDING</span>
+                        </div>
+                        {request.source_slot_json ? (
+                          <p className="mt-2 text-sm text-neutral-700">
+                            Ca nguồn: {request.source_slot_json.dateKey} • {request.source_slot_json.shiftLabel}
+                          </p>
+                        ) : null}
+                        <p className="mt-2 text-sm text-neutral-700">
+                          Holder hiện tại: {teamNameMap.get(request.target_slot_json.holderUserId) ?? request.target_slot_json.holderUserId}
+                        </p>
+                        {request.note ? <p className="mt-2 text-sm text-neutral-700">{request.note}</p> : null}
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                          <button type="button" onClick={() => void handleReviewShiftChangeRequest(request.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
+                            Duyệt
+                          </button>
+                          <button type="button" onClick={() => void handleReviewShiftChangeRequest(request.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60 sm:min-w-[120px]">
+                            Từ chối
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
 
                 {pendingLeaveApprovals.length ? (
                   <div className="mt-5 space-y-3">
@@ -2675,6 +3663,80 @@ export default function ManageShiftsPage() {
                         Kỹ năng: {selectedEmployee.skills.length ? selectedEmployee.skills.join(", ") : "Vận hành / hỗ trợ"}
                       </p>
                       <p className="mt-1 text-sm text-neutral-600">Giờ tối đa / tuần: {selectedEmployee.maxWeeklyHours}h</p>
+                    </div>
+
+                    <div className="space-y-3 rounded-3xl border border-sky-200 bg-sky-50 p-4">
+                      <div>
+                        <h4 className="text-sm font-semibold text-neutral-900">Điều chỉnh hiệu lực ngay</h4>
+                        <p className="mt-1 text-xs text-neutral-600">
+                          Thêm, gỡ hoặc chuyển holder bằng override. Không sửa `shift_plans` đã publish.
+                        </p>
+                      </div>
+                      {selectedEffectiveSlots.length ? (
+                        <div className="space-y-2">
+                          {selectedEffectiveSlots.map((slot) => (
+                            <div key={`${slot.dateKey}:${slot.shiftType}:${slot.overrideId ?? "published"}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                              <div>
+                                <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                                <p className="mt-1 text-xs text-neutral-500">
+                                  {slot.startTime} - {slot.endTime} • {slot.source === "OVERRIDE_ADD" ? "Override" : "Published"}
+                                </p>
+                              </div>
+                              {slot.overrideId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRemoveEffectiveOverride(slot.overrideId as string)}
+                                  disabled={ownerSaving}
+                                  className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                                >
+                                  Gỡ override
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <ManageAlert tone="info">Ngày này hiện chưa có ca hiệu lực cho nhân sự được chọn.</ManageAlert>
+                      )}
+                      {competingEffectiveSlots.length ? (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-500">Ca đang thuộc người khác</p>
+                          {competingEffectiveSlots.map((slot) => (
+                            <div key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} className="flex items-center justify-between gap-3 rounded-2xl bg-white px-3 py-3">
+                              <div>
+                                <p className="text-sm font-semibold text-neutral-900">{slot.shiftLabel}</p>
+                                <p className="mt-1 text-xs text-neutral-500">
+                                  {slot.startTime} - {slot.endTime} • {teamNameMap.get(slot.holderUserId) ?? slot.holderUserId}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void handleTransferEffectiveShift(slot)}
+                                disabled={ownerSaving}
+                                className="rounded-full border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-900 disabled:opacity-60"
+                              >
+                                Chuyển holder
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        {DEFAULT_SHIFT_DEFINITIONS.filter((definition) => definition.type !== "OFF").map((definition) => (
+                          <button
+                            key={`effective-${definition.type}`}
+                            type="button"
+                            onClick={() => void handleCreateEffectiveOverride(definition.type)}
+                            disabled={ownerSaving}
+                            className="rounded-2xl border border-sky-200 bg-white px-3 py-3 text-left text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                          >
+                            {definition.label}
+                            <span className="mt-1 block text-xs font-medium text-neutral-500">
+                              {definition.startTime} - {definition.endTime}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

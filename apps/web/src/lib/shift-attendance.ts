@@ -1,7 +1,19 @@
 import { ensureOrgContext } from "@/lib/domain";
 import { loadShiftPlanWeek, type ShiftPlanRecord } from "@/lib/shift-plans";
 import { supabase } from "@/lib/supabase";
-import type { AutoScheduleAssignment } from "@nails/shared";
+import {
+  createShiftSlotSnapshot,
+  getEffectiveShiftSlotsForDate as getEffectiveShiftSlotsForDateFromShared,
+  mergeEffectiveShiftSlots,
+  toShiftCoverageKey,
+  validateEffectiveDaySlots,
+  type AutoScheduleAssignment,
+  type EffectiveShiftSlot,
+  type ShiftChangeRequestRecord,
+  type ShiftOverrideRecord,
+  type ShiftRequestKind,
+  type ShiftSlotSnapshot,
+} from "@nails/shared";
 
 export const LATE_GRACE_MINUTES = 10;
 
@@ -12,7 +24,7 @@ export type LeaveRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
 export type ShiftWindow = {
   weekStart: string;
   dateKey: string;
-  assignment: AutoScheduleAssignment;
+  slot: EffectiveShiftSlot;
   scheduledStartIso: string;
   scheduledEndIso: string;
   lateGraceUntilIso: string;
@@ -51,6 +63,48 @@ export type ShiftLeaveRequestRecord = {
   reviewed_by: string | null;
   time_entry_id: string | null;
 };
+
+function isMissingShiftAssignmentOverridesSchema(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = [
+    (error as { message?: string }).message,
+    (error as { details?: string }).details,
+    (error as { hint?: string }).hint,
+    (error as { code?: string }).code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    message.includes("shift_assignment_overrides") &&
+    (message.includes("does not exist") ||
+      message.includes("could not find the table") ||
+      message.includes("42p01") ||
+      message.includes("schema cache"))
+  );
+}
+
+function isMissingShiftChangeRequestsSchema(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const message = [
+    (error as { message?: string }).message,
+    (error as { details?: string }).details,
+    (error as { hint?: string }).hint,
+    (error as { code?: string }).code,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    message.includes("shift_change_requests") &&
+    (message.includes("does not exist") ||
+      message.includes("could not find the table") ||
+      message.includes("42p01") ||
+      message.includes("schema cache"))
+  );
+}
 
 function toDateKey(date: Date) {
   const year = date.getFullYear();
@@ -111,30 +165,134 @@ function mapLeaveRequest(row: Record<string, unknown>): ShiftLeaveRequestRecord 
   };
 }
 
-export async function loadPublishedShiftWindowForUser(userId: string, targetDate = new Date()): Promise<ShiftWindow | null> {
-  const dateKey = toDateKey(targetDate);
-  const weekStart = toDateKey(getStartOfWeek(new Date(`${dateKey}T00:00:00`)));
-  const plan = await loadShiftPlanWeek(weekStart, { publishedOnly: true });
-  const assignment = plan?.result.assignments.find(
-    (item) => item.employeeId === userId && item.dateKey === dateKey && item.shiftType !== "OFF",
-  );
+function mapShiftOverride(row: Record<string, unknown>): ShiftOverrideRecord {
+  return {
+    id: String(row.id ?? ""),
+    org_id: typeof row.org_id === "string" ? row.org_id : undefined,
+    branch_id: typeof row.branch_id === "string" ? row.branch_id : null,
+    staff_user_id: String(row.staff_user_id ?? ""),
+    date_key: String(row.date_key ?? ""),
+    shift_type: row.shift_type === "AFTERNOON" || row.shift_type === "FULL_DAY" ? row.shift_type : "MORNING",
+    shift_label: String(row.shift_label ?? ""),
+    start_time: String(row.start_time ?? ""),
+    end_time: String(row.end_time ?? ""),
+    action: row.action === "REMOVE" ? "REMOVE" : "ADD",
+    source_kind: row.source_kind === "MANUAL_SETUP" ? "MANUAL_SETUP" : "REQUEST_APPROVAL",
+    request_id: typeof row.request_id === "string" ? row.request_id : null,
+    created_by: typeof row.created_by === "string" ? row.created_by : null,
+    created_at: String(row.created_at ?? ""),
+    cancelled_at: typeof row.cancelled_at === "string" ? row.cancelled_at : null,
+  };
+}
 
-  if (!plan || !assignment || !assignment.startTime || !assignment.endTime) {
-    return null;
-  }
+function normalizeSlotSnapshot(value: unknown): ShiftSlotSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const shiftType =
+    row.shiftType === "MORNING" || row.shiftType === "AFTERNOON" || row.shiftType === "FULL_DAY" ? row.shiftType : null;
+  if (!shiftType) return null;
 
-  const scheduledStart = combineDateTime(dateKey, assignment.startTime);
-  const scheduledEnd = combineDateTime(dateKey, assignment.endTime);
+  return {
+    weekStart: String(row.weekStart ?? ""),
+    dateKey: String(row.dateKey ?? ""),
+    shiftType,
+    shiftLabel: String(row.shiftLabel ?? ""),
+    startTime: String(row.startTime ?? ""),
+    endTime: String(row.endTime ?? ""),
+    holderUserId: String(row.holderUserId ?? ""),
+    holderName: typeof row.holderName === "string" ? row.holderName : null,
+  };
+}
+
+function mapShiftChangeRequest(row: Record<string, unknown>): ShiftChangeRequestRecord {
+  return {
+    id: String(row.id ?? ""),
+    org_id: typeof row.org_id === "string" ? row.org_id : undefined,
+    branch_id: typeof row.branch_id === "string" ? row.branch_id : null,
+    requester_user_id: String(row.requester_user_id ?? ""),
+    request_kind: row.request_kind === "PICKUP" ? "PICKUP" : "SWAP",
+    status: row.status === "APPROVED" || row.status === "REJECTED" ? row.status : "PENDING",
+    source_slot_json: normalizeSlotSnapshot(row.source_slot_json),
+    target_slot_json: normalizeSlotSnapshot(row.target_slot_json) ?? {
+      weekStart: "",
+      dateKey: "",
+      shiftType: "MORNING",
+      shiftLabel: "",
+      startTime: "",
+      endTime: "",
+      holderUserId: "",
+      holderName: null,
+    },
+    note: typeof row.note === "string" ? row.note : null,
+    owner_note: typeof row.owner_note === "string" ? row.owner_note : null,
+    reviewed_by: typeof row.reviewed_by === "string" ? row.reviewed_by : null,
+    reviewed_at: typeof row.reviewed_at === "string" ? row.reviewed_at : null,
+    created_at: String(row.created_at ?? ""),
+    updated_at: String(row.updated_at ?? row.created_at ?? ""),
+  };
+}
+
+function createShiftWindowFromSlot(slot: EffectiveShiftSlot): ShiftWindow | null {
+  if (!slot.startTime || !slot.endTime) return null;
+
+  const scheduledStart = combineDateTime(slot.dateKey, slot.startTime);
+  const scheduledEnd = combineDateTime(slot.dateKey, slot.endTime);
   const lateGraceUntil = new Date(scheduledStart.getTime() + LATE_GRACE_MINUTES * 60_000);
 
   return {
-    weekStart,
-    dateKey,
-    assignment,
+    weekStart: slot.weekStart,
+    dateKey: slot.dateKey,
+    slot,
     scheduledStartIso: scheduledStart.toISOString(),
     scheduledEndIso: scheduledEnd.toISOString(),
     lateGraceUntilIso: lateGraceUntil.toISOString(),
   };
+}
+
+async function listActiveShiftOverrides(weekStart: string) {
+  if (!supabase) return [];
+  const { orgId, branchId } = await ensureOrgContext();
+  const weekDates = Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(`${weekStart}T00:00:00`);
+    next.setDate(next.getDate() + index);
+    return toDateKey(next);
+  });
+
+  const { data, error } = await supabase
+    .from("shift_assignment_overrides")
+    .select("id,org_id,branch_id,staff_user_id,date_key,shift_type,shift_label,start_time,end_time,action,source_kind,request_id,created_by,created_at,cancelled_at")
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .in("date_key", weekDates)
+    .is("cancelled_at", null);
+
+  if (error) throw error;
+  return (data ?? []).map((row) => mapShiftOverride(row as Record<string, unknown>));
+}
+
+export async function listEffectiveShiftSlots(weekStart: string, opts?: { userId?: string }) {
+  const plan = await loadShiftPlanWeek(weekStart, { publishedOnly: true });
+  const overrides = await listActiveShiftOverrides(weekStart).catch((error) => {
+    if (isMissingShiftAssignmentOverridesSchema(error)) {
+      return [];
+    }
+    throw error;
+  });
+  const slots = mergeEffectiveShiftSlots({
+    weekStart,
+    assignments: plan?.result.assignments ?? [],
+    overrides,
+  });
+
+  return opts?.userId ? slots.filter((slot) => slot.holderUserId === opts.userId) : slots;
+}
+
+export async function loadPublishedShiftWindowForUser(userId: string, targetDate = new Date()): Promise<ShiftWindow | null> {
+  const dateKey = toDateKey(targetDate);
+  const weekStart = toDateKey(getStartOfWeek(new Date(`${dateKey}T00:00:00`)));
+  const slots = await listEffectiveShiftSlots(weekStart, { userId });
+  const slot = getEffectiveShiftSlotsForDate(slots, userId, dateKey)[0] ?? null;
+  return slot ? createShiftWindowFromSlot(slot) : null;
 }
 
 export function describeShiftWindow(window: ShiftWindow | null, now = new Date()) {
@@ -272,12 +430,13 @@ export async function listOwnerShiftEntries() {
 
 export async function listShiftLeaveRequests(opts?: { userId?: string; status?: LeaveRequestStatus }) {
   if (!supabase) return [];
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId } = await ensureOrgContext();
 
   let query = supabase
     .from("shift_leave_requests")
     .select("id,staff_user_id,request_type,status,scheduled_date,requested_at,requested_end_at,note,owner_note,reviewed_at,reviewed_by,time_entry_id,created_at")
     .eq("org_id", orgId)
+    .eq("branch_id", branchId)
     .order("requested_at", { ascending: false })
     .limit(30);
 
@@ -291,6 +450,31 @@ export async function listShiftLeaveRequests(opts?: { userId?: string; status?: 
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map((row) => mapLeaveRequest(row as Record<string, unknown>));
+}
+
+export async function listShiftChangeRequests(opts?: { userId?: string; status?: ShiftChangeRequestRecord["status"] }) {
+  if (!supabase) return [];
+  const { orgId, branchId } = await ensureOrgContext();
+
+  let query = supabase
+    .from("shift_change_requests")
+    .select("id,org_id,branch_id,requester_user_id,request_kind,status,source_slot_json,target_slot_json,note,owner_note,reviewed_by,reviewed_at,created_at,updated_at")
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (opts?.userId) query = query.eq("requester_user_id", opts.userId);
+  if (opts?.status) query = query.eq("status", opts.status);
+
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingShiftChangeRequestsSchema(error)) {
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []).map((row) => mapShiftChangeRequest(row as Record<string, unknown>));
 }
 
 async function getApprovedDayOffRequest(userId: string, dateKey: string) {
@@ -310,11 +494,148 @@ async function getApprovedDayOffRequest(userId: string, dateKey: string) {
   return data;
 }
 
-export async function createShiftCheckIn() {
+async function assertTargetSlotStillPublished(targetSlot: ShiftSlotSnapshot) {
+  const plan = await loadShiftPlanWeek(targetSlot.weekStart, { publishedOnly: true });
+  const slot = (plan?.result.assignments ?? [])
+    .map((assignment) => createShiftSlotSnapshot(assignment, targetSlot.weekStart))
+    .filter((item): item is ShiftSlotSnapshot => !!item)
+    .find(
+      (item) =>
+        item.dateKey === targetSlot.dateKey &&
+        item.shiftType === targetSlot.shiftType &&
+        item.holderUserId === targetSlot.holderUserId,
+    );
+
+  if (!slot) {
+    throw new Error("Ca Ä‘Ã­ch khÃ´ng cÃ²n tá»“n táº¡i trong lá»‹ch Ä‘Ã£ publish.");
+  }
+
+  return slot;
+}
+
+async function validateProposedOverrideSet(weekStart: string, proposedOverrides: ShiftOverrideRecord[]) {
+  const effectiveSlots = await listEffectiveShiftSlots(weekStart);
+  const publishedCoverage = new Set(effectiveSlots.map((slot) => toShiftCoverageKey(slot)));
+  const removedCoverage = new Set(
+    proposedOverrides
+      .filter((override) => override.action === "REMOVE")
+      .map((override) => toShiftCoverageKey({ dateKey: override.date_key, shiftType: override.shift_type })),
+  );
+  const addedCoverage = new Set(
+    proposedOverrides
+      .filter((override) => override.action === "ADD")
+      .map((override) => toShiftCoverageKey({ dateKey: override.date_key, shiftType: override.shift_type })),
+  );
+
+  for (const coverageKey of removedCoverage) {
+    if (!publishedCoverage.has(coverageKey)) {
+      throw new Error("KhÃ´ng thá»ƒ gá»¡ ca khÃ´ng tá»“n táº¡i trong lá»‹ch hiá»‡u lá»±c.");
+    }
+  }
+
+  const nextByUser = new Map<string, Array<Pick<EffectiveShiftSlot, "dateKey" | "shiftType">>>();
+  for (const slot of effectiveSlots) {
+    const next = nextByUser.get(slot.holderUserId) ?? [];
+    next.push(slot);
+    nextByUser.set(slot.holderUserId, next);
+  }
+
+  for (const override of proposedOverrides) {
+    const next = nextByUser.get(override.staff_user_id) ?? [];
+    if (override.action === "REMOVE") {
+      nextByUser.set(
+        override.staff_user_id,
+        next.filter((slot) => !(slot.dateKey === override.date_key && slot.shiftType === override.shift_type)),
+      );
+    } else {
+      next.push({ dateKey: override.date_key, shiftType: override.shift_type });
+      nextByUser.set(override.staff_user_id, next);
+    }
+  }
+
+  for (const slots of nextByUser.values()) {
+    const validationError = validateEffectiveDaySlots(slots);
+    if (validationError) throw new Error(validationError);
+  }
+
+  for (const coverageKey of addedCoverage) {
+    const coverageCount = Array.from(nextByUser.values()).flat().filter((slot) => toShiftCoverageKey(slot) === coverageKey).length;
+    if (coverageCount > 1) {
+      throw new Error("KhÃ´ng thá»ƒ cÃ³ 2 ngÆ°á»i cÃ¹ng giá»¯ cÃ¹ng má»™t ca hiá»‡u lá»±c.");
+    }
+  }
+}
+
+function createOverrideDraft(
+  slot: ShiftSlotSnapshot,
+  staffUserId: string,
+  action: ShiftOverrideRecord["action"],
+  sourceKind: ShiftOverrideRecord["source_kind"],
+  requestId: string | null,
+  createdBy: string | null,
+): ShiftOverrideRecord {
+  return {
+    id: "",
+    staff_user_id: staffUserId,
+    date_key: slot.dateKey,
+    shift_type: slot.shiftType,
+    shift_label: slot.shiftLabel,
+    start_time: slot.startTime,
+    end_time: slot.endTime,
+    action,
+    source_kind: sourceKind,
+    request_id: requestId,
+    created_by: createdBy,
+    created_at: "",
+    cancelled_at: null,
+  };
+}
+
+export async function submitShiftChangeRequest(input: {
+  requestKind: ShiftRequestKind;
+  targetSlot: ShiftSlotSnapshot;
+  sourceSlot?: ShiftSlotSnapshot | null;
+  note?: string;
+}) {
+  if (!supabase) throw new Error("Supabase chÆ°a cáº¥u hÃ¬nh");
+  const { orgId, branchId } = await ensureOrgContext();
+  const { data } = await supabase.auth.getSession();
+  const userId = data.session?.user?.id;
+  if (!userId) throw new Error("ChÆ°a Ä‘Äƒng nháº­p");
+  if (input.requestKind === "SWAP" && !input.sourceSlot) {
+    throw new Error("Xin Ä‘á»•i ca báº¯t buá»™c chá»n ca nguá»“n cá»§a báº¡n.");
+  }
+
+  const targetSlot = await assertTargetSlotStillPublished(input.targetSlot);
+  if (targetSlot.holderUserId === userId) {
+    throw new Error("KhÃ´ng thá»ƒ táº¡o yÃªu cáº§u vá»›i chÃ­nh ca cá»§a báº¡n.");
+  }
+
+  const { data: inserted, error } = await supabase
+    .from("shift_change_requests")
+    .insert({
+      org_id: orgId,
+      branch_id: branchId,
+      requester_user_id: userId,
+      request_kind: input.requestKind,
+      status: "PENDING",
+      source_slot_json: input.sourceSlot ?? null,
+      target_slot_json: targetSlot,
+      note: input.note?.trim() ? input.note.trim() : null,
+    })
+    .select("id,org_id,branch_id,requester_user_id,request_kind,status,source_slot_json,target_slot_json,note,owner_note,reviewed_by,reviewed_at,created_at,updated_at")
+    .single();
+
+  if (error) throw error;
+  return mapShiftChangeRequest(inserted as Record<string, unknown>);
+}
+
+export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
   const { orgId } = await ensureOrgContext();
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
+  if (slot.holderUserId !== userId) throw new Error("Ca Ä‘Æ°á»£c chá»n khÃ´ng thuá»™c vá» báº¡n.");
   if (!userId) throw new Error("Chưa đăng nhập");
 
   await syncExpiredShiftEntries();
@@ -324,7 +645,7 @@ export async function createShiftCheckIn() {
     throw new Error("Bạn đang có một ca làm chưa đóng.");
   }
 
-  const window = await loadPublishedShiftWindowForUser(userId, new Date());
+  const window = createShiftWindowFromSlot(slot);
   const windowState = describeShiftWindow(window, new Date());
   if (!window || !windowState.canCheckIn) {
     throw new Error(windowState.reason ?? "Không thể mở ca vào lúc này.");
@@ -347,8 +668,8 @@ export async function createShiftCheckIn() {
       effective_clock_in: effectiveClockIn,
       scheduled_date: window.dateKey,
       scheduled_week_start: window.weekStart,
-      scheduled_shift_type: window.assignment.shiftType,
-      scheduled_shift_label: window.assignment.shiftLabel,
+      scheduled_shift_type: window.slot.shiftType,
+      scheduled_shift_label: window.slot.shiftLabel,
       scheduled_start: window.scheduledStartIso,
       scheduled_end: window.scheduledEndIso,
       approval_status: "PENDING",
@@ -559,6 +880,135 @@ export async function reviewShiftLeaveRequest(requestId: string, approve: boolea
   return mapLeaveRequest(updated as Record<string, unknown>);
 }
 
+export async function reviewShiftChangeRequest(requestId: string, approve: boolean, ownerNote?: string) {
+  if (!supabase) throw new Error("Supabase chÆ°a cáº¥u hÃ¬nh");
+  const { orgId, branchId } = await ensureOrgContext();
+  const { data } = await supabase.auth.getSession();
+  const ownerId = data.session?.user?.id;
+  if (!ownerId) throw new Error("ChÆ°a Ä‘Äƒng nháº­p");
+
+  const { data: current, error: fetchError } = await supabase
+    .from("shift_change_requests")
+    .select("id,requester_user_id,request_kind,source_slot_json,target_slot_json")
+    .eq("id", requestId)
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .single();
+
+  if (fetchError) throw fetchError;
+
+  const request = mapShiftChangeRequest(current as Record<string, unknown>);
+  const nextStatus = approve ? "APPROVED" : "REJECTED";
+
+  if (approve) {
+    const targetSlot = await assertTargetSlotStillPublished(request.target_slot_json);
+    const proposedOverrides: ShiftOverrideRecord[] = [];
+    proposedOverrides.push(createOverrideDraft(targetSlot, targetSlot.holderUserId, "REMOVE", "REQUEST_APPROVAL", request.id, ownerId));
+    proposedOverrides.push(createOverrideDraft(targetSlot, request.requester_user_id, "ADD", "REQUEST_APPROVAL", request.id, ownerId));
+
+    if (request.request_kind === "SWAP") {
+      if (!request.source_slot_json) throw new Error("YÃªu cáº§u Ä‘á»•i ca thiáº¿u ca nguá»“n.");
+      proposedOverrides.push(
+        createOverrideDraft(request.source_slot_json, request.requester_user_id, "REMOVE", "REQUEST_APPROVAL", request.id, ownerId),
+      );
+      proposedOverrides.push(
+        createOverrideDraft(request.source_slot_json, targetSlot.holderUserId, "ADD", "REQUEST_APPROVAL", request.id, ownerId),
+      );
+    }
+
+    await validateProposedOverrideSet(targetSlot.weekStart, proposedOverrides);
+
+    const { error: insertOverrideError } = await supabase.from("shift_assignment_overrides").insert(
+      proposedOverrides.map((override) => ({
+        org_id: orgId,
+        branch_id: branchId,
+        staff_user_id: override.staff_user_id,
+        date_key: override.date_key,
+        shift_type: override.shift_type,
+        shift_label: override.shift_label,
+        start_time: override.start_time,
+        end_time: override.end_time,
+        action: override.action,
+        source_kind: override.source_kind,
+        request_id: request.id,
+        created_by: ownerId,
+      })),
+    );
+
+    if (insertOverrideError) throw insertOverrideError;
+  }
+
+  const { data: updated, error } = await supabase
+    .from("shift_change_requests")
+    .update({
+      status: nextStatus,
+      owner_note: ownerNote ?? null,
+      reviewed_by: ownerId,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", requestId)
+    .select("id,org_id,branch_id,requester_user_id,request_kind,status,source_slot_json,target_slot_json,note,owner_note,reviewed_by,reviewed_at,created_at,updated_at")
+    .single();
+
+  if (error) throw error;
+  return mapShiftChangeRequest(updated as Record<string, unknown>);
+}
+
+export async function createManualShiftOverride(input: {
+  weekStart: string;
+  staffUserId: string;
+  slot: ShiftSlotSnapshot;
+  action: ShiftOverrideRecord["action"];
+}) {
+  if (!supabase) throw new Error("Supabase chÆ°a cáº¥u hÃ¬nh");
+  const { orgId, branchId } = await ensureOrgContext();
+  const { data } = await supabase.auth.getSession();
+  const userId = data.session?.user?.id;
+  if (!userId) throw new Error("ChÆ°a Ä‘Äƒng nháº­p");
+
+  const overrideDraft = createOverrideDraft(input.slot, input.staffUserId, input.action, "MANUAL_SETUP", null, userId);
+  await validateProposedOverrideSet(input.weekStart, [overrideDraft]);
+
+  const { data: inserted, error } = await supabase
+    .from("shift_assignment_overrides")
+    .insert({
+      org_id: orgId,
+      branch_id: branchId,
+      staff_user_id: input.staffUserId,
+      date_key: input.slot.dateKey,
+      shift_type: input.slot.shiftType,
+      shift_label: input.slot.shiftLabel,
+      start_time: input.slot.startTime,
+      end_time: input.slot.endTime,
+      action: input.action,
+      source_kind: "MANUAL_SETUP",
+      created_by: userId,
+    })
+    .select("id,org_id,branch_id,staff_user_id,date_key,shift_type,shift_label,start_time,end_time,action,source_kind,request_id,created_by,created_at,cancelled_at")
+    .single();
+
+  if (error) throw error;
+  return mapShiftOverride(inserted as Record<string, unknown>);
+}
+
+export async function removeManualShiftOverride(overrideId: string) {
+  if (!supabase) throw new Error("Supabase chÆ°a cáº¥u hÃ¬nh");
+  const { orgId, branchId } = await ensureOrgContext();
+
+  const { data, error } = await supabase
+    .from("shift_assignment_overrides")
+    .update({ cancelled_at: new Date().toISOString() })
+    .eq("id", overrideId)
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .eq("source_kind", "MANUAL_SETUP")
+    .select("id,org_id,branch_id,staff_user_id,date_key,shift_type,shift_label,start_time,end_time,action,source_kind,request_id,created_by,created_at,cancelled_at")
+    .single();
+
+  if (error) throw error;
+  return mapShiftOverride(data as Record<string, unknown>);
+}
+
 export function applyApprovedDayOffToAssignments(
   assignments: AutoScheduleAssignment[],
   requests: ShiftLeaveRequestRecord[],
@@ -591,4 +1041,8 @@ export function getTodayAssignmentFromPlan(plan: ShiftPlanRecord | null, userId:
       (assignment) => assignment.employeeId === userId && assignment.dateKey === dateKey && assignment.shiftType !== "OFF",
     ) ?? null
   );
+}
+
+export function getEffectiveShiftSlotsForDate(slots: EffectiveShiftSlot[], userId: string, dateKey: string) {
+  return getEffectiveShiftSlotsForDateFromShared(slots, userId, dateKey);
 }

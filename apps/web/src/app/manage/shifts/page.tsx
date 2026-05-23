@@ -68,6 +68,7 @@ import {
   type ShiftType,
   type StaffRole,
 } from "@nails/shared";
+import { formatAttendanceFraction } from "@nails/shared";
 import Link from "next/link";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -1538,9 +1539,14 @@ export default function ManageShiftsPage() {
   );
   const attendanceSummary = useMemo(() => {
     const openCount = ownerAttendanceEntries.filter((entry) => entry.clock_out === null).length;
+    const attendanceFraction = ownerAttendanceEntries.reduce(
+      (sum, entry) => sum + (entry.approval_status === "APPROVED" ? entry.attendance_fraction : 0),
+      0,
+    );
     return {
       openCount,
       totalCount: ownerAttendanceEntries.length,
+      attendanceFraction,
     };
   }, [ownerAttendanceEntries]);
 
@@ -1803,10 +1809,10 @@ export default function ManageShiftsPage() {
     }
   }, [currentUserId, earlyLeaveNote, earlyLeaveTime, openEntry, refreshPersonalShiftState]);
 
-  const handleReviewAttendance = useCallback(async (entryId: string, approve: boolean) => {
+  const handleReviewAttendance = useCallback(async (entryId: string, approve: boolean, attendanceFraction?: number) => {
     try {
       setOwnerSaving(true);
-      await reviewShiftCheckIn(entryId, approve);
+      await reviewShiftCheckIn(entryId, approve, attendanceFraction);
       await refreshOwnerApprovals();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không thể cập nhật yêu cầu mở ca.");
@@ -1815,10 +1821,10 @@ export default function ManageShiftsPage() {
     }
   }, [refreshOwnerApprovals]);
 
-  const handleReviewLeaveRequest = useCallback(async (requestId: string, approve: boolean) => {
+  const handleReviewLeaveRequest = useCallback(async (requestId: string, approve: boolean, attendanceFraction?: number) => {
     try {
       setOwnerSaving(true);
-      await reviewShiftLeaveRequest(requestId, approve);
+      await reviewShiftLeaveRequest(requestId, approve, attendanceFraction);
       await refreshOwnerApprovals();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không thể cập nhật yêu cầu nghỉ.");
@@ -2727,7 +2733,7 @@ export default function ManageShiftsPage() {
                 <p className="text-xs uppercase tracking-[0.2em] text-neutral-400">Attendance</p>
                 <h3 className="text-lg font-semibold text-neutral-900">Bảng công hôm nay</h3>
                 <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-medium text-neutral-700">
-                  {attendanceSummary.openCount}/{attendanceSummary.totalCount} đang mở ca
+                  {formatAttendanceFraction(attendanceSummary.attendanceFraction)} chốt từ {attendanceSummary.totalCount} bản ghi
                 </div>
               </div>
 
@@ -2743,11 +2749,17 @@ export default function ManageShiftsPage() {
                         Mở ca {formatTime(entry.clock_in)}
                         {entry.scheduled_start ? ` • ${formatTime(entry.scheduled_start)}` : ""}
                       </p>
-                      <div className="mt-4 flex flex-col gap-3">
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                          Duyệt
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 1)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          1.0
                         </button>
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.75)} disabled={ownerSaving} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-60">
+                          0.75
+                        </button>
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.5)} disabled={ownerSaving} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-800 disabled:opacity-60">
+                          0.5
+                        </button>
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false, 0)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
                           Từ chối
                         </button>
                       </div>
@@ -2772,6 +2784,7 @@ export default function ManageShiftsPage() {
                         <span className="rounded-full bg-neutral-200 px-3 py-1 text-xs font-semibold text-neutral-700">{entry.approval_status}</span>
                       </div>
                       <p className="mt-3 text-sm text-neutral-600">Thực tế: {formatTime(entry.clock_in)} - {entry.clock_out ? formatTime(entry.clock_out) : "Đang mở"}</p>
+                      <p className="mt-1 text-sm text-neutral-500">Ngày công: {formatAttendanceFraction(entry.attendance_fraction)}</p>
                     </div>
                   ))
                 ) : (
@@ -3304,11 +3317,17 @@ export default function ManageShiftsPage() {
                           Mở ca {formatTime(entry.clock_in)}
                           {entry.scheduled_start ? ` • ${formatTime(entry.scheduled_start)}` : ""}
                         </p>
-                        <div className="mt-4 flex flex-col gap-3">
-                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                            Duyệt
+                        <div className="mt-4 grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 1)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                            1.0
                           </button>
-                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.75)} disabled={ownerSaving} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-60">
+                            0.75
+                          </button>
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.5)} disabled={ownerSaving} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-800 disabled:opacity-60">
+                            0.5
+                          </button>
+                          <button type="button" onClick={() => void handleReviewAttendance(entry.id, false, 0)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
                             Từ chối
                           </button>
                         </div>
@@ -3333,6 +3352,7 @@ export default function ManageShiftsPage() {
                           <span className="rounded-full bg-neutral-200 px-3 py-1 text-xs font-semibold text-neutral-700">{entry.approval_status}</span>
                         </div>
                         <p className="mt-3 text-sm text-neutral-600">Thực tế: {formatTime(entry.clock_in)} - {entry.clock_out ? formatTime(entry.clock_out) : "Đang mở"}</p>
+                        <p className="mt-1 text-sm text-neutral-500">Ngày công: {formatAttendanceFraction(entry.attendance_fraction)}</p>
                       </div>
                     ))
                   ) : (
@@ -3365,11 +3385,17 @@ export default function ManageShiftsPage() {
                         Mở ca {formatTime(entry.clock_in)}
                         {entry.scheduled_start ? ` • ca ${formatTime(entry.scheduled_start)} - ${formatTime(entry.scheduled_end ?? entry.scheduled_start)}` : ""}
                       </p>
-                      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
-                          Duyệt
+                      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 1)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                          1.0
                         </button>
-                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60 sm:min-w-[120px]">
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.75)} disabled={ownerSaving} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-60">
+                          0.75
+                        </button>
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, true, 0.5)} disabled={ownerSaving} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-800 disabled:opacity-60">
+                          0.5
+                        </button>
+                        <button type="button" onClick={() => void handleReviewAttendance(entry.id, false, 0)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60">
                           Từ chối
                         </button>
                       </div>
@@ -3395,6 +3421,7 @@ export default function ManageShiftsPage() {
                       </div>
                       <p className="mt-3 text-sm text-neutral-600">Thực tế: {formatTime(entry.clock_in)} - {entry.clock_out ? formatTime(entry.clock_out) : "Đang mở"}</p>
                       <p className="mt-1 text-sm text-neutral-500">Tính công: {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {entry.effective_clock_out ? formatTime(entry.effective_clock_out) : "Đang chờ / tự động đóng ca"}</p>
+                      <p className="mt-1 text-sm text-neutral-500">Ngày công: {formatAttendanceFraction(entry.attendance_fraction)}</p>
                     </div>
                   ))
                 ) : (
@@ -3640,10 +3667,24 @@ export default function ManageShiftsPage() {
                           <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700">PENDING</span>
                         </div>
                         {request.note ? <p className="mt-3 text-sm text-neutral-700">{request.note}</p> : null}
-                        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                          <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
-                            Duyệt
-                          </button>
+                        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                          {request.request_type === "EARLY_LEAVE" ? (
+                            <>
+                              <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true, 1)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                                1.0
+                              </button>
+                              <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true, 0.75)} disabled={ownerSaving} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-60">
+                                0.75
+                              </button>
+                              <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true, 0.5)} disabled={ownerSaving} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-2 text-sm font-semibold text-orange-800 disabled:opacity-60">
+                                0.5
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, true)} disabled={ownerSaving} className="rounded-full bg-[var(--color-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60 sm:min-w-[120px]">
+                              Duyệt
+                            </button>
+                          )}
                           <button type="button" onClick={() => void handleReviewLeaveRequest(request.id, false)} disabled={ownerSaving} className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60 sm:min-w-[120px]">
                             Từ chối
                           </button>

@@ -7,6 +7,7 @@ import {
   getStaffRevenueInRangeForMobile,
   listReportStaffOptionsForMobile,
   listTicketsInRangeForMobile,
+  formatAttendanceFraction,
   type MobileReportBreakdown,
   type MobileReportStaffOption,
   type MobileReportTicketRow,
@@ -613,23 +614,23 @@ export default function AdminManageReportsScreen() {
       </View>
 
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Theo nhân viên (giờ làm)</Text>
+      <Text style={styles.sectionTitle}>Theo nhân viên (ngày công)</Text>
         {staffHours.length ? (
           <View style={styles.stack}>
             {staffHours.map((item) => (
               <View key={item.staffUserId} style={styles.listItemCard}>
                 <View style={styles.listItemCopy}>
                   <Text style={styles.listItemTitle}>{item.staff}</Text>
-                  <Text style={styles.listItemMeta}>{item.entries} ca</Text>
+                  <Text style={styles.listItemMeta}>{item.entries} ca • {item.minutes} phút</Text>
                 </View>
-                <Text style={styles.listItemAmount}>{item.minutes} phút</Text>
+                <Text style={styles.listItemAmount}>{formatAttendanceFraction(item.attendanceFraction)}</Text>
               </View>
             ))}
           </View>
         ) : (
           <View style={styles.emptySection}>
             <Feather name="clock" size={16} color="#B6A899" />
-            <Text style={styles.emptySectionText}>Chưa có dữ liệu giờ làm trong kỳ này.</Text>
+            <Text style={styles.emptySectionText}>Chưa có dữ liệu ngày công trong kỳ này.</Text>
           </View>
         )}
       </View>

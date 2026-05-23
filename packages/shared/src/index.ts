@@ -14,6 +14,7 @@ export * from "./services";
 export * from "./resources";
 export * from "./team";
 export * from "./tax-books";
+export * from "./attendance";
 export * from "./customer-feed";
 export * from "./customer-explore";
 export * from "./customer-personalization";

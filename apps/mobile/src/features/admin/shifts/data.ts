@@ -4,6 +4,7 @@ import {
   generateWeekDates,
   getEffectiveShiftSlotsForDate as getEffectiveShiftSlotsForDateFromShared,
   mergeEffectiveShiftSlots,
+  normalizeAttendanceFraction,
   normalizeServiceSkill,
   toShiftCoverageKey,
   validateEffectiveDaySlots,
@@ -95,6 +96,7 @@ export type ShiftTimeEntryRecord = {
   clock_out: string | null;
   effective_clock_in: string | null;
   effective_clock_out: string | null;
+  attendance_fraction: number;
   scheduled_date: string | null;
   scheduled_shift_type: string | null;
   scheduled_shift_label: string | null;
@@ -319,6 +321,7 @@ function mapTimeEntry(row: Record<string, unknown>): ShiftTimeEntryRecord {
     clock_out: typeof row.clock_out === "string" ? row.clock_out : null,
     effective_clock_in: typeof row.effective_clock_in === "string" ? row.effective_clock_in : null,
     effective_clock_out: typeof row.effective_clock_out === "string" ? row.effective_clock_out : null,
+    attendance_fraction: normalizeAttendanceFraction(row.attendance_fraction, row.approval_status === "APPROVED" ? 1 : 0),
     scheduled_date: typeof row.scheduled_date === "string" ? row.scheduled_date : null,
     scheduled_shift_type: typeof row.scheduled_shift_type === "string" ? row.scheduled_shift_type : null,
     scheduled_shift_label: typeof row.scheduled_shift_label === "string" ? row.scheduled_shift_label : null,
@@ -875,7 +878,7 @@ export async function syncExpiredShiftEntries() {
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from("time_entries")
-    .select("id,approval_status,scheduled_end,effective_clock_in,clock_in")
+    .select("id,approval_status,scheduled_end,effective_clock_in,clock_in,attendance_fraction")
     .is("clock_out", null)
     .not("scheduled_end", "is", null)
     .lte("scheduled_end", nowIso)
@@ -896,12 +899,14 @@ export async function syncExpiredShiftEntries() {
           ? row.clock_in
           : scheduledEnd;
     const effectiveClockOut = approvalStatus === "REJECTED" ? effectiveClockIn : scheduledEnd;
+    const attendanceFraction = approvalStatus === "APPROVED" ? normalizeAttendanceFraction(row.attendance_fraction, 1) : 0;
 
     const { error: updateError } = await supabase
       .from("time_entries")
       .update({
         clock_out: scheduledEnd,
         effective_clock_out: effectiveClockOut,
+        attendance_fraction: attendanceFraction,
         auto_closed: true,
       })
       .eq("id", String(row.id));
@@ -1214,7 +1219,8 @@ export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
   }
 
   const nowIso = new Date().toISOString();
-  const effectiveClockIn = windowState.withinGrace ? window.scheduledStartIso : nowIso;
+  const autoApproved = windowState.withinGrace;
+  const effectiveClockIn = autoApproved ? window.scheduledStartIso : nowIso;
 
   const { data: inserted, error } = await supabase
     .from("time_entries")
@@ -1229,11 +1235,14 @@ export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
       scheduled_shift_label: window.slot.shiftLabel,
       scheduled_start: window.scheduledStartIso,
       scheduled_end: window.scheduledEndIso,
-      approval_status: "PENDING",
+      approval_status: autoApproved ? "APPROVED" : "PENDING",
+      attendance_fraction: autoApproved ? 1 : 0,
+      approved_by: autoApproved ? userId : null,
+      approved_at: autoApproved ? nowIso : null,
       auto_closed: false,
     })
     .select(
-      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
+      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,attendance_fraction,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
     )
     .single();
 
@@ -1256,14 +1265,15 @@ export async function closeShiftEntryIfAllowed(entry: ShiftTimeEntryRecord) {
 
   const { data, error } = await supabase
     .from("time_entries")
-    .update({
-      clock_out: closedAt,
-      effective_clock_out: effectiveClockOut,
-      auto_closed: entry.scheduled_end ? true : false,
-    })
+      .update({
+        clock_out: closedAt,
+        effective_clock_out: effectiveClockOut,
+        attendance_fraction: entry.approval_status === "APPROVED" ? entry.attendance_fraction : 0,
+        auto_closed: entry.scheduled_end ? true : false,
+      })
     .eq("id", entry.id)
     .select(
-      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
+      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,attendance_fraction,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
     )
     .single();
 
@@ -1271,7 +1281,7 @@ export async function closeShiftEntryIfAllowed(entry: ShiftTimeEntryRecord) {
   return mapTimeEntry(data as Record<string, unknown>);
 }
 
-export async function reviewShiftCheckIn(entryId: string, approve: boolean, note?: string) {
+export async function reviewShiftCheckIn(entryId: string, approve: boolean, attendanceFraction?: number, note?: string) {
   const supabase = requireSupabase();
   const { data } = await supabase.auth.getSession();
   const ownerId = data.session?.user?.id;
@@ -1280,7 +1290,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, note
   const { data: current, error: fetchError } = await supabase
     .from("time_entries")
     .select(
-      "id,clock_in,effective_clock_in,scheduled_start,scheduled_end,clock_out,approval_status,staff_user_id,scheduled_date,scheduled_shift_type,scheduled_shift_label,effective_clock_out,approval_note,approved_by,approved_at,auto_closed",
+      "id,clock_in,effective_clock_in,scheduled_start,scheduled_end,clock_out,approval_status,staff_user_id,scheduled_date,scheduled_shift_type,scheduled_shift_label,effective_clock_out,approval_note,approved_by,approved_at,auto_closed,attendance_fraction",
     )
     .eq("id", entryId)
     .single();
@@ -1303,6 +1313,10 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, note
         approved_by: ownerId,
         approved_at: new Date().toISOString(),
         effective_clock_in: approvedClockIn,
+        attendance_fraction: normalizeAttendanceFraction(
+          attendanceFraction,
+          new Date(clockIn).getTime() <= new Date(scheduledStart).getTime() + LATE_GRACE_MINUTES * 60_000 ? 1 : 0.75,
+        ),
       }
     : {
         approval_status: "REJECTED",
@@ -1312,6 +1326,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, note
         clock_out: typeof row.clock_out === "string" ? row.clock_out : clockIn,
         effective_clock_in: clockIn,
         effective_clock_out: clockIn,
+        attendance_fraction: 0,
       };
 
   const { data: updated, error } = await supabase
@@ -1319,7 +1334,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, note
     .update(payload)
     .eq("id", entryId)
     .select(
-      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
+      "id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,attendance_fraction,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed",
     )
     .single();
 
@@ -1393,7 +1408,7 @@ export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, reque
   return mapLeaveRequest(inserted as Record<string, unknown>);
 }
 
-export async function reviewShiftLeaveRequest(requestId: string, approve: boolean, ownerNote?: string) {
+export async function reviewShiftLeaveRequest(requestId: string, approve: boolean, attendanceFraction?: number, ownerNote?: string) {
   const supabase = requireSupabase();
   const { data } = await supabase.auth.getSession();
   const ownerId = data.session?.user?.id;
@@ -1429,6 +1444,7 @@ export async function reviewShiftLeaveRequest(requestId: string, approve: boolea
       .update({
         clock_out: requestedEndIso,
         effective_clock_out: requestedEndIso,
+        attendance_fraction: normalizeAttendanceFraction(attendanceFraction, 0.75),
         auto_closed: false,
       })
       .eq("id", current.time_entry_id);

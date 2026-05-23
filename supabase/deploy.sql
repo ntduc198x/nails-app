@@ -1791,6 +1791,7 @@ alter table public.time_entries
   add column if not exists scheduled_start timestamptz,
   add column if not exists scheduled_end timestamptz,
   add column if not exists approval_status text not null default 'PENDING' check (approval_status in ('PENDING', 'APPROVED', 'REJECTED')),
+  add column if not exists attendance_fraction numeric(3, 2) not null default 0 check (attendance_fraction in (0, 0.5, 0.75, 1)),
   add column if not exists approval_note text,
   add column if not exists approved_by uuid references public.profiles(user_id) on delete set null,
   add column if not exists approved_at timestamptz,

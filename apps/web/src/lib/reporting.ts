@@ -262,7 +262,7 @@ export async function listTimeEntriesInRange(fromIso: string, toIso: string) {
 
   const { data, error } = await supabase
     .from("time_entries")
-    .select("staff_user_id,effective_clock_in,effective_clock_out")
+    .select("staff_user_id,effective_clock_in,effective_clock_out,attendance_fraction")
     .eq("org_id", orgId)
     .eq("approval_status", "APPROVED")
     .gte("clock_in", fromIso)

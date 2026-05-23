@@ -1,5 +1,6 @@
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
+import { normalizeAttendanceFraction } from "./attendance";
 
 export type MobileReportTicketRow = {
   id: string;
@@ -68,6 +69,7 @@ export type MobileStaffHoursRow = {
   staff: string;
   minutes: number;
   entries: number;
+  attendanceFraction: number;
 };
 
 export type MobileReportStaffOption = {
@@ -406,7 +408,7 @@ export async function listTimeEntriesInRangeForMobile(
 
   let query = client
     .from("time_entries")
-    .select("staff_user_id,effective_clock_in,effective_clock_out")
+    .select("staff_user_id,effective_clock_in,effective_clock_out,attendance_fraction")
     .eq("org_id", orgId)
     .eq("approval_status", "APPROVED")
     .gte("clock_in", fromIso)
@@ -594,9 +596,9 @@ export async function getStaffHoursInRangeForMobile(
 
   const allowedStaffIds = new Set(staffOptions.map((row) => row.userId));
   const nameMap = new Map(staffOptions.map((row) => [row.userId, row.name]));
-  const totals = new Map<string, { minutes: number; entries: number }>();
+  const totals = new Map<string, { minutes: number; entries: number; attendanceFraction: number }>();
 
-  for (const row of entries as Array<{ staff_user_id?: string | null; effective_clock_in?: string | null; effective_clock_out?: string | null }>) {
+  for (const row of entries as Array<{ staff_user_id?: string | null; effective_clock_in?: string | null; effective_clock_out?: string | null; attendance_fraction?: number | null }>) {
     const staffUserId = typeof row.staff_user_id === "string" ? row.staff_user_id : null;
     if (!staffUserId || !allowedStaffIds.has(staffUserId)) {
       continue;
@@ -609,9 +611,11 @@ export async function getStaffHoursInRangeForMobile(
     }
 
     const minutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
-    const previous = totals.get(staffUserId) ?? { minutes: 0, entries: 0 };
+    const attendanceFraction = normalizeAttendanceFraction(row.attendance_fraction, 1);
+    const previous = totals.get(staffUserId) ?? { minutes: 0, entries: 0, attendanceFraction: 0 };
     previous.minutes += minutes;
     previous.entries += 1;
+    previous.attendanceFraction += attendanceFraction;
     totals.set(staffUserId, previous);
   }
 
@@ -621,6 +625,7 @@ export async function getStaffHoursInRangeForMobile(
       staff: nameMap.get(staffUserId) ?? staffUserId.slice(0, 8),
       minutes: value.minutes,
       entries: value.entries,
+      attendanceFraction: value.attendanceFraction,
     }))
     .sort((a, b) => b.minutes - a.minutes);
 }

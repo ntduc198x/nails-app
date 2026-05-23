@@ -19,6 +19,7 @@ import {
   createShiftSlotSnapshot,
   buildDefaultWeekDemands,
   DEFAULT_SHIFT_DEFINITIONS,
+  formatAttendanceFraction,
   generateDraftSchedule,
   generateWeekDates,
   getRecommendedShiftTypesForDate,
@@ -458,10 +459,28 @@ export default function AdminShiftsScreen() {
       ),
     [teamDirectoryRows],
   );
-  const resolveDisplayName = useCallback(
-    (userId: string | null | undefined, fallbackName?: string | null) =>
-      userId ? getPersonDisplayName(userId, teamNameMap, fallbackName) : "Nhân sự",
-    [teamNameMap],
+  const teamMemberMap = useMemo(
+    () => new Map(teamDirectoryRows.map((row) => [row.userId, row])),
+    [teamDirectoryRows],
+  );
+  const getTeamMemberInfo = useCallback(
+    (userId: string | null | undefined, fallbackName?: string | null) => {
+      if (!userId) {
+        return {
+          name: "Nhân sự",
+          email: null as string | null,
+          phone: null as string | null,
+        };
+      }
+
+      const row = teamMemberMap.get(userId);
+      return {
+        name: getPersonDisplayName(userId, teamNameMap, fallbackName),
+        email: row?.email?.trim() || null,
+        phone: row?.phone?.trim() || null,
+      };
+    },
+    [teamMemberMap, teamNameMap],
   );
 
   const loadData = useCallback(
@@ -661,15 +680,15 @@ export default function AdminShiftsScreen() {
   );
   const todayShiftStatus = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Đang mở ca"
-      : "Đã xuất lịch"
+      ? "Đang chấm công"
+      : "Sẵn sàng chấm công"
     : todayDraftAssignment
       ? "Chờ xuất lịch"
       : "Chưa có lịch";
   const todayShiftMessage = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Ca hôm nay đang được mở. Theo dõi giờ ra để chấm công chính xác."
-      : "Lịch hôm nay đã được xuất. Vui lòng kiểm tra loại ca và khung giờ bên dưới."
+      ? "Bạn đang trong ca. Check-in đúng giờ hoặc trong 10 phút đầu ca sẽ tự duyệt; check-in trễ hơn sẽ vào chờ duyệt."
+      : "Ca hôm nay đã sẵn sàng. Check-in đúng giờ hoặc trong 10 phút đầu ca sẽ tự duyệt; nếu trễ, hệ thống sẽ chuyển sang duyệt ngoại lệ."
     : todayDraftAssignment
       ? "Bạn đã được xếp lịch, nhưng ca này chưa được xuất lịch chính thức."
       : "Hôm nay chưa có ca nào được xuất lịch cho bạn.";
@@ -857,10 +876,10 @@ export default function AdminShiftsScreen() {
     }
   }
 
-  async function handleApproveEntry(entryId: string, approve: boolean) {
+  async function handleApproveEntry(entryId: string, approve: boolean, attendanceFraction?: number) {
     try {
       setSaving(true);
-      await reviewShiftCheckIn(entryId, approve);
+      await reviewShiftCheckIn(entryId, approve, attendanceFraction);
       await loadData(true);
     } catch (nextError) {
       Alert.alert("Không thể duyệt chấm công", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
@@ -869,10 +888,10 @@ export default function AdminShiftsScreen() {
     }
   }
 
-  async function handleApproveLeave(requestId: string, approve: boolean) {
+  async function handleApproveLeave(requestId: string, approve: boolean, attendanceFraction?: number) {
     try {
       setSaving(true);
-      await reviewShiftLeaveRequest(requestId, approve);
+      await reviewShiftLeaveRequest(requestId, approve, attendanceFraction);
       await loadData(true);
     } catch (nextError) {
       Alert.alert("Không thể duyệt nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
@@ -945,7 +964,7 @@ export default function AdminShiftsScreen() {
         : null;
 
     if (!resolvedTarget) {
-      Alert.alert("Thiếu ca đích", "Hãy chọn ca đích đã publish.");
+      Alert.alert("Thiếu ca đích", "Hãy chọn ca đích đã xuất lịch.");
       return;
     }
     if (shiftRequestKind === "SWAP" && !resolvedSource) {
@@ -1036,7 +1055,7 @@ export default function AdminShiftsScreen() {
   return (
     <ManageScreenShell
       title={canManage ? "Quản lý ca" : "Lịch làm việc"}
-      subtitle={canManage ? "Quản trị ca làm, duyệt chấm công và điều chỉnh lịch tuần." : "Theo dõi ca làm, xin nghỉ và chấm công cá nhân."}
+      subtitle={canManage ? "Quản trị ca làm, duyệt chấm công ngoại lệ và điều chỉnh lịch tuần." : "Theo dõi ca làm, chấm công vào ca và gửi xin nghỉ."}
       currentKey="shifts"
       group="insights"
       showBackButton={false}
@@ -1046,7 +1065,7 @@ export default function AdminShiftsScreen() {
       observerReadOnlyMessage={
         observerOrgMode
           ? "Đang quan sát toàn công ty. Lịch tuần và cấu hình ca chỉ nên chỉnh khi quay về một chi nhánh cụ thể."
-          : "Đang quan sát chi nhánh khác. Các thao tác xuất lịch, duyệt chấm công và chỉnh ca chỉ mở ở chi nhánh làm việc."
+          : "Đang quan sát chi nhánh khác. Các thao tác xuất lịch, duyệt chấm công ngoại lệ và chỉnh ca chỉ mở ở chi nhánh làm việc."
       }
     >
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -1094,11 +1113,11 @@ export default function AdminShiftsScreen() {
                 <>
                   <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
                     <Feather name="play" size={16} color={c.white} />
-                    <Text style={styles.primaryButtonText}>Mở ca</Text>
+                    <Text style={styles.primaryButtonText}>Chấm công vào ca</Text>
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckOut()} disabled={saving || !activePersonalEntry}>
                     <Feather name="stop-circle" size={16} color={c.text} />
-                    <Text style={styles.secondaryButtonText}>Đóng ca</Text>
+                    <Text style={styles.secondaryButtonText}>Kết thúc ca</Text>
                   </Pressable>
                 </>
               )}
@@ -1183,6 +1202,7 @@ export default function AdminShiftsScreen() {
               <View style={styles.cardStack}>
                 {selectedDayAssignments.map(({ employee, assignment }) => {
                   const colors = getShiftColors(getShiftDefinition(assignment.shiftType));
+                  const employeeInfo = getTeamMemberInfo(employee.id, employee.name);
                   return (
                     <Pressable
                       key={employee.id}
@@ -1193,7 +1213,8 @@ export default function AdminShiftsScreen() {
                         <Text style={styles.personAvatarText}>{initials(employee.name)}</Text>
                       </View>
                       <View style={styles.personCopy}>
-                        <Text style={styles.personName}>{employee.name}</Text>
+                        <Text style={styles.personName}>{employeeInfo.name}</Text>
+                        {employeeInfo.email ? <Text style={styles.personContact}>{employeeInfo.email}</Text> : null}
                         <Text style={styles.personMeta}>{getRoleLabel(employee.role)}</Text>
                         <View style={styles.personShiftMetaRow}>
                           <Text style={[styles.personShiftLabel, { color: colors.text }]}>{assignment.shiftLabel}</Text>
@@ -1219,12 +1240,20 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {pendingOwnerShiftChanges.map((request) => (
                     <View key={request.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{resolveDisplayName(request.requester_user_id)}</Text>
+                      {(() => {
+                        const requesterInfo = getTeamMemberInfo(request.requester_user_id);
+                        return (
+                          <>
+                            <Text style={styles.reviewTitle}>{requesterInfo.name}</Text>
+                            {requesterInfo.email ? <Text style={styles.reviewMeta}>{requesterInfo.email}</Text> : null}
+                          </>
+                        );
+                      })()}
                       <Text style={styles.reviewMeta}>
                         {request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"} • {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel}
                       </Text>
                       <Text style={styles.reviewMeta}>
-                        Holder hiện tại: {resolveDisplayName(request.target_slot_json.holderUserId, request.target_slot_json.holderName)}
+                        Holder hiện tại: {getTeamMemberInfo(request.target_slot_json.holderUserId, request.target_slot_json.holderName).name}
                       </Text>
                       <View style={styles.actionsRow}>
                         <Pressable style={styles.approveButton} onPress={() => void handleApproveShiftChange(request.id, true)} disabled={saving}>
@@ -1300,18 +1329,32 @@ export default function AdminShiftsScreen() {
 
           {canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Duyệt chấm công</Text>
+              <Text style={styles.sectionTitle}>Duyệt chấm công ngoại lệ</Text>
               {pendingOwnerEntries.length ? (
                 <View style={styles.cardStack}>
                   {pendingOwnerEntries.map((entry) => (
                     <View key={entry.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{resolveDisplayName(entry.staff_user_id)}</Text>
+                      {(() => {
+                        const staffInfo = getTeamMemberInfo(entry.staff_user_id);
+                        return (
+                          <>
+                            <Text style={styles.reviewTitle}>{staffInfo.name}</Text>
+                            {staffInfo.email ? <Text style={styles.reviewMeta}>{staffInfo.email}</Text> : null}
+                          </>
+                        );
+                      })()}
                       <Text style={styles.reviewMeta}>
-                        Mở ca {formatTime(entry.clock_in)} • Dự kiến {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                        Check-in {formatTime(entry.clock_in)} • Dự kiến {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
                       </Text>
                       <View style={styles.actionsRow}>
-                        <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true)} disabled={saving}>
-                          <Text style={styles.approveText}>Duyệt</Text>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true, 1)} disabled={saving}>
+                          <Text style={styles.approveText}>1.0</Text>
+                        </Pressable>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true, 0.75)} disabled={saving}>
+                          <Text style={styles.approveText}>0.75</Text>
+                        </Pressable>
+                        <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true, 0.5)} disabled={saving}>
+                          <Text style={styles.approveText}>0.5</Text>
                         </Pressable>
                         <Pressable style={styles.rejectButton} onPress={() => void handleApproveEntry(entry.id, false)} disabled={saving}>
                           <Text style={styles.rejectText}>Từ chối</Text>
@@ -1321,7 +1364,7 @@ export default function AdminShiftsScreen() {
                   ))}
                 </View>
               ) : (
-                <Text style={styles.emptyText}>Không có bản ghi chấm công nào đang chờ duyệt.</Text>
+                <Text style={styles.emptyText}>Không có bản ghi chấm công ngoại lệ nào đang chờ duyệt.</Text>
               )}
             </View>
           ) : null}
@@ -1333,15 +1376,37 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {pendingOwnerLeaves.map((request) => (
                     <View key={request.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{resolveDisplayName(request.staff_user_id)}</Text>
+                      {(() => {
+                        const staffInfo = getTeamMemberInfo(request.staff_user_id);
+                        return (
+                          <>
+                            <Text style={styles.reviewTitle}>{staffInfo.name}</Text>
+                            {staffInfo.email ? <Text style={styles.reviewMeta}>{staffInfo.email}</Text> : null}
+                          </>
+                        );
+                      })()}
                       <Text style={styles.reviewMeta}>
                         {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"} • {request.scheduled_date ?? "Chưa rõ ngày"}
                       </Text>
                       {request.note ? <Text style={styles.reviewMeta}>{request.note}</Text> : null}
                       <View style={styles.actionsRow}>
-                        <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true)} disabled={saving}>
-                          <Text style={styles.approveText}>Duyệt</Text>
-                        </Pressable>
+                        {request.request_type === "EARLY_LEAVE" ? (
+                          <>
+                            <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true, 1)} disabled={saving}>
+                              <Text style={styles.approveText}>1.0</Text>
+                            </Pressable>
+                            <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true, 0.75)} disabled={saving}>
+                              <Text style={styles.approveText}>0.75</Text>
+                            </Pressable>
+                            <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true, 0.5)} disabled={saving}>
+                              <Text style={styles.approveText}>0.5</Text>
+                            </Pressable>
+                          </>
+                        ) : (
+                          <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true)} disabled={saving}>
+                            <Text style={styles.approveText}>Duyệt</Text>
+                          </Pressable>
+                        )}
                         <Pressable style={styles.rejectButton} onPress={() => void handleApproveLeave(request.id, false)} disabled={saving}>
                           <Text style={styles.rejectText}>Từ chối</Text>
                         </Pressable>
@@ -1357,9 +1422,9 @@ export default function AdminShiftsScreen() {
 
           {shouldShowManagerPersonalCard ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Ca của tôi / chấm công của tôi</Text>
+              <Text style={styles.sectionTitle}>Ca và công của tôi</Text>
               <Text style={styles.sectionSubtitle}>
-                Tóm tắt riêng ca hiệu lực và bản ghi chấm công của bạn trong tuần này.
+                Tóm tắt riêng ca hiệu lực và các bản ghi công của bạn trong tuần này.
               </Text>
               {personalEffectiveSlots.length ? (
                 <View style={styles.cardStack}>
@@ -1396,6 +1461,7 @@ export default function AdminShiftsScreen() {
                       <Text style={styles.reviewMeta}>
                         Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}
                       </Text>
+                      <Text style={styles.reviewMeta}>Ngày công {formatAttendanceFraction(entry.attendance_fraction)}</Text>
                     </View>
                   ))}
                 </View>
@@ -1405,7 +1471,7 @@ export default function AdminShiftsScreen() {
 
           {!canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Ca của tôi</Text>
+              <Text style={styles.sectionTitle}>Ca hôm nay</Text>
               <Text style={styles.sectionSubtitle}>
                 {todayPublishedAssignment
                   ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
@@ -1429,7 +1495,7 @@ export default function AdminShiftsScreen() {
                       <Text style={styles.todayShiftHours}>
                         {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                           ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
-                          : "Dang nghi"}
+                          : "Đang nghỉ"}
                       </Text>
                     </View>
                     <View style={[styles.todayShiftBadge, { borderColor: todayShiftColors.border }]}>
@@ -1441,7 +1507,7 @@ export default function AdminShiftsScreen() {
 
                   <View style={styles.todayShiftMetaGrid}>
                     <View style={styles.todayShiftMetaItem}>
-                      <Text style={styles.todayShiftMetaLabel}>Loai ca</Text>
+                      <Text style={styles.todayShiftMetaLabel}>Loại ca</Text>
                       <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
                     </View>
                     <View style={styles.todayShiftMetaItem}>
@@ -1475,7 +1541,7 @@ export default function AdminShiftsScreen() {
                   <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
                   {todayEffectiveSlots.length > 1 ? (
                     <View style={{ gap: 8 }}>
-                      <Text style={styles.reviewMeta}>Chọn đúng ca để mở ca</Text>
+                      <Text style={styles.reviewMeta}>Chọn đúng ca để chấm công</Text>
                       <View style={styles.cardStack}>
                         {todayEffectiveSlots.map((slot) => {
                           const active = `${slot.dateKey}:${slot.shiftType}` === selectedTodaySlotKey;
@@ -1507,17 +1573,17 @@ export default function AdminShiftsScreen() {
               {todayPublishedAssignment ? (
                 <View style={styles.actionsRow}>
                   <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
-                    <Text style={styles.primaryButtonText}>Mở ca</Text>
+                    <Text style={styles.primaryButtonText}>Chấm công vào ca</Text>
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleRequestDayOff()} disabled={saving}>
-                    <Text style={styles.secondaryButtonText}>Xin nghỉ</Text>
+                    <Text style={styles.secondaryButtonText}>Xin nghỉ / về sớm</Text>
                   </Pressable>
                 </View>
               ) : null}
               <View style={styles.reviewCard}>
                 <Text style={styles.reviewTitle}>Xin nhận / đổi ca</Text>
                 <Text style={styles.reviewMeta}>
-                  Chọn ca đã publish của người khác để xin nhận, hoặc chọn thêm ca nguồn của bạn để đổi.
+                  Chọn ca đã xuất lịch của người khác để xin nhận, hoặc chọn thêm ca nguồn của bạn để đổi.
                 </Text>
                 <View style={styles.actionsRow}>
                   <Pressable
@@ -1537,6 +1603,7 @@ export default function AdminShiftsScreen() {
                   <View style={styles.cardStack}>
                     {ownRequestSourceSlots.map((slot) => {
                       const active = `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestSourceKey;
+                      const holderInfo = getTeamMemberInfo(slot.holderUserId, slot.holderName);
                       return (
                         <Pressable
                           key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}
@@ -1545,6 +1612,8 @@ export default function AdminShiftsScreen() {
                         >
                           <View style={styles.personCopy}>
                             <Text style={styles.personName}>Ca nguồn: {slot.shiftLabel}</Text>
+                            <Text style={styles.personMeta}>{holderInfo.name}</Text>
+                            {holderInfo.email ? <Text style={styles.personContact}>{holderInfo.email}</Text> : null}
                             <Text style={styles.personShiftHours}>{slot.dateKey} • {slot.startTime} - {slot.endTime}</Text>
                           </View>
                         </Pressable>
@@ -1555,6 +1624,7 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {requestableTargetSlots.slice(0, 6).map((slot) => {
                     const active = `${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}` === selectedRequestTargetKey;
+                    const holderInfo = getTeamMemberInfo(slot.holderUserId, slot.holderName);
                     return (
                       <Pressable
                         key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}
@@ -1563,9 +1633,9 @@ export default function AdminShiftsScreen() {
                       >
                         <View style={styles.personCopy}>
                           <Text style={styles.personName}>{slot.shiftLabel}</Text>
-                          <Text style={styles.personShiftHours}>
-                            {slot.dateKey} • {slot.startTime} - {slot.endTime} • {resolveDisplayName(slot.holderUserId, slot.holderName)}
-                          </Text>
+                          <Text style={styles.personMeta}>{holderInfo.name}</Text>
+                          {holderInfo.email ? <Text style={styles.personContact}>{holderInfo.email}</Text> : null}
+                          <Text style={styles.personShiftHours}>{slot.dateKey} • {slot.startTime} - {slot.endTime}</Text>
                         </View>
                       </Pressable>
                     );
@@ -1601,7 +1671,10 @@ export default function AdminShiftsScreen() {
             <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
               <View style={styles.rowBetween}>
                 <View>
-                  <Text style={styles.sectionTitle}>{selectedEmployee?.name}</Text>
+                  <Text style={styles.sectionTitle}>{selectedEmployee ? getTeamMemberInfo(selectedEmployee.id, selectedEmployee.name).name : ""}</Text>
+                  {selectedEmployee && getTeamMemberInfo(selectedEmployee.id, selectedEmployee.name).email ? (
+                    <Text style={styles.sectionSubtitle}>{getTeamMemberInfo(selectedEmployee.id, selectedEmployee.name).email}</Text>
+                  ) : null}
                   <Text style={styles.sectionSubtitle}>{selectedAssignment ? formatDayChip(selectedAssignment.dateKey) : ""}</Text>
                 </View>
                 <Pressable style={styles.iconRound} onPress={() => setSelectedCell(null)}>
@@ -1741,6 +1814,7 @@ const styles = StyleSheet.create({
   personCopy: { flex: 1, gap: 3 },
   personName: { color: c.text, fontSize: 14, lineHeight: 18, fontWeight: "700" },
   personMeta: { color: c.sub, fontSize: 12, lineHeight: 16 },
+  personContact: { color: c.sub, fontSize: 11, lineHeight: 15 },
   personShiftMetaRow: { gap: 2, marginTop: 2 },
   personShiftLabel: { fontSize: 13, lineHeight: 16, fontWeight: "800" },
   personShiftHours: { color: c.sub, fontSize: 12, lineHeight: 16, fontWeight: "600" },

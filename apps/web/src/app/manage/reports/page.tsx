@@ -7,6 +7,7 @@ import { listUserRoles } from "@/lib/auth";
 import { getCrmDashboardMetrics } from "@/lib/crm";
 import { formatVnd } from "@/lib/mock-data";
 import { getReportBreakdown, getStaffRevenueInRange, listTicketsInRange, listTimeEntriesInRange, type ReportTicketRow } from "@/lib/reporting";
+import { formatAttendanceFraction } from "@nails/shared";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -101,7 +102,7 @@ export default function ReportsPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [breakdownError, setBreakdownError] = useState<string | null>(null);
-  const [staffHours, setStaffHours] = useState<Array<{ staff: string; minutes: number; entries: number }>>([]);
+  const [staffHours, setStaffHours] = useState<Array<{ staff: string; minutes: number; entries: number; attendanceFraction: number }>>([]);
   const [staffRevenue, setStaffRevenue] = useState<Array<{ staffUserId: string; staff: string; revenue: number; tickets: number }>>([]);
   const [crmMetrics, setCrmMetrics] = useState({ newToday: 0, returningToday: 0, atRiskCount: 0, repeat30: 0 });
   const hasLoadedRef = useRef(false);
@@ -158,20 +159,21 @@ export default function ReportsPage() {
         const eligibleStaffIds = new Set(team.filter((r) => r.role !== "OWNER").map((r) => r.user_id));
         const nameMap = new Map(team.map((r) => [r.user_id, r.display_name || String(r.user_id).slice(0, 8)]));
 
-        const map = new Map<string, { minutes: number; entries: number }>();
-        for (const r of timeRows as Array<{ staff_user_id: string; effective_clock_in: string; effective_clock_out: string | null }>) {
+        const map = new Map<string, { minutes: number; entries: number; attendanceFraction: number }>();
+        for (const r of timeRows as Array<{ staff_user_id: string; effective_clock_in: string; effective_clock_out: string | null; attendance_fraction?: number | null }>) {
           if (!eligibleStaffIds.has(r.staff_user_id)) continue;
           const key = nameMap.get(r.staff_user_id) ?? r.staff_user_id;
           const start = new Date(r.effective_clock_in).getTime();
           const end = r.effective_clock_out ? new Date(r.effective_clock_out).getTime() : Date.now();
           const mins = Math.max(0, Math.round((end - start) / 60000));
-          const prev = map.get(key) ?? { minutes: 0, entries: 0 };
-          map.set(key, { minutes: prev.minutes + mins, entries: prev.entries + 1 });
+          const attendanceFraction = Number(r.attendance_fraction ?? 1);
+          const prev = map.get(key) ?? { minutes: 0, entries: 0, attendanceFraction: 0 };
+          map.set(key, { minutes: prev.minutes + mins, entries: prev.entries + 1, attendanceFraction: prev.attendanceFraction + attendanceFraction });
         }
 
         setStaffHours(
           Array.from(map.entries())
-            .map(([staff, v]) => ({ staff, minutes: v.minutes, entries: v.entries }))
+            .map(([staff, v]) => ({ staff, minutes: v.minutes, entries: v.entries, attendanceFraction: v.attendanceFraction }))
             .sort((a, b) => b.minutes - a.minutes),
         );
       } catch (e) {
@@ -243,8 +245,8 @@ export default function ReportsPage() {
         rows: [["Phương thức", "Số bill", "Số tiền"], ...(breakdown?.by_payment ?? []).map((p) => [p.method, Number(p.count), Number(p.amount)])],
       },
       {
-        name: "Gio_lam",
-        rows: [["Nhân viên", "Số ca", "Số phút"], ...staffHours.map((s) => [s.staff, Number(s.entries), Number(s.minutes)])],
+        name: "Ngay_cong",
+        rows: [["Nhân viên", "Số ca", "Số phút", "Ngày công"], ...staffHours.map((s) => [s.staff, Number(s.entries), Number(s.minutes), Number(s.attendanceFraction)])],
       },
       {
         name: "Doanh_thu_NV",
@@ -529,15 +531,15 @@ export default function ReportsPage() {
             </div>
 
             <div className="hidden md:block manage-surface space-y-3 p-4 md:p-5">
-              <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (giờ làm)</h3>
+              <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (ngày công)</h3>
               <div className="space-y-2">
-                {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu giờ làm trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca</div></div><div className="font-semibold text-neutral-900">{s.minutes} phút</div></div></div>)}
+                {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu ngày công trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca • {s.minutes} phút</div></div><div className="font-semibold text-neutral-900">{formatAttendanceFraction(s.attendanceFraction)}</div></div></div>)}
               </div>
             </div>
             <div className="manage-surface space-y-3 p-4 md:hidden">
-              <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (giờ làm)</h3>
+              <h3 className="text-sm font-semibold text-neutral-900">Theo nhân viên (ngày công)</h3>
               <div className="space-y-2">
-                {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu giờ làm trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca</div></div><div className="font-semibold text-neutral-900">{s.minutes} phút</div></div></div>)}
+                {staffHours.length === 0 ? <div className="rounded-2xl border border-dashed border-neutral-200 px-4 py-6 text-sm text-neutral-500">Chưa có dữ liệu ngày công trong kỳ này.</div> : staffHours.map((s, idx) => <div key={`${s.staff}-${idx}`} className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"><div className="flex items-center justify-between gap-2"><div><div className="line-clamp-1 font-medium text-neutral-900">{s.staff}</div><div className="text-[11px] text-neutral-500">{s.entries} ca • {s.minutes} phút</div></div><div className="font-semibold text-neutral-900">{formatAttendanceFraction(s.attendanceFraction)}</div></div></div>)}
               </div>
             </div>
           </div>

@@ -4,6 +4,7 @@ import { verifyTelegramWebhookRequest } from "@/lib/route-secrets";
 import {
   getAdminSupabase,
   getTelegramUserRole,
+  getTelegramPartnerScopeError,
   isManagerOrOwner,
   answerCallbackQuery as sharedAnswerCallback,
   deleteTelegramMessage,
@@ -15,7 +16,6 @@ import {
   handleCaCommand,
   handleBookingCommand,
   handleManageCommand,
-  handleCompactManageCommand,
   sendFreshAdminReplyKeyboard,
   clearReplyPanelState,
   handleCrmMenu,
@@ -237,15 +237,17 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
   }
 
   const scope = toTelegramScope(userInfo);
+  const scopeError = getTelegramPartnerScopeError(scope);
+  if (scopeError) {
+    await sharedAnswerCallback(callback.id, "Tài khoản PARTNER chưa được gán chi nhánh.");
+    await sendTelegramMessage(chatId, scopeError);
+    return NextResponse.json({ ok: true, reason: "partner_branch_required" });
+  }
 
   switch (action) {
     case "admin":
       await handleManageCommand(chatId);
       await sharedAnswerCallback(callback.id);
-      break;
-    case "compact":
-      await handleCompactManageCommand(chatId);
-      await sharedAnswerCallback(callback.id, "Đã thu nhỏ menu");
       break;
     case "overview":
       await handleOverviewCommand(scope, chatId);
@@ -282,7 +284,7 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
   return NextResponse.json({ ok: true, action });
 }
 
-export async function processTelegramUpdate(body: unknown) {
+async function processTelegramUpdate(body: unknown) {
   try {
     type TelegramUpdatePayload = {
       message?: Parameters<typeof handleMessage>[0];
@@ -383,12 +385,6 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "⚙️ menu quan tri":
           await sendFreshAdminReplyKeyboard(chatId);
           return NextResponse.json({ ok: true, handled: "reply_manage" });
-        case "🔽 thu gon menu":
-        case "thu gon menu":
-        case "an menu":
-        case "thu nho menu":
-          await handleCompactManageCommand(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_manage_compact" });
         case "📊 tong quan":
         case "tong quan":
           await clearReplyPanelState(chatId);
@@ -413,10 +409,6 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
           await clearReplyPanelState(chatId);
           await handleQuickCreateMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_quickcreate" });
-        case "🙈 thu nho menu":
-        case "thu nho menu":
-          await handleCompactManageCommand(chatId);
-          return NextResponse.json({ ok: true, handled: "reply_compact_manage" });
       }
     }
   }
@@ -467,6 +459,11 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
     }
 
     const scope = toTelegramScope(userInfo);
+    const scopeError = getTelegramPartnerScopeError(scope);
+    if (scopeError) {
+      await sendTelegramMessage(chatId, scopeError);
+      return NextResponse.json({ ok: true, command, error: "partner_branch_required" });
+    }
 
     switch (command) {
       case "/crm":
@@ -546,22 +543,23 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
         await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_crm" });
       }
+      const scope = toTelegramScope(userInfo);
 
       if (action === "followups") {
-        await handleCrmFollowUpCommand(userInfo.org_id, chatId);
+        await handleCrmFollowUpCommand(scope, chatId);
         await sharedAnswerCallback(callback.id, "Đã mở danh sách follow-up");
         return NextResponse.json({ ok: true, action: "crm_followups" });
       }
 
       if (action === "at_risk") {
-        await handleCrmAtRiskCommand(userInfo.org_id, chatId);
+        await handleCrmAtRiskCommand(scope, chatId);
         await sharedAnswerCallback(callback.id, "Đã mở nhóm khách cần chăm sóc");
         return NextResponse.json({ ok: true, action: "crm_at_risk" });
       }
 
       if (action === "contacted") {
         const customerId = rest.join(":");
-        const result = await handleCrmContactedCommand(userInfo.org_id, chatId, customerId);
+        const result = await handleCrmContactedCommand(scope, chatId, customerId);
         await sharedAnswerCallback(callback.id, result.message);
         return NextResponse.json({ ok: true, action: "crm_contacted", result });
       }

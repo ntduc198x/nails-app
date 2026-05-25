@@ -157,7 +157,7 @@ async function sendTelegramBookingMessageV2(payload: {
   };
 }
 
-export async function processTelegramBookingNotification(body: unknown) {
+async function processTelegramBookingNotification(body: unknown) {
   try {
     const payload =
       typeof body === "object" && body !== null

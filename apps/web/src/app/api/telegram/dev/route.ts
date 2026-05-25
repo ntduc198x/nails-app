@@ -1,10 +1,24 @@
 import { NextResponse } from "next/server";
-import { processTelegramUpdate } from "@/app/api/telegram/callback/route";
-import { processTelegramBookingNotification } from "@/app/api/telegram/route";
+import { POST as processTelegramUpdateRequest } from "@/app/api/telegram/callback/route";
+import { POST as processTelegramBookingNotificationRequest } from "@/app/api/telegram/route";
 import { getAdminSupabase, getTelegramUserRole } from "@/lib/telegram-bot";
+
+const telegramWebhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+const telegramInternalRouteSecret = process.env.TELEGRAM_INTERNAL_ROUTE_SECRET;
 
 function isDevRouteEnabled() {
   return process.env.NODE_ENV !== "production";
+}
+
+function buildJsonRequest(path: string, body: unknown, headers?: Record<string, string>) {
+  return new Request(`http://localhost:3000${path}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(headers ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
 }
 
 export async function GET() {
@@ -169,9 +183,13 @@ export async function POST(req: Request) {
 
     if (bookingError) throw bookingError;
 
-    const notifyResponse = await processTelegramBookingNotification({
-      record: { id: bookingRow.id },
-    });
+    const notifyResponse = await processTelegramBookingNotificationRequest(
+      buildJsonRequest(
+        "/api/telegram",
+        { record: { id: bookingRow.id } },
+        telegramInternalRouteSecret ? { "x-telegram-internal-secret": telegramInternalRouteSecret } : undefined,
+      ),
+    );
     const notifyJson = await notifyResponse.json();
 
     return NextResponse.json({
@@ -184,28 +202,40 @@ export async function POST(req: Request) {
   }
 
   if (body.type === "callback") {
-    return processTelegramUpdate({
-      callback_query: {
-        id: body.callbackId ?? `local-callback-${Date.now()}`,
-        data: body.data ?? "menu:admin",
-        message: {
-          chat: { id: chatId },
-          message_id: body.messageId ?? 1,
-          from: { id: telegramUserId },
+    return processTelegramUpdateRequest(
+      buildJsonRequest(
+        "/api/telegram/callback",
+        {
+          callback_query: {
+            id: body.callbackId ?? `local-callback-${Date.now()}`,
+            data: body.data ?? "menu:admin",
+            message: {
+              chat: { id: chatId },
+              message_id: body.messageId ?? 1,
+              from: { id: telegramUserId },
+            },
+          },
         },
-      },
-    });
+        telegramWebhookSecret ? { "x-telegram-bot-api-secret-token": telegramWebhookSecret } : undefined,
+      ),
+    );
   }
 
-  return processTelegramUpdate({
-    message: {
-      from: {
-        id: telegramUserId,
-        username: body.username ?? "local_test",
-        first_name: body.firstName ?? "Local",
+  return processTelegramUpdateRequest(
+    buildJsonRequest(
+      "/api/telegram/callback",
+      {
+        message: {
+          from: {
+            id: telegramUserId,
+            username: body.username ?? "local_test",
+            first_name: body.firstName ?? "Local",
+          },
+          chat: { id: chatId },
+          text: body.text ?? "/start",
+        },
       },
-      chat: { id: chatId },
-      text: body.text ?? "/start",
-    },
-  });
+      telegramWebhookSecret ? { "x-telegram-bot-api-secret-token": telegramWebhookSecret } : undefined,
+    ),
+  );
 }

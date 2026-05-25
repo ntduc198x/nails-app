@@ -132,6 +132,22 @@ function isBranchRestrictedScope(scope: TelegramDataScope): boolean {
   return scope.role === "PARTNER" && Boolean(scope.branchId);
 }
 
+export function getTelegramPartnerScopeError(scope: TelegramDataScope): string | null {
+  if (scope.role === "PARTNER" && !scope.branchId) {
+    return "❌ Tài khoản PARTNER của bạn chưa được gán chi nhánh. Vui lòng cập nhật branch trước khi dùng Telegram quản trị.";
+  }
+
+  return null;
+}
+
+async function ensureTelegramDataScope(scope: TelegramDataScope, chatId: string): Promise<boolean> {
+  const scopeError = getTelegramPartnerScopeError(scope);
+  if (!scopeError) return true;
+
+  await sendTelegramMessage(chatId, scopeError, { reply_markup: getBackToAdminKeyboard() });
+  return false;
+}
+
 function getConversationKey(telegramUserId: number): string {
   return String(telegramUserId);
 }
@@ -261,18 +277,6 @@ async function setReplyPanelState(chatId: string, messageId: number) {
 export async function clearReplyPanelState(chatId: string) {
   clearInMemoryReplyPanelState(chatId);
   await clearFileReplyPanelState(chatId);
-}
-
-async function deleteTrackedReplyPanel(chatId: string) {
-  const state = await getReplyPanelState(chatId);
-  if (!state?.messageId) return;
-  try {
-    await deleteTelegramMessage(chatId, state.messageId);
-  } catch {
-    // Ignore delete errors; the message may already be gone.
-  } finally {
-    await clearReplyPanelState(chatId);
-  }
 }
 
 export async function editTelegramMessage(chatId: string, messageId: number, text: string, replyMarkup?: unknown) {
@@ -532,6 +536,8 @@ function pickCustomerName(customers: { name?: string } | { name?: string }[] | n
 }
 
 export async function handleLichCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const now = new Date();
   const start = new Date(now);
@@ -627,6 +633,8 @@ export async function handleDoanhthuCommand(scope: TelegramDataScope, chatId: st
 }
 
 export async function handleCaCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const resolvedScope = {
     orgId: scope.orgId,
     branchId: isBranchRestrictedScope(scope) ? scope.branchId ?? null : null,
@@ -723,6 +731,8 @@ export async function handleCaCommand(scope: TelegramDataScope, chatId: string) 
 }
 
 export async function handleBookingCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 
@@ -776,27 +786,15 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
 }
 
-function getCompactAdminReplyKeyboard() {
-  return {
-    keyboard: [[{ text: "🧭 Mở menu quản trị" }]],
-    resize_keyboard: true,
-    one_time_keyboard: false,
-    is_persistent: true,
-    input_field_placeholder: "Mở lại menu quản trị...",
-  };
-}
-
 function getAdminReplyKeyboard() {
   return {
     keyboard: [
       [{ text: "📊 Tổng quan" }, { text: "CRM" }],
       [{ text: "📌 Booking" }, { text: "🕐 Lịch làm việc" }],
       [{ text: "⚡ Tạo nhanh" }],
-      [{ text: "🙈 Thu nhỏ menu" }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
-    is_persistent: true,
     input_field_placeholder: "Chọn chức năng quản trị...",
   };
 }
@@ -813,7 +811,6 @@ function getManageInlineKeyboard() {
         { text: "🕐 Lịch làm việc", callback_data: "menu:ca" },
         { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
       ],
-      [{ text: "🙈 Thu nhỏ menu", callback_data: "menu:compact" }],
     ],
   };
 }
@@ -919,13 +916,20 @@ function getCustomerCrmWebUrl(customerId: string) {
   return `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/customers/${customerId}`;
 }
 
-async function listTelegramCrmCustomers(orgId: string, mode: "followups" | "at_risk", limit = 8) {
+async function listTelegramCrmCustomers(scope: TelegramDataScope, mode: "followups" | "at_risk", limit = 8) {
   const supabase = getAdminSupabase();
-  let query = supabase
-    .from("customers")
-    .select("id,full_name,name,phone,total_visits,total_spend,last_visit_at,last_service_summary,next_follow_up_at,customer_status,follow_up_status")
-    .eq("org_id", orgId)
-    .is("merged_into_customer_id", null);
+  let query = isBranchRestrictedScope(scope)
+    ? supabase
+      .from("customers")
+      .select("id,full_name,name,phone,total_visits,total_spend,last_visit_at,last_service_summary,next_follow_up_at,customer_status,follow_up_status,customer_branches!inner(branch_id)")
+      .eq("org_id", scope.orgId)
+      .eq("customer_branches.branch_id", scope.branchId)
+      .is("merged_into_customer_id", null)
+    : supabase
+      .from("customers")
+      .select("id,full_name,name,phone,total_visits,total_spend,last_visit_at,last_service_summary,next_follow_up_at,customer_status,follow_up_status")
+      .eq("org_id", scope.orgId)
+      .is("merged_into_customer_id", null);
 
   if (mode === "followups") {
     query = query
@@ -945,14 +949,22 @@ async function listTelegramCrmCustomers(orgId: string, mode: "followups" | "at_r
   return data ?? [];
 }
 
-async function markTelegramCrmContacted(orgId: string, customerId: string) {
+async function markTelegramCrmContacted(scope: TelegramDataScope, customerId: string) {
   const supabase = getAdminSupabase();
-  const { data: customer, error: customerError } = await supabase
-    .from("customers")
-    .select("id,full_name,name")
-    .eq("org_id", orgId)
-    .eq("id", customerId)
-    .maybeSingle();
+  const customerQuery = isBranchRestrictedScope(scope)
+    ? supabase
+      .from("customers")
+      .select("id,full_name,name,customer_branches!inner(branch_id)")
+      .eq("org_id", scope.orgId)
+      .eq("id", customerId)
+      .eq("customer_branches.branch_id", scope.branchId)
+    : supabase
+      .from("customers")
+      .select("id,full_name,name")
+      .eq("org_id", scope.orgId)
+      .eq("id", customerId);
+
+  const { data: customer, error: customerError } = await customerQuery.maybeSingle();
 
   if (customerError) throw customerError;
   if (!customer?.id) {
@@ -965,7 +977,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
       last_contacted_at: new Date().toISOString(),
       follow_up_status: "DONE",
     })
-    .eq("org_id", orgId)
+    .eq("org_id", scope.orgId)
     .eq("id", customerId);
 
   if (updateError) throw updateError;
@@ -973,7 +985,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
   const { error: activityError } = await supabase
     .from("customer_activities")
     .insert({
-      org_id: orgId,
+      org_id: scope.orgId,
       customer_id: customerId,
       type: "TELEGRAM_CONTACT",
       channel: "TELEGRAM",
@@ -1062,37 +1074,52 @@ function parseQuickCreateTime(raw: string, baseDateIso: string): { iso: string; 
   };
 }
 
-async function getQuickCreateServiceSuggestions(orgId: string): Promise<TelegramQuickCreateServiceSuggestion[]> {
+async function getQuickCreateServiceSuggestions(scope: TelegramDataScope): Promise<TelegramQuickCreateServiceSuggestion[]> {
   const supabase = getAdminSupabase();
+  const branchFilter = isBranchRestrictedScope(scope) ? `branch_id.eq.${scope.branchId},branch_id.is.null` : null;
 
-  const featuredResult = await supabase
+  let featuredQuery = supabase
     .from("services")
-    .select("id,name")
-    .eq("org_id", orgId)
+    .select("id,name,branch_id")
+    .eq("org_id", scope.orgId)
     .eq("active", true)
     .eq("featured_in_lookbook", true)
     .order("name", { ascending: true })
     .limit(6);
+
+  if (branchFilter) {
+    featuredQuery = featuredQuery.or(branchFilter);
+  }
+
+  const featuredResult = await featuredQuery;
 
   if (featuredResult.error) throw featuredResult.error;
 
   const featuredRows = (featuredResult.data ?? []) as TelegramQuickCreateServiceSuggestion[];
   if (featuredRows.length > 0) return featuredRows;
 
-  const fallbackResult = await supabase
+  let fallbackQuery = supabase
     .from("services")
-    .select("id,name")
-    .eq("org_id", orgId)
+    .select("id,name,branch_id")
+    .eq("org_id", scope.orgId)
     .eq("active", true)
     .order("name", { ascending: true })
     .limit(6);
+
+  if (branchFilter) {
+    fallbackQuery = fallbackQuery.or(branchFilter);
+  }
+
+  const fallbackResult = await fallbackQuery;
 
   if (fallbackResult.error) throw fallbackResult.error;
   return (fallbackResult.data ?? []) as TelegramQuickCreateServiceSuggestion[];
 }
 
-async function promptQuickCreateServiceSelection(chatId: string, orgId: string) {
-  const suggestions = await getQuickCreateServiceSuggestions(orgId);
+async function promptQuickCreateServiceSelection(chatId: string, scope: TelegramDataScope) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
+  const suggestions = await getQuickCreateServiceSuggestions(scope);
 
   await sendTelegramMessage(
     chatId,
@@ -1151,16 +1178,42 @@ export async function handleQuickCreateDateSelection(telegramUserId: number, cha
   return { ok: true, message: "Đã chọn ngày hẹn" };
 }
 
-async function findOrCreateTelegramCustomer(orgId: string, customerName: string, customerPhone: string, requestedService: string) {
+async function ensureTelegramCustomerBranchLink(customerId: string, orgId: string, branchId: string | null) {
+  if (!branchId) return;
+
   const supabase = getAdminSupabase();
-  const { data: existingCustomer, error: existingError } = await supabase
-    .from("customers")
-    .select("id,notes")
-    .eq("org_id", orgId)
-    .eq("name", customerName)
-    .eq("phone", customerPhone)
-    .limit(1)
-    .maybeSingle();
+  const { error } = await supabase.from("customer_branches").upsert(
+    {
+      customer_id: customerId,
+      org_id: orgId,
+      branch_id: branchId,
+    },
+    { onConflict: "customer_id,branch_id" },
+  );
+
+  if (error) throw error;
+}
+
+async function findOrCreateTelegramCustomer(scope: TelegramDataScope, customerName: string, customerPhone: string, requestedService: string) {
+  const supabase = getAdminSupabase();
+  const existingQuery = isBranchRestrictedScope(scope)
+    ? supabase
+      .from("customers")
+      .select("id,notes,customer_branches!inner(branch_id)")
+      .eq("org_id", scope.orgId)
+      .eq("name", customerName)
+      .eq("phone", customerPhone)
+      .eq("customer_branches.branch_id", scope.branchId)
+      .limit(1)
+    : supabase
+      .from("customers")
+      .select("id,notes")
+      .eq("org_id", scope.orgId)
+      .eq("name", customerName)
+      .eq("phone", customerPhone)
+      .limit(1);
+
+  const { data: existingCustomer, error: existingError } = await existingQuery.maybeSingle();
 
   if (existingError) throw existingError;
 
@@ -1175,13 +1228,14 @@ async function findOrCreateTelegramCustomer(orgId: string, customerName: string,
       .eq("id", existingCustomer.id);
 
     if (updateError) throw updateError;
+    await ensureTelegramCustomerBranchLink(existingCustomer.id as string, scope.orgId, scope.branchId ?? null);
     return existingCustomer.id;
   }
 
   const { data: createdCustomer, error: createError } = await supabase
     .from("customers")
     .insert({
-      org_id: orgId,
+      org_id: scope.orgId,
       name: customerName,
       phone: customerPhone,
       notes: mergedNotes || null,
@@ -1190,13 +1244,18 @@ async function findOrCreateTelegramCustomer(orgId: string, customerName: string,
     .single();
 
   if (createError) throw createError;
+  await ensureTelegramCustomerBranchLink(createdCustomer.id as string, scope.orgId, scope.branchId ?? null);
   return createdCustomer.id as string;
 }
 
 async function createTelegramQuickAppointment(scope: TelegramDataScope, customerName: string, customerPhone: string, startAt: string, requestedService: string) {
+  if (getTelegramPartnerScopeError(scope)) {
+    throw new Error("Tài khoản PARTNER chưa được gán chi nhánh.");
+  }
+
   const supabase = getAdminSupabase();
   const endAt = new Date(new Date(startAt).getTime() + 60 * 60 * 1000).toISOString();
-  const customerId = await findOrCreateTelegramCustomer(scope.orgId, customerName, customerPhone, requestedService);
+  const customerId = await findOrCreateTelegramCustomer(scope, customerName, customerPhone, requestedService);
   let targetBranchId = scope.branchId ?? null;
 
   if (!targetBranchId) {
@@ -1249,13 +1308,18 @@ export async function handleQuickCreateServiceSelection(telegramUserId: number, 
   }
 
   const supabase = getAdminSupabase();
-  const { data: serviceRow, error } = await supabase
+  let serviceQuery = supabase
     .from("services")
-    .select("id,name")
+    .select("id,name,branch_id")
     .eq("org_id", state.data.orgId)
     .eq("id", serviceIdOrMode)
-    .eq("active", true)
-    .maybeSingle();
+    .eq("active", true);
+
+  if (state.data.role === "PARTNER" && state.data.branchId) {
+    serviceQuery = serviceQuery.or(`branch_id.eq.${state.data.branchId},branch_id.is.null`);
+  }
+
+  const { data: serviceRow, error } = await serviceQuery.maybeSingle();
 
   if (error) throw error;
   if (!serviceRow?.name) {
@@ -1408,7 +1472,11 @@ export async function handleTelegramConversationMessage(telegramUserId: number, 
       appointmentTimeIso: parsedTime.iso,
       appointmentTimeLabel: parsedTime.label,
     });
-    await promptQuickCreateServiceSelection(chatId, state.data.orgId);
+    await promptQuickCreateServiceSelection(chatId, {
+      orgId: state.data.orgId,
+      branchId: state.data.branchId || null,
+      role: state.data.role,
+    });
     return true;
   }
 
@@ -1455,13 +1523,6 @@ export async function sendFreshAdminReplyKeyboard(chatId: string) {
   await handleManageCommand(chatId);
 }
 
-export async function handleCompactManageCommand(chatId: string) {
-  await deleteTrackedReplyPanel(chatId);
-  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm nút bên dưới để mở lại khi cần.", {
-    reply_markup: getCompactAdminReplyKeyboard(),
-  });
-}
-
 export async function handleCrmMenu(chatId: string) {
   await sendManagedReplyPanel(chatId, "CRM <b>KHÁCH</b>\n\nChọn chế độ quản trị CRM:", getCrmMenuKeyboard());
 }
@@ -1485,8 +1546,10 @@ export async function handleMeCommand(telegramUserId: number, chatId: string) {
   );
 }
 
-export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
-  const rows = await listTelegramCrmCustomers(orgId, "followups");
+export async function handleCrmFollowUpCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
+  const rows = await listTelegramCrmCustomers(scope, "followups");
 
   if (!rows.length) {
     await sendManagedReplyPanel(chatId, "CRM <b>FOLLOW-UP</b>\n\nChưa có khách nào đến hạn chăm sóc.", getCrmBackKeyboard());
@@ -1514,8 +1577,10 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: inlineKeyboard });
 }
 
-export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
-  const rows = await listTelegramCrmCustomers(orgId, "at_risk");
+export async function handleCrmAtRiskCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
+  const rows = await listTelegramCrmCustomers(scope, "at_risk");
 
   if (!rows.length) {
     await sendManagedReplyPanel(chatId, "CRM <b>KHÁCH CÓ NGUY CƠ</b>\n\nChưa có khách nào ở nhóm có nguy cơ / đã mất.", getCrmBackKeyboard());
@@ -1552,13 +1617,19 @@ export async function handleCrmAtRiskCommand(orgId: string, chatId: string) {
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: inlineKeyboard });
 }
 
-export async function handleCrmContactedCommand(orgId: string, chatId: string, customerId: string) {
-  const result = await markTelegramCrmContacted(orgId, customerId);
+export async function handleCrmContactedCommand(scope: TelegramDataScope, chatId: string, customerId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) {
+    return { ok: false, message: "Tài khoản PARTNER của bạn chưa được gán chi nhánh." };
+  }
+
+  const result = await markTelegramCrmContacted(scope, customerId);
   await sendManagedReplyPanel(chatId, `${result.ok ? "OK" : "ERR"} <b>CRM</b>\n\n${escapeHtml(result.message)}`, getCrmBackKeyboard());
   return result;
 }
 
 export async function handleOverviewCommand(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const now = new Date();
   const todayStart = new Date(now);
@@ -1639,6 +1710,8 @@ export async function handleOverviewCommand(scope: TelegramDataScope, chatId: st
 }
 
 export async function handleRevenueReportCommand(scope: TelegramDataScope, chatId: string, period: "today" | "week" | "month" | "custom", customStartDate?: Date, customEndDate?: Date) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const now = new Date();
   let startDate: Date;
@@ -1789,6 +1862,8 @@ export async function handleRevenueReportCommand(scope: TelegramDataScope, chatI
 }
 
 export async function beginCustomReportConversation(telegramUserId: number, scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   await setConversationState(telegramUserId, "report:custom", {
     orgId: scope.orgId,
     branchId: scope.branchId ?? "",
@@ -1802,6 +1877,8 @@ export async function beginCustomReportConversation(telegramUserId: number, scop
 }
 
 export async function beginQuickCreateAppointmentConversation(telegramUserId: number, scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   await setConversationState(telegramUserId, "quickcreate:name", {
     orgId: scope.orgId,
     branchId: scope.branchId ?? "",
@@ -1849,6 +1926,8 @@ export async function confirmQuickCreateAppointment(telegramUserId: number, chat
 }
 
 export async function handleQuickCheckinMenu(scope: TelegramDataScope, chatId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const now = new Date();
   const todayStart = new Date(now);
@@ -1898,6 +1977,10 @@ export async function handleQuickCheckinMenu(scope: TelegramDataScope, chatId: s
 }
 
 export async function handleQuickCheckinAction(scope: TelegramDataScope, chatId: string, appointmentId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) {
+    return { ok: false, message: "Tài khoản PARTNER của bạn chưa được gán chi nhánh." };
+  }
+
   const supabase = getAdminSupabase();
   let appointmentQuery = supabase
     .from("appointments")
@@ -1937,6 +2020,8 @@ export async function handleQuickCheckinAction(scope: TelegramDataScope, chatId:
 }
 
 export async function handleBookingDetailCommand(scope: TelegramDataScope, chatId: string, bookingId: string) {
+  if (!(await ensureTelegramDataScope(scope, chatId))) return;
+
   const supabase = getAdminSupabase();
   const manageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/appointments?tab=web-booking`;
   const isLocalManageUrl = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(manageUrl);

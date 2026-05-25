@@ -4,7 +4,7 @@ import { listResources, listStaffMembers } from "@/lib/domain";
 import { loadManageNotifications, type ManageNotificationItem } from "@/lib/manage-notifications";
 import { supabase } from "@/lib/supabase";
 import { getAdminWebCacheKeys, readAdminWebCache, writeAdminWebCache } from "@/lib/admin-web-cache";
-import type { ResourceOption, StaffOption } from "@/components/manage-booking-requests.types";
+import type { ResourceOption, StaffOption } from "@/lib/booking-requests/types";
 
 const LOOKUP_TTL_MS = 5 * 60 * 1000;
 const BOOKING_REQUESTS_TTL_MS = 15 * 1000;

@@ -780,7 +780,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
     if (b.customer_phone) lines.push(`   SĐT: ${b.customer_phone}`);
   }
 
-  lines.push("", `👉 ${publicBaseUrl}/manage/appointments?tab=web-booking`);
+  lines.push("", `👉 ${publicBaseUrl}/manage/appointments/web-booking`);
   keyboardRows.push([{ text: "◀️ Quay lại", callback_data: "menu:admin" }]);
 
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
@@ -2023,7 +2023,7 @@ export async function handleBookingDetailCommand(scope: TelegramDataScope, chatI
   if (!(await ensureTelegramDataScope(scope, chatId))) return;
 
   const supabase = getAdminSupabase();
-  const manageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/appointments?tab=web-booking`;
+  const manageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/appointments/web-booking`;
   const isLocalManageUrl = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(manageUrl);
   let bookingDetailQuery = supabase
     .from("booking_requests")

@@ -5,13 +5,13 @@ import { ManageDateTimePicker } from "@/components/manage-datetime-picker";
 import { MobileSectionHeader } from "@/components/manage-mobile";
 import {
   formatBookingShortDateTime,
-} from "@/components/manage-booking-requests.view-models";
+} from "@/lib/booking-requests/view-models";
 import type {
   BookingRequestQueueItem,
   BookingRequestSelection,
   ResourceOption,
   StaffOption,
-} from "@/components/manage-booking-requests.types";
+} from "@/lib/booking-requests/types";
 import type { CustomerCrmSummary } from "@/lib/crm";
 import type { AppRole } from "@/lib/auth";
 import type { BookingRequestRow } from "@/lib/booking-requests";

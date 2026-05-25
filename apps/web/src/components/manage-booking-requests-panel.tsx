@@ -52,7 +52,18 @@ export function ManageBookingRequestsPanel({
 
   useEffect(() => {
     if (!selectedBookingRequest) return;
-    requestAnimationFrame(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    requestAnimationFrame(() => {
+      const detailNode = detailRef.current;
+      if (!detailNode) return;
+
+      const rect = detailNode.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const alreadyVisible = rect.top >= 72 && rect.top < viewportHeight;
+      if (alreadyVisible) return;
+
+      detailNode.scrollIntoView({ behavior: "auto", block: "start" });
+    });
   }, [selectedBookingRequest]);
 
   return (

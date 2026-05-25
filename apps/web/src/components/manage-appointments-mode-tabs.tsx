@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 type AppointmentsMode = "calendar" | "web-booking";
 
 const BOOKING_SERVICES_LABEL = "Booking services";
@@ -10,27 +12,27 @@ export function getAppointmentsModeLabel(mode: AppointmentsMode) {
 
 export function ManageAppointmentsModeTabs({
   activeTab,
-  onSelect,
+  calendarHref,
+  webBookingHref,
 }: {
   activeTab: AppointmentsMode;
-  onSelect: (tab: AppointmentsMode) => void;
+  calendarHref: string;
+  webBookingHref: string;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={() => onSelect("calendar")}
+      <Link
+        href={calendarHref}
         className={activeTab === "calendar" ? "manage-quick-link-accent" : "manage-quick-link"}
       >
         {getAppointmentsModeLabel("calendar")}
-      </button>
-      <button
-        type="button"
-        onClick={() => onSelect("web-booking")}
+      </Link>
+      <Link
+        href={webBookingHref}
         className={activeTab === "web-booking" ? "manage-quick-link-accent" : "manage-quick-link"}
       >
         {getAppointmentsModeLabel("web-booking")}
-      </button>
+      </Link>
     </div>
   );
 }

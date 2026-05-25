@@ -733,7 +733,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
           requestedStartAt: row.requested_start_at,
           note: row.note,
           resultLine: "❌ Kết quả: <b>Đã hủy từ Telegram</b>",
-          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments?tab=web-booking`],
+          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`],
         }));
       }
 
@@ -762,7 +762,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
           requestedStartAt: row.requested_start_at,
           note: row.note,
           resultLine: "📅 Kết quả: <b>Đã chuyển sang trạng thái cần đổi lịch</b>",
-          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments?tab=web-booking`],
+          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`],
         }));
       }
 
@@ -815,7 +815,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
             `⚠️ Trùng/vượt giới hạn với <b>${overlapCount}</b> lịch hiện có`,
             ...appointmentOverlaps.slice(0, 3).map((item) => `• ${escapeHtml(pickCustomerName(item.customers))} — ${formatViDateTime(item.start_at)}`),
             `ℹ️ Cảnh báo sát lịch trong khoảng ±${NEARBY_WARNING_MINUTES} phút chỉ dùng để nhắc`,
-            `🔗 Quản trị: ${publicBaseUrl}/manage/appointments?tab=web-booking`,
+            `🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`,
           ],
         }));
       }

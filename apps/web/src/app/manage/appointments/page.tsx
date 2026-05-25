@@ -2,25 +2,16 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
-import { getAppointmentsModeLabel, ManageAppointmentsModeTabs } from "@/components/manage-appointments-mode-tabs";
-import { BookingServicesPanelSkeleton } from "@/components/manage-booking-requests.sections";
+import { ManageAppointmentsModeTabs } from "@/components/manage-appointments-mode-tabs";
 import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-datetime-picker";
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-
-const ManageBookingRequestsPanel = dynamic(
-  () => import("@/components/manage-booking-requests-panel").then((module) => module.ManageBookingRequestsPanel),
-  {
-    loading: () => <BookingServicesPanelSkeleton title="Booking services" />,
-  },
-);
 
 type AppointmentRow = {
   id: string;
@@ -376,15 +367,12 @@ function OperationsPageContent() {
   const [prefilledCustomerId, setPrefilledCustomerId] = useState<string | null>(() => searchParams.get("customerId"));
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
-  const activeTab = searchParams.get("tab") === "web-booking" ? "web-booking" : "calendar";
-  const activeTabLabel = getAppointmentsModeLabel(activeTab);
+  const legacyWebBookingTab = searchParams.get("tab") === "web-booking";
 
-  function switchTab(nextTab: "calendar" | "web-booking") {
-    const params = new URLSearchParams(searchParams.toString());
-    if (nextTab === "calendar") params.set("tab", "calendar");
-    else params.set("tab", "web-booking");
-    router.replace(`/manage/appointments?${params.toString()}`);
-  }
+  useEffect(() => {
+    if (!legacyWebBookingTab) return;
+    router.replace("/manage/appointments/web-booking");
+  }, [legacyWebBookingTab, router]);
 
   function openFilteredDetails(nextStatus: string) {
     setStatusFilter(nextStatus);
@@ -628,21 +616,10 @@ function OperationsPageContent() {
         ? "rounded-2xl border-2 border-violet-400 bg-gradient-to-r from-violet-100 via-violet-50 to-white px-5 py-4 text-sm font-bold text-violet-900 shadow-lg shadow-violet-200/50 animate-pulse"
         : "rounded-2xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-600 shadow-sm";
 
-  if (activeTab === "web-booking") {
+  if (legacyWebBookingTab) {
     return (
       <AppShell>
-        <div className="space-y-6 pb-24 md:pb-0">
-          <ManageQuickNav items={operationsQuickNav("/manage/appointments")} />
-
-          <MobileSectionHeader
-            title="Điều phối lịch"
-            meta={<div className="manage-info-box">Đang mở tab {activeTabLabel}</div>}
-          />
-
-          <ManageAppointmentsModeTabs activeTab={activeTab} onSelect={switchTab} />
-
-          <ManageBookingRequestsPanel title={activeTabLabel} showHeader={false} />
-        </div>
+        <div className="p-6 text-sm text-neutral-500">Đang chuyển tới Booking services...</div>
       </AppShell>
     );
   }
@@ -656,7 +633,11 @@ function OperationsPageContent() {
           title="Điều phối lịch"
           meta={<div className={nextActionMetaClass}>{refreshing ? "Đang làm mới..." : nextActionLabel}</div>}
         />
-        <ManageAppointmentsModeTabs activeTab={activeTab} onSelect={switchTab} />
+        <ManageAppointmentsModeTabs
+          activeTab="calendar"
+          calendarHref="/manage/appointments"
+          webBookingHref="/manage/appointments/web-booking"
+        />
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <>

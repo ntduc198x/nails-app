@@ -208,14 +208,8 @@ img {
   @apply text-xs font-semibold uppercase tracking-[0.12em] text-neutral-400;
 }
 
-.booking-request-scroll-list {
-  content-visibility: auto;
-  contain-intrinsic-size: 520px;
-}
-
 .booking-request-card {
   box-shadow: none;
-  contain: layout paint;
 }
 
 .booking-request-card--active {

@@ -26,7 +26,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 type ManageNavHref =
   | "/manage/landing"
   | "/manage/appointments"
-  | "/manage/booking-requests"
   | "/manage/checkout"
   | "/manage/shifts"
   | "/manage/services"
@@ -96,10 +95,10 @@ function canAccess(role: AppRole, href: string) {
   if (role === "OWNER" || role === "PARTNER") return true;
   if (role === "MANAGER") return href !== "/manage/tax-books";
   if (role === "RECEPTION") {
-    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers", "/manage/services", "/manage/team"].includes(href);
+    return ["/manage", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers", "/manage/services", "/manage/team"].includes(href);
   }
   if (role === "TECH") {
-    return ["/manage", "/manage/booking-requests", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
+    return ["/manage", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
   }
   if (role === "ACCOUNTANT") {
     return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
@@ -115,7 +114,7 @@ const SESSION_VALIDATION_INTERVAL = 15_000;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const isBookingRequestsPerfMode = pathname === "/manage/booking-requests";
+  const isBookingRequestsPerfMode = pathname === "/manage/appointments/web-booking";
 
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string>("");
@@ -443,7 +442,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     for (const group of visibleGroups) {
       for (const item of group.items) {
         router.prefetch(item.href);
-        if (item.href === "/manage/appointments" || item.href === "/manage/booking-requests") {
+        if (item.href === "/manage/appointments") {
           void prewarmBookingServicesData();
         }
       }

@@ -16,7 +16,7 @@ import {
   handleBookingCommand,
   handleManageCommand,
   handleCompactManageCommand,
-  sendFreshAdminReplyKeyboard,
+  openFreshAdminMenu,
   clearReplyPanelState,
   handleCrmMenu,
   handleMeCommand,
@@ -381,7 +381,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "mo menu quan tri":
         case "menu quan tri":
         case "⚙️ menu quan tri":
-          await sendFreshAdminReplyKeyboard(chatId);
+          await openFreshAdminMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_manage" });
         case "📊 tong quan":
         case "tong quan":
@@ -433,7 +433,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
       return NextResponse.json({ ok: true, command, error: "forbidden", role: userInfo.role });
     }
 
-    await sendFreshAdminReplyKeyboard(chatId);
+    await openFreshAdminMenu(chatId);
     return NextResponse.json({ ok: true, command: "manage" });
   }
 

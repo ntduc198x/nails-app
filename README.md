@@ -27,6 +27,19 @@ npm run mobile:go:cloudflare
 - `npm run typecheck`: typecheck web + mobile
 - `npm run services:seed:priceboard`: seed lai bang `services` tu bang gia mau
 
+## Bien moi truong
+
+Sao chep `.env.example` thanh `.env.local` cho local web hoac `.env` cho cac script dung chung roi dien gia tri thuc te.
+
+Bien toi thieu de web app len duoc:
+
+- `NEXT_PUBLIC_APP_URL`
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
+Neu dung Telegram bot hoac mobile flow, can dien them cac bien lien quan da liet ke trong `.env.example`.
+
 ## Tai lieu
 
 - [docs/README.md](D:/Code/debug/nails-app/docs/README.md): chi muc tai lieu

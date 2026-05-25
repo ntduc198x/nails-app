@@ -5,6 +5,10 @@ import { getMergedEnv, repoRoot } from "./shared-env.mjs";
 const webDir = path.resolve(repoRoot, "apps", "web");
 const nextBin = path.join(repoRoot, "node_modules", "next", "dist", "bin", "next");
 const command = process.argv[2] ?? "dev";
+// Turbopack can spawn runaway PostCSS workers on Windows in this repo.
+const nextArgs = process.platform === "win32" && command === "dev"
+  ? [command, "--webpack"]
+  : [command];
 
 const env = {
   ...getMergedEnv(process.env),
@@ -28,7 +32,7 @@ if (process.platform === "win32") {
     "[Console]::OutputEncoding = $utf8",
     "$OutputEncoding = $utf8",
     "chcp 65001 > $null",
-    `node "${nextBin}" ${command}`,
+    `node "${nextBin}" ${nextArgs.join(" ")}`,
   ].join("; ");
 
   const child = spawn(
@@ -39,7 +43,7 @@ if (process.platform === "win32") {
 
   child.on("exit", exitWithChildCode);
 } else {
-  const child = spawn(process.execPath, [nextBin, command], {
+  const child = spawn(process.execPath, [nextBin, ...nextArgs], {
     cwd: webDir,
     stdio: "inherit",
     env,

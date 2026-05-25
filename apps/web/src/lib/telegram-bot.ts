@@ -776,28 +776,27 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
 }
 
-function getCompactAdminReplyKeyboard() {
-  return {
-    keyboard: [[{ text: "🧭 Mở menu quản trị" }]],
-    resize_keyboard: true,
-    one_time_keyboard: false,
-    is_persistent: true,
-    input_field_placeholder: "Mở lại menu quản trị...",
-  };
+function getRemoveReplyKeyboard() {
+  return { remove_keyboard: true };
 }
 
-function getAdminReplyKeyboard() {
+const MANAGE_MENU_OPENED_MESSAGE = "🧭 Menu quản trị đã mở. Dùng nút menu cạnh sticker hoặc /manage để mở lại nhanh.";
+const MANAGE_MENU_COMPACTED_MESSAGE = "🧭 Menu quản trị đã được thu nhỏ. Dùng nút menu cạnh sticker hoặc /manage để mở lại.";
+
+function getManageInlineKeyboard() {
   return {
-    keyboard: [
-      [{ text: "📊 Tổng quan" }, { text: "CRM" }],
-      [{ text: "📌 Booking" }, { text: "🕐 Lịch làm việc" }],
-      [{ text: "⚡ Tạo nhanh" }],
-      [{ text: "🙈 Thu nhỏ menu" }],
+    inline_keyboard: [
+      [{ text: "📊 Tổng quan", callback_data: "menu:overview" }],
+      [
+        { text: "CRM", callback_data: "menu:crm" },
+        { text: "📌 Booking", callback_data: "menu:booking" },
+      ],
+      [
+        { text: "🕐 Lịch làm việc", callback_data: "menu:ca" },
+        { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
+      ],
+      [{ text: "🙈 Thu nhỏ menu", callback_data: "menu:compact" }],
     ],
-    resize_keyboard: true,
-    one_time_keyboard: false,
-    is_persistent: true,
-    input_field_placeholder: "Chọn chức năng quản trị...",
   };
 }
 
@@ -1426,36 +1425,22 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
   await sendManagedReplyPanel(
     chatId,
     "⚙️ <b>MENU QUẢN TRỊ</b>\n\nChọn chức năng để thao tác.",
-    {
-      inline_keyboard: [
-        [{ text: "📊 Tổng quan", callback_data: "menu:overview" }],
-        [
-          { text: "CRM", callback_data: "menu:crm" },
-          { text: "📌 Booking", callback_data: "menu:booking" },
-        ],
-        [
-          { text: "🕐 Lịch làm việc", callback_data: "menu:ca" },
-          { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
-        ],
-        [{ text: "🙈 Thu nhỏ menu", callback_data: "menu:compact" }],
-      ],
-    },
+    getManageInlineKeyboard(),
     { forceNew: opts?.forceNew },
   );
 }
 
-export async function sendFreshAdminReplyKeyboard(chatId: string) {
-  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã mở. Dùng các nút dưới ô chat để thao tác nhanh.", {
-    reply_markup: getAdminReplyKeyboard(),
+export async function openFreshAdminMenu(chatId: string) {
+  await sendTelegramMessage(chatId, MANAGE_MENU_OPENED_MESSAGE, {
+    reply_markup: getRemoveReplyKeyboard(),
   });
-
-  await handleManageCommand(chatId);
+  await handleManageCommand(chatId, { forceNew: true });
 }
 
 export async function handleCompactManageCommand(chatId: string) {
   await deleteTrackedReplyPanel(chatId);
-  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm nút bên dưới để mở lại khi cần.", {
-    reply_markup: getCompactAdminReplyKeyboard(),
+  await sendTelegramMessage(chatId, MANAGE_MENU_COMPACTED_MESSAGE, {
+    reply_markup: getRemoveReplyKeyboard(),
   });
 }
 
@@ -2034,7 +2019,7 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
       "",
       "Từ giờ chỉ cần bấm nút menu cạnh emoji là dùng được.",
     ].join("\n"),
-    getAdminReplyKeyboard(),
+    getManageInlineKeyboard(),
   );
 }
 
@@ -2042,7 +2027,7 @@ export async function handleStartCommand(telegramUserId: number, chatId: string)
   const userInfo = await getTelegramUserRole(telegramUserId);
 
   if (userInfo.linked) {
-    await handleManageCommand(chatId, { forceNew: true });
+    await openFreshAdminMenu(chatId);
   } else {
     await sendTelegramMessage(chatId, [
       "👋 <b>Chào bạn!</b>",

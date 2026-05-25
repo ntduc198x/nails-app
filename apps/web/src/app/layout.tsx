@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Cormorant_Garamond, Geist_Mono, Inter, Montserrat } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({
@@ -24,6 +25,34 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+const hydrationCleanupScript = `
+  (() => {
+    const cleanup = () => {
+      document.querySelectorAll('[bis_skin_checked]').forEach((node) => {
+        node.removeAttribute('bis_skin_checked');
+      });
+    };
+
+    cleanup();
+
+    const observer = new MutationObserver(() => {
+      cleanup();
+    });
+
+    observer.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['bis_skin_checked'],
+    });
+
+    window.addEventListener('load', () => {
+      cleanup();
+      window.setTimeout(() => observer.disconnect(), 3000);
+    }, { once: true });
+  })();
+`;
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -73,11 +102,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" data-scroll-behavior="smooth">
+    <html lang="vi" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body
         suppressHydrationWarning
         className={`${inter.variable} ${montserrat.variable} ${cormorant.variable} ${geistMono.variable} antialiased`}
       >
+        <Script
+          id="cleanup-extension-hydration-attrs"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: hydrationCleanupScript }}
+        />
         {children}
       </body>
     </html>

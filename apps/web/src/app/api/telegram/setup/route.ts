@@ -7,16 +7,6 @@ import {
 
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramWebhookSecret = getTelegramWebhookSecret();
-const telegramCommands = [
-  { command: "manage", description: "Mở menu quản trị" },
-  { command: "booking", description: "Xem booking chờ xử lý" },
-  { command: "ca", description: "Xem lịch làm việc hôm nay" },
-  { command: "crm", description: "Mở menu CRM khách" },
-  { command: "doanhthu", description: "Xem báo cáo doanh thu" },
-  { command: "me", description: "Xem thông tin tài khoản liên kết" },
-  { command: "link", description: "Liên kết tài khoản Telegram" },
-] as const;
-const telegramCommandsMenuButton = { type: "commands" } as const;
 
 function resolveTelegramPublicBaseUrl(req: Request) {
   const requestUrl = new URL(req.url);
@@ -108,17 +98,13 @@ export async function POST(req: Request) {
     errors.push(`Webhook exception: ${msg}`);
   }
 
-  // Publish bot commands so Telegram can surface them from the menu button
-  // beside the sticker/emoji area.
+  // Clear slash commands so Telegram only shows the custom reply keyboard.
   try {
     const commandsRes = await fetch(
-      `https://api.telegram.org/bot${telegramBotToken}/setMyCommands`,
+      `https://api.telegram.org/bot${telegramBotToken}/deleteMyCommands`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          commands: telegramCommands,
-        }),
       }
     );
     const commandsData = await commandsRes.json();
@@ -132,8 +118,8 @@ export async function POST(req: Request) {
     errors.push(`Commands exception: ${msg}`);
   }
 
-  // Force Telegram to show the commands menu from the button beside the
-  // sticker/emoji controls.
+  // Reset menu button to default state. The visible admin controls are handled
+  // by the persistent reply keyboard, not by slash commands.
   try {
     const menuButtonRes = await fetch(
       `https://api.telegram.org/bot${telegramBotToken}/setChatMenuButton`,
@@ -141,7 +127,7 @@ export async function POST(req: Request) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          menu_button: telegramCommandsMenuButton,
+          menu_button: { type: "default" },
         }),
       }
     );
@@ -180,17 +166,15 @@ export async function GET(req: Request) {
 
   try {
     const publicBaseUrl = resolveTelegramPublicBaseUrl(req);
-    const [webhookRes, commandsRes, meRes, menuButtonRes] = await Promise.all([
+    const [webhookRes, commandsRes, meRes] = await Promise.all([
       fetch(`https://api.telegram.org/bot${telegramBotToken}/getWebhookInfo`),
       fetch(`https://api.telegram.org/bot${telegramBotToken}/getMyCommands`),
       fetch(`https://api.telegram.org/bot${telegramBotToken}/getMe`),
-      fetch(`https://api.telegram.org/bot${telegramBotToken}/getChatMenuButton`),
     ]);
 
     const webhook = await webhookRes.json();
     const commands = await commandsRes.json();
     const me = await meRes.json();
-    const menuButton = await menuButtonRes.json();
 
     return NextResponse.json({
       ok: true,
@@ -200,7 +184,6 @@ export async function GET(req: Request) {
       publicBaseUrl,
       webhook,
       commands,
-      menuButton,
       bot: me,
     });
   } catch (e) {

@@ -776,12 +776,30 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
 }
 
-function getRemoveReplyKeyboard() {
-  return { remove_keyboard: true };
+function getCompactAdminReplyKeyboard() {
+  return {
+    keyboard: [[{ text: "🧭 Mở menu quản trị" }]],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+    is_persistent: true,
+    input_field_placeholder: "Mở lại menu quản trị...",
+  };
 }
 
-const MANAGE_MENU_OPENED_MESSAGE = "🧭 Menu quản trị đã mở. Dùng nút menu cạnh sticker hoặc /manage để mở lại nhanh.";
-const MANAGE_MENU_COMPACTED_MESSAGE = "🧭 Menu quản trị đã được thu nhỏ. Dùng nút menu cạnh sticker hoặc /manage để mở lại.";
+function getAdminReplyKeyboard() {
+  return {
+    keyboard: [
+      [{ text: "📊 Tổng quan" }, { text: "CRM" }],
+      [{ text: "📌 Booking" }, { text: "🕐 Lịch làm việc" }],
+      [{ text: "⚡ Tạo nhanh" }],
+      [{ text: "🙈 Thu nhỏ menu" }],
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+    is_persistent: true,
+    input_field_placeholder: "Chọn chức năng quản trị...",
+  };
+}
 
 function getManageInlineKeyboard() {
   return {
@@ -1430,17 +1448,17 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
   );
 }
 
-export async function openFreshAdminMenu(chatId: string) {
-  await sendTelegramMessage(chatId, MANAGE_MENU_OPENED_MESSAGE, {
-    reply_markup: getRemoveReplyKeyboard(),
+export async function sendFreshAdminReplyKeyboard(chatId: string) {
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã mở. Dùng các nút dưới ô chat để thao tác nhanh.", {
+    reply_markup: getAdminReplyKeyboard(),
   });
-  await handleManageCommand(chatId, { forceNew: true });
+  await handleManageCommand(chatId);
 }
 
 export async function handleCompactManageCommand(chatId: string) {
   await deleteTrackedReplyPanel(chatId);
-  await sendTelegramMessage(chatId, MANAGE_MENU_COMPACTED_MESSAGE, {
-    reply_markup: getRemoveReplyKeyboard(),
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm nút bên dưới để mở lại khi cần.", {
+    reply_markup: getCompactAdminReplyKeyboard(),
   });
 }
 
@@ -2019,7 +2037,7 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
       "",
       "Từ giờ chỉ cần bấm nút menu cạnh emoji là dùng được.",
     ].join("\n"),
-    getManageInlineKeyboard(),
+    getAdminReplyKeyboard(),
   );
 }
 
@@ -2027,7 +2045,7 @@ export async function handleStartCommand(telegramUserId: number, chatId: string)
   const userInfo = await getTelegramUserRole(telegramUserId);
 
   if (userInfo.linked) {
-    await openFreshAdminMenu(chatId);
+    await sendFreshAdminReplyKeyboard(chatId);
   } else {
     await sendTelegramMessage(chatId, [
       "👋 <b>Chào bạn!</b>",

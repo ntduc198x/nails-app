@@ -20,7 +20,7 @@ function canonicalizePublicAppUrl(url: URL) {
   const next = new URL(url.origin);
 
   // Keep Telegram links and webhooks on the canonical production host.
-  if (next.hostname === "chambeauty.io.vn") {
+  if (next.hostname === "chambeauty.io.vn" || next.hostname === "cham.beauty.io.vn") {
     next.hostname = "www.chambeauty.io.vn";
   }
 

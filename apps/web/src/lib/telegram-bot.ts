@@ -78,6 +78,7 @@ export type TelegramDataScope = {
   orgId: string;
   branchId?: string | null;
   role?: string;
+  publicBaseUrl?: string;
 };
 
 type TelegramConversationStep =
@@ -735,7 +736,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
   if (!(await ensureTelegramDataScope(scope, chatId))) return;
 
   const supabase = getAdminSupabase();
-  const publicBaseUrl = resolvePublicAppBaseUrl();
+  const publicBaseUrl = scope.publicBaseUrl ?? resolvePublicAppBaseUrl();
 
   let bookingQuery = supabase
     .from("booking_requests")
@@ -913,8 +914,8 @@ function getCrmBackKeyboard() {
   };
 }
 
-function getCustomerCrmWebUrl(customerId: string) {
-  return buildManageCustomerUrl(customerId);
+function getCustomerCrmWebUrl(customerId: string, publicBaseUrl?: string) {
+  return buildManageCustomerUrl(customerId, publicBaseUrl);
 }
 
 async function listTelegramCrmCustomers(scope: TelegramDataScope, mode: "followups" | "at_risk", limit = 8) {
@@ -1569,7 +1570,7 @@ export async function handleCrmFollowUpCommand(scope: TelegramDataScope, chatId:
     lines.push(`  Follow-up: ${nextFollowUp} | DV gần nhất: ${service}`);
     inlineKeyboard.push([
       { text: `Done ${String(row.full_name || row.name || "Khách").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
-      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
+      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id), scope.publicBaseUrl) },
     ]);
   }
 
@@ -1609,7 +1610,7 @@ export async function handleCrmAtRiskCommand(scope: TelegramDataScope, chatId: s
     lines.push(`  SĐT: ${phone} | Lần ghé cuối: ${lastVisit}`);
     inlineKeyboard.push([
       { text: `Done ${String(row.full_name || row.name || "Khách").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
-      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
+      { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id), scope.publicBaseUrl) },
     ]);
   }
 
@@ -2024,7 +2025,7 @@ export async function handleBookingDetailCommand(scope: TelegramDataScope, chatI
   if (!(await ensureTelegramDataScope(scope, chatId))) return;
 
   const supabase = getAdminSupabase();
-  const manageUrl = buildManageWebBookingUrl(bookingId);
+  const manageUrl = buildManageWebBookingUrl(bookingId, "all", scope.publicBaseUrl);
   const isLocalManageUrl = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(manageUrl);
   let bookingDetailQuery = supabase
     .from("booking_requests")

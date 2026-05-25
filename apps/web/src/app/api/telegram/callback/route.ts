@@ -41,11 +41,15 @@ import {
 
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
 
-function toTelegramScope(userInfo: { org_id?: string; branch_id?: string | null; role?: string }) {
+function toTelegramScope(
+  userInfo: { org_id?: string; branch_id?: string | null; role?: string },
+  publicBaseUrl?: string,
+) {
   return {
     orgId: userInfo.org_id!,
     branchId: userInfo.branch_id ?? null,
     role: userInfo.role,
+    publicBaseUrl,
   };
 }
 
@@ -217,7 +221,12 @@ async function convertBookingToAppointment(supabase: ReturnType<typeof getAdminS
   return appointment.id;
 }
 
-async function handleMenuCallback(callback: { id: string; data?: string; from?: { id: number }; message?: { from?: { id: number } } }, action: string, chatId: string) {
+async function handleMenuCallback(
+  callback: { id: string; data?: string; from?: { id: number }; message?: { from?: { id: number } } },
+  action: string,
+  chatId: string,
+  publicBaseUrl: string,
+) {
   const telegramUserId = callback.from?.id ?? callback.message?.from?.id;
   if (!telegramUserId) {
     await sharedAnswerCallback(callback.id, "Không xác định được người dùng.");
@@ -236,7 +245,7 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
     return NextResponse.json({ ok: true, reason: "forbidden" });
   }
 
-  const scope = toTelegramScope(userInfo);
+  const scope = toTelegramScope(userInfo, publicBaseUrl);
   const scopeError = getTelegramPartnerScopeError(scope);
   if (scopeError) {
     await sharedAnswerCallback(callback.id, "Tài khoản PARTNER chưa được gán chi nhánh.");
@@ -294,7 +303,7 @@ async function processTelegramUpdate(body: unknown, publicBaseUrl: string) {
     const update = typeof body === "object" && body !== null ? (body as TelegramUpdatePayload) : null;
 
     if (update?.message) {
-      return await handleMessage(update.message);
+      return await handleMessage(update.message, publicBaseUrl);
     }
 
     const callback = update?.callback_query;
@@ -357,7 +366,10 @@ export async function GET(req: Request) {
   });
 }
 
-async function handleMessage(message: { from?: { id: number; username?: string; first_name?: string }; chat?: { id: number | string }; text?: string }) {
+async function handleMessage(
+  message: { from?: { id: number; username?: string; first_name?: string }; chat?: { id: number | string }; text?: string },
+  publicBaseUrl: string,
+) {
   const chatId = message.chat?.id ? String(message.chat.id) : null;
   if (!chatId) return NextResponse.json({ ok: true, ignored: true });
 
@@ -389,7 +401,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "📊 tong quan":
         case "tong quan":
           await clearReplyPanelState(chatId);
-          await handleOverviewCommand(toTelegramScope(userInfo), chatId);
+          await handleOverviewCommand(toTelegramScope(userInfo, publicBaseUrl), chatId);
           return NextResponse.json({ ok: true, handled: "reply_overview" });
         case "crm":
           await clearReplyPanelState(chatId);
@@ -398,12 +410,12 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "📌 booking":
         case "booking":
           await clearReplyPanelState(chatId);
-          await handleBookingCommand(toTelegramScope(userInfo), chatId);
+          await handleBookingCommand(toTelegramScope(userInfo, publicBaseUrl), chatId);
           return NextResponse.json({ ok: true, handled: "reply_booking" });
         case "🕐 lich lam viec":
         case "lich lam viec":
           await clearReplyPanelState(chatId);
-          await handleCaCommand(toTelegramScope(userInfo), chatId);
+          await handleCaCommand(toTelegramScope(userInfo, publicBaseUrl), chatId);
           return NextResponse.json({ ok: true, handled: "reply_shift" });
         case "⚡ tao nhanh":
         case "tao nhanh":
@@ -459,7 +471,7 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
       return NextResponse.json({ ok: true, command, error: "forbidden", role: userInfo.role });
     }
 
-    const scope = toTelegramScope(userInfo);
+    const scope = toTelegramScope(userInfo, publicBaseUrl);
     const scopeError = getTelegramPartnerScopeError(scope);
     if (scopeError) {
       await sendTelegramMessage(chatId, scopeError);
@@ -508,7 +520,7 @@ async function handleCallback(
 
     if (prefix === "menu") {
       if (!chatId || !action) return NextResponse.json({ ok: true, ignored: true });
-      return await handleMenuCallback(callback, action, chatId);
+      return await handleMenuCallback(callback, action, chatId, publicBaseUrl);
     }
 
     if (prefix === "report") {
@@ -523,13 +535,13 @@ async function handleCallback(
       }
 
       if (action === "custom") {
-        await beginCustomReportConversation(telegramUserId, toTelegramScope(userInfo), chatId);
+        await beginCustomReportConversation(telegramUserId, toTelegramScope(userInfo, publicBaseUrl), chatId);
         await sharedAnswerCallback(callback.id, "Nhập khoảng ngày để xem báo cáo");
         return NextResponse.json({ ok: true, action: "report_custom" });
       }
 
       if (action === "today" || action === "week" || action === "month") {
-        await handleRevenueReportCommand(toTelegramScope(userInfo), chatId, action);
+        await handleRevenueReportCommand(toTelegramScope(userInfo, publicBaseUrl), chatId, action);
         await sharedAnswerCallback(callback.id, "Đã cập nhật báo cáo");
         return NextResponse.json({ ok: true, action: `report_${action}` });
       }
@@ -547,7 +559,7 @@ async function handleCallback(
         await sharedAnswerCallback(callback.id, "Bạn không có quyền sử dụng chức năng này.");
         return NextResponse.json({ ok: true, reason: "forbidden_crm" });
       }
-      const scope = toTelegramScope(userInfo);
+      const scope = toTelegramScope(userInfo, publicBaseUrl);
 
       if (action === "followups") {
         await handleCrmFollowUpCommand(scope, chatId);
@@ -583,13 +595,13 @@ async function handleCallback(
       }
 
       if (action === "new") {
-        await beginQuickCreateAppointmentConversation(telegramUserId, toTelegramScope(userInfo), chatId);
+        await beginQuickCreateAppointmentConversation(telegramUserId, toTelegramScope(userInfo, publicBaseUrl), chatId);
         await sharedAnswerCallback(callback.id, "Nhập tên khách hàng");
         return NextResponse.json({ ok: true, action: "quickcreate_new" });
       }
 
       if (action === "checkin") {
-        await handleQuickCheckinMenu(toTelegramScope(userInfo), chatId);
+        await handleQuickCheckinMenu(toTelegramScope(userInfo, publicBaseUrl), chatId);
         await sharedAnswerCallback(callback.id, "Đã mở check-in nhanh");
         return NextResponse.json({ ok: true, action: "quickcreate_checkin" });
       }
@@ -635,7 +647,7 @@ async function handleCallback(
         return NextResponse.json({ ok: true, reason: "forbidden_checkin" });
       }
 
-      const result = await handleQuickCheckinAction(toTelegramScope(userInfo), chatId, action);
+      const result = await handleQuickCheckinAction(toTelegramScope(userInfo, publicBaseUrl), chatId, action);
       await sharedAnswerCallback(callback.id, result.message);
       return NextResponse.json({ ok: true, action: "checkin", result });
     }
@@ -655,7 +667,7 @@ async function handleCallback(
         return NextResponse.json({ ok: true, reason: "forbidden_booking_view" });
       }
 
-      await handleBookingDetailCommand(toTelegramScope(userInfo), chatId, bookingId);
+      await handleBookingDetailCommand(toTelegramScope(userInfo, publicBaseUrl), chatId, bookingId);
       await sharedAnswerCallback(callback.id, "Đã mở chi tiết booking");
       return NextResponse.json({ ok: true, action: "booking_view", bookingId });
     }

@@ -16,7 +16,7 @@ import { uploadPickedAdminContentImage } from "@/src/features/admin/content-imag
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
-import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
+import { hydrateCachedValue, isCacheFresh, markAdminContentRefresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -343,6 +343,7 @@ export default function AdminManageContentOfferDetailScreen() {
         const next = await createAdminOfferForMobile(client, payload);
         await writeCachedValue(`${OFFER_DETAIL_CACHE_PREFIX}${next.id}`, next);
       }
+      await markAdminContentRefresh("offer-saved");
       closeDetail();
     } catch (error) {
       Alert.alert("Không lưu được ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");
@@ -365,6 +366,7 @@ export default function AdminManageContentOfferDetailScreen() {
             setIsSaving(true);
             try {
               await archiveAdminOfferForMobile(client, form.id!);
+              await markAdminContentRefresh("offer-archived");
               closeDetail();
             } catch (error) {
               Alert.alert("Không ẩn được ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");

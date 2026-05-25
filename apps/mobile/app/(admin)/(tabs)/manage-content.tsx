@@ -1,7 +1,7 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   ActivityIndicator,
@@ -23,7 +23,6 @@ import type {
   MobileAdminContentPostInput,
   MobileAdminContentSnapshot,
   MobileAdminMerchService,
-  MobileAdminOfferInput,
   MobileAdminStorefrontGalleryItem,
   MobileAdminStorefrontGalleryItemInput,
   MobileAdminStorefrontProduct,
@@ -36,7 +35,6 @@ import {
   archiveAdminContentPostForMobile,
   archiveAdminOfferForMobile,
   createAdminContentPostForMobile,
-  createAdminOfferForMobile,
   createAdminStorefrontGalleryItemForMobile,
   createAdminStorefrontProductForMobile,
   createAdminStorefrontTeamMemberForMobile,
@@ -47,7 +45,6 @@ import {
   setActiveAdminStorefrontProfileForMobile,
   updateAdminContentPostForMobile,
   updateAdminMerchServiceForMobile,
-  updateAdminOfferForMobile,
   updateAdminStorefrontGalleryItemForMobile,
   updateAdminStorefrontProductForMobile,
   updateAdminStorefrontTeamMemberForMobile,
@@ -58,7 +55,7 @@ import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { mobileSupabase } from "@/src/lib/supabase";
-import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
+import { ADMIN_CONTENT_REFRESH_SIGNAL_KEY, hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 
 const palette = {
   border: "#EADFD3",
@@ -100,19 +97,15 @@ type MerchFormState = {
 };
 
 const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+type OfferPackageTier = (typeof OFFER_PACKAGE_TIERS)[number];
 
-type OfferFormState = {
-  id?: string;
-  title: string;
-  description: string;
-  imageUrl: string;
-  badge: string;
-  startsAt: string;
-  endsAt: string;
-  isActive: boolean;
-  packageTier: (typeof OFFER_PACKAGE_TIERS)[number];
-  packageOrder: string;
-  metadataText: string;
+const OFFER_PACKAGE_TIER_LABELS: Record<OfferPackageTier, string> = {
+  REGULAR: "Thành viên thường",
+  BRONZE: "Bronze",
+  SILVER: "Silver",
+  GOLD: "Gold",
+  PLATINUM: "Platinum",
+  DIAMOND: "Diamond",
 };
 
 type PostFormState = {
@@ -222,6 +215,32 @@ function parseMetadata(text: string) {
   const trimmed = text.trim();
   if (!trimmed) return {};
   return JSON.parse(trimmed) as Record<string, unknown>;
+}
+
+function getOfferPackageTier(metadata: Record<string, unknown>) {
+  const raw = typeof metadata.packageTier === "string" ? metadata.packageTier.trim().toUpperCase() : "REGULAR";
+  return (OFFER_PACKAGE_TIERS as readonly string[]).includes(raw) ? (raw as OfferPackageTier) : "REGULAR";
+}
+
+function getOfferPackageOrder(metadata: Record<string, unknown>) {
+  const raw = Number(metadata.packageOrder ?? metadata.displayOrder ?? 0);
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+function getOfferPackageTierLabel(packageTier: OfferPackageTier) {
+  return OFFER_PACKAGE_TIER_LABELS[packageTier];
+}
+
+function compareOffersByPackageOrder(
+  left: MobileAdminContentSnapshot["offers"][number],
+  right: MobileAdminContentSnapshot["offers"][number],
+) {
+  const orderDifference = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
+  if (orderDifference !== 0) {
+    return orderDifference;
+  }
+
+  return left.title.localeCompare(right.title, "vi");
 }
 
 function isLandingService(service: MobileAdminMerchService) {
@@ -656,7 +675,6 @@ export default function AdminManageContentScreen() {
 
   const [merchContext, setMerchContext] = useState<MerchContext>("home");
   const [merchForm, setMerchForm] = useState<MerchFormState | null>(null);
-  const [offerForm, setOfferForm] = useState<OfferFormState | null>(null);
   const [postForm, setPostForm] = useState<PostFormState | null>(null);
   const [storefrontForm, setStorefrontForm] = useState<StorefrontFormState>(buildStorefrontForm(null));
   const [storefrontEditorOpen, setStorefrontEditorOpen] = useState(false);
@@ -666,12 +684,25 @@ export default function AdminManageContentScreen() {
   const [teamForm, setTeamForm] = useState<TeamFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
   const [galleryForm, setGalleryForm] = useState<GalleryFormState | null>(null);
+  const hasFocusedOnceRef = useRef(false);
+  const lastHandledContentRefreshRef = useRef(0);
   const observerReadOnly =
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
   const isOrgOverview = snapshot?.viewMode === "org";
   const orgOverview = snapshot?.orgOverview ?? null;
+  const groupedOffers = useMemo(
+    () =>
+      OFFER_PACKAGE_TIERS.map((tier) => ({
+        tier,
+        label: getOfferPackageTierLabel(tier),
+        offers: (snapshot?.offers ?? [])
+          .filter((offer) => getOfferPackageTier(offer.metadata) === tier)
+          .sort(compareOffersByPackageOrder),
+      })).filter((group) => group.offers.length > 0),
+    [snapshot?.offers],
+  );
 
   function guardObserverWrite(actionLabel: string) {
     if (!observerReadOnly) {
@@ -783,8 +814,39 @@ export default function AdminManageContentScreen() {
     return () => clearTimeout(timeoutId);
   }, [loadServices, snapshot]);
 
-  // Removed useFocusEffect to prevent layout shift when returning to screen
-  // Data is loaded on mount via useEffect below
+  useEffect(() => {
+    void (async () => {
+      const signal = await hydrateCachedValue<{ reason: string }>(ADMIN_CONTENT_REFRESH_SIGNAL_KEY);
+      lastHandledContentRefreshRef.current = signal?.updatedAt ?? 0;
+    })();
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!observer.isReady) {
+        return undefined;
+      }
+
+      if (!hasFocusedOnceRef.current) {
+        hasFocusedOnceRef.current = true;
+        return undefined;
+      }
+
+      let cancelled = false;
+
+      void (async () => {
+        const signal = await hydrateCachedValue<{ reason: string }>(ADMIN_CONTENT_REFRESH_SIGNAL_KEY);
+        if (cancelled || !signal) return;
+        if (signal.updatedAt <= lastHandledContentRefreshRef.current) return;
+        lastHandledContentRefreshRef.current = signal.updatedAt;
+        await loadSnapshot();
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [loadSnapshot, observer.isReady]),
+  );
 
   const lookbookServices = useMemo(
     () =>
@@ -948,43 +1010,6 @@ export default function AdminManageContentScreen() {
       await loadServices(true);
     } catch (nextError) {
       Alert.alert("Không lưu được", nextError instanceof Error ? nextError.message : "Thử lại sau.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
-    const metadata = parseMetadata(form.metadataText);
-    metadata.packageTier = form.packageTier;
-    metadata.packageOrder = Number(form.packageOrder || 0);
-
-    return {
-      title: form.title.trim(),
-      description: form.description.trim(),
-      imageUrl: form.imageUrl.trim() || null,
-      badge: form.badge.trim() || null,
-      startsAt: form.startsAt.trim() || null,
-      endsAt: form.endsAt.trim() || null,
-      isActive: form.isActive,
-      metadata,
-    };
-  }
-
-  async function saveOffer() {
-    if (!mobileSupabase || !offerForm) return;
-    if (guardObserverWrite("Lưu ưu đãi")) return;
-    setSaving(true);
-    try {
-      const payload = toOfferInput(offerForm);
-      if (offerForm.id) {
-        await updateAdminOfferForMobile(mobileSupabase, offerForm.id, payload);
-      } else {
-        await createAdminOfferForMobile(mobileSupabase, payload);
-      }
-      setOfferForm(null);
-      await loadSnapshot();
-    } catch (nextError) {
-      Alert.alert("Không lưu ưu đãi", nextError instanceof Error ? nextError.message : "Thử lại sau.");
     } finally {
       setSaving(false);
     }
@@ -1318,19 +1343,31 @@ export default function AdminManageContentScreen() {
             onActionPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}
           >
             <View style={styles.listColumn}>
-              {(snapshot?.offers ?? []).map((offer) => (
-                <View key={offer.id} style={styles.rowCard}>
-                  <ItemThumbnail uri={offer.imageUrl} label={offer.title} />
-                  <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
-                    <Text style={styles.rowTitle}>{offer.title}</Text>
-                    <Text style={styles.rowSubtitle}>{offer.isActive ? "Đang bật" : "Đang tắt"} · {offer.badge || "Không có badge"}</Text>
-                  </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng.", async () => {
-                    if (!mobileSupabase) return;
-                    await archiveAdminOfferForMobile(mobileSupabase, offer.id);
-                  })}>
-                    <Feather name="archive" size={16} color={palette.accent} />
-                  </Pressable>
+              {groupedOffers.map((group) => (
+                <View key={group.tier} style={styles.offerTierSection}>
+                  <View style={styles.offerTierHeader}>
+                    <Text style={styles.offerTierTitle}>{group.label}</Text>
+                    <CountBadge value={String(group.offers.length)} />
+                  </View>
+                  <View style={styles.listColumn}>
+                    {group.offers.map((offer) => (
+                      <View key={offer.id} style={styles.rowCard}>
+                        <ItemThumbnail uri={offer.imageUrl} label={offer.title} />
+                        <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
+                          <Text style={styles.rowTitle}>{offer.title}</Text>
+                          <Text style={styles.rowSubtitle}>
+                            {offer.isActive ? "Đang bật" : "Đang tắt"} · {offer.badge || "Không có badge"} · Thứ tự {getOfferPackageOrder(offer.metadata)}
+                          </Text>
+                        </Pressable>
+                        <Pressable style={styles.iconButton} onPress={() => void confirmTask("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng.", async () => {
+                          if (!mobileSupabase) return;
+                          await archiveAdminOfferForMobile(mobileSupabase, offer.id);
+                        })}>
+                          <Feather name="archive" size={16} color={palette.accent} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
                 </View>
               ))}
             </View>
@@ -1982,10 +2019,6 @@ export default function AdminManageContentScreen() {
         ) : null}
       </ModalShell>
 
-      <ModalShell title={offerForm?.id ? "Sửa ưu đãi" : "Thêm ưu đãi"} visible={Boolean(offerForm)} onClose={() => setOfferForm(null)}>
-        {offerForm ? <View style={styles.formColumn}><ImagePreview uri={offerForm.imageUrl} label="Ảnh ưu đãi hiện tại" /><Input placeholder="Tiêu đề" value={offerForm.title} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder="Mô tả" value={offerForm.description} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, description: value } : prev))} /><Input placeholder="URL ảnh" value={offerForm.imageUrl} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("offers", offerForm.title || "offer", (publicUrl) => setOfferForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><Input placeholder="Nhãn" value={offerForm.badge} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, badge: value } : prev))} /><Input placeholder="Thời gian bắt đầu (ISO)" value={offerForm.startsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, startsAt: value } : prev))} /><Input placeholder="Thời gian kết thúc (ISO)" value={offerForm.endsAt} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, endsAt: value } : prev))} /><Text style={styles.rowSubtitle}>Gói ưu đãi theo hạng</Text><View style={styles.inlineButtons}>{OFFER_PACKAGE_TIERS.map((tier) => <Chip key={tier} active={offerForm.packageTier === tier} label={tier} onPress={() => setOfferForm((prev) => (prev ? { ...prev, packageTier: tier } : prev))} />)}</View><Input placeholder="Thứ tự hiển thị trong gói" keyboardType="number-pad" value={offerForm.packageOrder} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, packageOrder: value } : prev))} /><TextArea placeholder='Metadata JSON' value={offerForm.metadataText} onChangeText={(value) => setOfferForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Chip active={offerForm.isActive} label={offerForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setOfferForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveOffer()}><Text style={styles.primaryButtonText}>Lưu ưu đãi</Text></Pressable></View> : null}
-      </ModalShell>
-
       <ModalShell title={postForm?.id ? "Sửa bài feed" : "Thêm bài feed"} visible={Boolean(postForm)} onClose={() => setPostForm(null)}>
         {postForm ? <View style={styles.formColumn}><ImagePreview uri={postForm.coverImageUrl} label="Ảnh bài viết hiện tại" /><Input placeholder="Tiêu đề" value={postForm.title} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder="Tóm tắt" value={postForm.summary} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, summary: value } : prev))} /><TextArea placeholder="Nội dung" value={postForm.body} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, body: value } : prev))} /><Input placeholder="URL ảnh bìa" value={postForm.coverImageUrl} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("posts", postForm.title || "post", (publicUrl) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text></Pressable><Input placeholder="Độ ưu tiên" keyboardType="number-pad" value={postForm.priority} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, priority: value } : prev))} /><View style={styles.inlineButtons}>{(["trend", "care", "news", "offer_hint"] as const).map((item) => <Chip key={item} active={postForm.contentType === item} label={item} onPress={() => setPostForm((prev) => (prev ? { ...prev, contentType: item } : prev))} />)}</View><View style={styles.inlineButtons}>{(["draft", "approved", "published", "archived"] as const).map((item) => <Chip key={item} active={postForm.status === item} label={item} onPress={() => setPostForm((prev) => (prev ? { ...prev, status: item } : prev))} />)}</View>{postForm.id ? <Text style={styles.rowSubtitle}>Nguồn: {postForm.sourcePlatform || "mobile_admin"} {postForm.sourceMessageId ? `· msg ${postForm.sourceMessageId}` : ""}</Text> : null}<TextArea placeholder='Metadata JSON' value={postForm.metadataText} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void savePost()}><Text style={styles.primaryButtonText}>Lưu bài viết</Text></Pressable></View> : null}
       </ModalShell>
@@ -2196,6 +2229,21 @@ const styles = StyleSheet.create({
   actionButton: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
   actionButtonText: { fontSize: 12, fontWeight: "800", color: palette.accent },
   listColumn: { gap: 12 },
+  offerTierSection: { gap: 10 },
+  offerTierHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  offerTierTitle: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: palette.text,
+  },
   rowCard: { borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "flex-start", gap: 14 },
   thumbPlaceholder: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: palette.accentSoft, borderWidth: 1, borderColor: "#E7D6C1", overflow: "hidden" },
   thumbPlaceholderText: { fontSize: 18, fontWeight: "800", color: palette.accent },

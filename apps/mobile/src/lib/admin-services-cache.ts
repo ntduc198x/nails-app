@@ -7,6 +7,7 @@ type CacheEnvelope<T> = {
 
 const memoryCache = new Map<string, CacheEnvelope<unknown>>();
 const STORAGE_PREFIX = "admin-services-cache:";
+export const ADMIN_CONTENT_REFRESH_SIGNAL_KEY = "admin-content-refresh-signal";
 
 function getStorageKey(key: string) {
   return `${STORAGE_PREFIX}${key}`;
@@ -62,6 +63,10 @@ export async function writeCachedValue<T>(key: string, value: T) {
   } catch {
     // Ignore storage write failures and keep memory cache alive for this session.
   }
+}
+
+export async function markAdminContentRefresh(reason: string) {
+  await writeCachedValue(ADMIN_CONTENT_REFRESH_SIGNAL_KEY, { reason });
 }
 
 export async function clearAdminServicesCache() {

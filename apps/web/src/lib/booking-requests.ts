@@ -1,6 +1,13 @@
 import { supabase } from "@/lib/supabase";
 import { ensureOrgContext } from "@/lib/domain";
 import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
+import { getAdminWebCacheKeys, invalidateAdminWebCache } from "@/lib/admin-web-cache";
+
+function invalidateAdminBookingSnapshots() {
+  invalidateAdminWebCache(getAdminWebCacheKeys().bookingRequests);
+  invalidateAdminWebCache(getAdminWebCacheKeys().bookingRequestCount);
+  invalidateAdminWebCache(getAdminWebCacheKeys().manageNotifications);
+}
 
 export type BookingRequestStatus = "NEW" | "CONFIRMED" | "NEEDS_RESCHEDULE" | "CANCELLED" | "CONVERTED";
 
@@ -166,6 +173,7 @@ export async function updateBookingRequestStatus(id: string, status: BookingRequ
     if (fallbackError) throw fallbackError;
   }
   await rebalanceOpenBookingRequests({ orgId });
+  invalidateAdminBookingSnapshots();
 }
 
 export async function deleteBookingRequest(id: string) {
@@ -180,6 +188,7 @@ export async function deleteBookingRequest(id: string) {
 
   if (error) throw error;
   await rebalanceOpenBookingRequests({ orgId });
+  invalidateAdminBookingSnapshots();
 }
 
 export async function checkAppointmentCapacity(input: {
@@ -250,6 +259,7 @@ export async function convertBookingRequestToAppointment(input: {
 
   const { orgId } = await ensureOrgContext();
   await rebalanceOpenBookingRequests({ orgId });
+  invalidateAdminBookingSnapshots();
 
   return data as { booking_request_id: string; appointment_id: string; status: string };
 }

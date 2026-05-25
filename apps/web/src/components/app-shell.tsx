@@ -1,9 +1,11 @@
 ﻿"use client";
 
+import { type ManageNotificationItem } from "@/lib/manage-notifications";
 import {
-  loadManageNotifications,
-  type ManageNotificationItem,
-} from "@/lib/manage-notifications";
+  getManageNotificationsSnapshot,
+  prewarmBookingServicesData,
+  prewarmManageShellData,
+} from "@/lib/admin-web-prewarm";
 import {
   clearStoredSessionToken,
   createAppSession,
@@ -113,6 +115,7 @@ const SESSION_VALIDATION_INTERVAL = 15_000;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const isBookingRequestsPerfMode = pathname === "/manage/booking-requests";
 
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState<string>("");
@@ -332,7 +335,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     async function loadNotifications() {
       try {
-        const rows = await loadManageNotifications(role);
+        const rows = await getManageNotificationsSnapshot(role);
         if (!disposed) setNotifications(rows);
       } catch {}
     }
@@ -431,8 +434,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!authReady || loading || !pathname.startsWith("/manage")) return;
+    if (!["OWNER", "PARTNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;
+    void prewarmManageShellData(role);
+  }, [authReady, loading, pathname, role]);
+
+  useEffect(() => {
     for (const group of visibleGroups) {
-      for (const item of group.items) router.prefetch(item.href);
+      for (const item of group.items) {
+        router.prefetch(item.href);
+        if (item.href === "/manage/appointments" || item.href === "/manage/booking-requests") {
+          void prewarmBookingServicesData();
+        }
+      }
     }
   }, [router, visibleGroups]);
 
@@ -532,7 +546,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 backdrop-blur" style={{ borderBottom: "1px solid var(--color-border)", background: "rgba(255,253,249,.95)" }}>
+      <header
+        className={`sticky top-0 z-20 ${isBookingRequestsPerfMode ? "" : "backdrop-blur"}`}
+        style={{
+          borderBottom: "1px solid var(--color-border)",
+          background: isBookingRequestsPerfMode ? "#fffdf9" : "rgba(255,253,249,.95)",
+        }}
+      >
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 p-3 md:p-4">
           <div>
             <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>

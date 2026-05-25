@@ -2,16 +2,25 @@
 
 import { AppShell } from "@/components/app-shell";
 import { ManageAlert } from "@/components/manage-alert";
-import { ManageBookingRequestsPanel } from "@/components/manage-booking-requests-panel";
+import { getAppointmentsModeLabel, ManageAppointmentsModeTabs } from "@/components/manage-appointments-mode-tabs";
+import { BookingServicesPanelSkeleton } from "@/components/manage-booking-requests.sections";
 import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-datetime-picker";
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole } from "@/lib/auth";
 import { createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+const ManageBookingRequestsPanel = dynamic(
+  () => import("@/components/manage-booking-requests-panel").then((module) => module.ManageBookingRequestsPanel),
+  {
+    loading: () => <BookingServicesPanelSkeleton title="Booking services" />,
+  },
+);
 
 type AppointmentRow = {
   id: string;
@@ -368,6 +377,7 @@ function OperationsPageContent() {
   const formRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const activeTab = searchParams.get("tab") === "web-booking" ? "web-booking" : "calendar";
+  const activeTabLabel = getAppointmentsModeLabel(activeTab);
 
   function switchTab(nextTab: "calendar" | "web-booking") {
     const params = new URLSearchParams(searchParams.toString());
@@ -626,19 +636,12 @@ function OperationsPageContent() {
 
           <MobileSectionHeader
             title="Điều phối lịch"
-            meta={<div className="manage-info-box">Appointments hiện đang mở tab Web Booking</div>}
+            meta={<div className="manage-info-box">Đang mở tab {activeTabLabel}</div>}
           />
 
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => switchTab("calendar")} className="manage-quick-link">
-              Lịch hẹn
-            </button>
-            <button type="button" onClick={() => switchTab("web-booking")} className="manage-quick-link-accent">
-              Web Booking
-            </button>
-          </div>
+          <ManageAppointmentsModeTabs activeTab={activeTab} onSelect={switchTab} />
 
-          <ManageBookingRequestsPanel showHeader={false} />
+          <ManageBookingRequestsPanel title={activeTabLabel} showHeader={false} />
         </div>
       </AppShell>
     );
@@ -653,14 +656,7 @@ function OperationsPageContent() {
           title="Điều phối lịch"
           meta={<div className={nextActionMetaClass}>{refreshing ? "Đang làm mới..." : nextActionLabel}</div>}
         />
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => switchTab("calendar")} className="manage-quick-link-accent">
-            Lịch hẹn
-          </button>
-          <button type="button" onClick={() => switchTab("web-booking")} className="manage-quick-link">
-            Web Booking
-          </button>
-        </div>
+        <ManageAppointmentsModeTabs activeTab={activeTab} onSelect={switchTab} />
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
 
         <>

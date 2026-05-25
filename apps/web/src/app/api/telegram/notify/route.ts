@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { getAdminSupabase, sendTelegramMessage, formatViTime } from "@/lib/telegram-bot";
+import { buildManageShiftsUrl, resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { verifyTelegramInternalRequest } from "@/lib/route-secrets";
 
 const telegramChatId = process.env.TELEGRAM_BOOKING_CHAT_ID;
-const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 
 export async function POST(req: Request) {
   try {
@@ -17,6 +17,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = getAdminSupabase();
+    const publicBaseUrl = resolvePublicAppBaseUrl(req);
     let sent = 0;
 
     const now = new Date();
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
         lines.push(`• <b>${name}</b> — ${hours}h${minutes}p (vào ${formatViTime(s.clock_in)})`);
       }
 
-      lines.push("", `👉 ${publicBaseUrl}/manage/shifts`);
+      lines.push("", `👉 ${buildManageShiftsUrl(publicBaseUrl)}`);
 
       await sendTelegramMessage(telegramChatId, lines.join("\n"));
       sent++;

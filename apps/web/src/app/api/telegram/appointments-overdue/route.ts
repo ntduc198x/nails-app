@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { buildManageAppointmentsUrl, resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { verifyTelegramInternalRequest } from "@/lib/route-secrets";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramChatId = process.env.TELEGRAM_BOOKING_CHAT_ID;
-const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 const APPOINTMENT_OVERDUE_MINUTES = Number(process.env.APPOINTMENT_OVERDUE_MINUTES ?? "15");
 
 function getSupabase() {
@@ -54,6 +54,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = getSupabase();
+    const publicBaseUrl = resolvePublicAppBaseUrl(req);
     const now = new Date();
     const cutoffIso = new Date(now.getTime() - APPOINTMENT_OVERDUE_MINUTES * 60 * 1000).toISOString();
 
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
           `• Giờ hẹn: ${formatViDateTime(row.start_at)}`,
           `• Trạng thái: <b>${row.status}</b>`,
           `• Cảnh báo: đã quá <b>${APPOINTMENT_OVERDUE_MINUTES} phút</b> nhưng chưa check-in.`,
-          `• Mở quản trị: ${publicBaseUrl}/manage/appointments`,
+          `• Mở quản trị: ${buildManageAppointmentsUrl(publicBaseUrl)}`,
         ].join("\n"),
       );
 

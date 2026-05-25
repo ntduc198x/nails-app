@@ -7,6 +7,7 @@ import {
   listShiftEntriesForScope,
   listShiftLeaveRequestsForScope,
 } from "@/lib/shift-attendance";
+import { buildManageCustomerUrl, buildManageWebBookingUrl, resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { formatAttendanceFraction } from "@nails/shared";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -734,7 +735,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
   if (!(await ensureTelegramDataScope(scope, chatId))) return;
 
   const supabase = getAdminSupabase();
-  const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
+  const publicBaseUrl = resolvePublicAppBaseUrl();
 
   let bookingQuery = supabase
     .from("booking_requests")
@@ -780,7 +781,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
     if (b.customer_phone) lines.push(`   SĐT: ${b.customer_phone}`);
   }
 
-  lines.push("", `👉 ${publicBaseUrl}/manage/appointments/web-booking`);
+  lines.push("", `👉 ${buildManageWebBookingUrl(null, "all", publicBaseUrl)}`);
   keyboardRows.push([{ text: "◀️ Quay lại", callback_data: "menu:admin" }]);
 
   await sendManagedReplyPanel(chatId, lines.join("\n"), { inline_keyboard: keyboardRows });
@@ -913,7 +914,7 @@ function getCrmBackKeyboard() {
 }
 
 function getCustomerCrmWebUrl(customerId: string) {
-  return `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/customers/${customerId}`;
+  return buildManageCustomerUrl(customerId);
 }
 
 async function listTelegramCrmCustomers(scope: TelegramDataScope, mode: "followups" | "at_risk", limit = 8) {
@@ -2023,7 +2024,7 @@ export async function handleBookingDetailCommand(scope: TelegramDataScope, chatI
   if (!(await ensureTelegramDataScope(scope, chatId))) return;
 
   const supabase = getAdminSupabase();
-  const manageUrl = `${process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn"}/manage/appointments/web-booking`;
+  const manageUrl = buildManageWebBookingUrl(bookingId);
   const isLocalManageUrl = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(manageUrl);
   let bookingDetailQuery = supabase
     .from("booking_requests")

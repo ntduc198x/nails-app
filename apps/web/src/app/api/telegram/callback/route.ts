@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getBookingWindowCapacitySnapshot, rebalanceOpenBookingRequests } from "@/lib/booking-capacity";
+import { buildManageAppointmentsUrl, buildManageWebBookingUrl, resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { verifyTelegramWebhookRequest } from "@/lib/route-secrets";
 import {
   getAdminSupabase,
@@ -38,7 +39,6 @@ import {
   handleTelegramConversationMessage,
 } from "@/lib/telegram-bot";
 
-const publicBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "https://chambeauty.io.vn";
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
 
 function toTelegramScope(userInfo: { org_id?: string; branch_id?: string | null; role?: string }) {
@@ -284,7 +284,7 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
   return NextResponse.json({ ok: true, action });
 }
 
-async function processTelegramUpdate(body: unknown) {
+async function processTelegramUpdate(body: unknown, publicBaseUrl: string) {
   try {
     type TelegramUpdatePayload = {
       message?: Parameters<typeof handleMessage>[0];
@@ -302,7 +302,7 @@ async function processTelegramUpdate(body: unknown) {
       return NextResponse.json({ ok: true, ignored: true, debug: { reason: "unsupported_update" } });
     }
 
-    return await handleCallback(callback);
+    return await handleCallback(callback, publicBaseUrl);
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Telegram webhook failed" },
@@ -318,14 +318,15 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  return processTelegramUpdate(body);
+  return processTelegramUpdate(body, resolvePublicAppBaseUrl(req));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   return NextResponse.json({
     ok: true,
     route: "/api/telegram/callback",
     mode: process.env.NODE_ENV,
+    publicBaseUrl: resolvePublicAppBaseUrl(req),
     note: "GET chỉ để health-check. Telegram webhook thật sự dùng POST.",
     local_test: {
       message: {
@@ -492,7 +493,10 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
   return NextResponse.json({ ok: true, ignored: true, text: text.slice(0, 50) });
 }
 
-async function handleCallback(callback: { id: string; data?: string; from?: { id: number }; message?: { chat?: { id?: number | string }; message_id?: number; from?: { id: number } } }) {
+async function handleCallback(
+  callback: { id: string; data?: string; from?: { id: number }; message?: { chat?: { id?: number | string }; message_id?: number; from?: { id: number } } },
+  publicBaseUrl: string,
+) {
   try {
     const chatId = callback.message?.chat?.id ? String(callback.message.chat.id) : null;
     const messageId = callback.message?.message_id;
@@ -733,7 +737,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
           requestedStartAt: row.requested_start_at,
           note: row.note,
           resultLine: "❌ Kết quả: <b>Đã hủy từ Telegram</b>",
-          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`],
+          extraLines: [`🔗 Quản trị: ${buildManageWebBookingUrl(bookingId, "new", publicBaseUrl)}`],
         }));
       }
 
@@ -762,7 +766,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
           requestedStartAt: row.requested_start_at,
           note: row.note,
           resultLine: "📅 Kết quả: <b>Đã chuyển sang trạng thái cần đổi lịch</b>",
-          extraLines: [`🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`],
+          extraLines: [`🔗 Quản trị: ${buildManageWebBookingUrl(bookingId, "reschedule", publicBaseUrl)}`],
         }));
       }
 
@@ -815,7 +819,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
             `⚠️ Trùng/vượt giới hạn với <b>${overlapCount}</b> lịch hiện có`,
             ...appointmentOverlaps.slice(0, 3).map((item) => `• ${escapeHtml(pickCustomerName(item.customers))} — ${formatViDateTime(item.start_at)}`),
             `ℹ️ Cảnh báo sát lịch trong khoảng ±${NEARBY_WARNING_MINUTES} phút chỉ dùng để nhắc`,
-            `🔗 Quản trị: ${publicBaseUrl}/manage/appointments/web-booking`,
+            `🔗 Quản trị: ${buildManageWebBookingUrl(bookingId, "reschedule", publicBaseUrl)}`,
           ],
         }));
       }
@@ -851,7 +855,7 @@ async function handleCallback(callback: { id: string; data?: string; from?: { id
           `🆔 Appointment: <code>${appointmentId}</code>`,
           `📌 Trạng thái mới: <b>BOOKED ONLINE</b>`,
           `ℹ️ Giới hạn hiện tại: tối đa <b>${MAX_SIMULTANEOUS_BOOKINGS}</b> khách cùng giờ, cảnh báo sát lịch ±${NEARBY_WARNING_MINUTES} phút`,
-          `🔗 Quản trị: ${publicBaseUrl}/manage/appointments`,
+          `🔗 Quản trị: ${buildManageAppointmentsUrl(publicBaseUrl)}`,
         ],
       }));
     }

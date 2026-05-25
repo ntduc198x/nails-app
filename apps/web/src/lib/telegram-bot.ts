@@ -1,6 +1,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import {
+  listEffectiveShiftSlotsForScope,
+  listShiftChangeRequestsForScope,
+  listShiftEntriesForScope,
+  listShiftLeaveRequestsForScope,
+} from "@/lib/shift-attendance";
+import { formatAttendanceFraction } from "@nails/shared";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -490,6 +497,22 @@ export function formatViDate(iso: string): string {
   });
 }
 
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getStartOfWeekDateKey(date: Date): string {
+  const next = new Date(date);
+  const weekday = next.getDay();
+  const diff = weekday === 0 ? -6 : 1 - weekday;
+  next.setDate(next.getDate() + diff);
+  next.setHours(0, 0, 0, 0);
+  return toDateKey(next);
+}
+
 function formatViShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -604,48 +627,96 @@ export async function handleDoanhthuCommand(scope: TelegramDataScope, chatId: st
 }
 
 export async function handleCaCommand(scope: TelegramDataScope, chatId: string) {
+  const resolvedScope = {
+    orgId: scope.orgId,
+    branchId: isBranchRestrictedScope(scope) ? scope.branchId ?? null : null,
+  };
   const supabase = getAdminSupabase();
   const now = new Date();
+  const todayDateKey = toDateKey(now);
+  const weekStart = getStartOfWeekDateKey(now);
 
-  let openShiftsQuery = supabase
-    .from("time_entries")
-    .select("staff_user_id,clock_in")
-    .eq("org_id", scope.orgId)
-    .is("clock_out", null)
-    .order("clock_in", { ascending: true });
+  const [effectiveSlots, attendanceEntries, pendingLeaveRequests, pendingChangeRequests] = await Promise.all([
+    listEffectiveShiftSlotsForScope(weekStart, resolvedScope),
+    listShiftEntriesForScope(resolvedScope, { dateKey: todayDateKey }),
+    listShiftLeaveRequestsForScope(resolvedScope, { status: "PENDING" }),
+    listShiftChangeRequestsForScope(resolvedScope, { status: "PENDING" }),
+  ]);
 
-  if (isBranchRestrictedScope(scope)) {
-    openShiftsQuery = openShiftsQuery.eq("branch_id", scope.branchId);
-  }
+  const todaySlots = effectiveSlots.filter((slot) => slot.dateKey === todayDateKey);
+  const openEntries = attendanceEntries.filter((entry) => entry.clock_out === null && entry.approval_status !== "REJECTED");
+  const closedEntries = attendanceEntries.filter((entry) => entry.clock_out !== null);
+  const pendingAttendance = attendanceEntries.filter((entry) => entry.approval_status === "PENDING");
+  const pendingDayOff = pendingLeaveRequests.filter((request) => request.request_type === "DAY_OFF");
+  const pendingEarlyLeave = pendingLeaveRequests.filter((request) => request.request_type === "EARLY_LEAVE");
 
-  const { data: openShifts, error } = await openShiftsQuery;
-
-  if (error) throw error;
-
-  const shifts = openShifts ?? [];
-  if (!shifts.length) {
-    await sendManagedReplyPanel(chatId, "<b>🕐 CA LÀM</b>\n\nKhông có ai đang mở ca.", getBackToAdminKeyboard());
-    return;
-  }
-
-  const staffIds = shifts.map((s) => s.staff_user_id as string);
+  const staffIds = [
+    ...new Set([
+      ...todaySlots.map((slot) => slot.holderUserId),
+      ...attendanceEntries.map((entry) => entry.staff_user_id).filter((value): value is string => Boolean(value)),
+      ...pendingLeaveRequests.map((request) => request.staff_user_id),
+      ...pendingChangeRequests.map((request) => request.requester_user_id),
+    ]),
+  ];
   const { data: profiles } = await supabase
     .from("profiles")
     .select("user_id,display_name")
     .in("user_id", staffIds);
   const nameMap = new Map((profiles ?? []).map((p) => [p.user_id as string, ((p.display_name as string | null) || String(p.user_id).slice(0, 8))]));
 
-  const lines = ["<b>🕐 CA LÀM ĐANG MỞ</b>", ""];
+  const uniqueStaffCount = new Set(todaySlots.map((slot) => slot.holderUserId)).size;
+  const lines = [
+    `<b>🕐 LỊCH LÀM VIỆC (${formatViDate(now.toISOString())})</b>`,
+    `Ca hiệu lực: <b>${todaySlots.length}</b> | Nhân sự được xếp: <b>${uniqueStaffCount}</b>`,
+    `Attendance: <b>${openEntries.length}</b> đang mở | <b>${closedEntries.length}</b> đã đóng | <b>${pendingAttendance.length}</b> chờ duyệt`,
+    `Pending: <b>${pendingDayOff.length}</b> nghỉ ca | <b>${pendingEarlyLeave.length}</b> về sớm | <b>${pendingChangeRequests.length}</b> đổi/nhận ca`,
+    "",
+  ];
 
-  for (const s of shifts) {
-    const name = nameMap.get(s.staff_user_id as string) ?? "-";
-    const clockIn = new Date(s.clock_in as string);
-    const diffMs = now.getTime() - clockIn.getTime();
-    const hours = Math.floor(diffMs / 3600000);
-    const minutes = Math.floor((diffMs % 3600000) / 60000);
-    const duration = `${hours}h${minutes}p`;
-    const warning = diffMs > 10 * 3600000 ? " ⚠️ QUÁ 10H!" : diffMs > 8 * 3600000 ? " ⚠️ gần 8h" : "";
-    lines.push(`• <b>${name}</b> — ${duration} (vào ${formatViTime(s.clock_in as string)})${warning}`);
+  if (!todaySlots.length) {
+    lines.push("Chưa có lịch làm việc hiệu lực hôm nay.");
+    if (attendanceEntries.length || pendingLeaveRequests.length || pendingChangeRequests.length) {
+      lines.push(
+        `⚠️ Vẫn có <b>${attendanceEntries.length}</b> attendance và <b>${pendingLeaveRequests.length + pendingChangeRequests.length}</b> yêu cầu pending trong phạm vi này.`,
+      );
+    }
+    await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
+    return;
+  }
+
+  const noteworthyEntries = [...attendanceEntries]
+    .sort((left, right) => {
+      const leftRank = left.clock_out === null ? 0 : left.approval_status === "PENDING" ? 1 : 2;
+      const rightRank = right.clock_out === null ? 0 : right.approval_status === "PENDING" ? 1 : 2;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return new Date(right.clock_in).getTime() - new Date(left.clock_in).getTime();
+    })
+    .slice(0, 5);
+
+  if (noteworthyEntries.length > 0) {
+    lines.push("<b>Nhân sự nổi bật:</b>");
+    for (const entry of noteworthyEntries) {
+      const name = entry.staff_user_id ? (nameMap.get(entry.staff_user_id) ?? entry.staff_user_id) : "Nhân sự";
+      const scheduledLabel = entry.scheduled_shift_label || "Ca chưa gắn lịch";
+      const status =
+        entry.clock_out === null
+          ? entry.approval_status === "PENDING"
+            ? "Đang mở • chờ duyệt"
+            : "Đang mở"
+          : entry.approval_status === "PENDING"
+            ? "Đã đóng • chờ duyệt"
+            : entry.approval_status === "REJECTED"
+              ? "Bị từ chối"
+              : "Đã đóng";
+      const attendanceText = entry.approval_status === "APPROVED" ? ` • ${formatAttendanceFraction(entry.attendance_fraction)}` : "";
+      lines.push(`• <b>${escapeHtml(name)}</b> — ${escapeHtml(scheduledLabel)} • ${status}${attendanceText}`);
+    }
+  } else {
+    lines.push("<b>Ca đã publish hôm nay:</b>");
+    for (const slot of todaySlots.slice(0, 5)) {
+      const name = nameMap.get(slot.holderUserId) ?? slot.holderName ?? slot.holderUserId;
+      lines.push(`• <b>${escapeHtml(name)}</b> — ${escapeHtml(slot.shiftLabel)} (${slot.startTime} - ${slot.endTime})`);
+    }
   }
 
   await sendManagedReplyPanel(chatId, lines.join("\n"), getBackToAdminKeyboard());
@@ -682,7 +753,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
 
   const lines = [
     `<b>📌 BOOKING CHỜ XỬ LÝ</b>`,
-    `Mới: <b>${newCount}</b> | Cần dời: <b>${rescheduleCount}</b>`,
+    `Mới: <b>${newCount}</b> | Cần đổi: <b>${rescheduleCount}</b>`,
     "",
   ];
   const keyboardRows = rows.map((b) => [
@@ -707,7 +778,7 @@ export async function handleBookingCommand(scope: TelegramDataScope, chatId: str
 
 function getCompactAdminReplyKeyboard() {
   return {
-    keyboard: [[{ text: "🧭 Mở menu quan trị" }]],
+    keyboard: [[{ text: "🧭 Mở menu quản trị" }]],
     resize_keyboard: true,
     one_time_keyboard: false,
     is_persistent: true,
@@ -719,8 +790,9 @@ function getAdminReplyKeyboard() {
   return {
     keyboard: [
       [{ text: "📊 Tổng quan" }, { text: "CRM" }],
-      [{ text: "📌 Booking" }, { text: "🕐 Ca làm" }],
+      [{ text: "📌 Booking" }, { text: "🕐 Lịch làm việc" }],
       [{ text: "⚡ Tạo nhanh" }],
+      [{ text: "🙈 Thu nhỏ menu" }],
     ],
     resize_keyboard: true,
     one_time_keyboard: false,
@@ -732,7 +804,7 @@ function getAdminReplyKeyboard() {
 function getQuickCreateKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "1️⃣ Tao lich moi", callback_data: "quickcreate:new" }],
+      [{ text: "1️⃣ Tạo lịch mới", callback_data: "quickcreate:new" }],
       [{ text: "2️⃣ Check-in nhanh", callback_data: "quickcreate:checkin" }],
       [{ text: "◀️ Quay lại", callback_data: "menu:admin" }],
     ],
@@ -743,7 +815,7 @@ function getQuickCreateConfirmKeyboard() {
   return {
     inline_keyboard: [
       [
-        { text: "✅ Xác nhận tao lich", callback_data: "quickcreate:confirm" },
+        { text: "✅ Xác nhận tạo lịch", callback_data: "quickcreate:confirm" },
         { text: "❌ Hủy", callback_data: "quickcreate:cancel" },
       ],
       [{ text: "◀️ Quay lại", callback_data: "menu:quickcreate" }],
@@ -896,7 +968,7 @@ async function markTelegramCrmContacted(orgId: string, customerId: string) {
 
   return {
     ok: true,
-    message: `Đã đánh dấu đã liên hệ: ${customer.full_name || customer.name || "Khach"}`,
+    message: `Đã đánh dấu đã liên hệ: ${customer.full_name || customer.name || "Khách"}`,
   };
 }
 
@@ -1031,7 +1103,7 @@ export async function handleQuickCreateDateSelection(telegramUserId: number, cha
     await setConversationState(telegramUserId, "quickcreate:date_custom", state.data);
     await sendTelegramMessage(
       chatId,
-      "⚡ <b>TẠO LỊCH MỚI</b>\n\nNhập ngày hẹn theo định dạng <code>dd/mm</code> hoac <code>dd/mm/yyyy</code>.",
+      "⚡ <b>TẠO LỊCH MỚI</b>\n\nNhập ngày hẹn theo định dạng <code>dd/mm</code> hoặc <code>dd/mm/yyyy</code>.",
       { parse_mode: "HTML", reply_markup: getBackToAdminKeyboard() },
     );
     return { ok: true, message: "Nhập ngày tùy chọn" };
@@ -1362,9 +1434,10 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
           { text: "📌 Booking", callback_data: "menu:booking" },
         ],
         [
-          { text: "🕐 Ca làm", callback_data: "menu:ca" },
+          { text: "🕐 Lịch làm việc", callback_data: "menu:ca" },
           { text: "⚡ Tạo nhanh", callback_data: "menu:quickcreate" },
         ],
+        [{ text: "🙈 Thu nhỏ menu", callback_data: "menu:compact" }],
       ],
     },
     { forceNew: opts?.forceNew },
@@ -1372,22 +1445,16 @@ export async function handleManageCommand(chatId: string, opts?: { forceNew?: bo
 }
 
 export async function sendFreshAdminReplyKeyboard(chatId: string) {
-  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được làm mới.", {
-    reply_markup: { remove_keyboard: true },
-  });
-
-  await sendTelegramMessage(chatId, "⏳ Đang đóng bàn phím cũ...", {
-    reply_markup: { remove_keyboard: true },
-  });
-
-  await sendTelegramMessage(chatId, "⚙️ <b>MENU QUẢN TRỊ</b>\n\nChọn chức năng bằng các nút dưới ô chat.", {
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã mở. Dùng các nút dưới ô chat để thao tác nhanh.", {
     reply_markup: getAdminReplyKeyboard(),
   });
+
+  await handleManageCommand(chatId);
 }
 
 export async function handleCompactManageCommand(chatId: string) {
   await deleteTrackedReplyPanel(chatId);
-  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm icon menu cạnh emoji để mở lại khi cần.", {
+  await sendTelegramMessage(chatId, "🧭 Menu quản trị đã được ẩn. Bấm nút bên dưới để mở lại khi cần.", {
     reply_markup: getCompactAdminReplyKeyboard(),
   });
 }
@@ -1427,14 +1494,14 @@ export async function handleCrmFollowUpCommand(orgId: string, chatId: string) {
   const inlineKeyboard: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [];
 
   for (const row of rows) {
-    const displayName = escapeHtml(String(row.full_name || row.name || "Khach"));
-    const phone = escapeHtml(String(row.phone || "Chua co SDT"));
+    const displayName = escapeHtml(String(row.full_name || row.name || "Khách"));
+    const phone = escapeHtml(String(row.phone || "Chưa có SĐT"));
     const service = escapeHtml(String(row.last_service_summary || "-"));
     const nextFollowUp = row.next_follow_up_at ? formatViDateTime(String(row.next_follow_up_at)) : "-";
     lines.push(`• <b>${displayName}</b> — ${phone}`);
-    lines.push(`  Follow-up: ${nextFollowUp} | DV gan nhat: ${service}`);
+    lines.push(`  Follow-up: ${nextFollowUp} | DV gần nhất: ${service}`);
     inlineKeyboard.push([
-      { text: `Done ${String(row.full_name || row.name || "Khach").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
+      { text: `Done ${String(row.full_name || row.name || "Khách").slice(0, 14)}`, callback_data: `crm:contacted:${row.id}` },
       { text: "Hồ sơ", url: getCustomerCrmWebUrl(String(row.id)) },
     ]);
   }
@@ -1955,7 +2022,7 @@ export async function handleLinkCommand(telegramUserId: number, telegramUsername
         }
       : await getTelegramUserRole(telegramUserId).then((userInfo) => ({
           role: userInfo.role ?? "STAFF",
-          displayName: userInfo.display_name ?? telegramFirstName ?? telegramUsername ?? "Tai khoan",
+          displayName: userInfo.display_name ?? telegramFirstName ?? telegramUsername ?? "Tài khoản",
         }));
   await sendManagedReplyPanel(
     chatId,

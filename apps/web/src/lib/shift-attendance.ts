@@ -1,6 +1,6 @@
 import { ensureOrgContext } from "@/lib/domain";
-import { loadShiftPlanWeek, type ShiftPlanRecord } from "@/lib/shift-plans";
-import { supabase } from "@/lib/supabase";
+import { listShiftPlansForScope, loadShiftPlanWeek, type ShiftPlanRecord, type ShiftPlanScope } from "@/lib/shift-plans";
+import { createServiceRoleClient, supabase } from "@/lib/supabase";
 import {
   createShiftSlotSnapshot,
   getEffectiveShiftSlotsForDate as getEffectiveShiftSlotsForDateFromShared,
@@ -273,6 +273,36 @@ async function listActiveShiftOverrides(weekStart: string) {
   return (data ?? []).map((row) => mapShiftOverride(row as Record<string, unknown>));
 }
 
+async function listActiveShiftOverridesForScope(weekStart: string, scope: ShiftPlanScope) {
+  const supabaseAdmin = createServiceRoleClient();
+  const weekDates = Array.from({ length: 7 }, (_, index) => {
+    const next = new Date(`${weekStart}T00:00:00`);
+    next.setDate(next.getDate() + index);
+    return toDateKey(next);
+  });
+
+  let query = supabaseAdmin
+    .from("shift_assignment_overrides")
+    .select("id,org_id,branch_id,staff_user_id,date_key,shift_type,shift_label,start_time,end_time,action,source_kind,request_id,created_by,created_at,cancelled_at")
+    .eq("org_id", scope.orgId)
+    .in("date_key", weekDates)
+    .order("created_at", { ascending: true });
+
+  if (scope.branchId) {
+    query = query.eq("branch_id", scope.branchId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    if (isMissingShiftAssignmentOverridesSchema(error)) {
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []).map((row) => mapShiftOverride(row as Record<string, unknown>));
+}
+
 export async function listEffectiveShiftSlots(weekStart: string, opts?: { userId?: string }) {
   const plan = await loadShiftPlanWeek(weekStart, { publishedOnly: true });
   const overrides = await listActiveShiftOverrides(weekStart).catch((error) => {
@@ -284,6 +314,23 @@ export async function listEffectiveShiftSlots(weekStart: string, opts?: { userId
   const slots = mergeEffectiveShiftSlots({
     weekStart,
     assignments: plan?.result.assignments ?? [],
+    overrides,
+  });
+
+  return opts?.userId ? slots.filter((slot) => slot.holderUserId === opts.userId) : slots;
+}
+
+export async function listEffectiveShiftSlotsForScope(
+  weekStart: string,
+  scope: ShiftPlanScope,
+  opts?: { userId?: string },
+) {
+  const plans = await listShiftPlansForScope(weekStart, scope, { publishedOnly: true });
+  const overrides = await listActiveShiftOverridesForScope(weekStart, scope);
+  const assignments = plans.flatMap((plan) => plan.result.assignments);
+  const slots = mergeEffectiveShiftSlots({
+    weekStart,
+    assignments,
     overrides,
   });
 
@@ -429,6 +476,31 @@ export async function listOwnerShiftEntries() {
   return (data ?? []).map((row) => mapTimeEntry(row as Record<string, unknown>));
 }
 
+export async function listShiftEntriesForScope(scope: ShiftPlanScope, opts?: { dateKey?: string }) {
+  const supabaseAdmin = createServiceRoleClient();
+  let query = supabaseAdmin
+    .from("time_entries")
+    .select("id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,attendance_fraction,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed")
+    .eq("org_id", scope.orgId)
+    .order("clock_in", { ascending: false })
+    .limit(50);
+
+  if (scope.branchId) {
+    query = query.eq("branch_id", scope.branchId);
+  }
+
+  if (opts?.dateKey) {
+    const dayStart = new Date(`${opts.dateKey}T00:00:00`);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    query = query.gte("clock_in", dayStart.toISOString()).lt("clock_in", dayEnd.toISOString());
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => mapTimeEntry(row as Record<string, unknown>));
+}
+
 export async function listShiftLeaveRequests(opts?: { userId?: string; status?: LeaveRequestStatus }) {
   if (!supabase) return [];
   const { orgId, branchId } = await ensureOrgContext();
@@ -453,6 +525,33 @@ export async function listShiftLeaveRequests(opts?: { userId?: string; status?: 
   return (data ?? []).map((row) => mapLeaveRequest(row as Record<string, unknown>));
 }
 
+export async function listShiftLeaveRequestsForScope(
+  scope: ShiftPlanScope,
+  opts?: { userId?: string; status?: LeaveRequestStatus },
+) {
+  const supabaseAdmin = createServiceRoleClient();
+  let query = supabaseAdmin
+    .from("shift_leave_requests")
+    .select("id,staff_user_id,request_type,status,scheduled_date,requested_at,requested_end_at,note,owner_note,reviewed_at,reviewed_by,time_entry_id,created_at")
+    .eq("org_id", scope.orgId)
+    .order("requested_at", { ascending: false })
+    .limit(30);
+
+  if (scope.branchId) {
+    query = query.eq("branch_id", scope.branchId);
+  }
+  if (opts?.userId) {
+    query = query.eq("staff_user_id", opts.userId);
+  }
+  if (opts?.status) {
+    query = query.eq("status", opts.status);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => mapLeaveRequest(row as Record<string, unknown>));
+}
+
 export async function listShiftChangeRequests(opts?: { userId?: string; status?: ShiftChangeRequestRecord["status"] }) {
   if (!supabase) return [];
   const { orgId, branchId } = await ensureOrgContext();
@@ -465,6 +564,34 @@ export async function listShiftChangeRequests(opts?: { userId?: string; status?:
     .order("created_at", { ascending: false })
     .limit(50);
 
+  if (opts?.userId) query = query.eq("requester_user_id", opts.userId);
+  if (opts?.status) query = query.eq("status", opts.status);
+
+  const { data, error } = await query;
+  if (error) {
+    if (isMissingShiftChangeRequestsSchema(error)) {
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []).map((row) => mapShiftChangeRequest(row as Record<string, unknown>));
+}
+
+export async function listShiftChangeRequestsForScope(
+  scope: ShiftPlanScope,
+  opts?: { userId?: string; status?: ShiftChangeRequestRecord["status"] },
+) {
+  const supabaseAdmin = createServiceRoleClient();
+  let query = supabaseAdmin
+    .from("shift_change_requests")
+    .select("id,org_id,branch_id,requester_user_id,request_kind,status,source_slot_json,target_slot_json,note,owner_note,reviewed_by,reviewed_at,created_at,updated_at")
+    .eq("org_id", scope.orgId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (scope.branchId) {
+    query = query.eq("branch_id", scope.branchId);
+  }
   if (opts?.userId) query = query.eq("requester_user_id", opts.userId);
   if (opts?.status) query = query.eq("status", opts.status);
 

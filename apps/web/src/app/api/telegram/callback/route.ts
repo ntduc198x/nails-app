@@ -15,6 +15,7 @@ import {
   handleCaCommand,
   handleBookingCommand,
   handleManageCommand,
+  handleCompactManageCommand,
   sendFreshAdminReplyKeyboard,
   clearReplyPanelState,
   handleCrmMenu,
@@ -242,6 +243,10 @@ async function handleMenuCallback(callback: { id: string; data?: string; from?: 
       await handleManageCommand(chatId);
       await sharedAnswerCallback(callback.id);
       break;
+    case "compact":
+      await handleCompactManageCommand(chatId);
+      await sharedAnswerCallback(callback.id, "Đã thu nhỏ menu");
+      break;
     case "overview":
       await handleOverviewCommand(scope, chatId);
       await sharedAnswerCallback(callback.id, "Đã cập nhật tổng quan");
@@ -392,8 +397,8 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
           await clearReplyPanelState(chatId);
           await handleBookingCommand(toTelegramScope(userInfo), chatId);
           return NextResponse.json({ ok: true, handled: "reply_booking" });
-        case "🕐 ca lam":
-        case "ca lam":
+        case "🕐 lich lam viec":
+        case "lich lam viec":
           await clearReplyPanelState(chatId);
           await handleCaCommand(toTelegramScope(userInfo), chatId);
           return NextResponse.json({ ok: true, handled: "reply_shift" });
@@ -402,6 +407,10 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
           await clearReplyPanelState(chatId);
           await handleQuickCreateMenu(chatId);
           return NextResponse.json({ ok: true, handled: "reply_quickcreate" });
+        case "🙈 thu nho menu":
+        case "thu nho menu":
+          await handleCompactManageCommand(chatId);
+          return NextResponse.json({ ok: true, handled: "reply_compact_manage" });
       }
     }
   }
@@ -424,14 +433,14 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
       return NextResponse.json({ ok: true, command, error: "forbidden", role: userInfo.role });
     }
 
-    await handleManageCommand(chatId, { forceNew: true });
+    await sendFreshAdminReplyKeyboard(chatId);
     return NextResponse.json({ ok: true, command: "manage" });
   }
 
   if (command === "/link") {
     const code = args[0]?.trim();
     if (!code) {
-      await sendTelegramMessage(chatId, "❌ Cú pháp: <code>/link MÃ_6_SỐ</code>\n\nLấy mã trong Nails App → Hồ sơ & bảo mật → Liên kết Telegram");
+      await sendTelegramMessage(chatId, "❌ Cú pháp: <code>/link MÃ_6_SỐ</code>\n\nLấy mã trong Chạm Beauty App → Hồ sơ & bảo mật → Liên kết Telegram");
       return NextResponse.json({ ok: true, command: "link", error: "missing_code" });
     }
     await handleLinkCommand(telegramUserId, telegramUsername, telegramFirstName, code, chatId);

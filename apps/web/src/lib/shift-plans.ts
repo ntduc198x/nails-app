@@ -1,5 +1,5 @@
 import { ensureOrgContext } from "@/lib/domain";
-import { supabase } from "@/lib/supabase";
+import { createServiceRoleClient, supabase } from "@/lib/supabase";
 import {
   normalizeServiceSkill,
   type AutoScheduleAssignment,
@@ -49,6 +49,11 @@ export type ShiftPlanRecord = {
   result: AutoScheduleResult;
   demands: AutoScheduleDemand[];
   forecast: Record<string, number>;
+};
+
+export type ShiftPlanScope = {
+  orgId: string;
+  branchId?: string | null;
 };
 
 export function isMissingShiftPlansSchema(error: unknown) {
@@ -176,6 +181,33 @@ export async function loadShiftPlanWeek(
   if (error) throw error;
   if (!data) return null;
   return normalizeShiftPlan(data as ShiftPlanRow);
+}
+
+export async function listShiftPlansForScope(
+  weekStart: string,
+  scope: ShiftPlanScope,
+  opts?: { publishedOnly?: boolean; status?: ShiftPlanStatus },
+): Promise<ShiftPlanRecord[]> {
+  const supabaseAdmin = createServiceRoleClient();
+
+  let query = supabaseAdmin
+    .from("shift_plans")
+    .select(
+      "id,week_start,status,assignments_json,demands_json,forecast_json,employee_summaries_json,day_summaries_json,conflicts_json,suggestions_json,published_at",
+    )
+    .eq("org_id", scope.orgId)
+    .eq("week_start", weekStart);
+
+  if (scope.branchId) {
+    query = query.eq("branch_id", scope.branchId);
+  }
+
+  const targetStatus = opts?.status ?? (opts?.publishedOnly ? "published" : "draft");
+  query = query.eq("status", targetStatus).order("published_at", { ascending: false });
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row) => normalizeShiftPlan(row as ShiftPlanRow));
 }
 
 export async function saveShiftPlanWeek(input: {

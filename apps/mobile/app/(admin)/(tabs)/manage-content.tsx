@@ -23,6 +23,7 @@ import type {
   MobileAdminContentPostInput,
   MobileAdminContentSnapshot,
   MobileAdminMerchService,
+  MobileAdminOfferPackageTier,
   MobileAdminStorefrontGalleryItem,
   MobileAdminStorefrontGalleryItemInput,
   MobileAdminStorefrontProduct,
@@ -42,6 +43,7 @@ import {
   deleteAdminStorefrontProductForMobile,
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
+  MOBILE_ADMIN_OFFER_PACKAGE_TIERS,
   setActiveAdminStorefrontProfileForMobile,
   updateAdminContentPostForMobile,
   updateAdminMerchServiceForMobile,
@@ -96,16 +98,16 @@ type MerchFormState = {
   lookbookTone: string;
 };
 
-const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
-type OfferPackageTier = (typeof OFFER_PACKAGE_TIERS)[number];
+const OFFER_PACKAGE_TIERS = MOBILE_ADMIN_OFFER_PACKAGE_TIERS;
+type OfferPackageTier = MobileAdminOfferPackageTier;
 
 const OFFER_PACKAGE_TIER_LABELS: Record<OfferPackageTier, string> = {
-  REGULAR: "Thành viên thường",
-  BRONZE: "Bronze",
-  SILVER: "Silver",
-  GOLD: "Gold",
-  PLATINUM: "Platinum",
-  DIAMOND: "Diamond",
+  REGULAR: "Hạng thường",
+  BRONZE: "Hạng đồng",
+  SILVER: "Hạng bạc",
+  GOLD: "Hạng vàng",
+  PLATINUM: "Hạng bạch kim",
+  DIAMOND: "Hạng kim cương",
 };
 
 type PostFormState = {
@@ -1014,7 +1016,6 @@ export default function AdminManageContentScreen() {
       setSaving(false);
     }
   }
-
   function toPostInput(form: PostFormState): MobileAdminContentPostInput {
     return {
       title: form.title.trim(),
@@ -1343,12 +1344,27 @@ export default function AdminManageContentScreen() {
             onActionPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}
           >
             <View style={styles.listColumn}>
-              {groupedOffers.map((group) => (
-                <View key={group.tier} style={styles.offerTierSection}>
+              {groupedOffers.length ? groupedOffers.map((group) => (
+                <View key={group.tier} style={styles.offerTierGroup}>
                   <View style={styles.offerTierHeader}>
-                    <Text style={styles.offerTierTitle}>{group.label}</Text>
-                    <CountBadge value={String(group.offers.length)} />
+                    <View style={styles.offerTierCopy}>
+                      <Text style={styles.offerTierTitle}>{group.label}</Text>
+                      <Text style={styles.offerTierSubtitle}>{group.offers.length} ưu đãi · sắp theo thứ tự trong hạng</Text>
+                    </View>
+                    <Pressable
+                      style={styles.offerTierAction}
+                      onPress={() =>
+                        void router.push({
+                          pathname: "/(admin)/manage-content-offer/[offerId]",
+                          params: { offerId: "new", tier: group.tier, backHref: "/(admin)/manage-content" },
+                        })
+                      }
+                    >
+                      <Feather name="plus" size={14} color={palette.accent} />
+                      <Text style={styles.offerTierActionText}>Thêm</Text>
+                    </Pressable>
                   </View>
+
                   <View style={styles.listColumn}>
                     {group.offers.map((offer) => (
                       <View key={offer.id} style={styles.rowCard}>
@@ -1356,7 +1372,7 @@ export default function AdminManageContentScreen() {
                         <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
                           <Text style={styles.rowTitle}>{offer.title}</Text>
                           <Text style={styles.rowSubtitle}>
-                            {offer.isActive ? "Đang bật" : "Đang tắt"} · {offer.badge || "Không có badge"} · Thứ tự {getOfferPackageOrder(offer.metadata)}
+                            {offer.isActive ? "Đang bật" : "Đang tắt"} · {offer.badge || group.label} · thứ tự {offer.packageOrder}
                           </Text>
                         </Pressable>
                         <Pressable style={styles.iconButton} onPress={() => void confirmTask("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng.", async () => {
@@ -1369,7 +1385,9 @@ export default function AdminManageContentScreen() {
                     ))}
                   </View>
                 </View>
-              ))}
+              )) : (
+                <Text style={styles.emptyText}>Chưa có ưu đãi nào để hiển thị.</Text>
+              )}
             </View>
           </SectionCard>
 
@@ -2229,21 +2247,23 @@ const styles = StyleSheet.create({
   actionButton: { minHeight: 38, paddingHorizontal: 16, borderRadius: 19, backgroundColor: palette.accentSoft, justifyContent: "center", alignItems: "center" },
   actionButtonText: { fontSize: 12, fontWeight: "800", color: palette.accent },
   listColumn: { gap: 12 },
-  offerTierSection: { gap: 10 },
-  offerTierHeader: {
+  offerTierGroup: { gap: 12 },
+  offerTierHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  offerTierCopy: { flex: 1, gap: 2 },
+  offerTierTitle: { fontSize: 14, lineHeight: 20, fontWeight: "800", color: palette.text },
+  offerTierSubtitle: { fontSize: 12, lineHeight: 17, color: palette.sub },
+  offerTierAction: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: "#E7D6C1",
+    backgroundColor: palette.accentSoft,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 4,
+    gap: 6,
   },
-  offerTierTitle: {
-    flex: 1,
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "800",
-    color: palette.text,
-  },
+  offerTierActionText: { fontSize: 12, fontWeight: "800", color: palette.accent },
   rowCard: { borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", paddingHorizontal: 16, paddingVertical: 16, flexDirection: "row", alignItems: "flex-start", gap: 14 },
   thumbPlaceholder: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: palette.accentSoft, borderWidth: 1, borderColor: "#E7D6C1", overflow: "hidden" },
   thumbPlaceholderText: { fontSize: 18, fontWeight: "800", color: palette.accent },
@@ -2251,6 +2271,7 @@ const styles = StyleSheet.create({
   rowCopy: { flex: 1, minWidth: 0, gap: 4 },
   rowTitle: { fontSize: 15, lineHeight: 21, fontWeight: "800", color: palette.text },
   rowSubtitle: { flexShrink: 1, fontSize: 12, lineHeight: 18, color: palette.sub },
+  emptyText: { fontSize: 13, lineHeight: 19, color: palette.sub },
   storefrontInfoPanel: {
     borderRadius: 22,
     borderWidth: 1,

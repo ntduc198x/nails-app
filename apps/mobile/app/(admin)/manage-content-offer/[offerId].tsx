@@ -57,16 +57,24 @@ type OfferFormState = {
   metadataText: string;
 };
 
-function emptyOfferForm(): OfferFormState {
+function normalizePackageTier(value?: string | null): (typeof OFFER_PACKAGE_TIERS)[number] {
+  if (!value) return "REGULAR";
+  const normalized = value.trim().toUpperCase();
+  return OFFER_PACKAGE_TIERS.includes(normalized as (typeof OFFER_PACKAGE_TIERS)[number])
+    ? (normalized as (typeof OFFER_PACKAGE_TIERS)[number])
+    : "REGULAR";
+}
+
+function emptyOfferForm(packageTier: (typeof OFFER_PACKAGE_TIERS)[number] = "REGULAR"): OfferFormState {
   return {
     title: "",
     description: "",
     imageUrl: "",
-    badge: OFFER_TIER_BADGES.REGULAR,
+    badge: OFFER_TIER_BADGES[packageTier],
     startsAt: "",
     endsAt: "",
     isActive: true,
-    packageTier: "REGULAR",
+    packageTier,
     packageOrder: "0",
     metadataText: "",
   };
@@ -194,12 +202,13 @@ function DetailFieldLabel({
 }
 
 export default function AdminManageContentOfferDetailScreen() {
-  const params = useLocalSearchParams<{ offerId?: string }>();
+  const params = useLocalSearchParams<{ offerId?: string; tier?: string }>();
   const router = useRouter();
   const offerId = typeof params.offerId === "string" ? params.offerId : "new";
   const isCreate = offerId === "new";
+  const initialTier = normalizePackageTier(typeof params.tier === "string" ? params.tier : null);
 
-  const [form, setForm] = useState<OfferFormState>(emptyOfferForm());
+  const [form, setForm] = useState<OfferFormState>(() => emptyOfferForm(initialTier));
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -265,7 +274,7 @@ export default function AdminManageContentOfferDetailScreen() {
 
     try {
       if (isCreate) {
-        setForm(emptyOfferForm());
+        setForm(emptyOfferForm(initialTier));
         return;
       }
 
@@ -288,7 +297,7 @@ export default function AdminManageContentOfferDetailScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [isCreate, offerId]);
+  }, [initialTier, isCreate, offerId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {

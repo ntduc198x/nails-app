@@ -383,6 +383,12 @@ async function handleMessage(message: { from?: { id: number; username?: string; 
         case "⚙️ menu quan tri":
           await sendFreshAdminReplyKeyboard(chatId);
           return NextResponse.json({ ok: true, handled: "reply_manage" });
+        case "🔽 thu gon menu":
+        case "thu gon menu":
+        case "an menu":
+        case "thu nho menu":
+          await handleCompactManageCommand(chatId);
+          return NextResponse.json({ ok: true, handled: "reply_manage_compact" });
         case "📊 tong quan":
         case "tong quan":
           await clearReplyPanelState(chatId);

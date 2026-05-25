@@ -47,6 +47,8 @@ export type MobileAdminOffer = {
   startsAt: string | null;
   endsAt: string | null;
   isActive: boolean;
+  packageTier: MobileAdminOfferPackageTier;
+  packageOrder: number;
   metadata: Record<string, unknown>;
 };
 
@@ -265,19 +267,24 @@ function normalizeMerchService(row: UnknownRow): MobileAdminMerchService {
   };
 }
 
-const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+export const MOBILE_ADMIN_OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
+export type MobileAdminOfferPackageTier = (typeof MOBILE_ADMIN_OFFER_PACKAGE_TIERS)[number];
 
-function getOfferPackageTier(metadata: Record<string, unknown>) {
+export function getOfferPackageTier(metadata: Record<string, unknown>) {
   const raw = typeof metadata.packageTier === "string" ? metadata.packageTier.trim().toUpperCase() : "REGULAR";
-  return (OFFER_PACKAGE_TIERS as readonly string[]).includes(raw) ? raw : "REGULAR";
+  return (MOBILE_ADMIN_OFFER_PACKAGE_TIERS as readonly string[]).includes(raw) ? (raw as MobileAdminOfferPackageTier) : "REGULAR";
 }
 
-function getOfferPackageOrder(metadata: Record<string, unknown>) {
+export function getOfferPackageOrder(metadata: Record<string, unknown>) {
   const raw = Number(metadata.packageOrder ?? metadata.displayOrder ?? 0);
   return Number.isFinite(raw) ? raw : 0;
 }
 
 function normalizeOffer(row: UnknownRow): MobileAdminOffer {
+  const metadata = asRecord(row.offer_metadata);
+  const packageTier = getOfferPackageTier(metadata);
+  const packageOrder = getOfferPackageOrder(metadata);
+
   return {
     id: String(row.id ?? ""),
     title: String(row.title ?? ""),
@@ -287,8 +294,23 @@ function normalizeOffer(row: UnknownRow): MobileAdminOffer {
     startsAt: typeof row.starts_at === "string" ? row.starts_at : null,
     endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
     isActive: row.is_active !== false,
-    metadata: asRecord(row.offer_metadata),
+    packageTier,
+    packageOrder,
+    metadata,
   };
+}
+
+export function groupMobileAdminOffersByTier(offers: MobileAdminOffer[]) {
+  const grouped = new Map<MobileAdminOfferPackageTier, MobileAdminOffer[]>();
+  for (const tier of MOBILE_ADMIN_OFFER_PACKAGE_TIERS) {
+    grouped.set(tier, []);
+  }
+
+  for (const offer of offers) {
+    grouped.get(offer.packageTier)?.push(offer);
+  }
+
+  return grouped;
 }
 
 function normalizePost(row: UnknownRow): MobileAdminContentPost {
@@ -583,13 +605,11 @@ export async function listAdminContentSnapshotForMobile(
   const offers = (offersRes.data ?? [])
     .map((row) => normalizeOffer(row as UnknownRow))
     .sort((left, right) => {
-      const leftTier = getOfferPackageTier(left.metadata);
-      const rightTier = getOfferPackageTier(right.metadata);
-      const leftTierIndex = OFFER_PACKAGE_TIERS.indexOf(leftTier as (typeof OFFER_PACKAGE_TIERS)[number]);
-      const rightTierIndex = OFFER_PACKAGE_TIERS.indexOf(rightTier as (typeof OFFER_PACKAGE_TIERS)[number]);
+      const leftTierIndex = MOBILE_ADMIN_OFFER_PACKAGE_TIERS.indexOf(left.packageTier);
+      const rightTierIndex = MOBILE_ADMIN_OFFER_PACKAGE_TIERS.indexOf(right.packageTier);
       if (leftTierIndex !== rightTierIndex) return leftTierIndex - rightTierIndex;
 
-      const orderDelta = getOfferPackageOrder(left.metadata) - getOfferPackageOrder(right.metadata);
+      const orderDelta = left.packageOrder - right.packageOrder;
       if (orderDelta !== 0) return orderDelta;
 
       return left.title.localeCompare(right.title, "vi");

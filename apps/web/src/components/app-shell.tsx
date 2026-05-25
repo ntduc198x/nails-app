@@ -19,7 +19,7 @@ import { getRoleLabel } from "@/lib/role-labels";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type ManageNavHref =
   | "/manage/landing"
@@ -108,7 +108,7 @@ function canAccess(role: AppRole, href: string) {
 type AuthCache = { userId: string; email: string; role: AppRole; cachedAt: number };
 let authCache: AuthCache | null = null;
 const AUTH_CACHE_TTL = 5 * 60 * 1000;
-const SESSION_VALIDATION_INTERVAL = 3_000;
+const SESSION_VALIDATION_INTERVAL = 15_000;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -125,40 +125,66 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
   const [notificationTab, setNotificationTab] = useState<"action" | "feed">("action");
   const [notificationSeenRevision, setNotificationSeenRevision] = useState(0);
+  const [authReady, setAuthReady] = useState(false);
+  const redirectingRef = useRef(false);
+  const validatingSessionRef = useRef(false);
+  const isTabVisibleRef = useRef(true);
+
+  const clearAuthSessionState = useCallback(() => {
+    clearDomainCaches();
+    authCache = null;
+    try {
+      sessionStorage.removeItem("nails.auth.cache");
+    } catch {}
+    clearStoredSessionToken();
+  }, []);
+
+  const redirectToLoginOnce = useCallback(async (reason?: { ownerName?: string | null }) => {
+    if (redirectingRef.current) return;
+    redirectingRef.current = true;
+    if (reason?.ownerName) {
+      setSessionReplaced({ ownerName: reason.ownerName });
+    }
+    clearAuthSessionState();
+    await recoverFromInvalidAuthState();
+    router.replace("/login");
+  }, [clearAuthSessionState, router]);
 
   useEffect(() => {
     let mounted = true;
 
-    async function run() {
+    async function bootstrapAuth() {
       try {
         if (!supabase) {
-          if (mounted) setLoading(false);
+          if (mounted) {
+            setAuthReady(true);
+            setLoading(false);
+          }
           return;
         }
 
         const { session, invalidRefreshToken } = await getSafeSupabaseSession();
         if (invalidRefreshToken) {
-          clearDomainCaches();
-          authCache = null;
-          router.replace("/login");
+          await redirectToLoginOnce();
           return;
         }
         if (!session?.user) {
-          router.replace("/login");
+          await redirectToLoginOnce();
           return;
         }
 
-        const validation = await validateAppSession();
+        let validation = await validateAppSession();
+        if (!validation.valid && validation.reason === "INVALID_TOKEN") {
+          try {
+            await createAppSession();
+            validation = await validateAppSession();
+          } catch {}
+        }
+
         if (!validation.valid) {
-          if (validation.reason === "SESSION_REPLACED") {
-            setSessionReplaced({ ownerName: validation.ownerName });
-          }
-          clearDomainCaches();
-          authCache = null;
-          sessionStorage.removeItem("nails.auth.cache");
-          clearStoredSessionToken();
-          await recoverFromInvalidAuthState();
-          router.replace("/login");
+          await redirectToLoginOnce(
+            validation.reason === "SESSION_REPLACED" ? { ownerName: validation.ownerName } : undefined,
+          );
           return;
         }
 
@@ -167,6 +193,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           if (!mounted) return;
           setEmail(cached.email);
           setRole(cached.role);
+          setAuthReady(true);
           setLoading(false);
           return;
         }
@@ -177,12 +204,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             const parsed = JSON.parse(raw) as AuthCache;
             if (parsed.userId === session.user.id && Date.now() - parsed.cachedAt < AUTH_CACHE_TTL) {
               authCache = parsed;
-              if (!mounted) return;
-              setEmail(parsed.email);
-              setRole(parsed.role);
-              setLoading(false);
-              return;
-            }
+            if (!mounted) return;
+            setEmail(parsed.email);
+            setRole(parsed.role);
+            setAuthReady(true);
+            setLoading(false);
+            return;
+          }
           }
         } catch {}
 
@@ -200,77 +228,103 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         setEmail(nextCache.email);
         setRole(nextCache.role);
+        setAuthReady(true);
         setLoading(false);
       } catch (e) {
         if (!mounted) return;
         setAuthError(e instanceof Error ? e.message : "Lỗi xác thực / phân quyền");
+        setAuthReady(true);
         setLoading(false);
       }
     }
 
-    void run();
+    void bootstrapAuth();
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [redirectToLoginOnce]);
 
   useEffect(() => {
-    if (!supabase) return;
     let disposed = false;
 
-    async function validateSession() {
-      if (!supabase) return;
-      const { session, invalidRefreshToken } = await getSafeSupabaseSession();
-      if (invalidRefreshToken && !disposed) {
-        clearDomainCaches();
-        authCache = null;
-        sessionStorage.removeItem("nails.auth.cache");
-        clearStoredSessionToken();
-        router.replace("/login");
-        return;
-      }
-      if (!session?.user || disposed) return;
+    if (!supabase || !authReady || loading || !pathname.startsWith("/manage")) return;
 
-      const validation = await validateAppSession();
-      if (!validation.valid && !disposed) {
-        clearDomainCaches();
-        authCache = null;
-        sessionStorage.removeItem("nails.auth.cache");
-        clearStoredSessionToken();
-        await recoverFromInvalidAuthState();
-        router.replace("/login");
+    async function pollSession() {
+      if (disposed || redirectingRef.current || validatingSessionRef.current || !isTabVisibleRef.current) return;
+      validatingSessionRef.current = true;
+
+      try {
+        const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+        if (invalidRefreshToken) {
+          if (!disposed) {
+            await redirectToLoginOnce();
+          }
+          return;
+        }
+        if (!session?.user || disposed) return;
+
+        let validation = await validateAppSession();
+        if (!validation.valid && validation.reason === "INVALID_TOKEN") {
+          try {
+            await createAppSession();
+            validation = await validateAppSession();
+          } catch {}
+        }
+
+        if (!validation.valid && !disposed) {
+          await redirectToLoginOnce(
+            validation.reason === "SESSION_REPLACED" ? { ownerName: validation.ownerName } : undefined,
+          );
+        }
+      } finally {
+        validatingSessionRef.current = false;
       }
     }
 
-    void validateSession();
-    const id = setInterval(() => {
-      void validateSession();
+    const syncVisibility = () => {
+      isTabVisibleRef.current = document.visibilityState === "visible";
+      if (isTabVisibleRef.current) {
+        void pollSession();
+      }
+    };
+
+    syncVisibility();
+    document.addEventListener("visibilitychange", syncVisibility);
+
+    const id = window.setInterval(() => {
+      if (!isTabVisibleRef.current) return;
+      void pollSession();
     }, SESSION_VALIDATION_INTERVAL);
 
     return () => {
       disposed = true;
-      clearInterval(id);
+      document.removeEventListener("visibilitychange", syncVisibility);
+      window.clearInterval(id);
     };
-  }, [router]);
+  }, [authReady, loading, pathname, redirectToLoginOnce]);
 
   useEffect(() => {
     if (!supabase) return;
 
-    async function ensureAppSession() {
-      if (!supabase) return;
-      const { session, invalidRefreshToken } = await getSafeSupabaseSession();
-      if (invalidRefreshToken || !session?.user) return;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        void redirectToLoginOnce();
+        return;
+      }
 
-      const validation = await validateAppSession();
-      if (!validation.valid && validation.reason === "INVALID_TOKEN") {
+      redirectingRef.current = false;
+      if (authCache?.userId !== session.user.id) {
+        authCache = null;
         try {
-          await createAppSession();
+          sessionStorage.removeItem("nails.auth.cache");
         } catch {}
       }
-    }
+    });
 
-    void ensureAppSession();
-  }, [role]);
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, [redirectToLoginOnce]);
 
   useEffect(() => {
     if (!["OWNER", "PARTNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"].includes(role)) return;

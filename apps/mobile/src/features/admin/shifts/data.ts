@@ -1,6 +1,5 @@
 import { ensureOrgContext, resolveMobileAdminViewContext, type AppRole, type ObserverScopeInput } from "@nails/shared";
 import {
-  createShiftSlotSnapshot,
   generateWeekDates,
   getEffectiveShiftSlotsForDate as getEffectiveShiftSlotsForDateFromShared,
   mergeEffectiveShiftSlots,
@@ -1046,10 +1045,12 @@ async function assertTargetSlotStillPublished(
   targetSlot: ShiftSlotSnapshot,
   observerScope?: ObserverScopeInput | null,
 ) {
-  const plan = await loadShiftPlanWeek(targetSlot.weekStart, { publishedOnly: true, observerScope });
-  const slot = (plan?.result.assignments ?? [])
-    .map((assignment) => createShiftSlotSnapshot(assignment, targetSlot.weekStart))
-    .filter((item): item is ShiftSlotSnapshot => !!item)
+  const effectiveSlots = await listEffectiveShiftSlots(targetSlot.weekStart, { observerScope });
+  const slot = effectiveSlots
+    .map((item) => ({
+      ...item,
+      weekStart: targetSlot.weekStart,
+    }))
     .find(
       (item) =>
         item.dateKey === targetSlot.dateKey &&
@@ -1058,7 +1059,7 @@ async function assertTargetSlotStillPublished(
     );
 
   if (!slot) {
-    throw new Error("Ca đích không còn tồn tại trong lịch đã publish.");
+    throw new Error("Ca đích không còn tồn tại trong lịch hiệu lực.");
   }
 
   return slot;

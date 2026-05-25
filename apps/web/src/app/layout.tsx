@@ -110,8 +110,9 @@ export default function RootLayout({
         <Script
           id="cleanup-extension-hydration-attrs"
           strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{ __html: hydrationCleanupScript }}
-        />
+        >
+          {hydrationCleanupScript}
+        </Script>
         {children}
       </body>
     </html>

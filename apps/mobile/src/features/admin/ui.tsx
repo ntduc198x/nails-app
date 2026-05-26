@@ -603,13 +603,8 @@ export function AdminHeaderActions({
     bookingQueueCount,
     badgeCount,
     feedNotifications,
-    markSeen,
+    markFeedRead,
   } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id, observer.observerScope);
-
-  useEffect(() => {
-    if (!notificationsOpen) return;
-    void markSeen();
-  }, [markSeen, notificationsOpen]);
 
   const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
 
@@ -694,6 +689,9 @@ export function AdminHeaderActions({
                     key={item.id}
                     style={[styles.notificationCard, renderNotificationTone(item)]}
                     onPress={() => {
+                      if (!item.actionRequired) {
+                        void markFeedRead(item.id);
+                      }
                       setNotificationsOpen(false);
                       void router.push(item.href);
                     }}

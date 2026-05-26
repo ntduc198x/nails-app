@@ -108,7 +108,8 @@ const ADMIN_NOTIFICATION_RULES = {
   recentShiftPublishedHours: 72,
   recentMembershipHours: 72,
 } as const;
-const STORAGE_PREFIX = "nails.mobile.manage.notifications.seenAt";
+const LEGACY_SEEN_AT_STORAGE_PREFIX = "nails.mobile.manage.notifications.seenAt";
+const FEED_READ_STORAGE_PREFIX = "nails.mobile.manage.notifications.feedRead";
 const ACTION_DISMISSED_STORAGE_PREFIX = "nails.mobile.manage.notifications.actionDismissed";
 const MANAGE_NOTIFICATION_ROLES: AppRole[] = ["OWNER", "PARTNER", "MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"];
 
@@ -616,26 +617,43 @@ export function useAdminNotifications(
   observerScope?: ObserverScopeInput | null,
 ) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
-  const [seenAt, setSeenAt] = useState<string | null>(null);
+  const [legacySeenAt, setLegacySeenAt] = useState<string | null>(null);
+  const [readFeedIds, setReadFeedIds] = useState<string[]>([]);
   const [dismissedActionIds, setDismissedActionIds] = useState<string[]>([]);
 
-  const storageKey = email ? `${STORAGE_PREFIX}.${email}` : null;
+  const legacySeenAtStorageKey = email ? `${LEGACY_SEEN_AT_STORAGE_PREFIX}.${email}` : null;
+  const feedReadStorageKey = email ? `${FEED_READ_STORAGE_PREFIX}.${email}` : null;
   const actionDismissedStorageKey = email ? `${ACTION_DISMISSED_STORAGE_PREFIX}.${email}` : null;
   const enabled = Boolean(role && MANAGE_NOTIFICATION_ROLES.includes(role));
 
-  const loadSeenAt = useCallback(async () => {
-    if (!storageKey) {
-      setSeenAt(null);
+  const loadLegacySeenAt = useCallback(async () => {
+    if (!legacySeenAtStorageKey) {
+      setLegacySeenAt(null);
       return;
     }
 
     try {
-      const stored = await AsyncStorage.getItem(storageKey);
-      setSeenAt(stored);
+      const stored = await AsyncStorage.getItem(legacySeenAtStorageKey);
+      setLegacySeenAt(stored);
     } catch {
-      setSeenAt(null);
+      setLegacySeenAt(null);
     }
-  }, [storageKey]);
+  }, [legacySeenAtStorageKey]);
+
+  const loadReadFeedIds = useCallback(async () => {
+    if (!feedReadStorageKey) {
+      setReadFeedIds([]);
+      return;
+    }
+
+    try {
+      const stored = await AsyncStorage.getItem(feedReadStorageKey);
+      const parsed = stored ? (JSON.parse(stored) as string[]) : [];
+      setReadFeedIds(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setReadFeedIds([]);
+    }
+  }, [feedReadStorageKey]);
 
   const loadDismissedActionIds = useCallback(async () => {
     if (!actionDismissedStorageKey) {
@@ -668,14 +686,15 @@ export function useAdminNotifications(
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      void loadSeenAt();
+      void loadLegacySeenAt();
+      void loadReadFeedIds();
       void loadDismissedActionIds();
     }, 0);
 
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [loadDismissedActionIds, loadSeenAt]);
+  }, [loadDismissedActionIds, loadLegacySeenAt, loadReadFeedIds]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -730,34 +749,43 @@ export function useAdminNotifications(
     [visibleNotifications],
   );
 
+  const legacySeenAtMs = useMemo(() => {
+    if (!legacySeenAt) return 0;
+    const nextValue = new Date(legacySeenAt).getTime();
+    return Number.isFinite(nextValue) ? nextValue : 0;
+  }, [legacySeenAt]);
+
   const unreadCount = useMemo(() => {
-    const seenAtMs = seenAt ? new Date(seenAt).getTime() : 0;
     return visibleNotifications.filter((item) => {
       if (item.resolvedAt) return false;
       if (item.actionRequired) return !dismissedActionIds.includes(item.id);
-      return new Date(item.createdAt).getTime() > seenAtMs;
+      if (readFeedIds.includes(item.id)) return false;
+      return new Date(item.createdAt).getTime() > legacySeenAtMs;
     }).length;
-  }, [dismissedActionIds, seenAt, visibleNotifications]);
+  }, [dismissedActionIds, legacySeenAtMs, readFeedIds, visibleNotifications]);
 
   const feedUnreadCount = useMemo(() => {
-    const seenAtMs = seenAt ? new Date(seenAt).getTime() : 0;
     return visibleNotifications.filter((item) => {
       if (item.resolvedAt || item.actionRequired) return false;
-      return new Date(item.createdAt).getTime() > seenAtMs;
+      if (readFeedIds.includes(item.id)) return false;
+      return new Date(item.createdAt).getTime() > legacySeenAtMs;
     }).length;
-  }, [seenAt, visibleNotifications]);
+  }, [legacySeenAtMs, readFeedIds, visibleNotifications]);
 
   const badgeCount = actionOpenCount + feedUnreadCount;
 
-  const markSeen = useCallback(async () => {
-    const nextSeenAt = new Date().toISOString();
-    setSeenAt(nextSeenAt);
-    if (!storageKey) return;
+  const markFeedRead = useCallback(async (notificationId: string) => {
+    if (!notificationId) return;
+    if (readFeedIds.includes(notificationId)) return;
+
+    const nextIds = Array.from(new Set([...readFeedIds, notificationId]));
+    setReadFeedIds(nextIds);
+    if (!feedReadStorageKey) return;
 
     try {
-      await AsyncStorage.setItem(storageKey, nextSeenAt);
+      await AsyncStorage.setItem(feedReadStorageKey, JSON.stringify(nextIds));
     } catch {}
-  }, [storageKey]);
+  }, [feedReadStorageKey, readFeedIds]);
 
   const markActionHandled = useCallback(
     async (notificationId: string) => {
@@ -815,7 +843,7 @@ export function useAdminNotifications(
     openBookingActionCount,
     nonBookingActionCount,
     reloadNotifications: loadNotifications,
-    markSeen,
+    markFeedRead,
     markActionHandled,
     markActionResolved,
   };

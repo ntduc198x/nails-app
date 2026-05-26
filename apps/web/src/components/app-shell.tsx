@@ -17,6 +17,12 @@ import {
 import { getOrCreateRole, type AppRole } from "@/lib/auth";
 import { clearDomainCaches } from "@/lib/domain";
 import { getDefaultManageHref } from "@/lib/manage-landing-auth";
+import {
+  canAccessManageCustomers,
+  canAccessManageReports,
+  canAccessManageServices,
+  canAccessManageTaxBooks,
+} from "@/lib/manage-access";
 import { getRoleLabel } from "@/lib/role-labels";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
@@ -90,18 +96,40 @@ const navGroups: NavGroup[] = [
   },
 ];
 
+function normalizeManageHref(href: string) {
+  if (href === "/manage/account") return href;
+  if (href === "/manage/appointments" || href.startsWith("/manage/appointments/")) return "/manage/appointments";
+  if (href === "/manage/services" || href.startsWith("/manage/services/")) return "/manage/services";
+  if (href === "/manage/resources" || href.startsWith("/manage/resources/")) return "/manage/resources";
+  if (href === "/manage/checkout" || href.startsWith("/manage/checkout/")) return "/manage/checkout";
+  if (href === "/manage/shifts" || href.startsWith("/manage/shifts/")) return "/manage/shifts";
+  if (href === "/manage/customers" || href.startsWith("/manage/customers/")) return "/manage/customers";
+  if (href === "/manage/team" || href.startsWith("/manage/team/")) return "/manage/team";
+  if (href === "/manage/reports" || href.startsWith("/manage/reports/")) return "/manage/reports";
+  if (href === "/manage/tax-books" || href.startsWith("/manage/tax-books/")) return "/manage/tax-books";
+  if (href === "/manage/landing" || href.startsWith("/manage/landing/")) return "/manage/landing";
+  return href;
+}
+
 function canAccess(role: AppRole, href: string) {
-  if (href === "/manage/account") return true;
+  const normalizedHref = normalizeManageHref(href);
+  if (normalizedHref === "/manage/account") return true;
   if (role === "OWNER" || role === "PARTNER") return true;
-  if (role === "MANAGER") return href !== "/manage/tax-books";
+  if (normalizedHref === "/manage/services") return canAccessManageServices(role);
+  if (normalizedHref === "/manage/reports") return canAccessManageReports(role);
+  if (normalizedHref === "/manage/customers") return canAccessManageCustomers(role);
+  if (normalizedHref === "/manage/tax-books") return canAccessManageTaxBooks(role);
   if (role === "RECEPTION") {
-    return ["/manage", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/customers", "/manage/services", "/manage/team"].includes(href);
+    return ["/manage", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/team"].includes(normalizedHref);
   }
   if (role === "TECH") {
-    return ["/manage", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(href);
+    return ["/manage", "/manage/appointments", "/manage/checkout", "/manage/shifts"].includes(normalizedHref);
   }
   if (role === "ACCOUNTANT") {
-    return ["/manage", "/manage/checkout", "/manage/reports", "/manage/tax-books"].includes(href);
+    return ["/manage", "/manage/checkout"].includes(normalizedHref);
+  }
+  if (role === "MANAGER") {
+    return ["/manage", "/manage/landing", "/manage/appointments", "/manage/resources", "/manage/checkout", "/manage/shifts", "/manage/team"].includes(normalizedHref);
   }
   return false;
 }

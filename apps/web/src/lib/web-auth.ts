@@ -1,5 +1,6 @@
 ﻿import { createAppSession, recoverFromInvalidAuthState } from "@/lib/app-session";
 import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
+import { getSafeSupabaseSession } from "@/lib/app-session";
 import { supabase } from "@/lib/supabase";
 import {
   buildRoleSignUpAuthData,
@@ -9,6 +10,48 @@ import {
   normalizeInviteCode,
   type AuthenticatedUserSummary,
 } from "@nails/shared";
+
+function normalizeSocialAuthError(error: unknown, providerLabel: string) {
+  const fallbackMessage = `Không thể tiếp tục với ${providerLabel}.`;
+
+  if (!(error instanceof Error)) {
+    return new Error(fallbackMessage);
+  }
+
+  let rawMessage = error.message?.trim() || "";
+
+  if (rawMessage.startsWith("{") && rawMessage.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(rawMessage) as {
+        code?: number;
+        error_code?: string;
+        msg?: string;
+        message?: string;
+      };
+      rawMessage = parsed.msg || parsed.message || rawMessage;
+
+      if (
+        parsed.error_code === "validation_failed" &&
+        typeof parsed.msg === "string" &&
+        /provider is not enabled|unsupported provider/i.test(parsed.msg)
+      ) {
+        return new Error(
+          `${providerLabel} chưa được bật trên Supabase project hiện tại. Vào Supabase Dashboard > Authentication > Providers > ${providerLabel} để enable và cấu hình Client ID/Secret.`,
+        );
+      }
+    } catch {
+      // Keep the original error message if JSON parsing fails.
+    }
+  }
+
+  if (/provider is not enabled|unsupported provider/i.test(rawMessage)) {
+    return new Error(
+      `${providerLabel} chưa được bật trên Supabase project hiện tại. Vào Supabase Dashboard > Authentication > Providers > ${providerLabel} để enable và cấu hình Client ID/Secret.`,
+    );
+  }
+
+  return error;
+}
 
 export function buildAuthCallbackUrl(next = "/") {
   if (typeof window === "undefined") {
@@ -188,7 +231,7 @@ export async function signInWithGoogleCustomer(nextPath = "/") {
   });
 
   if (error) {
-    throw error;
+    throw normalizeSocialAuthError(error, "Google");
   }
 }
 
@@ -264,6 +307,17 @@ export async function getCurrentAuthenticatedSummary() {
   }
 
   try {
+    const { session, invalidRefreshToken } = await getSafeSupabaseSession();
+    if (invalidRefreshToken || !session?.access_token) {
+      return null;
+    }
+
+    const userRes = await supabase.auth.getUser(session.access_token);
+    if (userRes.error || !userRes.data.user) {
+      await recoverFromInvalidAuthState();
+      return null;
+    }
+
     return await getAuthenticatedUserSummary(supabase);
   } catch {
     return null;

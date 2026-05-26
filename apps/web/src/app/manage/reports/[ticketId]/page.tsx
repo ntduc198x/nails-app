@@ -1,5 +1,6 @@
 "use client";
 
+import { AppShell } from "@/components/app-shell";
 import { getTicketDetail } from "@/lib/reporting";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -36,14 +37,36 @@ export default function TicketDetailPage() {
     run();
   }, [ticketId]);
 
-  if (loading) return <main className="mx-auto max-w-5xl p-6"><div className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm text-sm text-neutral-500">Đang tải chi tiết phiếu...</div></main>;
-  if (error || !detail)
-    return <main className="mx-auto max-w-5xl p-6"><div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">Không tải được chi tiết phiếu: {error ?? "Không có dữ liệu"}</div></main>;
+  if (loading) {
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl p-6">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6 text-sm text-neutral-500 shadow-sm">
+            Đang tải chi tiết phiếu...
+          </div>
+        </main>
+      </AppShell>
+    );
+  }
+
+  if (error || !detail) {
+    const message =
+      error === "FORBIDDEN_REPORTS" ? "Bạn không có quyền xem chi tiết báo cáo này." : `Không tải được chi tiết phiếu: ${error ?? "Không có dữ liệu"}`;
+
+    return (
+      <AppShell>
+        <main className="mx-auto max-w-5xl p-6">
+          <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">{message}</div>
+        </main>
+      </AppShell>
+    );
+  }
 
   const totals = (detail.ticket.totals_json as { subtotal?: number; vat_total?: number; grand_total?: number } | null) ?? {};
 
   return (
-    <main className="mx-auto max-w-5xl space-y-5 p-6">
+    <AppShell>
+      <main className="mx-auto max-w-5xl space-y-5 p-6">
       <section className="manage-surface">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -132,6 +155,7 @@ export default function TicketDetailPage() {
           </div>
         </div>
       </section>
-    </main>
+      </main>
+    </AppShell>
   );
 }

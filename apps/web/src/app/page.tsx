@@ -1,9 +1,22 @@
-import { LandingPageClient } from "@/components/landing/landing-page-client";
+import { LandingEntryGate } from "@/components/landing/landing-entry-gate";
+import { APP_SESSION_COOKIE_NAME } from "@/lib/app-session-constants";
 import { getLandingPagePayload } from "@/lib/landing-content";
+import { getDefaultManageHref } from "@/lib/manage-landing-auth";
+import { getAppSessionRoleByToken } from "@/lib/server-app-session";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 export const revalidate = 300;
 
 export default async function HomePage() {
+  const cookieStore = await cookies();
+  const sessionToken = cookieStore.get(APP_SESSION_COOKIE_NAME)?.value ?? null;
+  const role = await getAppSessionRoleByToken(sessionToken);
+
+  if (role && role !== "USER") {
+    redirect(getDefaultManageHref(role));
+  }
+
   const fallbackPayload = {
     homeFeed: {
       lookbook: [],
@@ -77,7 +90,7 @@ export default async function HomePage() {
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
         />
       ) : null}
-      <LandingPageClient initialHomeFeed={payload.homeFeed} initialExplore={payload.explore} />
+      <LandingEntryGate initialHomeFeed={payload.homeFeed} initialExplore={payload.explore} />
     </>
   );
 }

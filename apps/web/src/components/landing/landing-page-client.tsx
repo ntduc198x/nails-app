@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { useRouter } from "next/navigation";
 import { createPublicBookingRequest } from "@/lib/landing-booking";
 import type { HomeFeedPayload } from "@/lib/landing-content";
+import { getSafeSupabaseSession, recoverFromInvalidAuthState, validateAppSession } from "@/lib/app-session";
 import { supabase } from "@/lib/supabase";
 import { getCurrentAuthenticatedSummary } from "@/lib/web-auth";
 import { AuthModal } from "@/components/landing/auth-modal";
@@ -310,6 +311,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthenticatedUserSummary | null>(null);
+  const [authCtaLoading, setAuthCtaLoading] = useState(false);
   const [authResolved, setAuthResolved] = useState(false);
   const [serviceDesktopSlide, setServiceDesktopSlide] = useState(0);
   const [serviceMobileSlide, setServiceMobileSlide] = useState(0);
@@ -325,31 +327,27 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       return;
     }
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user;
+    const summary = await getCurrentAuthenticatedSummary();
+    if (!summary) {
+      setCurrentUser(null);
+      return;
+    }
 
+    if (!isCustomerRole(summary.role)) {
+      const appSession = await validateAppSession();
+      if (!appSession.valid) {
+        setCurrentUser(null);
+        return;
+      }
+    }
+
+    const { session } = await getSafeSupabaseSession();
+    const user = session?.user;
     if (!user) {
       setCurrentUser(null);
       return;
     }
 
-    const fallbackSummary: AuthenticatedUserSummary = {
-      id: user.id,
-      email: user.email ?? null,
-      displayName:
-        typeof user.user_metadata?.display_name === "string"
-          ? user.user_metadata.display_name
-          : typeof user.user_metadata?.full_name === "string"
-            ? user.user_metadata.full_name
-            : typeof user.user_metadata?.name === "string"
-              ? user.user_metadata.name
-              : user.email ?? null,
-      role: "USER",
-    };
-
-    const summary = (await getCurrentAuthenticatedSummary()) ?? fallbackSummary;
     setCurrentUser(summary);
 
     const fallbackName = getBookingPrefillName(summary);
@@ -566,13 +564,31 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
     { label: "Vệ sinh an toàn", value: "100%" },
   ];
 
-  function handleAuthCta() {
-    if (currentUser) {
-      router.push(isCustomerRole(currentUser.role) ? "/account" : "/manage");
+  async function handleAuthCta() {
+    if (!currentUser) {
+      setAuthOpen(true);
       return;
     }
 
-    setAuthOpen(true);
+    if (isCustomerRole(currentUser.role)) {
+      router.push("/account");
+      return;
+    }
+
+    setAuthCtaLoading(true);
+    try {
+      const appSession = await validateAppSession();
+      if (!appSession.valid) {
+        setCurrentUser(null);
+        await recoverFromInvalidAuthState();
+        router.push("/login?next=%2Fmanage");
+        return;
+      }
+
+      router.push("/manage");
+    } finally {
+      setAuthCtaLoading(false);
+    }
   }
 
   function updateBookingState<K extends keyof BookingFormState>(key: K, value: BookingFormState[K]) {
@@ -670,12 +686,17 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
                 </Link>
               ) : null}
               {authResolved && currentUser && !isCustomerRole(currentUser.role) ? (
-                <button type="button" className="landing-showcase__login" onClick={handleAuthCta}>
-                  Vào quản trị
+                <button
+                  type="button"
+                  className="landing-showcase__login"
+                  onClick={() => void handleAuthCta()}
+                  disabled={authCtaLoading}
+                >
+                  {authCtaLoading ? "Đang kiểm tra..." : "Vào quản trị"}
                 </button>
               ) : null}
               {authResolved && !currentUser ? (
-                <button type="button" className="landing-showcase__login" onClick={handleAuthCta}>
+                <button type="button" className="landing-showcase__login" onClick={() => void handleAuthCta()}>
                   Đăng ký / Đăng nhập
                 </button>
               ) : null}
@@ -1131,7 +1152,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
                 <a href={storefront?.instagramUrl ?? "#"} target="_blank" rel="noreferrer">
                   i
                 </a>
-                <button type="button" onClick={handleAuthCta}>
+                <button type="button" onClick={() => void handleAuthCta()}>
                   @
                 </button>
               </div>

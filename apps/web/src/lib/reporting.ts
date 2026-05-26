@@ -1,5 +1,6 @@
 import { getCurrentSessionRole, listUserRoles } from "@/lib/auth";
 import { ensureOrgContext } from "@/lib/domain";
+import { canAccessManageReports } from "@/lib/manage-access";
 import { supabase } from "@/lib/supabase";
 
 export type ReportTicketRow = {
@@ -13,7 +14,7 @@ export type ReportTicketRow = {
 
 async function assertCanViewReports() {
   const role = await getCurrentSessionRole();
-  if (role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "ACCOUNTANT") {
+  if (canAccessManageReports(role)) {
     return role;
   }
 
@@ -235,6 +236,7 @@ export async function getRevenueTrend7d(opts?: { force?: boolean }) {
 
 export async function getReportBreakdown(fromIso: string, toIso: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
+  await assertCanViewReports();
   const { branchId } = await ensureOrgContext();
 
   const { data, error } = await supabase.rpc("get_report_breakdown_secure", {
@@ -319,6 +321,7 @@ export async function getStaffRevenueInRange(fromIso: string, toIso: string) {
 
 export async function getTicketDetail(ticketId: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
+  await assertCanViewReports();
   await ensureOrgContext();
 
   const { data, error } = await supabase.rpc("get_ticket_detail_secure", {

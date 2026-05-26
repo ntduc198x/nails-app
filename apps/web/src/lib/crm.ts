@@ -1,4 +1,6 @@
 import { ensureOrgContext } from "@/lib/domain";
+import { canAccessManageCustomers } from "@/lib/manage-access";
+import { getCurrentSessionRole } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 
 export type CustomerStatus = "NEW" | "ACTIVE" | "RETURNING" | "VIP" | "AT_RISK" | "LOST";
@@ -209,6 +211,15 @@ function customerSortScore(row: CustomerCrmSummary) {
   };
 }
 
+async function assertCanViewCrm() {
+  const role = await getCurrentSessionRole();
+  if (canAccessManageCustomers(role)) {
+    return role;
+  }
+
+  throw new Error("FORBIDDEN_REPORTS");
+}
+
 function dedupeCustomerRows(rows: CustomerCrmSummary[]): CustomerCrmSummary[] {
   const grouped = new Map<string, CustomerCrmSummary>();
 
@@ -268,6 +279,7 @@ async function selectCustomersBase() {
 
 export async function listCustomersCrm(filters: CustomerCrmFilters = {}): Promise<CustomerCrmSummary[]> {
   if (!supabase) return [];
+  await assertCanViewCrm();
   const { branchId } = await ensureOrgContext();
 
   const rpc = await supabase.rpc("list_customers_crm", {
@@ -335,6 +347,7 @@ export async function listCustomerCardsByPhones(phones: Array<string | null | un
 
 export async function getCustomerCrmDetail(customerId: string): Promise<CustomerCrmDetail> {
   if (!supabase) throw new Error("Supabase chua cau hinh");
+  await assertCanViewCrm();
 
   const rpc = await supabase.rpc("get_customer_crm_detail", {
     p_customer_id: customerId,
@@ -439,6 +452,7 @@ export async function updateCustomerCareNote(input: {
   followUpStatus?: FollowUpStatus;
 }) {
   if (!supabase) throw new Error("Supabase chua cau hinh");
+  await assertCanViewCrm();
 
   const rpc = await supabase.rpc("update_customer_care_note", {
     p_customer_id: input.customerId,
@@ -485,6 +499,7 @@ export async function updateCustomerCareNote(input: {
 
 export async function listFollowUpCandidates(range?: { fromIso?: string | null; toIso?: string | null }) {
   if (!supabase) return [];
+  await assertCanViewCrm();
   const { branchId } = await ensureOrgContext();
 
   const rpc = await supabase.rpc("list_follow_up_candidates", {

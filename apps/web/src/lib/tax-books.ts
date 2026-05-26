@@ -1,3 +1,5 @@
+import { getCurrentSessionRole } from "@/lib/auth";
+import { canAccessManageTaxBooks } from "@/lib/manage-access";
 import { supabase } from "@/lib/supabase";
 
 export type TaxBookType = "S1A_HKD" | "S2A_HKD" | "S3A_HKD";
@@ -17,6 +19,11 @@ function buildServiceCustomerDescription(serviceNames: string[], customerName?: 
 export async function buildTaxBook(type: TaxBookType, fromIso: string, toIso: string): Promise<TaxBookRow[]> {
   if (!supabase) {
     throw new Error("Supabase chua cau hinh");
+  }
+
+  const role = await getCurrentSessionRole();
+  if (!canAccessManageTaxBooks(role)) {
+    throw new Error("FORBIDDEN_REPORTS");
   }
 
   const { data, error } = await supabase.rpc("list_tax_book_rows_secure", {

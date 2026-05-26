@@ -6,7 +6,7 @@ import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/c
 import { ManageQuickNav, setupQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole, type AppRole } from "@/lib/auth";
 import { createService, deleteService, listServices, updateService } from "@/lib/domain";
-import { canAccessManageSetup } from "@/lib/manage-setup-auth";
+import { canAccessManageServices } from "@/lib/manage-access";
 import { formatVnd } from "@/lib/mock-data";
 import { uploadServiceImage } from "@/lib/service-images";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -119,8 +119,8 @@ export default function ServicesPage() {
   const listSectionRef = useRef<HTMLDivElement | null>(null);
   const trashSectionRef = useRef<HTMLDivElement | null>(null);
 
-  const canEdit = role === "OWNER" || role === "MANAGER" || role === "RECEPTION";
-  const canAccessPage = role ? canAccessManageSetup(role) : true;
+  const canEdit = canAccessManageServices(role);
+  const canAccessPage = role ? canAccessManageServices(role) : true;
 
   const load = useCallback(async (opts?: { force?: boolean }) => {
     const isInitial = rows.length === 0;
@@ -130,10 +130,14 @@ export default function ServicesPage() {
       setError(null);
       const currentRole = await getCurrentSessionRole();
       setRole(currentRole);
+      if (!canAccessManageServices(currentRole)) {
+        throw new Error("FORBIDDEN_SERVICES");
+      }
       const data = await listServices({ force: opts?.force });
       setRows(data as ServiceRow[]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Load services failed");
+      const message = e instanceof Error ? e.message : "Load services failed";
+      setError(message === "FORBIDDEN_SERVICES" ? "Bạn không có quyền xem trang Dịch vụ." : message);
     } finally {
       if (isInitial) setLoading(false);
       else setRefreshing(false);

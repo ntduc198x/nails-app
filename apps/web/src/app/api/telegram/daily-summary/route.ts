@@ -143,8 +143,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, orgs: (allOrgs ?? []).length });
   } catch (error) {
+    console.error("telegram daily-summary POST failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Daily summary failed" },
+      { ok: false, error: "Daily summary failed" },
       { status: 500 },
     );
   }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import type { AppRole } from "@/lib/auth";
 import { canAccessManageLanding, type LandingManagerRole } from "@/lib/manage-landing-auth";
 import { createServiceRoleClient } from "@/lib/supabase";
@@ -13,6 +14,17 @@ type ContentPostInput = {
   status?: "draft" | "approved" | "published" | "archived";
   priority?: number;
 };
+
+const contentPostInputSchema = z.object({
+  id: z.string().uuid().optional(),
+  title: z.string().trim().min(1).max(160).optional(),
+  summary: z.string().trim().max(500).optional(),
+  body: z.string().trim().max(10000).optional(),
+  coverImageUrl: z.string().trim().url().nullable().optional(),
+  contentType: z.enum(["trend", "care", "news", "offer_hint"]).optional(),
+  status: z.enum(["draft", "approved", "published", "archived"]).optional(),
+  priority: z.coerce.number().int().min(0).max(999).optional(),
+});
 
 function getBearerToken(req: Request) {
   const header = req.headers.get("authorization");
@@ -46,7 +58,7 @@ async function requireLandingManager(req: Request) {
   const userRes = await supabase.auth.getUser(token);
   const user = userRes.data.user;
   if (userRes.error || !user) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: userRes.error?.message ?? "Invalid session" }, { status: 401 }) };
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Invalid session" }, { status: 401 }) };
   }
 
   const roleRes = await supabase
@@ -55,7 +67,7 @@ async function requireLandingManager(req: Request) {
     .eq("user_id", user.id);
 
   if (roleRes.error || !roleRes.data?.length) {
-    return { ok: false as const, response: NextResponse.json({ ok: false, error: roleRes.error?.message ?? "Missing role context" }, { status: 403 }) };
+    return { ok: false as const, response: NextResponse.json({ ok: false, error: "Missing role context" }, { status: 403 }) };
   }
 
   const orgId = String(roleRes.data[0]?.org_id ?? "");
@@ -155,8 +167,9 @@ export async function GET(req: Request) {
       },
     });
   } catch (error) {
+    console.error("manage landing content-posts GET failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Không tải được dữ liệu landing page" },
+      { ok: false, error: "Không tải được dữ liệu landing page" },
       { status: 500 },
     );
   }
@@ -167,7 +180,7 @@ export async function POST(req: Request) {
   if (!auth.ok) return auth.response;
 
   try {
-    const body = (await req.json()) as ContentPostInput;
+    const body = contentPostInputSchema.parse((await req.json()) as ContentPostInput);
     const status = normalizeStatus(body.status);
     const payload = {
       org_id: auth.orgId,
@@ -191,8 +204,12 @@ export async function POST(req: Request) {
     if (result.error) throw result.error;
     return NextResponse.json({ ok: true, data: result.data });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ ok: false, error: error.issues[0]?.message ?? "Dữ liệu không hợp lệ" }, { status: 400 });
+    }
+    console.error("manage landing content-posts POST failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Không tạo được content post" },
+      { ok: false, error: "Không tạo được content post" },
       { status: 400 },
     );
   }
@@ -203,7 +220,7 @@ export async function PATCH(req: Request) {
   if (!auth.ok) return auth.response;
 
   try {
-    const body = (await req.json()) as ContentPostInput;
+    const body = contentPostInputSchema.parse((await req.json()) as ContentPostInput);
     if (!body.id) {
       return NextResponse.json({ ok: false, error: "Thiếu id bài viết" }, { status: 400 });
     }
@@ -231,8 +248,12 @@ export async function PATCH(req: Request) {
     if (result.error) throw result.error;
     return NextResponse.json({ ok: true, data: result.data });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ ok: false, error: error.issues[0]?.message ?? "Dữ liệu không hợp lệ" }, { status: 400 });
+    }
+    console.error("manage landing content-posts PATCH failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Không cập nhật được content post" },
+      { ok: false, error: "Không cập nhật được content post" },
       { status: 400 },
     );
   }

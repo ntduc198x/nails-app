@@ -1,3 +1,6 @@
+-- Runtime patch for ensure_current_user_profile() on projects where public.user_roles
+-- no longer has a created_at column.
+
 begin;
 
 create or replace function public.ensure_current_user_profile(p_user_id uuid default null)
@@ -126,65 +129,6 @@ begin
   );
 end;
 $$;
-
-create or replace function public.handle_new_auth_user()
-returns trigger
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_display_name text;
-  v_phone text;
-begin
-  v_display_name := nullif(
-    trim(
-      coalesce(
-        new.raw_user_meta_data ->> 'display_name',
-        new.raw_user_meta_data ->> 'full_name',
-        ''
-      )
-    ),
-    ''
-  );
-
-  if v_display_name is null then
-    v_display_name := coalesce(nullif(split_part(coalesce(new.email, ''), '@', 1), ''), 'User');
-  end if;
-
-  v_phone := nullif(trim(coalesce(new.phone, new.raw_user_meta_data ->> 'phone', '')), '');
-
-  insert into public.profiles (
-    user_id,
-    org_id,
-    default_branch_id,
-    display_name,
-    email,
-    phone
-  )
-  values (
-    new.id,
-    null,
-    null,
-    v_display_name,
-    new.email,
-    v_phone
-  )
-  on conflict (user_id) do update
-    set
-      display_name = coalesce(nullif(public.profiles.display_name, ''), excluded.display_name),
-      email = coalesce(excluded.email, public.profiles.email),
-      phone = coalesce(excluded.phone, public.profiles.phone);
-
-  return new;
-end;
-$$;
-
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-after insert on auth.users
-for each row
-execute function public.handle_new_auth_user();
 
 grant execute on function public.ensure_current_user_profile(uuid) to authenticated;
 

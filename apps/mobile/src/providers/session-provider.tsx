@@ -1,11 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import * as AppleAuthentication from "expo-apple-authentication";
 import * as AuthSession from "expo-auth-session";
 import Constants from "expo-constants";
 import * as Linking from "expo-linking";
 import * as WebBrowser from "expo-web-browser";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Platform } from "react-native";
 import { router } from "expo-router";
 import type {
   AppRole,
@@ -36,6 +34,48 @@ const { colors, radius, spacing, shadow } = premiumTheme;
 
 WebBrowser.maybeCompleteAuthSession();
 
+function normalizeSocialAuthError(error: unknown, providerLabel: string) {
+  const fallbackMessage = `Khong the tiep tuc voi ${providerLabel}.`;
+
+  if (!(error instanceof Error)) {
+    return new Error(fallbackMessage);
+  }
+
+  let rawMessage = error.message?.trim() || "";
+
+  if (rawMessage.startsWith("{") && rawMessage.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(rawMessage) as {
+        code?: number;
+        error_code?: string;
+        msg?: string;
+        message?: string;
+      };
+      rawMessage = parsed.msg || parsed.message || rawMessage;
+
+      if (
+        parsed.error_code === "validation_failed" &&
+        typeof parsed.msg === "string" &&
+        /provider is not enabled|unsupported provider/i.test(parsed.msg)
+      ) {
+        return new Error(
+          `${providerLabel} chua duoc bat tren Supabase project hien tai. Vao Supabase Dashboard > Authentication > Providers > ${providerLabel} de enable va cau hinh Client ID/Secret.`,
+        );
+      }
+    } catch {
+      // Keep the original error message if JSON parsing fails.
+    }
+  }
+
+  if (/provider is not enabled|unsupported provider/i.test(rawMessage)) {
+    return new Error(
+      `${providerLabel} chua duoc bat tren Supabase project hien tai. Vao Supabase Dashboard > Authentication > Providers > ${providerLabel} de enable va cau hinh Client ID/Secret.`,
+    );
+  }
+
+  return error;
+}
+
 type SessionContextValue = {
   isHydrated: boolean;
   isBusy: boolean;
@@ -45,7 +85,6 @@ type SessionContextValue = {
   error: string | null;
   signIn: (input: { email: string; password: string }) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
-  signInWithApple: () => Promise<void>;
   signUp: (input: {
     email: string;
     password: string;
@@ -70,9 +109,6 @@ const defaultSessionContextValue: SessionContextValue = {
     throw new Error("Mobile session provider chua san sang.");
   },
   async signInWithGoogle() {
-    throw new Error("Mobile session provider chua san sang.");
-  },
-  async signInWithApple() {
     throw new Error("Mobile session provider chua san sang.");
   },
   async signUp() {
@@ -182,12 +218,6 @@ function isOAuthCallbackUrl(url: string | null | undefined) {
     return true;
   }
   return false;
-}
-
-function buildDisplayNameFromApple(credential: AppleAuthentication.AppleAuthenticationCredential) {
-  const givenName = credential.fullName?.givenName?.trim();
-  const familyName = credential.fullName?.familyName?.trim();
-  return [givenName, familyName].filter(Boolean).join(" ").trim();
 }
 
 async function ensureCustomerUserMetadata() {
@@ -732,7 +762,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       });
 
       if (oauthError) {
-        throw oauthError;
+        throw normalizeSocialAuthError(oauthError, "Google");
       }
 
       if (!data?.url) {
@@ -782,68 +812,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Dang nhap Google that bai.");
-      throw nextError;
-    } finally {
-      setIsBusy(false);
-    }
-  }
-
-  async function signInWithApple() {
-    if (!mobileSupabase) {
-      throw new Error("Thieu cau hinh Supabase mobile.");
-    }
-
-    if (Platform.OS !== "ios") {
-      throw new Error("Apple ID chi ho tro tren iOS.");
-    }
-
-    isSigningOutRef.current = false;
-    setIsBusy(true);
-    setError(null);
-
-    try {
-      const credential = await AppleAuthentication.signInAsync({
-        requestedScopes: [
-          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-          AppleAuthentication.AppleAuthenticationScope.EMAIL,
-        ],
-      });
-
-      if (!credential.identityToken) {
-        throw new Error("Apple khong tra ve identity token.");
-      }
-
-      const { error: authError } = await mobileSupabase.auth.signInWithIdToken({
-        provider: "apple",
-        token: credential.identityToken,
-      });
-
-      if (authError) {
-        throw authError;
-      }
-
-      const displayName = buildDisplayNameFromApple(credential);
-      const { error: updateError } = await mobileSupabase.auth.updateUser({
-        data: {
-          registration_mode: "USER",
-          ...(displayName
-            ? {
-                display_name: displayName,
-                full_name: displayName,
-                given_name: credential.fullName?.givenName ?? null,
-                family_name: credential.fullName?.familyName ?? null,
-              }
-            : {}),
-        },
-      });
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      await finalizePostAuthRedirect("USER");
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Dang nhap Apple that bai.");
       throw nextError;
     } finally {
       setIsBusy(false);
@@ -980,7 +948,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     error,
     signIn,
     signInWithGoogle,
-    signInWithApple,
     signUp,
     requestPasswordReset,
     refreshSession,

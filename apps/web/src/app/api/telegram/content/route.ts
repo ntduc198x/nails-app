@@ -115,8 +115,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, data });
   } catch (error) {
+    console.error("telegram content POST failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Khong ingest duoc Telegram content" },
+      { ok: false, error: "Khong ingest duoc Telegram content" },
       { status: 500 },
     );
   }

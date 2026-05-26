@@ -1,8 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { getDeviceFingerprint, getDeviceInfo } from "@/lib/device-fingerprint";
 
-const SESSION_TOKEN_KEY = "nails_session_token";
-
 function isInvalidRefreshTokenMessage(message: string | undefined) {
   const normalized = (message ?? "").toLowerCase();
   return normalized.includes("invalid refresh token") || normalized.includes("refresh token not found");
@@ -36,26 +34,45 @@ export interface AppSessionValidation {
   deviceInfo?: unknown;
 }
 
-export function getStoredSessionToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(SESSION_TOKEN_KEY);
+type AppSessionRouteOptions = RequestInit & {
+  includeAuth?: boolean;
+};
+
+type AppSessionValidationResponse = {
+  valid: boolean;
+  reason?: "INVALID_TOKEN" | "SESSION_REPLACED" | "DEVICE_TAKEN" | "USER_SWITCHED";
+  message?: string;
+  owner_name?: string | null;
+  user_id?: string;
+  device_fingerprint?: string;
+  device_info?: unknown;
+};
+
+async function getCurrentAccessToken() {
+  const { session } = await getSafeSupabaseSession();
+  return session?.access_token ?? null;
 }
 
-export function setStoredSessionToken(token: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(SESSION_TOKEN_KEY, token);
-}
+async function callAppSessionRoute(path: string, init?: AppSessionRouteOptions) {
+  const headers = new Headers(init?.headers ?? {});
 
-export function clearStoredSessionToken(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(SESSION_TOKEN_KEY);
+  if (init?.includeAuth !== false) {
+    const accessToken = await getCurrentAccessToken();
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    }
+  }
+
+  return fetch(path, {
+    ...init,
+    headers,
+    credentials: "same-origin",
+    cache: "no-store",
+  });
 }
 
 export async function recoverFromInvalidAuthState() {
-  clearStoredSessionToken();
-  if (typeof window !== "undefined") {
-    sessionStorage.removeItem("nails.auth.cache");
-  }
+  await callAppSessionRoute("/api/app-session", { method: "DELETE", includeAuth: false }).catch(() => undefined);
   await clearSupabaseBrowserSession();
 }
 
@@ -79,8 +96,6 @@ export async function getSafeSupabaseSession() {
 }
 
 export async function createAppSession(): Promise<AppSessionResult> {
-  if (!supabase) return { success: false, error: "Supabase not configured" };
-
   const { session } = await getSafeSupabaseSession();
   const user = session?.user;
   if (!user) return { success: false, error: "Not authenticated" };
@@ -88,36 +103,52 @@ export async function createAppSession(): Promise<AppSessionResult> {
   const fingerprint = await getDeviceFingerprint();
   const deviceInfo = await getDeviceInfo();
 
-  const { data, error } = await supabase.rpc("create_app_session", {
-    p_user_id: user.id,
-    p_device_fingerprint: fingerprint,
-    p_device_info: deviceInfo,
-  });
+  try {
+    const response = await callAppSessionRoute("/api/app-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        deviceFingerprint: fingerprint,
+        deviceInfo,
+      }),
+    });
+    const data = (await response.json().catch(() => null)) as
+      | (AppSessionResult & { success?: boolean; replacedUserId?: string | null; replacedOwnerName?: string | null })
+      | null;
 
-  if (error) {
-    if (isInvalidRefreshTokenMessage(error.message)) {
+    if (!response.ok || !data?.success) {
+      const nextError = data?.error || "Không tạo được app session.";
+      if (isInvalidRefreshTokenMessage(nextError)) {
+        await recoverFromInvalidAuthState();
+        return { success: false, error: nextError, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
+      }
+      return {
+        success: false,
+        error: nextError,
+        message: data?.message,
+        replacedUserId: data?.replacedUserId ?? null,
+        replacedOwnerName: data?.replacedOwnerName ?? null,
+      };
+    }
+
+    return {
+      success: true,
+      message: data.message,
+      replacedUserId: data.replacedUserId ?? null,
+      replacedOwnerName: data.replacedOwnerName ?? null,
+    };
+  } catch (error) {
+    if (error instanceof Error && isInvalidRefreshTokenMessage(error.message)) {
       await recoverFromInvalidAuthState();
       return { success: false, error: error.message, message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." };
     }
-    return { success: false, error: error.message };
+    return { success: false, error: "Không tạo được app session." };
   }
-
-  if (data?.token) {
-    setStoredSessionToken(data.token);
-  }
-
-  return {
-    success: Boolean(data?.success),
-    token: data?.token,
-    message: data?.message,
-    replacedUserId: data?.replaced_user_id,
-    replacedOwnerName: data?.replaced_owner_name,
-  };
 }
 
 export async function validateAppSession(): Promise<AppSessionValidation> {
-  if (!supabase) return { valid: false, reason: "INVALID_TOKEN" };
-
   const { session, invalidRefreshToken } = await getSafeSupabaseSession();
   if (invalidRefreshToken) {
     return {
@@ -129,35 +160,29 @@ export async function validateAppSession(): Promise<AppSessionValidation> {
 
   const currentUser = session?.user;
   if (!currentUser) {
-    clearStoredSessionToken();
     return { valid: false, reason: "INVALID_TOKEN" };
   }
 
-  const token = getStoredSessionToken();
-  if (!token) {
-    return { valid: false, reason: "INVALID_TOKEN" };
-  }
-
-  const { data, error } = await supabase.rpc("validate_app_session", {
-    p_token: token,
+  const response = await callAppSessionRoute("/api/app-session/validate", {
+    method: "POST",
   });
-
-  if (error || !data) {
-    clearStoredSessionToken();
+  const data = (await response.json().catch(() => null)) as AppSessionValidationResponse | null;
+  if (!response.ok || !data) {
     return { valid: false, reason: "INVALID_TOKEN" };
   }
 
   if (!data.valid) {
-    clearStoredSessionToken();
     return {
       valid: false,
       reason: data.reason,
       message: data.message,
-      ownerName: data.owner_name,
+      ownerName: data.owner_name ?? null,
     };
   }
 
-  await supabase.rpc("heartbeat_online_user", { p_user_id: data.user_id });
+  if (data.user_id) {
+    await supabase.rpc("heartbeat_online_user", { p_user_id: data.user_id });
+  }
 
   return {
     valid: true,
@@ -169,31 +194,20 @@ export async function validateAppSession(): Promise<AppSessionValidation> {
 }
 
 export async function revokeAppSession(): Promise<boolean> {
-  if (!supabase) return false;
-
-  const token = getStoredSessionToken();
-  if (token) {
-    await supabase.rpc("revoke_app_session", { p_token: token });
-  }
-  clearStoredSessionToken();
+  await callAppSessionRoute("/api/app-session", { method: "DELETE", includeAuth: false }).catch(() => undefined);
   return true;
 }
 
 export async function logoutWithSessionCleanup(): Promise<void> {
-  if (!supabase) return;
-
   const { session } = await getSafeSupabaseSession();
   const userId = session?.user?.id;
-
-  const token = getStoredSessionToken();
-  if (token) {
-    await supabase.rpc("revoke_app_session", { p_token: token });
-  }
 
   if (userId) {
     await supabase.from("device_sessions").delete().eq("user_id", userId);
   }
 
-  clearStoredSessionToken();
+  await callAppSessionRoute("/api/app-session", { method: "DELETE", includeAuth: false }).catch(() => undefined);
   await clearSupabaseBrowserSession();
 }
+
+export function clearStoredSessionToken(): void {}

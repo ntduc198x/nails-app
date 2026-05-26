@@ -313,8 +313,9 @@ async function processTelegramUpdate(body: unknown, publicBaseUrl: string) {
 
     return await handleCallback(callback, publicBaseUrl);
   } catch (error) {
+    console.error("telegram webhook processing failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Telegram webhook failed" },
+      { ok: false, error: "Telegram webhook failed" },
       { status: 500 },
     );
   }
@@ -883,8 +884,9 @@ async function handleCallback(
       },
     });
   } catch (error) {
+    console.error("telegram callback handling failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Telegram callback failed" },
+      { ok: false, error: "Telegram callback failed" },
       { status: 500 },
     );
   }

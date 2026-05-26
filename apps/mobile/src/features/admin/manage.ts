@@ -45,14 +45,6 @@ export const MANAGE_SCREEN_ITEMS: ManageScreenItem[] = [
     icon: "book-open",
   },
   {
-    key: "shifts",
-    title: "Quản lý ca",
-    subtitle: "Lịch tuần, chấm công và điều chỉnh ca làm cho nhân sự.",
-    route: "/shifts",
-    group: "insights",
-    icon: "clock",
-  },
-  {
     key: "services",
     title: "Dịch vụ",
     subtitle: "Quản lý danh mục dịch vụ, lookbook và thùng rác.",
@@ -75,6 +67,14 @@ export const MANAGE_SCREEN_ITEMS: ManageScreenItem[] = [
     route: "/manage-team",
     group: "setup",
     icon: "users",
+  },
+  {
+    key: "shifts",
+    title: "Lịch làm việc",
+    subtitle: "Lịch tuần, chấm công và điều chỉnh ca làm cho nhân sự.",
+    route: "/shifts",
+    group: "setup",
+    icon: "clock",
   },
 ];
 

@@ -739,7 +739,15 @@ export function useAdminNotifications(
     }).length;
   }, [dismissedActionIds, seenAt, visibleNotifications]);
 
-  const badgeCount = actionOpenCount > 0 ? actionOpenCount : unreadCount;
+  const feedUnreadCount = useMemo(() => {
+    const seenAtMs = seenAt ? new Date(seenAt).getTime() : 0;
+    return visibleNotifications.filter((item) => {
+      if (item.resolvedAt || item.actionRequired) return false;
+      return new Date(item.createdAt).getTime() > seenAtMs;
+    }).length;
+  }, [seenAt, visibleNotifications]);
+
+  const badgeCount = actionOpenCount + feedUnreadCount;
 
   const markSeen = useCallback(async () => {
     const nextSeenAt = new Date().toISOString();
@@ -800,6 +808,7 @@ export function useAdminNotifications(
     actionNotifications,
     feedNotifications,
     unreadCount,
+    feedUnreadCount,
     badgeCount,
     actionOpenCount,
     bookingQueueCount,

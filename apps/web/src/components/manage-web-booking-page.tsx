@@ -64,7 +64,6 @@ export function ManageWebBookingPage() {
     setBookingAt,
     dismissCancelConfirmation,
     requestCancelBooking,
-    deleteBooking,
     convertBooking,
     refresh,
   } = useManageBookingRequests();
@@ -475,22 +474,14 @@ export function ManageWebBookingPage() {
                             </>
                           ) : (
                             <>
-                              <button
-                                type="button"
-                                onClick={() => void requestCancelBooking(selectedBookingRequest.id)}
-                                disabled={submitting}
-                                className="cursor-pointer rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                Hủy request
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void deleteBooking(selectedBookingRequest.id)}
-                                disabled={submitting}
-                                className="cursor-pointer rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                Xóa vĩnh viễn
-                              </button>
+                            <button
+                              type="button"
+                              onClick={() => void requestCancelBooking(selectedBookingRequest.id)}
+                              disabled={submitting}
+                              className="cursor-pointer rounded-2xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Hủy request
+                            </button>
                             </>
                           )}
                         </>

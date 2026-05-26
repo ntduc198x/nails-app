@@ -277,8 +277,9 @@ async function processTelegramBookingNotification(body: unknown) {
       throw sendError;
     }
   } catch (error) {
+    console.error("telegram route processing failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Telegram API route failed" },
+      { ok: false, error: "Telegram API route failed" },
       { status: 500 },
     );
   }

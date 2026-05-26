@@ -1,5 +1,13 @@
 import Constants from "expo-constants";
 
+function readRequiredValue(name: string, rawValue: string | undefined) {
+  const value = rawValue?.trim() ?? "";
+  if (!value) {
+    throw new Error(`[mobile-env] Missing required environment variable: ${name}`);
+  }
+  return value;
+}
+
 function readLegacyDebuggerHost() {
   const manifest = Constants.manifest;
   if (!manifest || typeof manifest !== "object") {
@@ -58,9 +66,15 @@ const resolvedApiBaseUrl =
   normalizeApiBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ||
   deriveLocalApiBaseUrl();
 
+if (!resolvedApiBaseUrl) {
+  throw new Error(
+    "[mobile-env] Missing API base URL. Set EXPO_PUBLIC_API_BASE_URL or NEXT_PUBLIC_APP_URL, or run the app from an Expo local dev session that exposes hostUri.",
+  );
+}
+
 export const mobileEnv = {
-  supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL?.trim() ?? "",
-  supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? "",
+  supabaseUrl: readRequiredValue("EXPO_PUBLIC_SUPABASE_URL", process.env.EXPO_PUBLIC_SUPABASE_URL),
+  supabaseAnonKey: readRequiredValue("EXPO_PUBLIC_SUPABASE_ANON_KEY", process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY),
   apiBaseUrl: resolvedApiBaseUrl,
   webApiBaseUrl:
     normalizeApiBaseUrl(process.env.EXPO_PUBLIC_WEB_API_BASE_URL) ||

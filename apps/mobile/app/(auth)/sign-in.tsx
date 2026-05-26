@@ -36,7 +36,6 @@ export default function SignInScreen() {
     role,
     requestPasswordReset,
     signIn,
-    signInWithApple,
     signInWithGoogle,
     signUp,
   } = useSession();
@@ -180,12 +179,6 @@ export default function SignInScreen() {
     await signInWithGoogle();
   }
 
-  async function handleApplePress() {
-    setMessage(null);
-    clearError();
-    await signInWithApple();
-  }
-
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <KeyboardAvoidingView
@@ -295,15 +288,6 @@ export default function SignInScreen() {
                 onPress={() => void handleGooglePress()}
                 disabled={isBusy}
               />
-
-              {Platform.OS === "ios" ? (
-                <SocialButton
-                  icon="smartphone"
-                  label="Tiếp tục với Apple"
-                  onPress={() => void handleApplePress()}
-                  disabled={isBusy}
-                />
-              ) : null}
 
               <Separator label="HOẶC" />
             </>

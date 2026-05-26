@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import type { AppRole } from "@/lib/auth";
 import { canAccessManageLanding, type LandingManagerRole } from "@/lib/manage-landing-auth";
 import { createServiceRoleClient } from "@/lib/supabase";
@@ -22,6 +23,45 @@ type StorefrontInput = {
   highlights?: string[] | null;
   isActive?: boolean;
 };
+
+const nullableTrimmedString = z.preprocess((value) => {
+  if (value == null) return null;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}, z.string().max(500).nullable());
+
+const nullableUrlString = z.preprocess((value) => {
+  if (value == null) return null;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}, z.string().url().max(500).nullable());
+
+const storefrontInputSchema = z.object({
+  id: z.string().uuid().nullable().optional(),
+  name: z.string().trim().min(1).max(120).optional(),
+  slug: z.string().trim().min(1).max(120).optional(),
+  category: nullableTrimmedString.optional(),
+  description: z.preprocess((value) => {
+    if (value == null) return null;
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  }, z.string().max(2000).nullable()).optional(),
+  phone: nullableTrimmedString.optional(),
+  addressLine: nullableTrimmedString.optional(),
+  openingHours: nullableTrimmedString.optional(),
+  coverImageUrl: nullableUrlString.optional(),
+  logoImageUrl: nullableUrlString.optional(),
+  rating: z.coerce.number().min(0).max(5).nullable().optional(),
+  reviewsLabel: nullableTrimmedString.optional(),
+  mapUrl: nullableUrlString.optional(),
+  messengerUrl: nullableUrlString.optional(),
+  instagramUrl: nullableUrlString.optional(),
+  highlights: z.array(z.string().trim().min(1).max(140)).max(20).nullable().optional(),
+  isActive: z.boolean().optional(),
+});
 
 const STOREFRONT_SELECT =
   "id,name,slug,category,description,phone,address_line,opening_hours,cover_image_url,logo_image_url,rating,reviews_label,map_url,messenger_url,instagram_url,highlights,is_active,updated_at";
@@ -98,12 +138,12 @@ async function requireLandingManager(req: Request) {
   const userRes = await supabase.auth.getUser(token);
   const user = userRes.data.user;
   if (userRes.error || !user) {
-    return { ok: false as const, response: errorResponse(userRes.error?.message ?? AUTH_ERRORS.invalidSession, 401) };
+    return { ok: false as const, response: errorResponse(AUTH_ERRORS.invalidSession, 401) };
   }
 
   const roleRes = await supabase.from("user_roles").select("org_id,role").eq("user_id", user.id);
   if (roleRes.error || !roleRes.data?.length) {
-    return { ok: false as const, response: errorResponse(roleRes.error?.message ?? AUTH_ERRORS.missingRoleContext, 403) };
+    return { ok: false as const, response: errorResponse(AUTH_ERRORS.missingRoleContext, 403) };
   }
 
   const orgId = String(roleRes.data[0]?.org_id ?? "");
@@ -156,7 +196,8 @@ export async function GET(req: Request) {
     .maybeSingle();
 
   if (result.error) {
-    return errorResponse(result.error.message, 500);
+    console.error("manage landing storefront GET failed", result.error);
+    return errorResponse("Không tải được storefront.", 500);
   }
 
   return NextResponse.json({ ok: true, data: result.data ?? null });
@@ -167,7 +208,7 @@ export async function PUT(req: Request) {
   if (!auth.ok) return auth.response;
 
   try {
-    const body = (await req.json()) as StorefrontInput;
+    const body = storefrontInputSchema.parse((await req.json()) as StorefrontInput);
 
     const [profileBranchRes, fallbackBranchRes] = await Promise.all([
       auth.supabase
@@ -207,7 +248,11 @@ export async function PUT(req: Request) {
 
     return NextResponse.json({ ok: true, data: result.data });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : STOREFRONT_ERRORS.saveFailed, 400);
+    if (error instanceof z.ZodError) {
+      return errorResponse(error.issues[0]?.message ?? "Dữ liệu storefront không hợp lệ.", 400);
+    }
+    console.error("manage landing storefront PUT failed", error);
+    return errorResponse(STOREFRONT_ERRORS.saveFailed, 400);
   }
 }
 
@@ -230,6 +275,7 @@ export async function DELETE(req: Request) {
     if (result.error) throw result.error;
     return NextResponse.json({ ok: true, data: null });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : STOREFRONT_ERRORS.deleteFailed, 400);
+    console.error("manage landing storefront DELETE failed", error);
+    return errorResponse(STOREFRONT_ERRORS.deleteFailed, 400);
   }
 }

@@ -18,18 +18,6 @@ using (
       and ca.org_id = public.booking_requests.org_id
       and (
         ca.customer_id = public.booking_requests.customer_id
-        or exists (
-          select 1
-          from public.customers c
-          where c.id = public.booking_requests.customer_id
-            and c.org_id = public.booking_requests.org_id
-            and lower(coalesce(c.email, '')) = lower(
-              coalesce(
-                nullif(trim((auth.jwt() ->> 'email')), ''),
-                nullif(trim((auth.jwt() -> 'user_metadata' ->> 'email')), '')
-              )
-            )
-        )
         or (
           public.normalize_customer_phone(public.booking_requests.customer_phone) is not null
           and public.normalize_customer_phone(public.booking_requests.customer_phone)
@@ -54,18 +42,6 @@ using (
       and ca.org_id = public.appointments.org_id
       and (
         ca.customer_id = public.appointments.customer_id
-        or exists (
-          select 1
-          from public.customers c
-          where c.id = public.appointments.customer_id
-            and c.org_id = public.appointments.org_id
-            and lower(coalesce(c.email, '')) = lower(
-              coalesce(
-                nullif(trim((auth.jwt() ->> 'email')), ''),
-                nullif(trim((auth.jwt() -> 'user_metadata' ->> 'email')), '')
-              )
-            )
-        )
         or exists (
           select 1
           from public.booking_requests br

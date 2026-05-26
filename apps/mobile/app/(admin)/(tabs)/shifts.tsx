@@ -1054,10 +1054,10 @@ export default function AdminShiftsScreen() {
 
   return (
     <ManageScreenShell
-      title={canManage ? "Quản lý ca" : "Lịch làm việc"}
+      title="Lịch làm việc"
       subtitle={canManage ? "Quản trị ca làm, duyệt chấm công ngoại lệ và điều chỉnh lịch tuần." : "Theo dõi ca làm, chấm công vào ca và gửi xin nghỉ."}
       currentKey="shifts"
-      group="insights"
+      group="setup"
       showBackButton={false}
       onRefresh={() => void loadData(true)}
       refreshing={refreshing}

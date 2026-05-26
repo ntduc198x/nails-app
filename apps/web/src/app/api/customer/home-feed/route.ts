@@ -18,10 +18,7 @@ export async function GET(req: Request) {
     const supabase = createServiceRoleClient();
     const userResult = await supabase.auth.getUser(token);
     if (userResult.error || !userResult.data.user) {
-      return NextResponse.json(
-        { ok: false, error: userResult.error?.message ?? "Invalid session" },
-        { status: 401 },
-      );
+      return NextResponse.json({ ok: false, error: "Invalid session" }, { status: 401 });
     }
 
     const scope = await getCustomerScopedContextForUser(supabase, userResult.data.user.id);
@@ -32,8 +29,9 @@ export async function GET(req: Request) {
     const payload = await listCustomerHomeFeedForContext(supabase, scope);
     return NextResponse.json({ ok: true, data: payload });
   } catch (error) {
+    console.error("customer home-feed GET failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Không tải được customer home feed" },
+      { ok: false, error: "Không tải được customer home feed" },
       { status: 500 },
     );
   }

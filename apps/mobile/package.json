@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "main": "index.js",
+  "expo": {
+    "doctor": {
+      "appConfigFieldsNotSyncedCheck": {
+        "enabled": false
+      }
+    }
+  },
   "scripts": {
     "start": "node ../../scripts/run-mobile-expo.mjs start",
     "start:lan": "node ../../scripts/run-mobile-expo.mjs start --clear --port 8082",
@@ -25,7 +32,6 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "expo": "^54.0.34",
-    "expo-apple-authentication": "~8.0.8",
     "expo-auth-session": "~7.0.11",
     "expo-constants": "~18.0.10",
     "expo-crypto": "~15.0.9",

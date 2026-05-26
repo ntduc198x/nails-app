@@ -1196,7 +1196,7 @@ export async function submitShiftChangeRequest(input: {
 
 export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (!userId) throw new Error("Chưa đăng nhập");
@@ -1227,6 +1227,7 @@ export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
     .from("time_entries")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       clock_in: nowIso,
       effective_clock_in: effectiveClockIn,
@@ -1345,7 +1346,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, atte
 
 export async function submitDayOffRequest(dateKey: string, note?: string) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (!userId) throw new Error("Chưa đăng nhập");
@@ -1359,6 +1360,7 @@ export async function submitDayOffRequest(dateKey: string, note?: string) {
     .from("shift_leave_requests")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       request_type: "DAY_OFF",
       status: "PENDING",
@@ -1374,7 +1376,7 @@ export async function submitDayOffRequest(dateKey: string, note?: string) {
 
 export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, requestedEndIso: string, note?: string) {
   const supabase = requireSupabase();
-  const { orgId } = await ensureOrgContext(supabase);
+  const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (!userId) throw new Error("Chưa đăng nhập");
@@ -1394,6 +1396,7 @@ export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, reque
     .from("shift_leave_requests")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       request_type: "EARLY_LEAVE",
       status: "PENDING",

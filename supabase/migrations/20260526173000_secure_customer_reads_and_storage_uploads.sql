@@ -1,9 +1,6 @@
 begin;
 
-drop policy if exists "booking_requests customer own read" on public.booking_requests;
-drop policy if exists "appointments customer own read" on public.appointments;
 drop policy if exists "customers customer own read" on public.customers;
-
 create policy "customers customer own read"
 on public.customers
 for select
@@ -18,6 +15,7 @@ using (
   )
 );
 
+drop policy if exists "booking_requests customer own read" on public.booking_requests;
 create policy "booking_requests customer own read"
 on public.booking_requests
 for select
@@ -32,6 +30,7 @@ using (
   )
 );
 
+drop policy if exists "appointments customer own read" on public.appointments;
 create policy "appointments customer own read"
 on public.appointments
 for select
@@ -42,17 +41,18 @@ using (
     from public.customer_accounts ca
     where ca.user_id = auth.uid()
       and ca.org_id = public.appointments.org_id
-      and (
-        ca.customer_id = public.appointments.customer_id
-        or exists (
-          select 1
-          from public.booking_requests br
-          where br.org_id = public.appointments.org_id
-            and br.appointment_id = public.appointments.id
-            and br.customer_id = ca.customer_id
-        )
-      )
+      and ca.customer_id = public.appointments.customer_id
   )
 );
+
+update storage.buckets
+set public = true,
+    file_size_limit = 2097152,
+    allowed_mime_types = array['image/jpeg', 'image/png', 'image/webp']
+where id = 'service-images';
+
+drop policy if exists "service-images authenticated insert" on storage.objects;
+drop policy if exists "service-images authenticated update" on storage.objects;
+drop policy if exists "service-images authenticated delete" on storage.objects;
 
 commit;

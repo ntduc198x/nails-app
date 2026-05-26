@@ -121,8 +121,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, sent });
   } catch (error) {
+    console.error("telegram appointments-overdue POST failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Telegram overdue appointments route failed" },
+      { ok: false, error: "Telegram overdue appointments route failed" },
       { status: 500 },
     );
   }

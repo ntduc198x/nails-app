@@ -460,7 +460,7 @@ export async function listPersonalShiftEntries(userId: string) {
 
 export async function listOwnerShiftEntries() {
   if (!supabase) return [];
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId } = await ensureOrgContext();
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
 
@@ -468,6 +468,7 @@ export async function listOwnerShiftEntries() {
     .from("time_entries")
     .select("id,staff_user_id,clock_in,clock_out,effective_clock_in,effective_clock_out,attendance_fraction,scheduled_date,scheduled_shift_type,scheduled_shift_label,scheduled_start,scheduled_end,approval_status,approval_note,approved_by,approved_at,auto_closed")
     .eq("org_id", orgId)
+    .eq("branch_id", branchId)
     .gte("clock_in", todayStart.toISOString())
     .order("clock_in", { ascending: false })
     .limit(30);
@@ -760,7 +761,7 @@ export async function submitShiftChangeRequest(input: {
 
 export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId } = await ensureOrgContext();
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (slot.holderUserId !== userId) throw new Error("Ca Ä‘Æ°á»£c chá»n khÃ´ng thuá»™c vá» báº¡n.");
@@ -792,6 +793,7 @@ export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
     .from("time_entries")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       clock_in: nowIso,
       effective_clock_in: effectiveClockIn,
@@ -908,7 +910,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, atte
 
 export async function submitDayOffRequest(dateKey: string, note?: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId } = await ensureOrgContext();
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (!userId) throw new Error("Chưa đăng nhập");
@@ -922,6 +924,7 @@ export async function submitDayOffRequest(dateKey: string, note?: string) {
     .from("shift_leave_requests")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       request_type: "DAY_OFF",
       status: "PENDING",
@@ -937,7 +940,7 @@ export async function submitDayOffRequest(dateKey: string, note?: string) {
 
 export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, requestedEndIso: string, note?: string) {
   if (!supabase) throw new Error("Supabase chưa cấu hình");
-  const { orgId } = await ensureOrgContext();
+  const { orgId, branchId } = await ensureOrgContext();
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
   if (!userId) throw new Error("Chưa đăng nhập");
@@ -957,6 +960,7 @@ export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, reque
     .from("shift_leave_requests")
     .insert({
       org_id: orgId,
+      branch_id: branchId,
       staff_user_id: userId,
       request_type: "EARLY_LEAVE",
       status: "PENDING",
@@ -1155,11 +1159,11 @@ export function applyApprovedDayOffToAssignments(
   const approvedDayOffs = new Set(
     requests
       .filter((request) => request.request_type === "DAY_OFF" && request.status === "APPROVED" && request.scheduled_date)
-      .map((request) => request.scheduled_date as string),
+      .map((request) => `${request.staff_user_id}:${request.scheduled_date as string}`),
   );
 
   return assignments.map((assignment) =>
-    approvedDayOffs.has(assignment.dateKey)
+    approvedDayOffs.has(`${assignment.employeeId}:${assignment.dateKey}`)
       ? {
           ...assignment,
           shiftType: "OFF" as const,

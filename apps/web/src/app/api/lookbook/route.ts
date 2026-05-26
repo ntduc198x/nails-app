@@ -21,8 +21,9 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, data: data ?? [] });
   } catch (error) {
+    console.error("lookbook GET failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Khong tai duoc lookbook" },
+      { ok: false, error: "Khong tai duoc lookbook" },
       { status: 500 },
     );
   }

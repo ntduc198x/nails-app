@@ -55,7 +55,7 @@ export default function AdminManageHubScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Thiết lập vận hành</Text>
-            <Text style={styles.sectionSubtitle}>Nhóm màn hình Dịch vụ, Tài nguyên và Nhân sự cho admin mở rộng.</Text>
+            <Text style={styles.sectionSubtitle}>Nhóm màn hình Dịch vụ, Tài nguyên, Nhân sự và Lịch làm việc cho vận hành.</Text>
             <View style={styles.cardColumn}>
               {setupItems.map((item) => (
                 <ManageHubCard key={item.key} item={item} />
@@ -65,7 +65,7 @@ export default function AdminManageHubScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Khách hàng và báo cáo</Text>
-            <Text style={styles.sectionSubtitle}>Nhóm màn hình CRM khách, Báo cáo, Sổ thuế và Quản lý ca.</Text>
+            <Text style={styles.sectionSubtitle}>Nhóm màn hình CRM khách, Báo cáo và Sổ thuế.</Text>
             <View style={styles.cardColumn}>
               {insightItems.map((item) => (
                 <ManageHubCard key={item.key} item={item} />

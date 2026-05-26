@@ -1,7 +1,12 @@
-import type { Href, Router } from "expo-router";
+import type { Href } from "expo-router";
 import type { AppRole } from "@nails/shared";
 
 export type AdminNavTarget = "booking" | "scheduling" | "checkout" | "profile";
+
+type DismissibleRouter = {
+  dismissTo: (href: Href) => void;
+  replace: (href: Href) => void;
+};
 
 export function isOwnerRole(role: AppRole | null | undefined) {
   return role === "OWNER" || role === "PARTNER";
@@ -39,7 +44,7 @@ export function getAdminNavHref(target: AdminNavTarget, role: AppRole | null | u
 }
 
 export function dismissToHref(
-  router: Pick<Router, "dismissTo" | "replace">,
+  router: DismissibleRouter,
   href: Href,
 ) {
   try {

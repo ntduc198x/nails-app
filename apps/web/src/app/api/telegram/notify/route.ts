@@ -61,8 +61,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, sent, checked: { staleShifts: shifts.length } });
   } catch (error) {
+    console.error("telegram notify POST failed", error);
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Telegram notify failed" },
+      { ok: false, error: "Telegram notify failed" },
       { status: 500 },
     );
   }

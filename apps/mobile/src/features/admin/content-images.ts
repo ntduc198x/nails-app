@@ -1,5 +1,6 @@
 import type { ImagePickerAsset } from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import { mobileEnv } from "@/src/lib/env";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const BUCKET = "service-images";
@@ -70,18 +71,6 @@ function sanitizeFileName(name: string) {
     .replace(/^-|-$/g, "");
 }
 
-async function ensureBucketExists() {
-  if (!mobileSupabase) return;
-  try {
-    await mobileSupabase.storage.createBucket(BUCKET, {
-      public: true,
-      fileSizeLimit: 2 * 1024 * 1024,
-    });
-  } catch {
-    // Ignore create bucket failures and let upload retry surface a real error if needed.
-  }
-}
-
 export async function uploadPickedAdminContentImage(
   asset: ImagePickerAsset,
   options: UploadAdminContentImageOptions,
@@ -89,51 +78,53 @@ export async function uploadPickedAdminContentImage(
   if (!mobileSupabase) {
     throw new Error("Thieu cau hinh Supabase mobile.");
   }
+  if (!mobileEnv.apiBaseUrl) {
+    throw new Error("Thieu API base URL cho mobile upload.");
+  }
 
   const uri = asset.uri;
   if (!uri) {
     throw new Error("Khong doc duoc anh da chon.");
   }
 
-  const extFromName = asset.fileName?.includes(".") ? asset.fileName.split(".").pop() : null;
-  const extFromMime = asset.mimeType?.split("/").pop();
-  const ext = (extFromName || extFromMime || "jpg").replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
+  const { data: sessionData } = await mobileSupabase.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) {
+    throw new Error("Chua dang nhap.");
+  }
+
   const safeBase = sanitizeFileName(options.baseName || asset.fileName || "content-image");
   const safeFolder = sanitizeFileName(options.folder || "misc");
-  const path = `${safeFolder}/${Date.now()}-${safeBase}.${ext}`;
+  const formData = new FormData();
+  formData.append("folder", safeFolder);
+  formData.append("baseName", safeBase);
+  formData.append(
+    "file",
+    {
+      uri,
+      name: asset.fileName || `${safeBase}.jpg`,
+      type: asset.mimeType || "image/jpeg",
+    } as unknown as Blob,
+  );
 
-  const response = await fetch(uri);
-  if (!response.ok) {
-    throw new Error("Khong tai duoc tep anh de upload.");
+  const response = await fetch(`${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/uploads/service-image`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: formData,
+  });
+  const payload = (await response.json().catch(() => null)) as
+    | { ok?: boolean; error?: string; data?: { path: string; publicUrl: string } }
+    | null;
+
+  if (!response.ok || !payload?.ok || !payload.data) {
+    throw new Error(payload?.error || "Upload ảnh thất bại");
   }
 
-  const buffer = await response.arrayBuffer();
-  let { error: uploadError } = await mobileSupabase.storage
-    .from(BUCKET)
-    .upload(path, buffer, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: asset.mimeType || "image/jpeg",
-    });
-
-  if (uploadError && uploadError.message.toLowerCase().includes("bucket") && uploadError.message.toLowerCase().includes("not found")) {
-    await ensureBucketExists();
-    const retry = await mobileSupabase.storage.from(BUCKET).upload(path, buffer, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType: asset.mimeType || "image/jpeg",
-    });
-    uploadError = retry.error;
-  }
-
-  if (uploadError) {
-    throw uploadError;
-  }
-
-  const { data } = mobileSupabase.storage.from(BUCKET).getPublicUrl(path);
   return {
     bucket: BUCKET,
-    path,
-    publicUrl: data.publicUrl,
+    path: payload.data.path,
+    publicUrl: payload.data.publicUrl,
   };
 }

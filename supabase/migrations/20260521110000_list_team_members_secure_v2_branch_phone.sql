@@ -1,4 +1,6 @@
-create or replace function public.list_team_members_secure_v2()
+drop function if exists public.list_team_members_secure_v2();
+
+create function public.list_team_members_secure_v2()
 returns table (
   id uuid,
   user_id uuid,

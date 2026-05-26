@@ -66,10 +66,10 @@ async function notifyTelegramBookingRequest(req: Request, bookingRequestId: stri
       status: response.status,
       payload,
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: "telegram_notify_failed",
     };
   }
 }
@@ -117,7 +117,6 @@ export async function POST(req: Request) {
     const payload = parsed.data;
     const serviceClient = getServiceSupabase();
     const guardResult = await assertPublicBookingRequestAllowed({
-      req,
       client: serviceClient,
       customerPhone: payload.customerPhone,
       requestedStartAt: payload.requestedStartAt,

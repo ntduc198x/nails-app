@@ -71,7 +71,7 @@ import {
 import { formatAttendanceFraction } from "@nails/shared";
 import Link from "next/link";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 type TeamRoleRow = {
   user_id: string;
@@ -428,8 +428,8 @@ function WeekNavigator({
   onChangeWeek: (nextWeekStart: string) => void;
 }) {
   return (
-    <div className="grid w-full gap-3 sm:flex sm:flex-wrap sm:items-center">
-      <div className="rounded-[20px] border border-neutral-200 px-4 py-3 text-center text-sm font-semibold text-neutral-900 sm:rounded-full sm:text-left">
+    <div className="grid w-full gap-2.5 sm:flex sm:flex-wrap sm:items-center sm:gap-3">
+      <div className="rounded-[18px] border border-neutral-200 px-3 py-2.5 text-center text-sm font-semibold text-neutral-900 sm:rounded-full sm:px-4 sm:py-3 sm:text-left">
         {formatWeekRange(weekStart)}
       </div>
       <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
@@ -440,7 +440,7 @@ function WeekNavigator({
             next.setDate(next.getDate() - 7);
             onChangeWeek(toDateKey(next));
           }}
-          className="inline-flex h-11 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:w-11"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:h-11 sm:w-11"
         >
           ‹
         </button>
@@ -451,14 +451,14 @@ function WeekNavigator({
             next.setDate(next.getDate() + 7);
             onChangeWeek(toDateKey(next));
           }}
-          className="inline-flex h-11 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:w-11"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full border border-neutral-200 text-lg text-neutral-700 sm:h-11 sm:w-11"
         >
           ›
         </button>
         <button
           type="button"
           onClick={() => onChangeWeek(toDateKey(getStartOfWeek(new Date())))}
-          className="rounded-full border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-900"
+          className="rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 sm:py-2.5"
         >
           Hôm nay
         </button>
@@ -1097,6 +1097,7 @@ function MobilePlannerCards({
   employees,
   weekDates,
   selectedDateKey,
+  selectedEmployeeId,
   onSelectDate,
   getAssignment,
   onOpenEditor,
@@ -1105,14 +1106,17 @@ function MobilePlannerCards({
   employees: AutoScheduleEmployee[];
   weekDates: string[];
   selectedDateKey: string;
+  selectedEmployeeId: string | null;
   onSelectDate: (dateKey: string) => void;
   getAssignment: (employeeId: string, dateKey: string) => AutoScheduleAssignment | null;
   onOpenEditor: (employeeId: string, dateKey: string) => void;
   daySummaryMap: Map<string, AutoScheduleDaySummary>;
 }) {
+  const selectedDaySummary = daySummaryMap.get(selectedDateKey) ?? null;
+
   return (
-    <div className="space-y-4 md:hidden">
-      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2">
+    <div className="space-y-3 md:hidden">
+      <div className="grid grid-cols-4 gap-2">
         {weekDates.map((dateKey) => {
           const summary = daySummaryMap.get(dateKey);
           const active = selectedDateKey === dateKey;
@@ -1121,47 +1125,78 @@ function MobilePlannerCards({
               key={dateKey}
               type="button"
               onClick={() => onSelectDate(dateKey)}
-              className={`min-w-[88px] shrink-0 rounded-2xl border px-3 py-2.5 text-left transition ${
+              className={`rounded-[18px] border px-2 py-1.5 text-left transition ${
                 active
                   ? "border-[var(--color-primary)] bg-rose-50 text-[var(--color-primary)]"
                   : "border-neutral-200 bg-white text-neutral-700"
               }`}
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em]">{getWeekdayLabel(dateKey)}</p>
-              <p className="mt-1 text-sm font-semibold">{formatDateLabel(dateKey)}</p>
-              <p className={`mt-2 text-xs ${summary ? summaryTone(summary.status) : "text-neutral-400"}`}>
-                {summary ? `${summary.scheduledCount}/${summary.requiredCount}` : "--"}
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">{getWeekdayLabel(dateKey)}</p>
+              <p className="mt-1 text-sm font-semibold leading-none">
+                {new Date(`${dateKey}T00:00:00`).getDate()}
               </p>
+              <div className="mt-1.5 flex items-center justify-between gap-1">
+                <span className={`text-[10px] ${summary ? summaryTone(summary.status) : "text-neutral-400"}`}>
+                  {summary ? `${summary.scheduledCount}/${summary.requiredCount}` : "--"}
+                </span>
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    summary?.status === "critical"
+                      ? "bg-rose-400"
+                      : summary?.status === "warn"
+                        ? "bg-amber-400"
+                        : "bg-emerald-400"
+                  }`}
+                />
+              </div>
             </button>
           );
         })}
       </div>
 
-      <div className="space-y-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[22px] border border-neutral-200 bg-neutral-50 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-neutral-900">{formatDateLabel(selectedDateKey)}</p>
+          <p className="text-xs text-neutral-500">{employees.length} nhân sự đang hiển thị</p>
+        </div>
+        <div className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-neutral-700">
+          {selectedDaySummary ? `${selectedDaySummary.scheduledCount}/${selectedDaySummary.requiredCount}` : "--/--"}
+        </div>
+        <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${selectedDaySummary ? summaryTone(selectedDaySummary.status) : "text-neutral-400"}`}>
+          {selectedDaySummary ? selectedDaySummary.status.toUpperCase() : "DRAFT"}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 min-[560px]:grid-cols-2">
         {employees.map((employee) => {
           const assignment = getAssignment(employee.id, selectedDateKey);
           const { definition, classes } = getAssignmentTheme(assignment);
+          const active = selectedEmployeeId === employee.id;
           return (
             <button
               key={`${employee.id}-${selectedDateKey}`}
               type="button"
               onClick={() => onOpenEditor(employee.id, selectedDateKey)}
-              className="block w-full rounded-[24px] border border-neutral-200 bg-white p-3.5 text-left shadow-sm"
+              className={`block w-full rounded-[20px] border bg-white px-3 py-2.5 text-left shadow-sm transition ${
+                active ? "border-[var(--color-primary)] ring-2 ring-[var(--color-primary)]/15" : "border-neutral-200"
+              }`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-neutral-900">{employee.name}</p>
-                  <p className="mt-1 text-xs text-neutral-500">{getRoleLabel(employee.role)}</p>
+              <div className="flex items-center justify-between gap-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-neutral-900">{employee.name}</p>
+                  <p className="mt-0.5 text-xs text-neutral-500">{getRoleLabel(employee.role)}</p>
                 </div>
-                <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold ${classes}`}>
-                  {assignment?.shortCode ?? definition.shortCode}
-                </span>
-              </div>
-              <div className={`mt-3 rounded-2xl border px-3 py-2.5 ${classes}`}>
-                <p className="text-sm font-semibold">{assignment?.shiftLabel ?? definition.label}</p>
-                <p className="mt-1 text-xs">
-                  {assignment?.startTime && assignment?.endTime ? `${assignment.startTime} - ${assignment.endTime}` : "Nghỉ"}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold ${classes}`}>
+                    {assignment?.shortCode ?? definition.shortCode}
+                  </span>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold leading-tight text-neutral-900">{assignment?.shiftLabel ?? definition.label}</p>
+                    <p className="text-[11px] text-neutral-500">
+                      {assignment?.startTime && assignment?.endTime ? `${assignment.startTime} - ${assignment.endTime}` : "Nghỉ"}
+                    </p>
+                  </div>
+                </div>
               </div>
             </button>
           );
@@ -1248,7 +1283,7 @@ export default function ManageShiftsPage() {
   const focusManualEditPanel = useCallback(() => {
     if (typeof window === "undefined") return;
     window.requestAnimationFrame(() => {
-      if (window.innerWidth >= 1280) return;
+      if (window.innerWidth < 768 || window.innerWidth >= 1280) return;
       leaveSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
   }, []);
@@ -1317,6 +1352,7 @@ export default function ManageShiftsPage() {
       }),
     [ownerEmployees, roleFilter, skillFilter],
   );
+  const deferredFilteredEmployees = useDeferredValue(filteredEmployees);
 
   const employeeSummaries = useMemo(
     () =>
@@ -1529,13 +1565,13 @@ export default function ManageShiftsPage() {
   );
   const activeDayAssignments = useMemo(
     () =>
-      filteredEmployees.map((employee) => ({
+      deferredFilteredEmployees.map((employee) => ({
         employee,
         assignment:
           draftMatrix.get(`${employee.id}:${activePlannerDate}`) ??
           createOffAssignment(activePlannerDate, employee.name),
       })),
-    [activePlannerDate, draftMatrix, filteredEmployees],
+    [activePlannerDate, deferredFilteredEmployees, draftMatrix],
   );
   const attendanceSummary = useMemo(() => {
     const openCount = ownerAttendanceEntries.filter((entry) => entry.clock_out === null).length;
@@ -1619,11 +1655,13 @@ export default function ManageShiftsPage() {
   }, [selectedProfile]);
 
   const updateWeek = useCallback((nextWeekStart: string) => {
-    setWeekStart(nextWeekStart);
-    setVisibleMonth(new Date(`${nextWeekStart}T00:00:00`));
-    setSelectedCell(null);
-    setSelectedDayDetail(null);
-    setError(null);
+    startTransition(() => {
+      setWeekStart(nextWeekStart);
+      setVisibleMonth(new Date(`${nextWeekStart}T00:00:00`));
+      setSelectedCell(null);
+      setSelectedDayDetail(null);
+      setError(null);
+    });
   }, []);
 
   const runAutoSchedule = useCallback(async () => {
@@ -2216,6 +2254,7 @@ export default function ManageShiftsPage() {
       if (approvedDayOffDateKeys.has(dateKey)) return sum;
       return sum + assignments.reduce((daySum, assignment) => daySum + assignment.hours, 0);
     }, 0);
+    const personalWeekDates = publishedPlan?.result.weekDates ?? generateWeekDates(weekStart);
 
     return (
       <AppShell>
@@ -2233,24 +2272,26 @@ export default function ManageShiftsPage() {
             </ManageAlert>
           ) : null}
 
-          <section className="rounded-[32px] border border-neutral-200 bg-white p-5 shadow-sm">
+          <section className="rounded-[32px] border border-neutral-200 bg-white p-4 shadow-sm md:p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.22em] text-neutral-400">Lịch đã publish</p>
-                <h2 className="mt-2 text-3xl font-semibold text-neutral-950">Ca làm</h2>
+                <h2 className="mt-2 text-2xl font-semibold text-neutral-950 md:text-3xl">Ca làm</h2>
               </div>
               <WeekNavigator weekStart={weekStart} onChangeWeek={updateWeek} />
             </div>
 
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <ShiftLegend />
-              <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-sm font-medium text-neutral-700">
+            <div className="mt-4 flex items-center justify-between gap-3 md:mt-5 md:flex-wrap">
+              <div className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-medium text-neutral-700">
                 {hasPersonalPublishedSchedule ? `${scheduledHours}h / tuần hiệu lực` : "Chưa có ca được publish"}
+              </div>
+              <div className="hidden md:block">
+                <ShiftLegend />
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-7">
-              {(publishedPlan?.result.weekDates ?? generateWeekDates(weekStart)).map((dateKey) => {
+            <div className="mt-4 grid grid-cols-2 gap-2.5 md:mt-5 md:grid-cols-7 md:gap-3">
+              {personalWeekDates.map((dateKey) => {
                 const dayAssignments = approvedDayOffDateKeys.has(dateKey)
                   ? [createOffAssignment(dateKey)]
                   : personalSlotsByDate.get(dateKey) ?? [createOffAssignment(dateKey)];
@@ -2261,22 +2302,23 @@ export default function ManageShiftsPage() {
                 return (
                   <div
                     key={dateKey}
-                    className={`rounded-[28px] border p-4 shadow-sm ${shiftThemeClasses(definition.theme)} ${isToday ? "ring-2 ring-[var(--color-primary)]/25" : ""}`}
+                    className={`rounded-[22px] border p-3 shadow-sm md:rounded-[28px] md:p-4 ${shiftThemeClasses(definition.theme)} ${isToday ? "ring-2 ring-[var(--color-primary)]/25" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">{getWeekdayLabel(dateKey)}</p>
-                        <p className="mt-1 text-sm font-semibold">{formatDateLabel(dateKey)}</p>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] opacity-70 md:text-xs md:tracking-[0.16em]">{getWeekdayLabel(dateKey)}</p>
+                        <p className="mt-1 text-sm font-semibold leading-none md:leading-normal">{new Date(`${dateKey}T00:00:00`).getDate()}</p>
+                        <p className="mt-1 text-[11px] text-neutral-600 md:text-sm md:font-semibold md:text-inherit">{formatDateLabel(dateKey)}</p>
                       </div>
-                      <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-white/80 px-2 text-[11px] font-bold">
+                      <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-white/80 px-2 text-[10px] font-bold md:h-7 md:min-w-7 md:text-[11px]">
                         {primaryAssignment.shortCode}
                       </span>
                     </div>
-                    <div className="mt-6 space-y-2">
+                    <div className="mt-3 space-y-1.5 md:mt-6 md:space-y-2">
                       {dayAssignments.map((assignment, index) => (
-                        <div key={`${assignment.dateKey}:${assignment.shiftType}:${index}`} className="rounded-2xl bg-white/60 px-3 py-2">
-                          <p className="text-base font-semibold">{assignment.shiftLabel}</p>
-                          <p className="mt-1 text-sm">
+                        <div key={`${assignment.dateKey}:${assignment.shiftType}:${index}`} className="rounded-2xl bg-white/60 px-2.5 py-2 md:px-3">
+                          <p className="text-sm font-semibold md:text-base">{assignment.shiftLabel}</p>
+                          <p className="mt-1 text-[11px] md:text-sm">
                             {assignment.startTime && assignment.endTime
                               ? `${assignment.startTime} - ${assignment.endTime}`
                               : "Nghỉ"}
@@ -2290,7 +2332,206 @@ export default function ManageShiftsPage() {
             </div>
           </section>
 
-          <div className="grid gap-4 xl:grid-cols-3">
+          <div className="space-y-3 md:hidden">
+            <MobileCollapsible summary="Trạng thái hôm nay" defaultOpen>
+              <div className="space-y-3">
+                {todayAssignment ? (
+                  <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-neutral-500">
+                      {todayEffectiveSlots.length > 1 ? "Các ca hiệu lực hôm nay" : "Ca hiệu lực hôm nay"}
+                    </p>
+                    <p className="mt-2 text-base font-semibold text-neutral-900">{todayAssignment.shiftLabel}</p>
+                    <p className="mt-1 text-sm text-neutral-600">{todayAssignment.startTime} - {todayAssignment.endTime}</p>
+                    {todayEffectiveSlots.length > 1 ? (
+                      <select
+                        value={selectedTodaySlotKey}
+                        onChange={(event) => setSelectedTodaySlotKey(event.target.value)}
+                        className="mt-3 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                      >
+                        {todayEffectiveSlots.map((slot) => (
+                          <option key={`${slot.dateKey}:${slot.shiftType}`} value={`${slot.dateKey}:${slot.shiftType}`}>
+                            {slot.shiftLabel} • {slot.startTime} - {slot.endTime}
+                          </option>
+                        ))}
+                      </select>
+                    ) : null}
+                    <p className="mt-2 text-sm text-neutral-500">
+                      {shiftWindowState.canCheckIn
+                        ? shiftWindowState.withinGrace
+                          ? "Đang trong khung mở ca. Trễ tối đa 10 phút vẫn được tính đủ ca sau khi OWNER xác nhận."
+                          : "Bạn vẫn có thể mở ca trong khung này, nhưng giờ tính công sẽ bắt đầu từ thời điểm thực tế."
+                        : shiftWindowState.reason ?? "Chỉ được mở ca trong đúng khung ca đã được xếp."}
+                    </p>
+                  </div>
+                ) : (
+                  <ManageAlert tone="info">Hôm nay bạn không có ca được publish.</ManageAlert>
+                )}
+                {approvedDayOffToday ? <ManageAlert tone="warn">Ca hôm nay đã được OWNER duyệt nghỉ.</ManageAlert> : null}
+                {todayPendingDayOff ? <ManageAlert tone="info">Yêu cầu nghỉ ca hôm nay đang chờ OWNER xác nhận.</ManageAlert> : null}
+                {openEntry ? (
+                  <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">
+                    <p className="text-xs uppercase tracking-[0.18em]">
+                      {openEntry.approval_status === "PENDING" ? "Chờ OWNER xác nhận mở ca" : "Đang trong ca"}
+                    </p>
+                    <p className="mt-2 text-base font-semibold">
+                      Mở ca lúc {formatTime(openEntry.clock_in)}
+                      {openEntry.effective_clock_in ? ` • tính công từ ${formatTime(openEntry.effective_clock_in)}` : ""}
+                    </p>
+                    <p className="mt-1 text-sm">Đã làm {formatEntryDuration(openEntry.effective_clock_in ?? openEntry.clock_in, openEntry.clock_out)}</p>
+                  </div>
+                ) : null}
+                {todayAssignment && !openEntry && !approvedDayOffToday && !todayPendingDayOff ? (
+                  <textarea
+                    value={dayOffNote}
+                    onChange={(event) => setDayOffNote(event.target.value)}
+                    placeholder="Lý do xin nghỉ (tùy chọn)"
+                    className="min-h-[88px] w-full rounded-3xl border border-neutral-200 px-4 py-3 text-sm outline-none"
+                  />
+                ) : null}
+              </div>
+            </MobileCollapsible>
+
+            <MobileCollapsible summary="Xin đổi / nhận ca">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-neutral-900">Gửi yêu cầu cho OWNER/PARTNER</h4>
+                  <select
+                    value={shiftRequestKind}
+                    onChange={(event) => setShiftRequestKind(event.target.value === "SWAP" ? "SWAP" : "PICKUP")}
+                    className="rounded-full border border-neutral-200 px-3 py-2 text-xs font-semibold"
+                  >
+                    <option value="PICKUP">Xin nhận ca</option>
+                    <option value="SWAP">Xin đổi ca</option>
+                  </select>
+                </div>
+                {shiftRequestKind === "SWAP" ? (
+                  <select
+                    value={selectedRequestSourceKey}
+                    onChange={(event) => setSelectedRequestSourceKey(event.target.value)}
+                    className="w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                  >
+                    <option value="">Chọn ca nguồn của bạn</option>
+                    {ownRequestSourceSlots.map((slot) => (
+                      <option key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} value={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}>
+                        {slot.dateKey} • {slot.shiftLabel} • {slot.startTime} - {slot.endTime}
+                      </option>
+                    ))}
+                  </select>
+                ) : null}
+                <select
+                  value={selectedRequestTargetKey}
+                  onChange={(event) => setSelectedRequestTargetKey(event.target.value)}
+                  className="w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Chọn ca đích đã publish</option>
+                  {requestableTargetSlots.map((slot) => (
+                    <option key={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`} value={`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`}>
+                      {slot.dateKey} • {slot.shiftLabel} • {slot.holderName ?? slot.holderUserId}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  value={shiftRequestNote}
+                  onChange={(event) => setShiftRequestNote(event.target.value)}
+                  placeholder="Ghi chú cho OWNER/PARTNER (tùy chọn)"
+                  className="min-h-[88px] w-full rounded-2xl border border-neutral-200 px-3 py-2 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleSubmitShiftChangeRequest()}
+                  disabled={personalBusy || !selectedRequestTargetKey || (shiftRequestKind === "SWAP" && !selectedRequestSourceKey)}
+                  className="inline-flex rounded-full border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 disabled:opacity-60"
+                >
+                  Gửi yêu cầu
+                </button>
+                {personalShiftChangeRequests.length ? (
+                  <div className="space-y-2">
+                    {personalShiftChangeRequests.slice(0, 3).map((request) => (
+                      <div key={request.id} className="rounded-2xl bg-neutral-50 px-3 py-2 text-sm">
+                        <p className="font-medium text-neutral-900">{request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"}</p>
+                        <p className="text-neutral-600">
+                          {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel} • {request.status}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </MobileCollapsible>
+
+            <MobileCollapsible summary="Lịch sử và yêu cầu">
+              <div className="space-y-3">
+                {openEntry && openEntry.scheduled_end && !pendingEarlyLeaveRequest ? (
+                  <div className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4">
+                    <p className="text-sm font-semibold text-neutral-900">Muốn về trước khi hết ca?</p>
+                    <p className="mt-1 text-sm text-neutral-500">Bạn phải gửi yêu cầu để OWNER xác nhận trước khi đóng ca.</p>
+                    <div className="mt-3 flex flex-col gap-3">
+                      <input
+                        type="time"
+                        value={earlyLeaveTime}
+                        onChange={(event) => setEarlyLeaveTime(event.target.value)}
+                        className="rounded-2xl border border-neutral-200 px-3 py-2 text-sm outline-none"
+                      />
+                      <textarea
+                        value={earlyLeaveNote}
+                        onChange={(event) => setEarlyLeaveNote(event.target.value)}
+                        placeholder="Lý do xin về sớm"
+                        className="min-h-[88px] rounded-3xl border border-neutral-200 px-4 py-3 text-sm outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleSubmitEarlyLeave()}
+                        disabled={personalBusy || !earlyLeaveTime}
+                        className="inline-flex rounded-full border border-neutral-200 px-4 py-3 text-sm font-semibold text-neutral-900 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Gửi xin về sớm
+                      </button>
+                    </div>
+                  </div>
+                ) : pendingEarlyLeaveRequest ? (
+                  <ManageAlert tone="info">Yêu cầu về sớm đang chờ OWNER xác nhận.</ManageAlert>
+                ) : null}
+                {recentEntries.length ? (
+                  recentEntries.slice(0, 4).map((entry) => (
+                    <div key={entry.id} className="rounded-3xl border border-neutral-200 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-neutral-900">
+                          {new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "2-digit", month: "2-digit" }).format(new Date(entry.clock_in))}
+                        </p>
+                        <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">{entry.approval_status}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-neutral-500">
+                        {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {entry.effective_clock_out ? formatTime(entry.effective_clock_out) : "Đang mở"}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <ManageAlert tone="info">Chưa có lịch sử chấm công.</ManageAlert>
+                )}
+                {personalLeaveRequests.length ? (
+                  personalLeaveRequests.slice(0, 4).map((request) => (
+                    <div key={request.id} className="rounded-3xl border border-neutral-200 px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-neutral-900">
+                          {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"}
+                        </p>
+                        <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold text-neutral-700">{request.status}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-neutral-500">
+                        {request.scheduled_date ?? "Không rõ ngày"}
+                        {request.requested_end_at ? ` • ${formatTime(request.requested_end_at)}` : ""}
+                      </p>
+                      {request.note ? <p className="mt-2 text-sm text-neutral-600">{request.note}</p> : null}
+                    </div>
+                  ))
+                ) : (
+                  <ManageAlert tone="info">Chưa có yêu cầu nào gửi cho OWNER.</ManageAlert>
+                )}
+              </div>
+            </MobileCollapsible>
+          </div>
+
+          <div className="hidden gap-4 md:grid xl:grid-cols-3">
             <section className="rounded-[32px] border border-neutral-200 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-semibold text-neutral-900">Trạng thái hôm nay</h3>
               <div className="mt-4 space-y-3">
@@ -2626,12 +2867,12 @@ export default function ManageShiftsPage() {
                 <h1 className="text-2xl font-semibold tracking-[-0.03em] text-neutral-950">Phân lịch ca</h1>
               </div>
 
-              <div className="grid gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => void runAutoSchedule()}
                   disabled={ownerSaving || !canRunAutoSchedule || profilesSchemaMissing}
-                  className="w-full rounded-full border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-full border border-neutral-200 bg-white px-4 py-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {ownerSaving && status === "draft" ? "Đang lưu..." : "Tự động xếp ca"}
                 </button>
@@ -2639,11 +2880,11 @@ export default function ManageShiftsPage() {
                   type="button"
                   onClick={() => void handlePublish()}
                   disabled={ownerSaving || !draft}
-                  className="w-full rounded-full bg-[var(--color-primary)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-full bg-[var(--color-primary)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {ownerSaving && status === "published" ? "Đang xuất lịch..." : "Xuất lịch"}
                 </button>
-                <div className="rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-semibold text-neutral-700">
+                <div className="col-span-2 rounded-full border border-neutral-200 bg-neutral-50 px-4 py-2 text-center text-sm font-semibold text-neutral-700">
                   {status === "published" ? "Đã xuất lịch" : "Nháp"}
                 </div>
               </div>
@@ -2696,15 +2937,21 @@ export default function ManageShiftsPage() {
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-2.5">
                 <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Coverage</div>
-                  <div className="mt-2 text-lg font-semibold text-neutral-900">{totalAssigned}/{totalDemand}</div>
+                  <div className="mt-1.5 text-base font-semibold text-neutral-900">{totalAssigned}/{totalDemand}</div>
                 </div>
                 <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Day focus</div>
-                  <div className="mt-2 text-sm font-semibold text-neutral-900">
-                    {activeDaySummary ? formatDateLabel(activeDaySummary.dateKey) : "Chọn ngày"}
+                  <div className="mt-1.5 text-xs font-semibold text-neutral-900">
+                    {activeDaySummary ? getWeekdayLabel(activeDaySummary.dateKey) : "--"}
+                  </div>
+                </div>
+                <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 px-3.5 py-3 text-center">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-400">Status</div>
+                  <div className={`mt-1.5 text-xs font-semibold ${activeDaySummary ? summaryTone(activeDaySummary.status) : "text-neutral-500"}`}>
+                    {activeDaySummary ? activeDaySummary.status.toUpperCase() : "DRAFT"}
                   </div>
                 </div>
               </div>
@@ -2716,10 +2963,13 @@ export default function ManageShiftsPage() {
               ) : null}
 
               <MobilePlannerCards
-                employees={filteredEmployees}
+                employees={deferredFilteredEmployees}
                 weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
                 selectedDateKey={activePlannerDate}
-                onSelectDate={setSelectedDayDetail}
+                selectedEmployeeId={selectedCell?.employeeId ?? null}
+                onSelectDate={(dateKey) => {
+                  startTransition(() => setSelectedDayDetail(dateKey));
+                }}
                 getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
                 onOpenEditor={handleOpenPlannerEditor}
                 daySummaryMap={daySummaryMap}
@@ -3029,10 +3279,13 @@ export default function ManageShiftsPage() {
 
                 <div ref={shiftsSectionRef}>
                   <MobilePlannerCards
-                    employees={filteredEmployees}
+                    employees={deferredFilteredEmployees}
                     weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
                     selectedDateKey={activePlannerDate}
-                    onSelectDate={setSelectedDayDetail}
+                    selectedEmployeeId={selectedCell?.employeeId ?? null}
+                    onSelectDate={(dateKey) => {
+                      startTransition(() => setSelectedDayDetail(dateKey));
+                    }}
                     getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
                     onOpenEditor={handleOpenPlannerEditor}
                     daySummaryMap={daySummaryMap}
@@ -3137,10 +3390,13 @@ export default function ManageShiftsPage() {
               <div ref={shiftsSectionRef} className="mt-5 grid gap-5">
                 <div>
                   <MobilePlannerCards
-                    employees={filteredEmployees}
+                    employees={deferredFilteredEmployees}
                     weekDates={draft?.weekDates ?? generateWeekDates(weekStart)}
                     selectedDateKey={activePlannerDate}
-                    onSelectDate={setSelectedDayDetail}
+                    selectedEmployeeId={selectedCell?.employeeId ?? null}
+                    onSelectDate={(dateKey) => {
+                      startTransition(() => setSelectedDayDetail(dateKey));
+                    }}
                     getAssignment={(employeeId, dateKey) => draftMatrix.get(`${employeeId}:${dateKey}`) ?? null}
                     onOpenEditor={handleOpenPlannerEditor}
                     daySummaryMap={daySummaryMap}

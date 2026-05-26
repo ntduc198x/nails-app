@@ -1,5 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CustomerScreen, CustomerTopActions, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
@@ -22,10 +22,11 @@ export default function BookingScreen() {
     useGuestBooking();
   const {
     upcomingItems: upcomingBookings,
-    isRefreshing,
+    isRefreshing: timelineBackgroundRefreshing,
     refresh: refreshUpcomingBookings,
     syncFromCache: syncTimelineFromCache,
   } = useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
 
   useEffect(() => {
     if (params.service && typeof params.service === "string" && params.service !== values.requestedService) {
@@ -106,6 +107,19 @@ export default function BookingScreen() {
     }, [refreshUpcomingBookings, syncTimelineFromCache]),
   );
 
+  const handleRefresh = useCallback(async () => {
+    if (isPullRefreshing || timelineBackgroundRefreshing) {
+      return;
+    }
+
+    setIsPullRefreshing(true);
+    try {
+      await refreshUpcomingBookings();
+    } finally {
+      setIsPullRefreshing(false);
+    }
+  }, [isPullRefreshing, refreshUpcomingBookings, timelineBackgroundRefreshing]);
+
   useEffect(() => {
     if (!successResult?.bookingRequestId) return;
     void syncTimelineFromCache();
@@ -142,8 +156,8 @@ export default function BookingScreen() {
       keyboardAware
       keyboardVerticalOffset={12}
       contentContainerStyle={styles.content}
-      onRefresh={() => void refreshUpcomingBookings()}
-      refreshing={isRefreshing}
+      onRefresh={() => void handleRefresh()}
+      refreshing={isPullRefreshing}
     >
       <View style={styles.topBar}>
         <View style={styles.topBarSpacer} />

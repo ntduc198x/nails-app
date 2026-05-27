@@ -1,4 +1,5 @@
-import type { LocalizedTextValue } from "./localization";
+import { getOfferPointsRequired } from "./customer-feed";
+import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
@@ -23,6 +24,7 @@ export type MobileAdminMerchService = {
   basePrice: number;
   active: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminMerchServiceUpdate = {
@@ -39,6 +41,7 @@ export type MobileAdminMerchServiceUpdate = {
   lookbookBadge?: string | null;
   lookbookTone?: string | null;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminOffer = {
@@ -54,6 +57,7 @@ export type MobileAdminOffer = {
   packageOrder: number;
   metadata: Record<string, unknown>;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminOfferInput = {
@@ -66,6 +70,7 @@ export type MobileAdminOfferInput = {
   isActive: boolean;
   metadata?: Record<string, unknown>;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminContentPost = {
@@ -82,6 +87,7 @@ export type MobileAdminContentPost = {
   sourcePlatform: string;
   sourceMessageId: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminContentPostInput = {
@@ -95,6 +101,7 @@ export type MobileAdminContentPostInput = {
   metadata?: Record<string, unknown>;
   sourcePlatform?: string | null;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontProfile = {
@@ -116,6 +123,7 @@ export type MobileAdminStorefrontProfile = {
   highlights: string[];
   isActive: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontProfileInput = {
@@ -137,6 +145,7 @@ export type MobileAdminStorefrontProfileInput = {
   highlights?: string[];
   isActive?: boolean;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontTeamMember = {
@@ -148,6 +157,7 @@ export type MobileAdminStorefrontTeamMember = {
   displayOrder: number;
   isVisible: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontTeamMemberInput = {
@@ -158,6 +168,7 @@ export type MobileAdminStorefrontTeamMemberInput = {
   displayOrder?: number;
   isVisible?: boolean;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontProduct = {
@@ -171,6 +182,7 @@ export type MobileAdminStorefrontProduct = {
   isActive: boolean;
   isFeatured: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontProductInput = {
@@ -183,6 +195,7 @@ export type MobileAdminStorefrontProductInput = {
   isActive?: boolean;
   isFeatured?: boolean;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontGalleryItem = {
@@ -193,6 +206,7 @@ export type MobileAdminStorefrontGalleryItem = {
   displayOrder: number;
   isActive: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminStorefrontGalleryItemInput = {
@@ -202,6 +216,7 @@ export type MobileAdminStorefrontGalleryItemInput = {
   displayOrder?: number;
   isActive?: boolean;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminContentBranchOverview = {
@@ -281,6 +296,7 @@ function normalizeMerchService(row: UnknownRow): MobileAdminMerchService {
     basePrice,
     active: row.active !== false,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -299,8 +315,10 @@ export function getOfferPackageOrder(metadata: Record<string, unknown>) {
 
 function normalizeOffer(row: UnknownRow): MobileAdminOffer {
   const metadata = asRecord(row.offer_metadata);
-  const packageTier = getOfferPackageTier(metadata);
-  const packageOrder = getOfferPackageOrder(metadata);
+  const pointsRequired = getOfferPointsRequired(metadata);
+  const normalizedMetadata = pointsRequired > 0 ? { ...metadata, pointsRequired } : metadata;
+  const packageTier = getOfferPackageTier(normalizedMetadata);
+  const packageOrder = getOfferPackageOrder(normalizedMetadata);
 
   return {
     id: String(row.id ?? ""),
@@ -313,8 +331,9 @@ function normalizeOffer(row: UnknownRow): MobileAdminOffer {
     isActive: row.is_active !== false,
     packageTier,
     packageOrder,
-    metadata,
+    metadata: normalizedMetadata,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -355,6 +374,7 @@ function normalizePost(row: UnknownRow): MobileAdminContentPost {
     sourcePlatform: typeof row.source_platform === "string" ? row.source_platform : "mobile_admin",
     sourceMessageId: typeof row.source_message_id === "string" ? row.source_message_id : null,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -380,6 +400,7 @@ function normalizeStorefront(row: UnknownRow | null | undefined): MobileAdminSto
     highlights: Array.isArray(row.highlights) ? row.highlights.filter((item): item is string => typeof item === "string") : [],
     isActive: row.is_active !== false,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -393,6 +414,7 @@ function normalizeTeamMember(row: UnknownRow): MobileAdminStorefrontTeamMember {
     displayOrder: Number(row.display_order ?? 0),
     isVisible: row.is_visible !== false,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -408,6 +430,7 @@ function normalizeProduct(row: UnknownRow): MobileAdminStorefrontProduct {
     isActive: row.is_active !== false,
     isFeatured: Boolean(row.is_featured),
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -420,6 +443,7 @@ function normalizeGalleryItem(row: UnknownRow): MobileAdminStorefrontGalleryItem
     displayOrder: Number(row.display_order ?? 0),
     isActive: row.is_active !== false,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -463,6 +487,7 @@ async function resolveAdminPreviewContext(
     branches: (viewContext?.branches ?? []).map((branch) => ({
       ...branch,
       translations: branch.translations ?? null,
+      translationMeta: branch.translationMeta ?? null,
     })),
   };
 }
@@ -478,7 +503,7 @@ export async function listAdminMerchServicesForMobile(
   let responseQuery = client
     .from("services")
     .select(
-      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active,branch_id,translations",
+      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active,branch_id,translations,translation_meta",
     )
     .eq("org_id", orgId)
     .order("name", { ascending: true });
@@ -568,11 +593,12 @@ export async function updateAdminMerchServiceForMobile(
       lookbook_badge: normalizeOptionalText(input.lookbookBadge),
       lookbook_tone: normalizeOptionalText(input.lookbookTone),
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", input.id)
     .eq("org_id", orgId)
     .select(
-      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active,translations",
+      "id,name,short_description,image_url,featured_in_lookbook,featured_in_home,featured_in_explore,duration_label,display_order_home,display_order_explore,lookbook_category,lookbook_badge,lookbook_tone,duration_min,base_price,active,translations,translation_meta",
     )
     .single();
 
@@ -598,14 +624,14 @@ export async function listAdminContentSnapshotForMobile(
       : Promise.resolve({ data: null, error: null }),
     client
       .from("customer_content_posts")
-      .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations")
+      .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations,translation_meta")
       .eq("org_id", orgId)
       .neq("status", "archived")
       .order("priority", { ascending: true })
       .order("published_at", { ascending: false }),
     client
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations,translation_meta")
       .eq("org_id", orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false }),
@@ -613,7 +639,7 @@ export async function listAdminContentSnapshotForMobile(
       ? client
           .from("storefront_profile")
           .select(
-            "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,updated_at,translations",
+            "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,updated_at,translations,translation_meta",
           )
           .eq("org_id", orgId)
           .eq("branch_id", branchId)
@@ -646,7 +672,7 @@ export async function listAdminContentSnapshotForMobile(
     const [storefrontListRes, storefrontProductsRes, storefrontTeamRes, storefrontGalleryRes, branchServicesRes] = await Promise.all([
       client
         .from("storefront_profile")
-        .select("id,branch_id,name,is_active,updated_at,translations")
+        .select("id,branch_id,name,is_active,updated_at,translations,translation_meta")
         .eq("org_id", orgId)
         .order("updated_at", { ascending: false }),
       client
@@ -788,17 +814,17 @@ export async function listAdminContentSnapshotForMobile(
     ? await Promise.all([
         client
           .from("storefront_products")
-          .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations")
+          .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .order("display_order", { ascending: true }),
         client
           .from("storefront_team_members")
-          .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations")
+          .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .order("display_order", { ascending: true }),
         client
           .from("storefront_gallery")
-          .select("id,title,image_url,kind,display_order,is_active,translations")
+          .select("id,title,image_url,kind,display_order,is_active,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .order("display_order", { ascending: true }),
       ])
@@ -832,7 +858,7 @@ export async function getAdminOfferForMobile(
   const { orgId } = await ensureOrgContext(client);
   const { data, error } = await client
     .from("marketing_offers")
-    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations")
+    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations,translation_meta")
     .eq("id", offerId)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -849,7 +875,7 @@ export async function getAdminContentPostForMobile(
   const { orgId } = await ensureOrgContext(client);
   const { data, error } = await client
     .from("customer_content_posts")
-    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations")
+    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations,translation_meta")
     .eq("id", postId)
     .eq("org_id", orgId)
     .maybeSingle();
@@ -877,8 +903,9 @@ export async function createAdminOfferForMobile(
       is_active: input.isActive,
       offer_metadata: input.metadata ?? {},
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations")
+    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -903,10 +930,11 @@ export async function updateAdminOfferForMobile(
       is_active: input.isActive,
       offer_metadata: input.metadata ?? {},
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", offerId)
     .eq("org_id", orgId)
-    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations")
+    .select("id,title,description,image_url,badge,starts_at,ends_at,is_active,offer_metadata,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -945,8 +973,9 @@ export async function createAdminContentPostForMobile(
       metadata: input.metadata ?? {},
       source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations")
+    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -975,10 +1004,11 @@ export async function updateAdminContentPostForMobile(
       metadata: input.metadata ?? {},
       source_platform: normalizeOptionalText(input.sourcePlatform) ?? "mobile_admin",
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", postId)
     .eq("org_id", orgId)
-    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations")
+    .select("id,title,summary,body,cover_image_url,content_type,status,published_at,priority,metadata,source_platform,source_message_id,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1001,7 +1031,7 @@ export async function upsertAdminStorefrontProfileForMobile(
   input: MobileAdminStorefrontProfileInput,
 ): Promise<MobileAdminStorefrontProfile> {
   const storefrontSelect =
-    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,translations";
+    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,is_active,translations,translation_meta";
   const { orgId, branchId } = await ensureOrgContext(client);
   const payload = {
     org_id: orgId,
@@ -1023,6 +1053,7 @@ export async function upsertAdminStorefrontProfileForMobile(
     highlights: input.highlights ?? [],
     is_active: input.isActive ?? false,
     translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
   };
 
   const query = input.id
@@ -1095,8 +1126,9 @@ export async function createAdminStorefrontTeamMemberForMobile(
       display_order: Number(input.displayOrder ?? 0),
       is_visible: input.isVisible ?? true,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations")
+    .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1118,9 +1150,10 @@ export async function updateAdminStorefrontTeamMemberForMobile(
       display_order: Number(input.displayOrder ?? 0),
       is_visible: input.isVisible ?? true,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", memberId)
-    .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations")
+    .select("id,display_name,role_label,avatar_url,bio,display_order,is_visible,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1150,8 +1183,9 @@ export async function createAdminStorefrontProductForMobile(
       is_active: input.isActive ?? true,
       is_featured: input.isFeatured ?? false,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations")
+    .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1175,9 +1209,10 @@ export async function updateAdminStorefrontProductForMobile(
       is_active: input.isActive ?? true,
       is_featured: input.isFeatured ?? false,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", productId)
-    .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations")
+    .select("id,name,subtitle,price_label,image_url,product_type,display_order,is_active,is_featured,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1204,8 +1239,9 @@ export async function createAdminStorefrontGalleryItemForMobile(
       display_order: Number(input.displayOrder ?? 0),
       is_active: input.isActive ?? true,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,title,image_url,kind,display_order,is_active,translations")
+    .select("id,title,image_url,kind,display_order,is_active,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1226,9 +1262,10 @@ export async function updateAdminStorefrontGalleryItemForMobile(
       display_order: Number(input.displayOrder ?? 0),
       is_active: input.isActive ?? true,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
     .eq("id", galleryItemId)
-    .select("id,title,image_url,kind,display_order,is_active,translations")
+    .select("id,title,image_url,kind,display_order,is_active,translations,translation_meta")
     .single();
 
   if (error) throw error;
@@ -1239,3 +1276,4 @@ export async function deleteAdminStorefrontGalleryItemForMobile(client: SharedSu
   const { error } = await client.from("storefront_gallery").delete().eq("id", galleryItemId);
   if (error) throw error;
 }
+

@@ -1,4 +1,7 @@
-import type { LocalizedTextValue } from "./localization";
+import {
+  type LocalizedTextValue,
+  type TranslationMetaValue,
+} from "./localization";
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
@@ -14,6 +17,7 @@ export type MobileAdminService = {
   active: boolean;
   branchId: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminServiceInput = {
@@ -27,6 +31,7 @@ export type MobileAdminServiceInput = {
   active?: boolean;
   branchId?: string | null;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MobileAdminServiceListOptions = {
@@ -46,6 +51,7 @@ function normalizeServiceRow(row: Record<string, unknown>): MobileAdminService {
     active: row.active !== false,
     branchId: typeof row.branch_id === "string" ? row.branch_id : null,
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
@@ -66,7 +72,7 @@ export async function listAdminServicesForMobile(
 
   let query = client
     .from("services")
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations,translation_meta")
     .eq("org_id", orgId);
 
   // Filter by branch_id if provided (nullable to include org-wide services)
@@ -91,7 +97,7 @@ export async function listAdminServicesForMobile(
     // Fallback query without new columns
     let fallbackQuery = client
       .from("services")
-      .select("id,name,duration_min,base_price,vat_rate,active,branch_id,translations")
+      .select("id,name,duration_min,base_price,vat_rate,active,branch_id,translations,translation_meta")
       .eq("org_id", orgId);
 
     if (targetBranchId) {
@@ -135,15 +141,17 @@ export async function createAdminServiceForMobile(
       vat_rate: input.vatPercent / 100,
       active: input.active ?? true,
       translations: input.translations ?? null,
+      translation_meta: input.translationMeta ?? null,
     })
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations,translation_meta")
     .single();
 
   if (error) {
     throw error;
   }
 
-  return normalizeServiceRow((data ?? {}) as Record<string, unknown>);
+  const service = normalizeServiceRow((data ?? {}) as Record<string, unknown>);
+  return service;
 }
 
 export async function updateAdminServiceForMobile(
@@ -151,31 +159,42 @@ export async function updateAdminServiceForMobile(
   input: MobileAdminServiceInput & { id: string },
 ): Promise<MobileAdminService> {
   const { orgId } = await ensureOrgContext(client);
+  const payload: Record<string, unknown> = {
+    name: input.name,
+    short_description: input.shortDescription ?? null,
+    image_url: input.imageUrl ?? null,
+    featured_in_lookbook: input.featuredInLookbook ?? false,
+    duration_min: input.durationMin,
+    base_price: input.basePrice,
+    vat_rate: input.vatPercent / 100,
+    active: input.active ?? true,
+  };
+
+  // Preserve existing branch / translation data unless the caller explicitly updates them.
+  if (Object.prototype.hasOwnProperty.call(input, "branchId")) {
+    payload.branch_id = input.branchId ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "translations")) {
+    payload.translations = input.translations ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "translationMeta")) {
+    payload.translation_meta = input.translationMeta ?? null;
+  }
 
   const { data, error } = await client
     .from("services")
-    .update({
-      branch_id: input.branchId ?? null,
-      name: input.name,
-      short_description: input.shortDescription ?? null,
-      image_url: input.imageUrl ?? null,
-      featured_in_lookbook: input.featuredInLookbook ?? false,
-      duration_min: input.durationMin,
-      base_price: input.basePrice,
-      vat_rate: input.vatPercent / 100,
-      active: input.active ?? true,
-      translations: input.translations ?? null,
-    })
+    .update(payload)
     .eq("id", input.id)
     .eq("org_id", orgId)
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations,translation_meta")
     .single();
 
   if (error) {
     throw error;
   }
 
-  return normalizeServiceRow((data ?? {}) as Record<string, unknown>);
+  const service = normalizeServiceRow((data ?? {}) as Record<string, unknown>);
+  return service;
 }
 
 export async function deleteAdminServiceForMobile(

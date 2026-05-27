@@ -1,5 +1,6 @@
 import type { LookbookItem, MarketingOfferCard } from "./customer-feed";
-import type { LocalizedTextValue } from "./localization";
+import type { Locale } from "./i18n";
+import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 
 export type ExploreStorefront = {
   id: string;
@@ -19,6 +20,7 @@ export type ExploreStorefront = {
   instagramUrl: string | null;
   highlights: string[];
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type ExploreStat = {
@@ -37,6 +39,7 @@ export type ExploreProduct = {
   productType: string | null;
   isFeatured: boolean;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type ExploreTeamMember = {
@@ -46,6 +49,7 @@ export type ExploreTeamMember = {
   avatarUrl: string | null;
   bio: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type ExploreGalleryItem = {
@@ -54,6 +58,7 @@ export type ExploreGalleryItem = {
   imageUrl: string;
   kind: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type ExploreMapCard = {
@@ -75,34 +80,37 @@ export type CustomerExplorePayload = {
 };
 
 export function buildExploreStats(input: {
+  locale?: Locale;
   featuredServicesCount: number;
   teamCount: number;
   galleryCount: number;
   offersCount: number;
 }): ExploreStat[] {
+  const locale = input.locale ?? "vi";
+
   return [
     {
       id: "services",
-      label: "Dich vu",
-      value: `${input.featuredServicesCount} mau`,
+      label: locale === "en" ? "Services" : "Dich vu",
+      value: locale === "en" ? `${input.featuredServicesCount} looks` : `${input.featuredServicesCount} mau`,
       icon: "shopping-bag",
     },
     {
       id: "team",
-      label: "Nhan su",
-      value: `${input.teamCount} nguoi`,
+      label: locale === "en" ? "Team" : "Nhan su",
+      value: locale === "en" ? `${input.teamCount} people` : `${input.teamCount} nguoi`,
       icon: "users",
     },
     {
       id: "gallery",
-      label: "Khong gian",
-      value: `${input.galleryCount} anh`,
+      label: locale === "en" ? "Gallery" : "Khong gian",
+      value: locale === "en" ? `${input.galleryCount} photos` : `${input.galleryCount} anh`,
       icon: "image",
     },
     {
       id: "offers",
-      label: "Uu dai",
-      value: `${input.offersCount} moi`,
+      label: locale === "en" ? "Offers" : "Uu dai",
+      value: locale === "en" ? `${input.offersCount} new` : `${input.offersCount} moi`,
       icon: "tag",
     },
   ];

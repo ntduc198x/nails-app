@@ -19,6 +19,7 @@ export * from "./customer-feed";
 export * from "./customer-explore";
 export * from "./customer-personalization";
 export * from "./admin-content";
+export * from "./admin-localization";
 export * from "./auto-schedule";
 export * from "./shifts";
 export * from "./i18n";

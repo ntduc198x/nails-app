@@ -4,15 +4,18 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import type { Href } from "expo-router";
-import type { MobileAdminMerchService } from "@nails/shared";
+import type { LocalizedTextValue, MobileAdminMerchService, TranslationMetaValue } from "@nails/shared";
 import { listAdminMerchServicesForMobile, updateAdminMerchServiceForMobile } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import { buildManualAwareTranslationMeta, getTranslationStatusLabel, requestRetranslateAndKick } from "@/src/features/admin/dynamic-translation";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { clearCustomerFeedCache } from "@/src/lib/customer-feed-cache";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
+import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -27,36 +30,79 @@ const palette = {
 type MerchFormState = {
   id: string;
   name: string;
+  nameEn: string;
   shortDescription: string;
+  shortDescriptionEn: string;
   imageUrl: string;
   durationLabel: string;
+  durationLabelEn: string;
   featuredInHome: boolean;
   featuredInExplore: boolean;
   displayOrderHome: string;
   displayOrderExplore: string;
   lookbookCategory: string;
   lookbookBadge: string;
+  lookbookBadgeEn: string;
   lookbookTone: string;
+  lookbookToneEn: string;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 function parseNumberInput(value: string) {
   return Number(value.replace(/[^\d.-]/g, "") || 0);
 }
 
+function getLocalizedText(translations: LocalizedTextValue | null | undefined, locale: "vi" | "en", field: string) {
+  const value = translations?.[locale]?.[field];
+  return typeof value === "string" ? value : "";
+}
+
+function putTextField(target: Record<string, string>, field: string, value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    target[field] = trimmed;
+  }
+}
+
+function buildServiceTranslations(form: MerchFormState): LocalizedTextValue {
+  const vi: Record<string, string> = {};
+  const en: Record<string, string> = {};
+
+  putTextField(vi, "name", form.name);
+  putTextField(vi, "short_description", form.shortDescription);
+  putTextField(vi, "duration_label", form.durationLabel);
+  putTextField(vi, "lookbook_badge", form.lookbookBadge);
+  putTextField(vi, "lookbook_tone", form.lookbookTone);
+
+  putTextField(en, "name", form.nameEn);
+  putTextField(en, "short_description", form.shortDescriptionEn);
+  putTextField(en, "duration_label", form.durationLabelEn);
+  putTextField(en, "lookbook_badge", form.lookbookBadgeEn);
+  putTextField(en, "lookbook_tone", form.lookbookToneEn);
+
+  return { vi, en };
+}
+
 function buildMerchForm(service: MobileAdminMerchService): MerchFormState {
   return {
     id: service.id,
     name: service.name,
+    nameEn: getLocalizedText(service.translations, "en", "name"),
     shortDescription: service.shortDescription ?? "",
+    shortDescriptionEn: getLocalizedText(service.translations, "en", "short_description"),
     imageUrl: service.imageUrl ?? "",
     durationLabel: service.durationLabel ?? "",
+    durationLabelEn: getLocalizedText(service.translations, "en", "duration_label"),
     featuredInHome: service.featuredInHome,
     featuredInExplore: service.featuredInExplore,
     displayOrderHome: String(service.displayOrderHome ?? 0),
     displayOrderExplore: String(service.displayOrderExplore ?? 0),
     lookbookCategory: service.lookbookCategory ?? "",
     lookbookBadge: service.lookbookBadge ?? "",
+    lookbookBadgeEn: getLocalizedText(service.translations, "en", "lookbook_badge"),
     lookbookTone: service.lookbookTone ?? "",
+    lookbookToneEn: getLocalizedText(service.translations, "en", "lookbook_tone"),
+    translationMeta: service.translationMeta ?? null,
   };
 }
 
@@ -68,6 +114,8 @@ export default function AdminManageContentServiceDetailScreen() {
   const backHref = (typeof params.backHref === "string" ? params.backHref : "/(admin)/manage-content") as Href;
   const strings = useAdminStrings();
   const { locale } = useAdminPreferences();
+  const { role } = useSession();
+  const canApproveTranslation = role === "OWNER";
 
   const [form, setForm] = useState<MerchFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -148,12 +196,31 @@ export default function AdminManageContentServiceDetailScreen() {
         lookbookCategory: form.lookbookCategory,
         lookbookBadge: form.lookbookBadge,
         lookbookTone: form.lookbookTone,
+        translations: buildServiceTranslations(form),
+        translationMeta: buildManualAwareTranslationMeta(form.translationMeta ?? null, {
+          name: form.nameEn,
+          short_description: form.shortDescriptionEn,
+          duration_label: form.durationLabelEn,
+          lookbook_badge: form.lookbookBadgeEn,
+          lookbook_tone: form.lookbookToneEn,
+        }),
       });
+      await clearCustomerFeedCache();
       dismissToHref(router, backHref);
     } catch (nextError) {
       Alert.alert(strings.serviceDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleRetranslate() {
+    if (!mobileSupabase || !form?.id) return;
+    try {
+      await requestRetranslateAndKick(mobileSupabase, "services", form.id, role, false);
+      Alert.alert("Translation approved", "English content has been queued for translation.");
+    } catch (nextError) {
+      Alert.alert(strings.serviceDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     }
   }
 
@@ -174,14 +241,25 @@ export default function AdminManageContentServiceDetailScreen() {
           </View>
         ) : (
           <View style={styles.formColumn}>
+            <View style={styles.translationRow}>
+              <Text style={styles.translationStatus}>{`EN: ${getTranslationStatusLabel(form.translationMeta)}`}</Text>
+              <Pressable style={[styles.secondaryButton, !canApproveTranslation ? styles.secondaryButtonDisabled : null]} disabled={!canApproveTranslation} onPress={() => void handleRetranslate()}>
+                <Text style={styles.secondaryButtonText}>Approve EN</Text>
+              </Pressable>
+            </View>
             <View style={styles.headerBlock}>
               <Text style={styles.eyebrow}>{strings.serviceDetailTemplateLabel}</Text>
               <Text style={styles.serviceName}>{form.name}</Text>
+            </View>
+            <View style={styles.fieldBlock}>
+              <Text style={styles.label}>English service name</Text>
+              <AdminKeyboardTextInput placeholder="e.g. Korean Clean Nude" placeholderTextColor="#B4A89C" style={styles.input} value={form.nameEn} onChangeText={(value) => setForm((current) => (current ? { ...current, nameEn: value } : current))} />
             </View>
             {form.imageUrl ? <CachedAppImage source={{ uri: form.imageUrl }} style={styles.previewImage} alt={form.name} /> : null}
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>{strings.serviceDetailShortDescriptionLabel}</Text>
               <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.serviceDetailShortDescriptionPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.shortDescription} onChangeText={(value) => setForm((current) => (current ? { ...current, shortDescription: value } : current))} />
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="English description shown to customers" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.shortDescriptionEn} onChangeText={(value) => setForm((current) => (current ? { ...current, shortDescriptionEn: value } : current))} />
             </View>
             <View style={styles.fieldBlock}>
               <Text style={styles.label}>{strings.serviceDetailImageLabel}</Text>
@@ -197,6 +275,7 @@ export default function AdminManageContentServiceDetailScreen() {
               <View style={[styles.fieldBlock, styles.flexBlock]}>
                 <Text style={styles.label}>{strings.serviceDetailDurationLabel}</Text>
                 <AdminKeyboardTextInput placeholder={strings.serviceDetailDurationPlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.durationLabel} onChangeText={(value) => setForm((current) => (current ? { ...current, durationLabel: value } : current))} />
+                <AdminKeyboardTextInput placeholder="English duration label, e.g. 90 min" placeholderTextColor="#B4A89C" style={styles.input} value={form.durationLabelEn} onChangeText={(value) => setForm((current) => (current ? { ...current, durationLabelEn: value } : current))} />
               </View>
               <View style={[styles.fieldBlock, styles.flexBlock]}>
                 <Text style={styles.label}>{strings.serviceDetailDisplayOrderExploreLabel}</Text>
@@ -207,7 +286,9 @@ export default function AdminManageContentServiceDetailScreen() {
               <Text style={styles.label}>{strings.serviceDetailLookbookLabel}</Text>
               <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookCategoryPlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookCategory} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookCategory: value } : current))} />
               <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookBadgePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookBadge} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookBadge: value } : current))} />
+              <AdminKeyboardTextInput placeholder="English badge, e.g. Featured" placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookBadgeEn} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookBadgeEn: value } : current))} />
               <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookTonePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookTone} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookTone: value } : current))} />
+              <AdminKeyboardTextInput placeholder="English tone, e.g. Luxury" placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookToneEn} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookToneEn: value } : current))} />
             </View>
             <View style={styles.toggleRow}>
               <Pressable style={[styles.toggleChip, form.featuredInExplore ? styles.toggleChipActive : null]} onPress={() => setForm((current) => (current ? { ...current, featuredInExplore: !current.featuredInExplore } : current))}>
@@ -230,6 +311,8 @@ export default function AdminManageContentServiceDetailScreen() {
 const styles = StyleSheet.create({
   sectionCard: { borderRadius: 24, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, padding: 16, gap: 14 },
   formColumn: { gap: 14 },
+  translationRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  translationStatus: { color: palette.sub, fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
   headerBlock: { gap: 4 },
   eyebrow: { fontSize: 12, lineHeight: 18, color: palette.sub, fontWeight: "600" },
   serviceName: { fontSize: 18, lineHeight: 24, color: palette.text, fontWeight: "800" },
@@ -242,6 +325,7 @@ const styles = StyleSheet.create({
   flexInput: { flex: 1 },
   flexBlock: { flex: 1 },
   secondaryButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FFF9F3" },
+  secondaryButtonDisabled: { opacity: 0.45 },
   secondaryButtonText: { color: palette.accent, fontSize: 13, fontWeight: "700" },
   toggleRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   toggleChip: { minHeight: 42, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", alignItems: "center", justifyContent: "center" },

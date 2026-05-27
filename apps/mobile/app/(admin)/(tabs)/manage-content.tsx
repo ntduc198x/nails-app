@@ -31,6 +31,7 @@ import type {
   MobileAdminStorefrontProfileInput,
   MobileAdminStorefrontTeamMember,
   MobileAdminStorefrontTeamMemberInput,
+  LocalizedTextValue,
 } from "@nails/shared";
 import {
   archiveAdminContentPostForMobile,
@@ -42,9 +43,10 @@ import {
   deleteAdminStorefrontProfileForMobile,
   deleteAdminStorefrontProductForMobile,
   listAdminContentSnapshotForMobile,
+  localizeAdminBranchName,
   listAdminMerchServicesForMobile,
+  localizeAdminMerchService,
   MOBILE_ADMIN_OFFER_PACKAGE_TIERS,
-  resolveLocalizedField,
   setActiveAdminStorefrontProfileForMobile,
   updateAdminContentPostForMobile,
   updateAdminMerchServiceForMobile,
@@ -53,11 +55,13 @@ import {
   updateAdminStorefrontTeamMemberForMobile,
   upsertAdminStorefrontProfileForMobile,
 } from "@nails/shared";
+import { buildManualAwareTranslationMeta } from "@/src/features/admin/dynamic-translation";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardAwareScrollView, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminHeaderTopPadding, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import { clearCustomerFeedCache } from "@/src/lib/customer-feed-cache";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ADMIN_CONTENT_REFRESH_SIGNAL_KEY, hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
@@ -90,16 +94,21 @@ type MerchContext = "home" | "explore";
 type MerchFormState = {
   id: string;
   name: string;
+  nameEn: string;
   shortDescription: string;
+  shortDescriptionEn: string;
   imageUrl: string;
   durationLabel: string;
+  durationLabelEn: string;
   featuredInHome: boolean;
   featuredInExplore: boolean;
   displayOrderHome: string;
   displayOrderExplore: string;
   lookbookCategory: string;
   lookbookBadge: string;
+  lookbookBadgeEn: string;
   lookbookTone: string;
+  lookbookToneEn: string;
 };
 
 const OFFER_PACKAGE_TIERS = MOBILE_ADMIN_OFFER_PACKAGE_TIERS;
@@ -108,8 +117,11 @@ type OfferPackageTier = MobileAdminOfferPackageTier;
 type PostFormState = {
   id?: string;
   title: string;
+  titleEn: string;
   summary: string;
+  summaryEn: string;
   body: string;
+  bodyEn: string;
   coverImageUrl: string;
   contentType: MobileAdminContentPost["contentType"];
   status: MobileAdminContentPost["status"];
@@ -124,28 +136,38 @@ type StorefrontFormState = {
   id?: string;
   slug: string;
   name: string;
+  nameEn: string;
   category: string;
+  categoryEn: string;
   description: string;
+  descriptionEn: string;
   coverImageUrl: string;
   logoImageUrl: string;
   rating: string;
   reviewsLabel: string;
+  reviewsLabelEn: string;
   addressLine: string;
+  addressLineEn: string;
   mapUrl: string;
   openingHours: string;
+  openingHoursEn: string;
   phone: string;
   messengerUrl: string;
   instagramUrl: string;
   highlightsText: string;
+  highlightsTextEn: string;
   isActive: boolean;
 };
 
 type TeamFormState = {
   id?: string;
   displayName: string;
+  displayNameEn: string;
   roleLabel: string;
+  roleLabelEn: string;
   avatarUrl: string;
   bio: string;
+  bioEn: string;
   displayOrder: string;
   isVisible: boolean;
 };
@@ -153,10 +175,14 @@ type TeamFormState = {
 type ProductFormState = {
   id?: string;
   name: string;
+  nameEn: string;
   subtitle: string;
+  subtitleEn: string;
   priceLabel: string;
+  priceLabelEn: string;
   imageUrl: string;
   productType: string;
+  productTypeEn: string;
   displayOrder: string;
   isActive: boolean;
   isFeatured: boolean;
@@ -165,6 +191,7 @@ type ProductFormState = {
 type GalleryFormState = {
   id?: string;
   title: string;
+  titleEn: string;
   imageUrl: string;
   kind: string;
   displayOrder: string;
@@ -179,6 +206,49 @@ function parseMetadata(text: string) {
   const trimmed = text.trim();
   if (!trimmed) return {};
   return JSON.parse(trimmed) as Record<string, unknown>;
+}
+
+function getLocalizedText(translations: LocalizedTextValue | null | undefined, locale: "vi" | "en", field: string) {
+  const value = translations?.[locale]?.[field];
+  return typeof value === "string" ? value : "";
+}
+
+function getLocalizedArrayText(translations: LocalizedTextValue | null | undefined, locale: "vi" | "en", field: string) {
+  const value = translations?.[locale]?.[field];
+  return Array.isArray(value) ? value.join("\n") : "";
+}
+
+function putTextField(target: Record<string, string | string[]>, field: string, value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    target[field] = trimmed;
+  }
+}
+
+function buildTranslations(
+  viFields: Record<string, string | string[] | null | undefined>,
+  enFields: Record<string, string | string[] | null | undefined>,
+): LocalizedTextValue | null {
+  const vi: Record<string, string | string[]> = {};
+  const en: Record<string, string | string[]> = {};
+
+  for (const [field, value] of Object.entries(viFields)) {
+    if (Array.isArray(value)) {
+      if (value.length) vi[field] = value;
+      continue;
+    }
+    putTextField(vi, field, value);
+  }
+
+  for (const [field, value] of Object.entries(enFields)) {
+    if (Array.isArray(value)) {
+      if (value.length) en[field] = value;
+      continue;
+    }
+    putTextField(en, field, value);
+  }
+
+  return Object.keys(vi).length || Object.keys(en).length ? { vi, en } : null;
 }
 
 function getOfferPackageTier(metadata: Record<string, unknown>) {
@@ -282,16 +352,21 @@ function buildMerchForm(service: MobileAdminMerchService): MerchFormState {
   return {
     id: service.id,
     name: service.name,
+    nameEn: getLocalizedText(service.translations, "en", "name"),
     shortDescription: service.shortDescription ?? "",
+    shortDescriptionEn: getLocalizedText(service.translations, "en", "short_description"),
     imageUrl: service.imageUrl ?? "",
     durationLabel: service.durationLabel ?? "",
+    durationLabelEn: getLocalizedText(service.translations, "en", "duration_label"),
     featuredInHome: service.featuredInHome,
     featuredInExplore: service.featuredInExplore,
     displayOrderHome: String(service.displayOrderHome ?? 0),
     displayOrderExplore: String(service.displayOrderExplore ?? 0),
     lookbookCategory: service.lookbookCategory ?? "",
     lookbookBadge: service.lookbookBadge ?? "",
+    lookbookBadgeEn: getLocalizedText(service.translations, "en", "lookbook_badge"),
     lookbookTone: service.lookbookTone ?? "",
+    lookbookToneEn: getLocalizedText(service.translations, "en", "lookbook_tone"),
   };
 }
 
@@ -326,19 +401,26 @@ function buildStorefrontForm(snapshot: MobileAdminContentSnapshot | null): Store
     id: storefront?.id,
     slug: storefront?.slug ?? "",
     name: storefront?.name ?? "",
+    nameEn: getLocalizedText(storefront?.translations, "en", "name"),
     category: storefront?.category ?? "",
+    categoryEn: getLocalizedText(storefront?.translations, "en", "category"),
     description: storefront?.description ?? "",
+    descriptionEn: getLocalizedText(storefront?.translations, "en", "description"),
     coverImageUrl: storefront?.coverImageUrl ?? "",
     logoImageUrl: storefront?.logoImageUrl ?? "",
     rating: storefront?.rating != null ? String(storefront.rating) : "",
     reviewsLabel: storefront?.reviewsLabel ?? "",
+    reviewsLabelEn: getLocalizedText(storefront?.translations, "en", "reviews_label"),
     addressLine: storefront?.addressLine ?? "",
+    addressLineEn: getLocalizedText(storefront?.translations, "en", "address_line"),
     mapUrl: storefront?.mapUrl ?? "",
     openingHours: storefront?.openingHours ?? "",
+    openingHoursEn: getLocalizedText(storefront?.translations, "en", "opening_hours"),
     phone: storefront?.phone ?? "",
     messengerUrl: storefront?.messengerUrl ?? "",
     instagramUrl: storefront?.instagramUrl ?? "",
     highlightsText: storefront?.highlights.join("\n") ?? "",
+    highlightsTextEn: getLocalizedArrayText(storefront?.translations, "en", "highlights"),
     isActive: storefront?.isActive ?? false,
   };
 }
@@ -367,7 +449,7 @@ function getLocalizedBranchName(
   branchName: string,
   translations: MobileAdminContentBranchOverview["branchTranslations"],
 ) {
-  return resolveLocalizedField(locale === "en" ? "en" : "vi", branchName, translations, "name") ?? branchName;
+  return localizeAdminBranchName(locale === "en" ? "en" : "vi", branchName, translations) ?? branchName;
 }
 
 function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): MobileAdminContentPostInput[] {
@@ -381,6 +463,20 @@ function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): Mobil
       status: "published",
       priority: 101,
       metadata: { source: "seed", section: "home_feed" },
+      translations: buildTranslations(
+        {
+          title: "3 mẫu nail hợp đầu tuần",
+          summary: "Gợi ý nhanh các tone dễ đi làm và đi chơi.",
+          body: "Gợi ý nhanh các tone dễ đi làm và đi chơi.",
+          source_platform: "Beauty feed",
+        },
+        {
+          title: "3 nail looks for the start of the week",
+          summary: "Quick shade ideas for workdays and casual plans.",
+          body: "Quick shade ideas for workdays and casual plans.",
+          source_platform: "Beauty feed",
+        },
+      ),
     },
     {
       title: strings.manageContentDummyPostTwoTitle,
@@ -391,6 +487,20 @@ function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): Mobil
       status: "published",
       priority: 102,
       metadata: { source: "seed", section: "home_feed" },
+      translations: buildTranslations(
+        {
+          title: "Giữ màu gel bền hơn",
+          summary: "Những cách chăm sóc đơn giản sau khi làm móng.",
+          body: "Những cách chăm sóc đơn giản sau khi làm móng.",
+          source_platform: "Care guide",
+        },
+        {
+          title: "How to keep gel color fresh longer",
+          summary: "Simple aftercare tips after your nail appointment.",
+          body: "Simple aftercare tips after your nail appointment.",
+          source_platform: "Care guide",
+        },
+      ),
     },
     {
       title: strings.manageContentDummyPostThreeTitle,
@@ -401,6 +511,20 @@ function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): Mobil
       status: "published",
       priority: 103,
       metadata: { source: "seed", section: "home_feed" },
+      translations: buildTranslations(
+        {
+          title: "Ưu đãi thành viên trong tháng",
+          summary: "Kiểm tra hạng thành viên để nhận ưu đãi phù hợp.",
+          body: "Kiểm tra hạng thành viên để nhận ưu đãi phù hợp.",
+          source_platform: "Offers",
+        },
+        {
+          title: "Monthly member offers",
+          summary: "Check your membership tier for matching offers.",
+          body: "Check your membership tier for matching offers.",
+          source_platform: "Offers",
+        },
+      ),
     },
   ];
 }
@@ -408,9 +532,12 @@ function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): Mobil
 function emptyTeamForm(): TeamFormState {
   return {
     displayName: "",
+    displayNameEn: "",
     roleLabel: "",
+    roleLabelEn: "",
     avatarUrl: "",
     bio: "",
+    bioEn: "",
     displayOrder: "0",
     isVisible: true,
   };
@@ -420,9 +547,12 @@ function buildTeamForm(member: MobileAdminStorefrontTeamMember): TeamFormState {
   return {
     id: member.id,
     displayName: member.displayName,
+    displayNameEn: getLocalizedText(member.translations, "en", "display_name"),
     roleLabel: member.roleLabel ?? "",
+    roleLabelEn: getLocalizedText(member.translations, "en", "role_label"),
     avatarUrl: member.avatarUrl ?? "",
     bio: member.bio ?? "",
+    bioEn: getLocalizedText(member.translations, "en", "bio"),
     displayOrder: String(member.displayOrder),
     isVisible: member.isVisible,
   };
@@ -431,10 +561,14 @@ function buildTeamForm(member: MobileAdminStorefrontTeamMember): TeamFormState {
 function emptyProductForm(): ProductFormState {
   return {
     name: "",
+    nameEn: "",
     subtitle: "",
+    subtitleEn: "",
     priceLabel: "",
+    priceLabelEn: "",
     imageUrl: "",
     productType: "",
+    productTypeEn: "",
     displayOrder: "0",
     isActive: true,
     isFeatured: false,
@@ -445,10 +579,14 @@ function buildProductForm(product: MobileAdminStorefrontProduct): ProductFormSta
   return {
     id: product.id,
     name: product.name,
+    nameEn: getLocalizedText(product.translations, "en", "name"),
     subtitle: product.subtitle ?? "",
+    subtitleEn: getLocalizedText(product.translations, "en", "subtitle"),
     priceLabel: product.priceLabel ?? "",
+    priceLabelEn: getLocalizedText(product.translations, "en", "price_label"),
     imageUrl: product.imageUrl ?? "",
     productType: product.productType ?? "",
+    productTypeEn: getLocalizedText(product.translations, "en", "product_type"),
     displayOrder: String(product.displayOrder),
     isActive: product.isActive,
     isFeatured: product.isFeatured,
@@ -458,6 +596,7 @@ function buildProductForm(product: MobileAdminStorefrontProduct): ProductFormSta
 function emptyGalleryForm(): GalleryFormState {
   return {
     title: "",
+    titleEn: "",
     imageUrl: "",
     kind: "",
     displayOrder: "0",
@@ -469,6 +608,7 @@ function buildGalleryForm(item: MobileAdminStorefrontGalleryItem): GalleryFormSt
   return {
     id: item.id,
     title: item.title ?? "",
+    titleEn: getLocalizedText(item.translations, "en", "title"),
     imageUrl: item.imageUrl,
     kind: item.kind ?? "",
     displayOrder: String(item.displayOrder),
@@ -759,6 +899,7 @@ export default function AdminManageContentScreen() {
   const [storefrontEditorOpen, setStorefrontEditorOpen] = useState(false);
   const [exploreRegularEditorOpen, setExploreRegularEditorOpen] = useState(false);
   const [productsExpanded, setProductsExpanded] = useState(false);
+  const [offersExpanded, setOffersExpanded] = useState(true);
   const [teamListOpen, setTeamListOpen] = useState(false);
   const [teamForm, setTeamForm] = useState<TeamFormState | null>(null);
   const [productForm, setProductForm] = useState<ProductFormState | null>(null);
@@ -784,6 +925,10 @@ export default function AdminManageContentScreen() {
   );
 
   const dummyFeedPosts = useMemo(() => buildDummyFeedPosts(strings), [strings]);
+  const servicesById = useMemo(
+    () => new Map(services.map((service) => [service.id, service])),
+    [services],
+  );
 
   function guardObserverWrite(actionLabel: string) {
     if (!observerReadOnly) {
@@ -929,28 +1074,32 @@ export default function AdminManageContentScreen() {
     }, [loadSnapshot, observer.isReady]),
   );
 
+  const localizedServices = useMemo(
+    () => services.map((service) => localizeAdminMerchService(locale, service)),
+    [locale, services],
+  );
   const lookbookServices = useMemo(
     () =>
-      services
+      localizedServices
         .filter((item) => isLandingService(item))
-        .sort((left, right) => left.name.localeCompare(right.name, "vi")),
-    [services],
+        .sort((left, right) => left.name.localeCompare(right.name, locale)),
+    [locale, localizedServices],
   );
 
   const regularServices = useMemo(
     () =>
-      services
+      localizedServices
         .filter((item) => item.active && !item.featuredInLookbook)
-        .sort((left, right) => left.name.localeCompare(right.name, "vi")),
-    [services],
+        .sort((left, right) => left.name.localeCompare(right.name, locale)),
+    [locale, localizedServices],
   );
 
   const homeServices = useMemo(
     () =>
       lookbookServices
         .filter((item) => item.featuredInHome)
-        .sort((left, right) => left.displayOrderHome - right.displayOrderHome || left.name.localeCompare(right.name, "vi")),
-    [lookbookServices],
+        .sort((left, right) => left.displayOrderHome - right.displayOrderHome || left.name.localeCompare(right.name, locale)),
+    [locale, lookbookServices],
   );
 
   const homeLookbookServices = useMemo(() => {
@@ -970,16 +1119,16 @@ export default function AdminManageContentScreen() {
           return left.displayOrderHome - right.displayOrderHome;
         }
 
-        return left.name.localeCompare(right.name, "vi");
+        return left.name.localeCompare(right.name, locale);
       });
-  }, [homeServiceQuery, lookbookServices]);
+  }, [homeServiceQuery, locale, lookbookServices]);
 
   const exploreServices = useMemo(
     () =>
       lookbookServices
         .filter((item) => item.featuredInExplore)
-        .sort((left, right) => left.displayOrderExplore - right.displayOrderExplore || left.name.localeCompare(right.name, "vi")),
-    [lookbookServices],
+        .sort((left, right) => left.displayOrderExplore - right.displayOrderExplore || left.name.localeCompare(right.name, locale)),
+    [locale, lookbookServices],
   );
 
   const exploreFeaturedServices = useMemo(() => {
@@ -999,9 +1148,9 @@ export default function AdminManageContentScreen() {
           return left.displayOrderExplore - right.displayOrderExplore;
         }
 
-        return left.name.localeCompare(right.name, "vi");
+        return left.name.localeCompare(right.name, locale);
       });
-  }, [exploreFeaturedQuery, lookbookServices]);
+  }, [exploreFeaturedQuery, locale, lookbookServices]);
 
   const exploreRegularServices = useMemo(() => {
     const query = exploreRegularQuery.trim().toLowerCase();
@@ -1011,8 +1160,8 @@ export default function AdminManageContentScreen() {
         const haystack = `${item.name} ${item.shortDescription ?? ""} ${item.durationLabel ?? ""}`.toLowerCase();
         return haystack.includes(query);
       })
-      .sort((left, right) => left.name.localeCompare(right.name, "vi"));
-  }, [exploreRegularQuery, regularServices]);
+      .sort((left, right) => left.name.localeCompare(right.name, locale));
+  }, [exploreRegularQuery, locale, regularServices]);
 
   const visibleExploreFeaturedServices = useMemo(
     () =>
@@ -1045,7 +1194,7 @@ export default function AdminManageContentScreen() {
   const currentBranchDisplayName = useMemo(() => {
     const activeBranch = observer.viewContext?.branches.find((branch) => branch.id === snapshot?.branchId);
     if (activeBranch) {
-      return resolveLocalizedField(locale, activeBranch.name, activeBranch.translations, "name") ?? activeBranch.name;
+      return localizeAdminBranchName(locale, activeBranch.name, activeBranch.translations) ?? activeBranch.name;
     }
 
     return snapshot?.branchName ?? strings.manageContentCurrentBranchSuffix;
@@ -1097,8 +1246,35 @@ export default function AdminManageContentScreen() {
         lookbookCategory: merchForm.lookbookCategory,
         lookbookBadge: merchForm.lookbookBadge,
         lookbookTone: merchForm.lookbookTone,
+        translations: buildTranslations(
+          {
+            name: merchForm.name,
+            short_description: merchForm.shortDescription,
+            duration_label: merchForm.durationLabel,
+            lookbook_badge: merchForm.lookbookBadge,
+            lookbook_tone: merchForm.lookbookTone,
+          },
+          {
+            name: merchForm.nameEn,
+            short_description: merchForm.shortDescriptionEn,
+            duration_label: merchForm.durationLabelEn,
+            lookbook_badge: merchForm.lookbookBadgeEn,
+            lookbook_tone: merchForm.lookbookToneEn,
+          },
+        ),
+        translationMeta: buildManualAwareTranslationMeta(
+          services.find((item) => item.id === merchForm.id)?.translationMeta ?? null,
+          {
+            name: merchForm.nameEn,
+            short_description: merchForm.shortDescriptionEn,
+            duration_label: merchForm.durationLabelEn,
+            lookbook_badge: merchForm.lookbookBadgeEn,
+            lookbook_tone: merchForm.lookbookToneEn,
+          },
+        ),
       });
       setMerchForm(null);
+      await clearCustomerFeedCache();
       await loadServices(true);
     } catch (nextError) {
       Alert.alert(strings.manageContentGenericSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
@@ -1116,6 +1292,27 @@ export default function AdminManageContentScreen() {
       status: form.status,
       priority: parseNumberInput(form.priority),
       metadata: parseMetadata(form.metadataText),
+      translations: buildTranslations(
+        {
+          title: form.title,
+          summary: form.summary,
+          body: form.body,
+          source_platform: form.sourcePlatform ?? null,
+        },
+        {
+          title: form.titleEn,
+          summary: form.summaryEn,
+          body: form.bodyEn,
+        },
+      ),
+      translationMeta: buildManualAwareTranslationMeta(
+        snapshot?.posts.find((item) => item.id === form.id)?.translationMeta ?? null,
+        {
+          title: form.titleEn,
+          summary: form.summaryEn,
+          body: form.bodyEn,
+        },
+      ),
     };
   }
 
@@ -1130,6 +1327,7 @@ export default function AdminManageContentScreen() {
       } else {
         await createAdminContentPostForMobile(mobileSupabase, payload);
       }
+      await clearCustomerFeedCache();
       setPostForm(null);
       await loadSnapshot();
     } catch (nextError) {
@@ -1186,8 +1384,38 @@ export default function AdminManageContentScreen() {
         instagramUrl: storefrontForm.instagramUrl.trim() || null,
         highlights: storefrontForm.highlightsText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
         isActive: storefrontForm.isActive,
+        translations: buildTranslations(
+          {
+            name: storefrontForm.name,
+            category: storefrontForm.category,
+            description: storefrontForm.description,
+            reviews_label: storefrontForm.reviewsLabel,
+            address_line: storefrontForm.addressLine,
+            opening_hours: storefrontForm.openingHours,
+            highlights: storefrontForm.highlightsText.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+          },
+          {
+            name: storefrontForm.nameEn,
+            category: storefrontForm.categoryEn,
+            description: storefrontForm.descriptionEn,
+            reviews_label: storefrontForm.reviewsLabelEn,
+            address_line: storefrontForm.addressLineEn,
+            opening_hours: storefrontForm.openingHoursEn,
+            highlights: storefrontForm.highlightsTextEn.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+          },
+        ),
+        translationMeta: buildManualAwareTranslationMeta(snapshot?.storefront?.translationMeta ?? null, {
+          name: storefrontForm.nameEn,
+          category: storefrontForm.categoryEn,
+          description: storefrontForm.descriptionEn,
+          reviews_label: storefrontForm.reviewsLabelEn,
+          address_line: storefrontForm.addressLineEn,
+          opening_hours: storefrontForm.openingHoursEn,
+          highlights: storefrontForm.highlightsTextEn.split(/\r?\n/).map((item) => item.trim()).filter(Boolean),
+        }),
       };
       await upsertAdminStorefrontProfileForMobile(mobileSupabase, payload);
+      await clearCustomerFeedCache();
       await loadSnapshot();
       Alert.alert(strings.manageContentStorefrontSavedTitle, strings.manageContentStorefrontSavedBody);
     } catch (nextError) {
@@ -1225,12 +1453,33 @@ export default function AdminManageContentScreen() {
         bio: teamForm.bio.trim() || null,
         displayOrder: parseNumberInput(teamForm.displayOrder),
         isVisible: teamForm.isVisible,
+        translations: buildTranslations(
+          {
+            display_name: teamForm.displayName,
+            role_label: teamForm.roleLabel,
+            bio: teamForm.bio,
+          },
+          {
+            display_name: teamForm.displayNameEn,
+            role_label: teamForm.roleLabelEn,
+            bio: teamForm.bioEn,
+          },
+        ),
+        translationMeta: buildManualAwareTranslationMeta(
+          snapshot?.team.find((item) => item.id === teamForm.id)?.translationMeta ?? null,
+          {
+            display_name: teamForm.displayNameEn,
+            role_label: teamForm.roleLabelEn,
+            bio: teamForm.bioEn,
+          },
+        ),
       };
       if (teamForm.id) {
         await updateAdminStorefrontTeamMemberForMobile(mobileSupabase, teamForm.id, payload);
       } else {
         await createAdminStorefrontTeamMemberForMobile(mobileSupabase, snapshot.storefront.id, payload);
       }
+      await clearCustomerFeedCache();
       setTeamForm(null);
       await loadSnapshot();
     } catch (nextError) {
@@ -1254,12 +1503,36 @@ export default function AdminManageContentScreen() {
         displayOrder: parseNumberInput(productForm.displayOrder),
         isActive: productForm.isActive,
         isFeatured: productForm.isFeatured,
+        translations: buildTranslations(
+          {
+            name: productForm.name,
+            subtitle: productForm.subtitle,
+            price_label: productForm.priceLabel,
+            product_type: productForm.productType,
+          },
+          {
+            name: productForm.nameEn,
+            subtitle: productForm.subtitleEn,
+            price_label: productForm.priceLabelEn,
+            product_type: productForm.productTypeEn,
+          },
+        ),
+        translationMeta: buildManualAwareTranslationMeta(
+          snapshot?.products.find((item) => item.id === productForm.id)?.translationMeta ?? null,
+          {
+            name: productForm.nameEn,
+            subtitle: productForm.subtitleEn,
+            price_label: productForm.priceLabelEn,
+            product_type: productForm.productTypeEn,
+          },
+        ),
       };
       if (productForm.id) {
         await updateAdminStorefrontProductForMobile(mobileSupabase, productForm.id, payload);
       } else {
         await createAdminStorefrontProductForMobile(mobileSupabase, snapshot.storefront.id, payload);
       }
+      await clearCustomerFeedCache();
       setProductForm(null);
       await loadSnapshot();
     } catch (nextError) {
@@ -1280,12 +1553,25 @@ export default function AdminManageContentScreen() {
         kind: galleryForm.kind.trim() || null,
         displayOrder: parseNumberInput(galleryForm.displayOrder),
         isActive: galleryForm.isActive,
+        translations: buildTranslations(
+          {
+            title: galleryForm.title,
+          },
+          {
+            title: galleryForm.titleEn,
+          },
+        ),
+        translationMeta: buildManualAwareTranslationMeta(
+          snapshot?.gallery.find((item) => item.id === galleryForm.id)?.translationMeta ?? null,
+          { title: galleryForm.titleEn },
+        ),
       };
       if (galleryForm.id) {
         await updateAdminStorefrontGalleryItemForMobile(mobileSupabase, galleryForm.id, payload);
       } else {
         await createAdminStorefrontGalleryItemForMobile(mobileSupabase, snapshot.storefront.id, payload);
       }
+      await clearCustomerFeedCache();
       setGalleryForm(null);
       await loadSnapshot();
     } catch (nextError) {
@@ -1430,55 +1716,62 @@ export default function AdminManageContentScreen() {
             title={strings.manageContentOffersTitle}
             titleBadge={String(snapshot?.offers.length ?? 0)}
             subtitle={strings.manageContentOffersSubtitle}
-            actionLabel={strings.manageContentAddOffer}
-            onActionPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}
+            actionLabel={offersExpanded ? strings.manageContentCollapseChevron : strings.manageContentExpandChevron}
+            onActionPress={() => setOffersExpanded((current) => !current)}
           >
-            <View style={styles.listColumn}>
-              {groupedOffers.length ? groupedOffers.map((group) => (
-                <View key={group.tier} style={styles.offerTierGroup}>
-                  <View style={styles.offerTierHeader}>
-                    <View style={styles.offerTierCopy}>
-                      <Text style={styles.offerTierTitle}>{group.label}</Text>
-                      <Text style={styles.offerTierSubtitle}>{`${group.offers.length} ${strings.manageContentOfferTierCountSuffix}`}</Text>
-                    </View>
-                    <Pressable
-                      style={styles.offerTierAction}
-                      onPress={() =>
-                        void router.push({
-                          pathname: "/(admin)/manage-content-offer/[offerId]",
-                          params: { offerId: "new", tier: group.tier, backHref: "/(admin)/manage-content" },
-                        })
-                      }
-                    >
-                      <Feather name="plus" size={14} color={palette.accent} />
-                      <Text style={styles.offerTierActionText}>{strings.manageContentAddShort}</Text>
-                    </Pressable>
-                  </View>
-
-                  <View style={styles.listColumn}>
-                    {group.offers.map((offer) => (
-                      <View key={offer.id} style={styles.rowCard}>
-                        <ItemThumbnail uri={offer.imageUrl} label={offer.title} />
-                        <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
-                          <Text style={styles.rowTitle}>{offer.title}</Text>
-                          <Text style={styles.rowSubtitle}>
-                            {`${offer.isActive ? strings.manageContentOfferActive : strings.manageContentOfferInactive} · ${offer.badge || group.label} · ${strings.manageContentOfferOrderPrefix} ${offer.packageOrder}`}
-                          </Text>
-                        </Pressable>
-                        <Pressable style={styles.iconButton} onPress={() => void confirmTask(strings.manageContentArchiveOfferTitle, strings.manageContentArchiveOfferBody, async () => {
-                          if (!mobileSupabase) return;
-                          await archiveAdminOfferForMobile(mobileSupabase, offer.id);
-                        })}>
-                          <Feather name="archive" size={16} color={palette.accent} />
-                        </Pressable>
+            {offersExpanded ? (
+              <View style={styles.listColumn}>
+                {groupedOffers.length ? groupedOffers.map((group) => (
+                  <View key={group.tier} style={styles.offerTierGroup}>
+                    <View style={styles.offerTierHeader}>
+                      <View style={styles.offerTierCopy}>
+                        <Text style={styles.offerTierTitle}>{group.label}</Text>
+                        <Text style={styles.offerTierSubtitle}>{`${group.offers.length} ${strings.manageContentOfferTierCountSuffix}`}</Text>
                       </View>
-                    ))}
+                      <Pressable
+                        style={styles.offerTierAction}
+                        onPress={() =>
+                          void router.push({
+                            pathname: "/(admin)/manage-content-offer/[offerId]",
+                            params: { offerId: "new", tier: group.tier, backHref: "/(admin)/manage-content" },
+                          })
+                        }
+                      >
+                        <Feather name="plus" size={14} color={palette.accent} />
+                        <Text style={styles.offerTierActionText}>{strings.manageContentAddShort}</Text>
+                      </Pressable>
+                    </View>
+
+                    <View style={styles.listColumn}>
+                      {group.offers.map((offer) => (
+                        <View key={offer.id} style={styles.rowCard}>
+                          <ItemThumbnail uri={offer.imageUrl} label={offer.title} />
+                          <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
+                            <Text style={styles.rowTitle}>{offer.title}</Text>
+                            <Text style={styles.rowSubtitle}>
+                              {`${offer.isActive ? strings.manageContentOfferActive : strings.manageContentOfferInactive} · ${offer.badge || group.label} · ${strings.manageContentOfferOrderPrefix} ${offer.packageOrder}`}
+                            </Text>
+                          </Pressable>
+                          <Pressable style={styles.iconButton} onPress={() => void confirmTask(strings.manageContentArchiveOfferTitle, strings.manageContentArchiveOfferBody, async () => {
+                            if (!mobileSupabase) return;
+                            await archiveAdminOfferForMobile(mobileSupabase, offer.id);
+                          })}>
+                            <Feather name="archive" size={16} color={palette.accent} />
+                          </Pressable>
+                        </View>
+                      ))}
+                    </View>
                   </View>
-                </View>
-              )) : (
-                <Text style={styles.emptyText}>{strings.manageContentNoOffers}</Text>
-              )}
-            </View>
+                )) : (
+                  <>
+                    <Pressable style={styles.secondaryButton} onPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}>
+                      <Text style={styles.secondaryButtonText}>{strings.manageContentAddOffer}</Text>
+                    </Pressable>
+                    <Text style={styles.emptyText}>{strings.manageContentNoOffers}</Text>
+                  </>
+                )}
+              </View>
+            ) : null}
           </SectionCard>
 
           <SectionCard
@@ -1756,7 +2049,7 @@ export default function AdminManageContentScreen() {
               {visibleExploreFeaturedServices.map((service, index) => (
                 <Pressable key={service.id} style={[styles.exploreFeatureRow, index < visibleExploreFeaturedServices.length - 1 ? styles.exploreFeatureBorder : null]} onPress={() => {
                   setMerchContext("explore");
-                  setMerchForm(buildMerchForm(service));
+                  setMerchForm(buildMerchForm(servicesById.get(service.id) ?? service));
                 }}>
                   <ItemThumbnail uri={service.imageUrl} label={service.name} />
                   <View style={styles.rowCopy}>
@@ -1850,8 +2143,11 @@ export default function AdminManageContentScreen() {
           <ModalFormHeader icon="home" title={strings.manageContentStorefrontEditorTitle} subtitle={strings.manageContentStorefrontEditorSubtitle} />
           <ModalInputField icon="at-sign" label={strings.manageContentStorefrontSlugPlaceholder} placeholder={strings.manageContentDefaultStorefrontSlug} value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
           <ModalInputField icon="home" label={strings.manageContentStorefrontNamePlaceholder} placeholder={strings.manageContentStorefrontNameDefault} value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
+          <ModalInputField icon="home" label="Storefront name (EN)" placeholder="CHAM BEAUTY" value={storefrontForm.nameEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, nameEn: value }))} />
           <ModalInputField icon="grid" label={strings.manageContentStorefrontCategoryLabel} placeholder={strings.manageContentStorefrontCategoryPlaceholder} value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
+          <ModalInputField icon="grid" label="Category (EN)" placeholder="Nail & Beauty" value={storefrontForm.categoryEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, categoryEn: value }))} />
           <ModalTextAreaField icon="file-text" label={strings.manageContentDescriptionLabel} placeholder={strings.manageContentStorefrontDescriptionPlaceholder} value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
+          <ModalTextAreaField icon="file-text" label="Description (EN)" placeholder="English storefront description" value={storefrontForm.descriptionEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, descriptionEn: value }))} />
           <ModalInputField icon="image" label={strings.manageContentStorefrontCoverUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
           <ModalInputField icon="aperture" label={strings.manageContentStorefrontLogoUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
           <View style={styles.inlineButtons}>
@@ -1862,13 +2158,17 @@ export default function AdminManageContentScreen() {
           <ImagePreview uri={storefrontForm.logoImageUrl} label={strings.manageContentStorefrontCurrentLogoLabel} />
           <ModalInputField icon="star" label={strings.manageContentStorefrontRatingLabel} placeholder={strings.manageContentDefaultRating} value={storefrontForm.rating} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, rating: value }))} keyboardType="decimal-pad" />
           <ModalInputField icon="message-circle" label={strings.manageContentStorefrontReviewsTextLabel} placeholder={strings.manageContentDefaultReviews} value={storefrontForm.reviewsLabel} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabel: value }))} />
+          <ModalInputField icon="message-circle" label="Reviews text (EN)" placeholder="128 reviews" value={storefrontForm.reviewsLabelEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabelEn: value }))} />
           <ModalInputField icon="map-pin" label={strings.manageContentAddressLabel} placeholder={strings.manageContentStorefrontAddressPlaceholder} value={storefrontForm.addressLine} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLine: value }))} />
+          <ModalInputField icon="map-pin" label="Address (EN)" placeholder="38A, Alley 358/40 Bui Xuong Trach, Hanoi" value={storefrontForm.addressLineEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLineEn: value }))} />
           <ModalInputField icon="navigation" label={strings.manageContentStorefrontMapUrlLabel} placeholder="https://maps..." value={storefrontForm.mapUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, mapUrl: value }))} />
           <ModalInputField icon="clock" label={strings.manageContentStorefrontHoursLabel} placeholder="09:00 - 21:00" value={storefrontForm.openingHours} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHours: value }))} />
+          <ModalInputField icon="clock" label="Opening hours (EN)" placeholder="Open: 09:00 - 21:00 (Every day)" value={storefrontForm.openingHoursEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHoursEn: value }))} />
           <ModalInputField icon="phone" label={strings.manageContentStorefrontPhoneLabel} placeholder="09xxxxxxxx" value={storefrontForm.phone} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, phone: value }))} />
           <ModalInputField icon="message-square" label={strings.manageContentStorefrontMessengerUrlLabel} placeholder="https://m.me/..." value={storefrontForm.messengerUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: value }))} />
           <ModalInputField icon="instagram" label={strings.manageContentStorefrontInstagramUrlLabel} placeholder="https://instagram.com/..." value={storefrontForm.instagramUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: value }))} />
           <ModalTextAreaField icon="award" label={strings.manageContentStorefrontHighlightsLabel} placeholder={strings.manageContentStorefrontHighlightsPlaceholder} value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
+          <ModalTextAreaField icon="award" label="Highlights (EN, one per line)" placeholder="Trusted studio" value={storefrontForm.highlightsTextEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsTextEn: value }))} />
           <View style={styles.inlineButtons}>
             <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
             {snapshot?.storefront?.id ? (
@@ -1895,7 +2195,7 @@ export default function AdminManageContentScreen() {
                 onPress={() => {
                   setExploreRegularEditorOpen(false);
                   setMerchContext("explore");
-                  setMerchForm(buildMerchForm(service));
+                  setMerchForm(buildMerchForm(servicesById.get(service.id) ?? service));
                 }}
               >
                 <ItemThumbnail uri={service.imageUrl} label={service.name} />
@@ -1956,6 +2256,15 @@ export default function AdminManageContentScreen() {
                 <Text style={styles.detailTitle}>{merchForm.name}</Text>
               </View>
 
+              <View style={styles.detailFieldBlock}>
+                <Text style={styles.detailFieldLabel}>English service name</Text>
+                <Input
+                  placeholder="e.g. Korean Clean Nude"
+                  value={merchForm.nameEn}
+                  onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, nameEn: value } : prev))}
+                />
+              </View>
+
               <View style={styles.detailImageCard}>
                 <Text style={styles.previewLabel}>{strings.manageContentCurrentServiceImage}</Text>
                 {merchForm.imageUrl ? (
@@ -1973,6 +2282,12 @@ export default function AdminManageContentScreen() {
                   placeholder={strings.manageContentDefaultServiceDescription}
                   value={merchForm.shortDescription}
                   onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))}
+                  style={styles.detailTextarea}
+                />
+                <TextArea
+                  placeholder="English description shown to customers"
+                  value={merchForm.shortDescriptionEn}
+                  onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescriptionEn: value } : prev))}
                   style={styles.detailTextarea}
                 />
               </View>
@@ -2012,14 +2327,19 @@ export default function AdminManageContentScreen() {
                   <Text style={styles.detailFieldLabel}>{strings.serviceDetailDurationLabel}</Text>
                   <View style={styles.durationShell}>
                     <Feather name="clock" size={18} color={palette.sub} />
-                    <Input
-                      placeholder={strings.manageContentDefaultServiceDuration}
-                      value={merchForm.durationLabel}
-                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))}
-                      style={styles.durationInput}
-                    />
+                  <Input
+                    placeholder={strings.manageContentDefaultServiceDuration}
+                    value={merchForm.durationLabel}
+                    onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))}
+                    style={styles.durationInput}
+                  />
                     <Feather name="chevron-down" size={18} color={palette.sub} />
                   </View>
+                  <Input
+                    placeholder="English duration label, e.g. 90 min"
+                    value={merchForm.durationLabelEn}
+                    onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabelEn: value } : prev))}
+                  />
                 </View>
               </View>
 
@@ -2105,11 +2425,29 @@ export default function AdminManageContentScreen() {
                     />
                   </View>
                   <View style={styles.metadataInputShell}>
+                    <Feather name="bookmark" size={18} color={palette.accent} />
+                    <Input
+                      placeholder="English badge, e.g. Featured"
+                      value={merchForm.lookbookBadgeEn}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadgeEn: value } : prev))}
+                      style={styles.metadataInput}
+                    />
+                  </View>
+                  <View style={styles.metadataInputShell}>
                     <Feather name="star" size={18} color={palette.accent} />
                     <Input
                       placeholder={strings.manageContentLookbookTonePlaceholder}
                       value={merchForm.lookbookTone}
                       onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))}
+                      style={styles.metadataInput}
+                    />
+                  </View>
+                  <View style={styles.metadataInputShell}>
+                    <Feather name="star" size={18} color={palette.accent} />
+                    <Input
+                      placeholder="English tone, e.g. Luxury"
+                      value={merchForm.lookbookToneEn}
+                      onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookToneEn: value } : prev))}
                       style={styles.metadataInput}
                     />
                   </View>
@@ -2130,15 +2468,15 @@ export default function AdminManageContentScreen() {
       </ModalShell>
 
       <ModalShell title={teamForm?.id ? strings.manageContentEditTeamTitle : strings.manageContentAddTeamTitle} visible={Boolean(teamForm)} onClose={() => setTeamForm(null)}>
-        {teamForm ? <View style={styles.formColumn}><ImagePreview uri={teamForm.avatarUrl} label={strings.manageContentCurrentAvatar} /><Input placeholder={strings.teamMemberDetailDisplayNameLabel} value={teamForm.displayName} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayName: value } : prev))} /><Input placeholder={strings.manageContentTeamDisplayRolePlaceholder} value={teamForm.roleLabel} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, roleLabel: value } : prev))} /><Input placeholder={strings.teamMemberDetailAvatarLabel} value={teamForm.avatarUrl} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", teamForm.displayName || "team-member", (publicUrl) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.manageContentUploadAvatar}</Text></Pressable><TextArea placeholder={strings.teamMemberDetailBioLabel} value={teamForm.bio} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, bio: value } : prev))} /><Input placeholder={strings.teamMemberDetailDisplayOrderLabel} keyboardType="number-pad" value={teamForm.displayOrder} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={teamForm.isVisible} label={teamForm.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden} onPress={() => setTeamForm((prev) => (prev ? { ...prev, isVisible: !prev.isVisible } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveTeamMember()}><Text style={styles.primaryButtonText}>{strings.teamMemberDetailSaveButton}</Text></Pressable></View> : null}
+        {teamForm ? <View style={styles.formColumn}><ImagePreview uri={teamForm.avatarUrl} label={strings.manageContentCurrentAvatar} /><Input placeholder={strings.teamMemberDetailDisplayNameLabel} value={teamForm.displayName} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayName: value } : prev))} /><Input placeholder="Display name (EN)" value={teamForm.displayNameEn} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayNameEn: value } : prev))} /><Input placeholder={strings.manageContentTeamDisplayRolePlaceholder} value={teamForm.roleLabel} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, roleLabel: value } : prev))} /><Input placeholder="Role label (EN)" value={teamForm.roleLabelEn} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, roleLabelEn: value } : prev))} /><Input placeholder={strings.teamMemberDetailAvatarLabel} value={teamForm.avatarUrl} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", teamForm.displayName || "team-member", (publicUrl) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.manageContentUploadAvatar}</Text></Pressable><TextArea placeholder={strings.teamMemberDetailBioLabel} value={teamForm.bio} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, bio: value } : prev))} /><TextArea placeholder="Bio (EN)" value={teamForm.bioEn} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, bioEn: value } : prev))} /><Input placeholder={strings.teamMemberDetailDisplayOrderLabel} keyboardType="number-pad" value={teamForm.displayOrder} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={teamForm.isVisible} label={teamForm.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden} onPress={() => setTeamForm((prev) => (prev ? { ...prev, isVisible: !prev.isVisible } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveTeamMember()}><Text style={styles.primaryButtonText}>{strings.teamMemberDetailSaveButton}</Text></Pressable></View> : null}
       </ModalShell>
 
       <ModalShell title={productForm?.id ? strings.manageContentEditProductTitle : strings.manageContentAddProductTitle} visible={Boolean(productForm)} onClose={() => setProductForm(null)}>
-        {productForm ? <View style={styles.formColumn}><ModalFormHeader icon="shopping-bag" title={productForm.id ? strings.manageContentEditProductTitle : strings.manageContentAddProductTitle} subtitle={strings.manageContentProductEditorSubtitle} /><ImagePreview uri={productForm.imageUrl} label={strings.manageContentCurrentProductImage} /><ModalInputField icon="shopping-bag" label={strings.manageContentProductNameLabel} placeholder={strings.manageContentProductNamePlaceholder} value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><ModalInputField icon="align-left" label={strings.manageContentProductSubtitleLabel} placeholder={strings.manageContentProductSubtitlePlaceholder} value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><ModalInputField icon="tag" label={strings.manageContentProductPriceLabel} placeholder={strings.manageContentProductPricePlaceholder} value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentProductImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="layers" label={strings.manageContentProductTypeLabel} placeholder={strings.manageContentProductTypePlaceholder} value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentProductDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? strings.manageContentProductActive : strings.manageContentProductInactive} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? strings.manageContentProductFeatured : strings.manageContentProductRegular} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveProductAction}</Text></Pressable></View> : null}
+        {productForm ? <View style={styles.formColumn}><ModalFormHeader icon="shopping-bag" title={productForm.id ? strings.manageContentEditProductTitle : strings.manageContentAddProductTitle} subtitle={strings.manageContentProductEditorSubtitle} /><ImagePreview uri={productForm.imageUrl} label={strings.manageContentCurrentProductImage} /><ModalInputField icon="shopping-bag" label={strings.manageContentProductNameLabel} placeholder={strings.manageContentProductNamePlaceholder} value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><ModalInputField icon="shopping-bag" label="Product name (EN)" placeholder="Premium Gel Polish" value={productForm.nameEn} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, nameEn: value } : prev))} /><ModalInputField icon="align-left" label={strings.manageContentProductSubtitleLabel} placeholder={strings.manageContentProductSubtitlePlaceholder} value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><ModalInputField icon="align-left" label="Subtitle (EN)" placeholder="Long-lasting salon finish" value={productForm.subtitleEn} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitleEn: value } : prev))} /><ModalInputField icon="tag" label={strings.manageContentProductPriceLabel} placeholder={strings.manageContentProductPricePlaceholder} value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><ModalInputField icon="tag" label="Price label (EN)" placeholder="200,000 VND" value={productForm.priceLabelEn} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabelEn: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentProductImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="layers" label={strings.manageContentProductTypeLabel} placeholder={strings.manageContentProductTypePlaceholder} value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><ModalInputField icon="layers" label="Product type (EN)" placeholder="Care" value={productForm.productTypeEn} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productTypeEn: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentProductDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? strings.manageContentProductActive : strings.manageContentProductInactive} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? strings.manageContentProductFeatured : strings.manageContentProductRegular} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveProductAction}</Text></Pressable></View> : null}
       </ModalShell>
 
       <ModalShell title={galleryForm?.id ? strings.manageContentEditGalleryTitle : strings.manageContentAddGalleryTitle} visible={Boolean(galleryForm)} onClose={() => setGalleryForm(null)}>
-        {galleryForm ? <View style={styles.formColumn}><ModalFormHeader icon="image" title={galleryForm.id ? strings.manageContentEditGalleryTitle : strings.manageContentAddGalleryTitle} subtitle={strings.manageContentGalleryEditorSubtitle} /><ImagePreview uri={galleryForm.imageUrl} label={strings.manageContentCurrentGalleryImage} /><ModalInputField icon="type" label={strings.manageContentGalleryTitleLabel} placeholder={strings.manageContentGalleryTitlePlaceholder} value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentGalleryImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="grid" label={strings.manageContentGalleryKindLabel} placeholder={strings.manageContentGalleryKindPlaceholder} value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentGalleryDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveGalleryButton}</Text></Pressable></View> : null}
+        {galleryForm ? <View style={styles.formColumn}><ModalFormHeader icon="image" title={galleryForm.id ? strings.manageContentEditGalleryTitle : strings.manageContentAddGalleryTitle} subtitle={strings.manageContentGalleryEditorSubtitle} /><ImagePreview uri={galleryForm.imageUrl} label={strings.manageContentCurrentGalleryImage} /><ModalInputField icon="type" label={strings.manageContentGalleryTitleLabel} placeholder={strings.manageContentGalleryTitlePlaceholder} value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><ModalInputField icon="type" label="Gallery title (EN)" placeholder="Salon space" value={galleryForm.titleEn} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, titleEn: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentGalleryImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="grid" label={strings.manageContentGalleryKindLabel} placeholder={strings.manageContentGalleryKindPlaceholder} value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentGalleryDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveGalleryButton}</Text></Pressable></View> : null}
       </ModalShell>
     </ManageScreenShell>
   );

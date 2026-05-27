@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { resolveLocalizedField, type MobileAdminViewContext, type ObserverScopeInput } from "@nails/shared";
+import { localizeAdminBranchName, type MobileAdminViewContext, type ObserverScopeInput } from "@nails/shared";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
@@ -45,7 +45,7 @@ export function AdminObserverScopeSwitcher({
     ? strings.observerScopeOrg
     : activeBranch?.id === viewContext.workingBranchId
       ? strings.observerScopePrimaryBranch
-      : resolveLocalizedField(locale, activeBranch?.name ?? viewContext.branchName ?? strings.settingsBranchFallback, activeBranch?.translations, "name");
+      : localizeAdminBranchName(locale, activeBranch?.name ?? viewContext.branchName ?? strings.settingsBranchFallback, activeBranch?.translations);
 
   return (
     <View style={styles.card}>
@@ -76,7 +76,7 @@ export function AdminObserverScopeSwitcher({
 
         {sortedBranches.map((branch) => {
           const active = viewContext.observerScope.mode === "branch" && viewContext.observerScope.branchId === branch.id;
-          const label = resolveLocalizedField(locale, branch.name, branch.translations, "name") ?? branch.name;
+          const label = localizeAdminBranchName(locale, branch.name, branch.translations);
           return (
             <Pressable
               key={branch.id}

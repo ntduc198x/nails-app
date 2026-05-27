@@ -8,7 +8,7 @@ import {
   listReportStaffOptionsForMobile,
   listTicketsInRangeForMobile,
   formatAttendanceFraction,
-  resolveLocalizedField,
+  localizeAdminBranchName,
   type MobileReportBreakdown,
   type MobileReportStaffOption,
   type MobileReportTicketRow,
@@ -272,7 +272,7 @@ export default function AdminManageReportsScreen() {
 
     const activeBranch = observer.viewContext?.branches.find((branch) => branch.id === breakdown.branchId);
     if (activeBranch) {
-      return resolveLocalizedField(locale, activeBranch.name, activeBranch.translations, "name") ?? activeBranch.name;
+      return localizeAdminBranchName(locale, activeBranch.name, activeBranch.translations) ?? activeBranch.name;
     }
 
     return breakdown.branchName ?? breakdown.scopeLabel ?? null;

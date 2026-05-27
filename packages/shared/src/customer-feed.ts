@@ -1,4 +1,5 @@
-import type { LocalizedTextValue } from "./localization";
+import { type Locale } from "./i18n";
+import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 
 export type LookbookRow = {
   id?: string | null;
@@ -18,6 +19,7 @@ export type LookbookRow = {
   display_order_explore?: number | null;
   created_at?: string | null;
   translations?: LocalizedTextValue | null;
+  translation_meta?: TranslationMetaValue | null;
 };
 
 export type LookbookItem = {
@@ -28,6 +30,7 @@ export type LookbookItem = {
   tone: string;
   badge: string;
   price: string;
+  basePrice: number | null;
   image: string;
   durationMin: number | null;
   durationLabel: string | null;
@@ -35,6 +38,7 @@ export type LookbookItem = {
   displayOrder: number;
   createdAt: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type CustomerContentPost = {
@@ -49,6 +53,7 @@ export type CustomerContentPost = {
   priority: number;
   metadata: Record<string, unknown>;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 export type MarketingOfferCard = {
@@ -61,9 +66,32 @@ export type MarketingOfferCard = {
   endsAt: string | null;
   metadata: Record<string, unknown>;
   translations?: LocalizedTextValue | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
-function inferLookbookTone(text: string) {
+export function parseOfferPointsRequired(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.trunc(value));
+  }
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return 0;
+    const parsed = Number(trimmed);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.trunc(parsed));
+    }
+  }
+
+  return 0;
+}
+
+export function getOfferPointsRequired(metadata: Record<string, unknown> | null | undefined) {
+  if (!metadata) return 0;
+  return parseOfferPointsRequired(metadata.pointsRequired ?? metadata.points_required);
+}
+
+function inferLookbookTone(text: string, locale: Locale = "vi") {
   const value = text.toLowerCase();
 
   if (
@@ -73,7 +101,7 @@ function inferLookbookTone(text: string) {
     value.includes("art") ||
     value.includes("design")
   ) {
-    return "Noi bat";
+    return locale === "en" ? "Standout" : "Noi bat";
   }
 
   if (
@@ -82,7 +110,7 @@ function inferLookbookTone(text: string) {
     value.includes("glazed") ||
     value.includes("charm")
   ) {
-    return "Sang trong";
+    return locale === "en" ? "Luxury" : "Sang trong";
   }
 
   if (
@@ -91,13 +119,13 @@ function inferLookbookTone(text: string) {
     value.includes("duong") ||
     value.includes("phuc hoi")
   ) {
-    return "Cham soc";
+    return locale === "en" ? "Care" : "Cham soc";
   }
 
-  return "Nhe nhang";
+  return locale === "en" ? "Soft" : "Nhe nhang";
 }
 
-function inferLookbookBadge(text: string) {
+function inferLookbookBadge(text: string, locale: Locale = "vi") {
   const value = text.toLowerCase();
 
   if (value.includes("cat eye") || value.includes("chrome") || value.includes("flash")) {
@@ -109,17 +137,29 @@ function inferLookbookBadge(text: string) {
   }
 
   if (value.includes("design") || value.includes("art") || value.includes("charm")) {
-    return "Noi bat";
+    return locale === "en" ? "Featured" : "Noi bat";
   }
 
   return "Lookbook";
 }
 
-export function formatLookbookPrice(value?: number | null) {
-  return `${new Intl.NumberFormat("vi-VN").format(Number(value ?? 0))}d`;
+export function formatLookbookPrice(value?: number | null, locale: Locale = "vi") {
+  const safeValue = Number(value ?? 0);
+  if (!Number.isFinite(safeValue) || safeValue <= 0) {
+    return locale === "en" ? "Contact for price" : "Lien he de bao gia";
+  }
+
+  if (locale === "en") {
+    return `${new Intl.NumberFormat("en-US").format(safeValue)} VND`;
+  }
+
+  return `${new Intl.NumberFormat("vi-VN").format(safeValue)}d`;
 }
 
-function normalizeLookbookCategory(row: LookbookRow, classifiedText: string) {
+function normalizeLookbookCategory(
+  row: LookbookRow,
+  classifiedText: string,
+) {
   const explicit = row.lookbook_category?.trim();
   if (explicit) return explicit;
 
@@ -154,9 +194,10 @@ function getDisplayOrder(row: LookbookRow, context: "default" | "home" | "explor
 
 export function normalizeLookbookRows(
   rows: LookbookRow[],
-  options: { context?: "default" | "home" | "explore" } = {},
+  options: { context?: "default" | "home" | "explore"; locale?: Locale } = {},
 ): LookbookItem[] {
   const context = options.context ?? "default";
+  const locale = options.locale ?? "vi";
 
   return rows
     .filter((row) => row.featured_in_lookbook === true && row.name && row.image_url)
@@ -170,9 +211,10 @@ export function normalizeLookbookRows(
         title,
         blurb,
         category: normalizeLookbookCategory(row, classifiedText),
-        tone: row.lookbook_tone?.trim() || inferLookbookTone(classifiedText),
-        badge: row.lookbook_badge?.trim() || inferLookbookBadge(classifiedText),
-        price: formatLookbookPrice(row.base_price),
+        tone: row.lookbook_tone?.trim() || inferLookbookTone(classifiedText, locale),
+        badge: row.lookbook_badge?.trim() || inferLookbookBadge(classifiedText, locale),
+        price: formatLookbookPrice(row.base_price, locale),
+        basePrice: typeof row.base_price === "number" ? row.base_price : Number(row.base_price ?? 0) || null,
         image: String(row.image_url ?? ""),
         durationMin: row.duration_min ?? null,
         durationLabel: row.duration_label?.trim() || null,
@@ -180,6 +222,7 @@ export function normalizeLookbookRows(
         displayOrder: getDisplayOrder(row, context),
         createdAt: row.created_at ?? null,
         translations: row.translations ?? null,
+        translationMeta: row.translation_meta ?? null,
       };
     })
     .sort((left, right) => {
@@ -187,6 +230,6 @@ export function normalizeLookbookRows(
         return left.displayOrder - right.displayOrder;
       }
 
-      return left.title.localeCompare(right.title, "vi");
+      return left.title.localeCompare(right.title, locale === "en" ? "en" : "vi");
     });
 }

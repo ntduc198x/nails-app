@@ -2,7 +2,7 @@ import { Feather } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
-import { ensureOrgContext, resolveLocalizedField, translate, type Locale, type LocalizedTextValue } from "@nails/shared";
+import { ensureOrgContext, localizeAdminBranchName, translate, type Locale, type LocalizedTextValue } from "@nails/shared";
 import { canSelectAdminBranch, getAdminNavHref } from "@/src/features/admin/navigation";
 import {
   AdminBottomNavDock,
@@ -113,7 +113,7 @@ export default function AdminSettingsScreen() {
                 const branchTranslations =
                   "translations" in branch ? ((branch.translations as LocalizedTextValue | null | undefined) ?? null) : null;
                 const branchName =
-                  resolveLocalizedField(locale, baseBranchName, branchTranslations, "name") ?? baseBranchName;
+                  localizeAdminBranchName(locale, baseBranchName, branchTranslations) ?? baseBranchName;
                 const isPrimaryBranch = String(branch.id ?? "") === branchId;
 
                 return {

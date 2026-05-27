@@ -4,7 +4,13 @@ import DateTimePicker, { type DateTimePickerEvent } from "@react-native-communit
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import type { MobileAdminOffer, MobileAdminOfferInput } from "@nails/shared";
+import {
+  getOfferPointsRequired,
+  type LocalizedTextValue,
+  type MobileAdminOffer,
+  type MobileAdminOfferInput,
+  type TranslationMetaValue,
+} from "@nails/shared";
 import {
   archiveAdminOfferForMobile,
   createAdminOfferForMobile,
@@ -13,12 +19,19 @@ import {
 } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import {
+  buildManualAwareTranslationMeta,
+  getTranslationStatusLabel,
+  requestRetranslateAndKick,
+} from "@/src/features/admin/dynamic-translation";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
+import { useSession } from "@/src/providers/session-provider";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { hydrateCachedValue, isCacheFresh, markAdminContentRefresh, writeCachedValue } from "@/src/lib/admin-services-cache";
+import { clearCustomerFeedCache } from "@/src/lib/customer-feed-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -40,15 +53,20 @@ type OfferDateField = "startsAt" | "endsAt";
 type OfferFormState = {
   id?: string;
   title: string;
+  titleEn: string;
   description: string;
+  descriptionEn: string;
   imageUrl: string;
   badge: string;
+  badgeEn: string;
   startsAt: string;
   endsAt: string;
   isActive: boolean;
   packageTier: (typeof OFFER_PACKAGE_TIERS)[number];
   packageOrder: string;
+  pointsRequired: string;
   metadataText: string;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 function normalizePackageTier(value?: string | null): (typeof OFFER_PACKAGE_TIERS)[number] {
@@ -62,14 +80,18 @@ function normalizePackageTier(value?: string | null): (typeof OFFER_PACKAGE_TIER
 function emptyOfferForm(packageTier: (typeof OFFER_PACKAGE_TIERS)[number] = "REGULAR"): OfferFormState {
   return {
     title: "",
+    titleEn: "",
     description: "",
+    descriptionEn: "",
     imageUrl: "",
     badge: "",
+    badgeEn: "",
     startsAt: "",
     endsAt: "",
     isActive: true,
     packageTier,
     packageOrder: "0",
+    pointsRequired: "0",
     metadataText: "",
   };
 }
@@ -139,6 +161,32 @@ function toOfferDateIso(value: Date, field: OfferDateField) {
   ).toISOString();
 }
 
+function getLocalizedText(translations: LocalizedTextValue | null | undefined, locale: "vi" | "en", field: string) {
+  const value = translations?.[locale]?.[field];
+  return typeof value === "string" ? value : "";
+}
+
+function putTextField(target: Record<string, string>, field: string, value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    target[field] = trimmed;
+  }
+}
+
+function buildOfferTranslations(form: OfferFormState): LocalizedTextValue {
+  const vi: Record<string, string> = {};
+  const en: Record<string, string> = {};
+
+  putTextField(vi, "title", form.title);
+  putTextField(vi, "description", form.description);
+  putTextField(vi, "badge", form.badge);
+  putTextField(en, "title", form.titleEn);
+  putTextField(en, "description", form.descriptionEn);
+  putTextField(en, "badge", form.badgeEn);
+
+  return { vi, en };
+}
+
 function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
   const packageTier =
     typeof offer.metadata.packageTier === "string" &&
@@ -146,19 +194,25 @@ function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
       ? (offer.metadata.packageTier.toUpperCase() as (typeof OFFER_PACKAGE_TIERS)[number])
       : "REGULAR";
   const packageOrder = Number(offer.metadata.packageOrder ?? offer.metadata.displayOrder ?? 0);
+  const pointsRequired = getOfferPointsRequired(offer.metadata);
 
   return {
     id: offer.id,
     title: offer.title,
+    titleEn: getLocalizedText(offer.translations, "en", "title"),
     description: offer.description,
+    descriptionEn: getLocalizedText(offer.translations, "en", "description"),
     imageUrl: offer.imageUrl ?? "",
-    badge: "",
+    badge: offer.badge ?? "",
+    badgeEn: getLocalizedText(offer.translations, "en", "badge"),
     startsAt: offer.startsAt ?? "",
     endsAt: offer.endsAt ?? "",
     isActive: offer.isActive,
     packageTier,
     packageOrder: String(Number.isFinite(packageOrder) ? packageOrder : 0),
+    pointsRequired: String(pointsRequired),
     metadataText: stringifyMetadata(offer.metadata),
+    translationMeta: offer.translationMeta ?? null,
   };
 }
 
@@ -172,6 +226,12 @@ function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
   const metadata = parseMetadata(form.metadataText);
   metadata.packageTier = form.packageTier;
   metadata.packageOrder = Number(form.packageOrder || 0);
+  const pointsRequired = Math.max(0, Number(form.pointsRequired || 0));
+  if (pointsRequired > 0) {
+    metadata.pointsRequired = pointsRequired;
+  } else {
+    delete metadata.pointsRequired;
+  }
 
   return {
     title: form.title.trim(),
@@ -182,6 +242,12 @@ function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
     endsAt: form.endsAt.trim() || null,
     isActive: form.isActive,
     metadata,
+    translations: buildOfferTranslations(form),
+    translationMeta: buildManualAwareTranslationMeta(form.translationMeta ?? null, {
+      title: form.titleEn,
+      description: form.descriptionEn,
+      badge: form.badgeEn,
+    }),
   };
 }
 
@@ -204,6 +270,8 @@ export default function AdminManageContentOfferDetailScreen() {
   const params = useLocalSearchParams<{ offerId?: string; tier?: string }>();
   const router = useRouter();
   const { locale } = useAdminPreferences();
+  const { role } = useSession();
+  const canApproveTranslation = role === "OWNER";
   const strings = useAdminStrings();
   const offerId = typeof params.offerId === "string" ? params.offerId : "new";
   const isCreate = offerId === "new";
@@ -318,6 +386,7 @@ export default function AdminManageContentOfferDetailScreen() {
   }, [loadOffer]);
 
   const canArchive = useMemo(() => Boolean(form.id), [form.id]);
+  const translationStatus = useMemo(() => getTranslationStatusLabel(form.translationMeta ?? null), [form.translationMeta]);
 
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -359,10 +428,13 @@ export default function AdminManageContentOfferDetailScreen() {
       if (form.id) {
         const next = await updateAdminOfferForMobile(client, form.id, payload);
         await writeCachedValue(`${OFFER_DETAIL_CACHE_PREFIX}${form.id}`, next);
+        setForm((current) => ({ ...current, translationMeta: next.translationMeta ?? current.translationMeta ?? null }));
       } else {
         const next = await createAdminOfferForMobile(client, payload);
         await writeCachedValue(`${OFFER_DETAIL_CACHE_PREFIX}${next.id}`, next);
+        setForm((current) => ({ ...current, id: next.id, translationMeta: next.translationMeta ?? current.translationMeta ?? null }));
       }
+      await clearCustomerFeedCache();
       await markAdminContentRefresh("offer-saved");
       closeDetail();
     } catch (error) {
@@ -399,6 +471,22 @@ export default function AdminManageContentOfferDetailScreen() {
     ]);
   }
 
+  async function handleRetranslate() {
+    const client = mobileSupabase;
+    if (!client || !form.id) return;
+
+    setIsSaving(true);
+    try {
+      await requestRetranslateAndKick(client, "marketing_offers", form.id, role, false);
+      await markAdminContentRefresh("offer-retranslated");
+      Alert.alert("Approved", "English translation has been queued.");
+    } catch (error) {
+      Alert.alert(strings.offerDetailSaveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <ManageScreenShell
       title={isCreate ? strings.offerDetailCreateTitle : strings.offerDetailEditTitle}
@@ -424,13 +512,23 @@ export default function AdminManageContentOfferDetailScreen() {
           </View>
         ) : (
           <View style={styles.formColumn}>
+            {form.id ? (
+              <View style={styles.translationRow}>
+                <Text style={styles.translationStatus}>EN: {translationStatus}</Text>
+                <Pressable style={styles.retryButton} disabled={isSaving || !canApproveTranslation} onPress={() => void handleRetranslate()}>
+                  <Text style={styles.secondaryButtonText}>Approve EN</Text>
+                </Pressable>
+              </View>
+            ) : null}
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="tag">{strings.offerDetailTitleLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput placeholder={strings.offerDetailTitlePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
+              <AdminKeyboardTextInput placeholder="Offer title (EN)" placeholderTextColor="#B4A89C" style={styles.input} value={form.titleEn} onChangeText={(value) => setForm((current) => ({ ...current, titleEn: value }))} />
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="file-text">{strings.offerDetailDescriptionLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.offerDetailDescriptionPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.description} onChangeText={(value) => setForm((current) => ({ ...current, description: value }))} />
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Offer description (EN)" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.descriptionEn} onChangeText={(value) => setForm((current) => ({ ...current, descriptionEn: value }))} />
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="image">{strings.offerDetailImageLabel}</DetailFieldLabel>
@@ -451,6 +549,7 @@ export default function AdminManageContentOfferDetailScreen() {
                 <View style={styles.readOnlyValueShell}>
                   <Text style={styles.readOnlyValueText}>{form.badge}</Text>
                 </View>
+                <AdminKeyboardTextInput placeholder="Badge (EN)" placeholderTextColor="#B4A89C" style={styles.input} value={form.badgeEn} onChangeText={(value) => setForm((current) => ({ ...current, badgeEn: value }))} />
               </View>
               <View style={[styles.fieldBlock, styles.splitItem]}>
                 <DetailFieldLabel icon="power">{strings.offerDetailStatusLabel}</DetailFieldLabel>
@@ -491,6 +590,14 @@ export default function AdminManageContentOfferDetailScreen() {
                 ))}
               </View>
               <Text style={styles.fieldHint}>{strings.offerDetailPackageHint}</Text>
+            </View>
+            <View style={styles.fieldBlock}>
+              <DetailFieldLabel icon="gift">{strings.offerDetailPointsRequiredLabel}</DetailFieldLabel>
+              <View style={styles.inputShell}>
+                <AdminKeyboardTextInput keyboardType="number-pad" placeholder="0" placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput]} value={form.pointsRequired} onChangeText={(value) => setForm((current) => ({ ...current, pointsRequired: value }))} />
+                <Feather color={palette.sub} name="gift" size={18} />
+              </View>
+              <Text style={styles.fieldHint}>{strings.offerDetailPointsRequiredHint}</Text>
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="list">{strings.offerDetailPackageOrderLabel}</DetailFieldLabel>
@@ -555,6 +662,8 @@ const styles = StyleSheet.create({
   errorText: { color: palette.danger, fontSize: 13, lineHeight: 18, textAlign: "center" },
   retryButton: { alignItems: "center", backgroundColor: "#FFF9F3", borderColor: "#E4D7C8", borderRadius: 14, borderWidth: 1, justifyContent: "center", minHeight: 42, paddingHorizontal: 16 },
   formColumn: { gap: 18 },
+  translationRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", gap: 12 },
+  translationStatus: { color: palette.sub, fontSize: 13, fontWeight: "700", textTransform: "capitalize" },
   fieldBlock: { gap: 10 },
   splitRow: { flexDirection: "row", gap: 12 },
   splitItem: { flex: 1 },

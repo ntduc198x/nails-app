@@ -1,4 +1,4 @@
-import type { LocalizedTextValue } from "./localization";
+import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "./auth";
 
@@ -20,6 +20,7 @@ export type OrgBranchSummary = {
   id: string;
   name: string;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type MobileAdminViewContext = {
@@ -209,7 +210,7 @@ async function getCurrentOrgRole(
 async function listOrgBranches(client: SharedSupabaseClient, orgId: string): Promise<OrgBranchSummary[]> {
   const response = await client
     .from("branches")
-    .select("id,name,translations")
+    .select("id,name,translations,translation_meta")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
 
@@ -238,6 +239,7 @@ async function listOrgBranches(client: SharedSupabaseClient, orgId: string): Pro
       id: String(row.id ?? ""),
       name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Branch",
       translations: null,
+      translationMeta: null,
     }));
   }
 
@@ -245,6 +247,7 @@ async function listOrgBranches(client: SharedSupabaseClient, orgId: string): Pro
     id: String(row.id ?? ""),
     name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Branch",
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   }));
 }
 

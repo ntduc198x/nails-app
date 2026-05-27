@@ -45,6 +45,7 @@ function normalizeContentPosts(rows: Array<Record<string, unknown>>): CustomerCo
     priority: Number(row.priority ?? index),
     metadata: asMetadata(row.metadata),
     translations: (row.translations as CustomerContentPost["translations"] | undefined) ?? null,
+    translationMeta: (row.translation_meta as CustomerContentPost["translationMeta"] | undefined) ?? null,
   }));
 }
 
@@ -59,6 +60,7 @@ function normalizeOffers(rows: Array<Record<string, unknown>>): MarketingOfferCa
     endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
     metadata: asMetadata(row.offer_metadata),
     translations: (row.translations as MarketingOfferCard["translations"] | undefined) ?? null,
+    translationMeta: (row.translation_meta as MarketingOfferCard["translationMeta"] | undefined) ?? null,
   }));
 }
 
@@ -92,6 +94,7 @@ function normalizeStorefront(row?: Record<string, unknown> | null): ExploreStore
     instagramUrl: typeof row.instagram_url === "string" ? row.instagram_url : null,
     highlights: Array.isArray(row.highlights) ? row.highlights.filter((item): item is string => typeof item === "string") : [],
     translations: (row.translations as ExploreStorefront["translations"] | undefined) ?? null,
+    translationMeta: (row.translation_meta as ExploreStorefront["translationMeta"] | undefined) ?? null,
   };
 }
 
@@ -105,6 +108,7 @@ function normalizeProducts(rows: Array<Record<string, unknown>>): ExploreProduct
     productType: typeof row.product_type === "string" ? row.product_type : null,
     isFeatured: Boolean(row.is_featured),
     translations: (row.translations as ExploreProduct["translations"] | undefined) ?? null,
+    translationMeta: (row.translation_meta as ExploreProduct["translationMeta"] | undefined) ?? null,
   }));
 }
 
@@ -116,6 +120,7 @@ function normalizeTeam(rows: Array<Record<string, unknown>>): ExploreTeamMember[
     avatarUrl: typeof row.avatar_url === "string" ? row.avatar_url : null,
     bio: typeof row.bio === "string" ? row.bio : null,
     translations: (row.translations as ExploreTeamMember["translations"] | undefined) ?? null,
+    translationMeta: (row.translation_meta as ExploreTeamMember["translationMeta"] | undefined) ?? null,
   }));
 }
 
@@ -128,6 +133,7 @@ function normalizeGallery(rows: Array<Record<string, unknown>>): ExploreGalleryI
       imageUrl: String(row.image_url),
       kind: typeof row.kind === "string" ? row.kind : null,
       translations: (row.translations as ExploreGalleryItem["translations"] | undefined) ?? null,
+      translationMeta: (row.translation_meta as ExploreGalleryItem["translationMeta"] | undefined) ?? null,
     }));
 }
 
@@ -139,7 +145,7 @@ export async function getCustomerHomeFeedPayload(): Promise<HomeFeedPayload> {
     supabase
       .from("services")
       .select(
-        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
+        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations,translation_meta",
       )
       .eq("active", true)
       .eq("featured_in_lookbook", true)
@@ -149,14 +155,14 @@ export async function getCustomerHomeFeedPayload(): Promise<HomeFeedPayload> {
       .limit(6),
     supabase
       .from("customer_content_posts")
-      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata,translations")
+      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata,translations,translation_meta")
       .eq("status", "published")
       .order("priority", { ascending: true })
       .order("published_at", { ascending: false })
       .limit(4),
     supabase
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations,translation_meta")
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
       .limit(12),
@@ -187,7 +193,7 @@ export async function getCustomerExplorePayload(): Promise<CustomerExplorePayloa
   const storefrontResult = await supabase
     .from("storefront_profile")
     .select(
-      "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,translations",
+      "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,translations,translation_meta",
     )
     .eq("is_active", true)
     .order("updated_at", { ascending: false })
@@ -204,7 +210,7 @@ export async function getCustomerExplorePayload(): Promise<CustomerExplorePayloa
         supabase
           .from("services")
           .select(
-            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
+            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations,translation_meta",
           )
           .eq("active", true)
           .eq("featured_in_lookbook", true)
@@ -214,28 +220,28 @@ export async function getCustomerExplorePayload(): Promise<CustomerExplorePayloa
           .limit(8),
         supabase
           .from("storefront_products")
-          .select("id,name,subtitle,price_label,image_url,product_type,is_featured,translations")
+          .select("id,name,subtitle,price_label,image_url,product_type,is_featured,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
           .order("display_order", { ascending: true })
           .limit(8),
         supabase
           .from("storefront_team_members")
-          .select("id,display_name,role_label,avatar_url,bio,translations")
+          .select("id,display_name,role_label,avatar_url,bio,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .eq("is_visible", true)
           .order("display_order", { ascending: true })
           .limit(8),
         supabase
           .from("storefront_gallery")
-          .select("id,title,image_url,kind,translations")
+          .select("id,title,image_url,kind,translations,translation_meta")
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
           .order("display_order", { ascending: true })
           .limit(12),
         supabase
           .from("marketing_offers")
-          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
+          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations,translation_meta")
           .eq("is_active", true)
           .order("starts_at", { ascending: false })
           .limit(12),

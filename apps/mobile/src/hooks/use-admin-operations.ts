@@ -3,6 +3,9 @@ import {
   type AppRole,
   type AppointmentStatus,
   type CustomerCrmSummary,
+  type Locale,
+  type LocalizedTextValue,
+  type TranslationMetaValue,
   type MobileCheckedInAppointment,
   type MobileCheckoutService,
   type MobileRecentTicketSummary,
@@ -24,6 +27,7 @@ import {
   listCustomersCrmForMobile,
   listRecentTicketsForMobile,
   listServicesForMobile,
+  localizeAdminResource,
   saveAppointmentForMobile,
   translate,
   updateBookingRequestForMobile,
@@ -226,7 +230,7 @@ export async function listStaffOptions(): Promise<StaffOption[]> {
   });
 }
 
-export async function listResourceOptions(): Promise<ResourceOption[]> {
+export async function listResourceOptions(locale: Locale = "vi"): Promise<ResourceOption[]> {
   if (!mobileSupabase) {
     return [];
   }
@@ -234,24 +238,57 @@ export async function listResourceOptions(): Promise<ResourceOption[]> {
   const { orgId } = await ensureOrgContext(mobileSupabase);
   const resourcesRes = await mobileSupabase
     .from("resources")
-    .select("id,name,type,active")
+    .select("id,name,type,active,translations,translation_meta")
     .eq("org_id", orgId)
     .eq("active", true)
     .order("created_at", { ascending: true });
 
   if (resourcesRes.error) {
     const message = resourcesRes.error.message || "";
+    if (message.includes("translations")) {
+      const fallbackRes = await mobileSupabase
+        .from("resources")
+        .select("id,name,type,active")
+        .eq("org_id", orgId)
+        .eq("active", true)
+        .order("created_at", { ascending: true });
+
+      if (fallbackRes.error) {
+        throw fallbackRes.error;
+      }
+
+      return (fallbackRes.data ?? []).map((resource) => ({
+        id: String(resource.id ?? ""),
+        name: String(resource.name ?? "-"),
+        type: String(resource.type ?? "RESOURCE"),
+      }));
+    }
+
     if (message.includes("resources") || message.includes("resource_id")) {
       return [];
     }
     throw resourcesRes.error;
   }
 
-  return (resourcesRes.data ?? []).map((resource) => ({
-    id: String(resource.id ?? ""),
-    name: String(resource.name ?? "-"),
-    type: String(resource.type ?? "RESOURCE"),
-  }));
+  return (resourcesRes.data ?? []).map((resource) => {
+    const localized = localizeAdminResource(locale, {
+      id: String(resource.id ?? ""),
+      name: String(resource.name ?? "-"),
+      type: String(resource.type ?? "CHAIR") as "CHAIR" | "TABLE" | "ROOM",
+      active: resource.active !== false,
+      branchId: null,
+      translations:
+        (resource.translations as LocalizedTextValue | null | undefined) ?? null,
+      translationMeta:
+        (resource.translation_meta as TranslationMetaValue | null | undefined) ?? null,
+    });
+
+    return {
+      id: localized.id,
+      name: localized.name,
+      type: localized.type,
+    };
+  });
 }
 
 export function useAdminOperations() {
@@ -337,7 +374,7 @@ export function useAdminOperations() {
         listAppointmentsForMobile(mobileSupabase, observerOptions),
         canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase, observerOptions) : Promise.resolve(null),
         listStaffOptions(),
-        listResourceOptions(),
+        listResourceOptions(locale),
         listServicesForMobile(mobileSupabase, observerOptions),
         listCheckedInQueueForMobile(mobileSupabase, observerOptions),
         canSeeRecentTickets
@@ -391,7 +428,7 @@ export function useAdminOperations() {
       inflightAdminLoad = null;
       setLoading(false);
     }
-  }, [isHydrated, observer.isReady, observer.observerScope, observer.viewContext, observerScopeKey, role, userId]);
+  }, [isHydrated, locale, observer.isReady, observer.observerScope, observer.viewContext, observerScopeKey, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {

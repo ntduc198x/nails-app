@@ -1,5 +1,6 @@
 import {
   formatLookbookPrice,
+  getOfferPointsRequired,
   normalizeLookbookRows,
   type CustomerContentPost,
   type LookbookRow,
@@ -14,7 +15,7 @@ import {
   type ExploreStorefront,
   type ExploreTeamMember,
 } from "./customer-explore";
-import type { LocalizedTextValue } from "./localization";
+import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 import type { SharedSupabaseClient } from "./org";
 
 type CustomerAccountContext = {
@@ -43,6 +44,7 @@ type FavoriteServiceRow = {
   base_price?: number | null;
   duration_min?: number | null;
   translations?: LocalizedTextValue | null;
+  translation_meta?: TranslationMetaValue | null;
 };
 
 type TicketHistoryItemRow = {
@@ -54,6 +56,7 @@ type TicketHistoryItemRow = {
     image_url?: string | null;
     short_description?: string | null;
     base_price?: number | null;
+    translations?: LocalizedTextValue | null;
   } | null;
 };
 
@@ -136,6 +139,7 @@ export type CustomerFavoriteService = {
   priceLabel: string | null;
   durationLabel: string | null;
   translations: LocalizedTextValue | null;
+  translationMeta: TranslationMetaValue | null;
 };
 
 export type CustomerMembershipSummary = {
@@ -171,6 +175,7 @@ export type CustomerHistoryItem = {
   serviceImageUrl: string | null;
   servicePriceLabel: string | null;
   serviceSummary: string | null;
+  serviceTranslations: LocalizedTextValue | null;
   occurredAt: string;
   status: string;
   statusLabel: string;
@@ -182,6 +187,7 @@ export type CustomerHistoryItem = {
 export type CustomerUpcomingBookingItem = {
   id: string;
   requestedService: string;
+  requestedServiceTranslations: LocalizedTextValue | null;
   preferredStaff: string | null;
   requestedStartAt: string;
   requestedEndAt: string | null;
@@ -498,22 +504,45 @@ function asRecord(value: unknown) {
   return typeof value === "object" && value ? (value as Record<string, unknown>) : {};
 }
 
+function getViString(row: Record<string, unknown>, field: string, fallback: unknown) {
+  const translations = asRecord(row.translations);
+  const viFields = asRecord(translations.vi);
+  const localized = viFields[field];
+  return typeof localized === "string" && localized.trim()
+    ? localized
+    : (typeof fallback === "string" ? fallback : null);
+}
+
+function getViStringArray(row: Record<string, unknown>, field: string, fallback: unknown) {
+  const translations = asRecord(row.translations);
+  const viFields = asRecord(translations.vi);
+  const localized = viFields[field];
+  if (Array.isArray(localized)) {
+    return localized.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  if (Array.isArray(fallback)) {
+    return fallback.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  return [];
+}
+
 function normalizeContentPosts(rows: Array<Record<string, unknown>>): CustomerContentPost[] {
   return rows.map((row, index) => ({
     id: String(row.id ?? `post-${index}`),
-    title: String(row.title ?? "Cap nhat moi"),
-    summary: String(row.summary ?? row.body ?? ""),
-    body: String(row.body ?? row.summary ?? ""),
+    title: getViString(row, "title", row.title) ?? String(row.title ?? "Cap nhat moi"),
+    summary: getViString(row, "summary", row.summary ?? row.body) ?? String(row.summary ?? row.body ?? ""),
+    body: getViString(row, "body", row.body ?? row.summary) ?? String(row.body ?? row.summary ?? ""),
     coverImageUrl: typeof row.cover_image_url === "string" ? row.cover_image_url : null,
     contentType:
       row.content_type === "care" || row.content_type === "news" || row.content_type === "offer_hint"
         ? row.content_type
         : "trend",
-    sourcePlatform: typeof row.source_platform === "string" ? row.source_platform : "telegram",
+    sourcePlatform: getViString(row, "source_platform", row.source_platform) ?? "telegram",
     publishedAt: typeof row.published_at === "string" ? row.published_at : null,
     priority: Number(row.priority ?? index),
     metadata: asRecord(row.metadata),
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   }));
 }
 
@@ -534,22 +563,29 @@ function normalizeOfferClaimStatus(value: string | null | undefined): CustomerMe
 }
 
 function normalizeOffers(rows: OfferRow[]): CustomerMembershipOffer[] {
-  return rows.map((row, index) => ({
-    id: String(row.id ?? `offer-${index}`),
-    title: String(row.title ?? "Uu dai moi"),
-    description: String(row.description ?? ""),
-    imageUrl: typeof row.image_url === "string" ? row.image_url : null,
-    badge: typeof row.badge === "string" ? row.badge : null,
-    startsAt: typeof row.starts_at === "string" ? row.starts_at : null,
-    endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
-    metadata: asRecord(row.offer_metadata),
-    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
-    claimId: null,
-    claimStatus: "AVAILABLE",
-    claimedAt: null,
-    usedAt: null,
-    linkedBookingRequestId: null,
-  }));
+  return rows.map((row, index) => {
+    const metadata = asRecord(row.offer_metadata);
+    const pointsRequired = getOfferPointsRequired(metadata);
+    const normalizedMetadata = pointsRequired > 0 ? { ...metadata, pointsRequired } : metadata;
+
+    return {
+      id: String(row.id ?? `offer-${index}`),
+      title: getViString(row, "title", row.title) ?? String(row.title ?? "Uu dai moi"),
+      description: getViString(row, "description", row.description) ?? String(row.description ?? ""),
+      imageUrl: typeof row.image_url === "string" ? row.image_url : null,
+      badge: getViString(row, "badge", row.badge),
+      startsAt: typeof row.starts_at === "string" ? row.starts_at : null,
+      endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
+      metadata: normalizedMetadata,
+      translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+      translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
+      claimId: null,
+      claimStatus: "AVAILABLE",
+      claimedAt: null,
+      usedAt: null,
+      linkedBookingRequestId: null,
+    };
+  });
 }
 
 function isOfferActiveNow(offer: MarketingOfferCard, nowMs: number) {
@@ -638,45 +674,48 @@ function normalizeStorefront(row?: StorefrontRow | null): ExploreStorefront | nu
   return {
     id: String(row.id),
     slug: String(row.slug),
-    name: String(row.name),
-    category: typeof row.category === "string" ? row.category : null,
-    description: typeof row.description === "string" ? row.description : null,
+    name: getViString(row, "name", row.name) ?? String(row.name),
+    category: getViString(row, "category", row.category),
+    description: getViString(row, "description", row.description),
     coverImageUrl: typeof row.cover_image_url === "string" ? row.cover_image_url : null,
     logoImageUrl: typeof row.logo_image_url === "string" ? row.logo_image_url : null,
     rating: typeof row.rating === "number" ? row.rating : row.rating ? Number(row.rating) : null,
-    reviewsLabel: typeof row.reviews_label === "string" ? row.reviews_label : null,
-    addressLine: typeof row.address_line === "string" ? row.address_line : null,
+    reviewsLabel: getViString(row, "reviews_label", row.reviews_label),
+    addressLine: getViString(row, "address_line", row.address_line),
     mapUrl: typeof row.map_url === "string" ? row.map_url : null,
-    openingHours: typeof row.opening_hours === "string" ? row.opening_hours : null,
+    openingHours: getViString(row, "opening_hours", row.opening_hours),
     phone: typeof row.phone === "string" ? row.phone : null,
     messengerUrl: typeof row.messenger_url === "string" ? row.messenger_url : null,
     instagramUrl: typeof row.instagram_url === "string" ? row.instagram_url : null,
-    highlights: Array.isArray(row.highlights) ? row.highlights.filter((item): item is string => typeof item === "string") : [],
+    highlights: getViStringArray(row, "highlights", row.highlights),
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   };
 }
 
 function normalizeProducts(rows: ProductRow[]): ExploreProduct[] {
   return rows.map((row, index) => ({
     id: String(row.id ?? `product-${index}`),
-    name: String(row.name ?? "San pham"),
-    subtitle: typeof row.subtitle === "string" ? row.subtitle : null,
-    priceLabel: typeof row.price_label === "string" ? row.price_label : null,
+    name: getViString(row, "name", row.name) ?? String(row.name ?? "San pham"),
+    subtitle: getViString(row, "subtitle", row.subtitle),
+    priceLabel: getViString(row, "price_label", row.price_label),
     imageUrl: typeof row.image_url === "string" ? row.image_url : null,
-    productType: typeof row.product_type === "string" ? row.product_type : null,
+    productType: getViString(row, "product_type", row.product_type),
     isFeatured: Boolean(row.is_featured),
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   }));
 }
 
 function normalizeTeam(rows: TeamRow[]): ExploreTeamMember[] {
   return rows.map((row, index) => ({
     id: String(row.id ?? `team-${index}`),
-    displayName: String(row.display_name ?? `Nhan su ${index + 1}`),
-    roleLabel: typeof row.role_label === "string" ? row.role_label : null,
+    displayName: getViString(row, "display_name", row.display_name) ?? String(row.display_name ?? `Nhan su ${index + 1}`),
+    roleLabel: getViString(row, "role_label", row.role_label),
     avatarUrl: typeof row.avatar_url === "string" ? row.avatar_url : null,
-    bio: typeof row.bio === "string" ? row.bio : null,
+    bio: getViString(row, "bio", row.bio),
     translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+    translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
   }));
 }
 
@@ -685,10 +724,11 @@ function normalizeGallery(rows: GalleryRow[]): ExploreGalleryItem[] {
     .filter((row) => typeof row.image_url === "string" && row.image_url.trim())
     .map((row, index) => ({
       id: String(row.id ?? `gallery-${index}`),
-      title: typeof row.title === "string" ? row.title : null,
+      title: getViString(row, "title", row.title),
       imageUrl: String(row.image_url),
       kind: typeof row.kind === "string" ? row.kind : null,
       translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
+      translationMeta: (row.translation_meta as TranslationMetaValue | null | undefined) ?? null,
     }));
 }
 
@@ -807,7 +847,7 @@ export async function listCustomerHomeFeedForContext(
     client
       .from("services")
       .select(
-        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
+        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations,translation_meta",
       )
       .eq("org_id", context.orgId)
       .eq("active", true)
@@ -818,7 +858,7 @@ export async function listCustomerHomeFeedForContext(
       .limit(6),
     client
       .from("customer_content_posts")
-      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata,translations")
+      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata,translations,translation_meta")
       .eq("org_id", context.orgId)
       .eq("status", "published")
       .order("priority", { ascending: true })
@@ -826,7 +866,7 @@ export async function listCustomerHomeFeedForContext(
       .limit(4),
     client
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations,translation_meta")
       .eq("org_id", context.orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
@@ -861,7 +901,7 @@ export async function listCustomerExploreForContext(
   const nowMs = Date.now();
 
   const storefrontSelect =
-    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,branch_id,updated_at,translations";
+    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,branch_id,updated_at,translations,translation_meta";
 
   const loadStorefront = async (branchId?: string | null) => {
     const query = client
@@ -898,7 +938,7 @@ export async function listCustomerExploreForContext(
         client
           .from("services")
           .select(
-            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
+            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations,translation_meta",
           )
           .eq("org_id", context.orgId)
           .eq("active", true)
@@ -909,7 +949,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_products")
-          .select("id,name,subtitle,price_label,image_url,product_type,is_featured,translations")
+          .select("id,name,subtitle,price_label,image_url,product_type,is_featured,translations,translation_meta")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
@@ -917,7 +957,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_team_members")
-          .select("id,display_name,role_label,avatar_url,bio,translations")
+          .select("id,display_name,role_label,avatar_url,bio,translations,translation_meta")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_visible", true)
@@ -925,7 +965,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_gallery")
-          .select("id,title,image_url,kind,translations")
+          .select("id,title,image_url,kind,translations,translation_meta")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
@@ -933,7 +973,7 @@ export async function listCustomerExploreForContext(
           .limit(12),
         client
           .from("marketing_offers")
-          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
+          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations,translation_meta")
           .eq("org_id", context.orgId)
           .eq("is_active", true)
           .order("starts_at", { ascending: false })
@@ -1032,7 +1072,7 @@ export async function listCustomerMembershipSummary(
       .order("visit_threshold", { ascending: true }),
     client
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations,translation_meta")
       .eq("org_id", context.orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
@@ -1173,7 +1213,7 @@ export async function listCustomerFavoriteServices(
 
   const { data, error } = await client
     .from("services")
-    .select("id,name,short_description,image_url,base_price,duration_min,translations")
+    .select("id,name,short_description,image_url,base_price,duration_min,translations,translation_meta")
     .in("id", favoriteIds);
 
   if (error) {
@@ -1192,6 +1232,7 @@ export async function listCustomerFavoriteServices(
       priceLabel: typeof row.base_price === "number" ? formatLookbookPrice(row.base_price) : null,
       durationLabel: null,
       translations: row.translations ?? null,
+      translationMeta: row.translation_meta ?? null,
     }));
 }
 
@@ -1321,7 +1362,7 @@ export async function listCustomerHistory(
   const directAppointmentsResult = await client
     .from("appointments")
     .select(
-      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price)))",
+      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price,translations)))",
     )
     .eq("org_id", context.orgId)
     .in("customer_id", customerIds)
@@ -1354,7 +1395,7 @@ export async function listCustomerHistory(
     const appointmentsResult = await client
       .from("appointments")
       .select(
-        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price)))",
+        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price,translations)))",
       )
       .eq("org_id", context.orgId)
       .in("id", missingAppointmentIds);
@@ -1406,6 +1447,7 @@ export async function listCustomerHistory(
         serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
         servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
         serviceSummary: primaryItem?.services?.short_description?.trim() || null,
+        serviceTranslations: primaryItem?.services?.translations ?? null,
         occurredAt: typeof appointment?.start_at === "string" ? appointment.start_at : occurredAt,
         status: effectiveStatus,
         statusLabel: getCustomerHistoryStatusLabel(effectiveStatus),
@@ -1454,6 +1496,7 @@ export async function listCustomerHistory(
         serviceImageUrl: primaryItem?.services?.image_url?.trim() || null,
         servicePriceLabel: priceValue === null ? null : formatLookbookPrice(priceValue),
         serviceSummary: primaryItem?.services?.short_description?.trim() || null,
+        serviceTranslations: primaryItem?.services?.translations ?? null,
         occurredAt,
         status: typeof appointment.status === "string" ? appointment.status : "BOOKED",
         statusLabel: getCustomerHistoryStatusLabel(typeof appointment.status === "string" ? appointment.status : "BOOKED"),
@@ -1544,7 +1587,7 @@ export async function listCustomerUpcomingBookings(
   const directAppointmentsResult = await client
     .from("appointments")
     .select(
-      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price)))",
+      "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price,translations)))",
     )
     .eq("org_id", context.orgId)
     .in("customer_id", customerIds)
@@ -1577,7 +1620,7 @@ export async function listCustomerUpcomingBookings(
     const appointmentsResult = await client
       .from("appointments")
       .select(
-        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price)))",
+        "id,start_at,end_at,status,booking_requests!booking_requests_appointment_id_fkey(id,requested_service,preferred_staff),tickets(id,status,created_at,ticket_items(service_id,unit_price,services(id,name,image_url,short_description,base_price,translations)))",
       )
       .eq("org_id", context.orgId)
       .in("id", missingAppointmentIds);
@@ -1618,13 +1661,16 @@ export async function listCustomerUpcomingBookings(
 
       const activeStatuses = ["NEW", "CONFIRMED", "NEEDS_RESCHEDULE", "CONVERTED", "BOOKED", "CHECKED_IN"];
       if (!activeStatuses.includes(effectiveStatus)) return null;
+      const primaryItem = getPrimaryAppointmentTicketItem(appointment);
 
       return {
         id: bookingRequestId,
         requestedService:
-          typeof row.requested_service === "string" && row.requested_service.trim()
+          primaryItem?.services?.name?.trim() ||
+          (typeof row.requested_service === "string" && row.requested_service.trim()
             ? row.requested_service.trim()
-            : "Lịch dịch vụ đã đặt",
+            : "Lịch dịch vụ đã đặt"),
+        requestedServiceTranslations: primaryItem?.services?.translations ?? null,
         preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
         requestedStartAt: effectiveStartAt,
         requestedEndAt: effectiveEndAt,
@@ -1651,12 +1697,15 @@ export async function listCustomerUpcomingBookings(
       if (!activeStatuses.includes(effectiveStatus)) return null;
 
       const bookingRequest = Array.isArray(appointment.booking_requests) ? appointment.booking_requests[0] : null;
+      const primaryItem = getPrimaryAppointmentTicketItem(appointment);
       return {
         id: appointmentId,
         requestedService:
-          typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
+          primaryItem?.services?.name?.trim() ||
+          (typeof bookingRequest?.requested_service === "string" && bookingRequest.requested_service.trim()
             ? bookingRequest.requested_service.trim()
-            : "Lịch dịch vụ đã đặt",
+            : "Lịch dịch vụ đã đặt"),
+        requestedServiceTranslations: primaryItem?.services?.translations ?? null,
         preferredStaff: typeof bookingRequest?.preferred_staff === "string" ? bookingRequest.preferred_staff : null,
         requestedStartAt: effectiveStartAt,
         requestedEndAt: effectiveEndAt,
@@ -1670,3 +1719,4 @@ export async function listCustomerUpcomingBookings(
     .sort((left, right) => new Date(left.requestedStartAt).getTime() - new Date(right.requestedStartAt).getTime())
     .slice(0, options.limit ?? 12);
 }
+

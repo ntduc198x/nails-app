@@ -19,11 +19,12 @@ import {
   type MobileAdminService,
   updateAdminServiceForMobile,
 } from "@nails/shared";
-import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { uploadPickedServiceImage } from "@/src/features/admin/services-data";
+import { mobileSupabase } from "@/src/lib/supabase";
 
 type ServiceFormState = {
   name: string;
@@ -153,6 +154,7 @@ function Badge({
 }
 
 function ServiceRowCard({
+  strings,
   editing,
   form,
   item,
@@ -164,6 +166,7 @@ function ServiceRowCard({
   onStartEdit,
   saving,
 }: {
+  strings: ReturnType<typeof useAdminStrings>;
   editing: boolean;
   form: ServiceFormState | null;
   item: MobileAdminService;
@@ -189,7 +192,7 @@ function ServiceRowCard({
               <Input
                 value={form.name}
                 onChangeText={(value) => onChange({ name: value })}
-                placeholder="Tên dịch vụ"
+                placeholder={strings.manageServicesNamePlaceholder}
                 style={styles.editNameInput}
               />
             ) : (
@@ -198,16 +201,16 @@ function ServiceRowCard({
                   <Text style={styles.serviceTitle}>{item.name}</Text>
                   {item.featuredInLookbook ? (
                     <View style={[styles.statePill, styles.lookbookPill]}>
-                      <Text style={[styles.statePillText, styles.lookbookPillText]}>Lookbook</Text>
+                      <Text style={[styles.statePillText, styles.lookbookPillText]}>{strings.manageServicesLookbookPill}</Text>
                     </View>
                   ) : null}
                   <View style={[styles.statePill, item.active ? styles.activePill : styles.inactivePill]}>
                     <Text style={[styles.statePillText, item.active ? styles.activePillText : styles.inactivePillText]}>
-                      {item.active ? "Đang dùng" : "Tạm ẩn"}
+                      {item.active ? strings.manageServicesStateActive : strings.manageServicesStateInactive}
                     </Text>
                   </View>
                 </View>
-                <Text style={styles.serviceSubtitle}>{item.shortDescription || "Chưa có mô tả ngắn."}</Text>
+                <Text style={styles.serviceSubtitle}>{item.shortDescription || strings.manageServicesDescriptionEmpty}</Text>
               </>
             )}
           </View>
@@ -238,53 +241,53 @@ function ServiceRowCard({
             numberOfLines={3}
             value={form.shortDescription}
             onChangeText={(value) => onChange({ shortDescription: value })}
-            placeholder="Mô tả ngắn"
+            placeholder={strings.manageServicesDescriptionPlaceholder}
           />
           <View style={styles.threeColRow}>
             <Input
               value={form.priceInput}
               onChangeText={(value) => onChange({ priceInput: value.replace(/\D/g, "") })}
               keyboardType="number-pad"
-              placeholder="Giá"
+              placeholder={strings.manageServicesPricePlaceholder}
             />
             <Input
               value={form.durationInput}
               onChangeText={(value) => onChange({ durationInput: value.replace(/\D/g, "") })}
               keyboardType="number-pad"
-              placeholder="Phút"
+              placeholder={strings.manageServicesDurationPlaceholder}
             />
             <Input
               value={form.vatInput}
               onChangeText={(value) => onChange({ vatInput: value.replace(/[^\d.]/g, "") })}
               keyboardType="decimal-pad"
-              placeholder="VAT %"
+              placeholder={strings.manageServicesVatPlaceholder}
             />
           </View>
           <Input
             value={form.imageUrl}
             onChangeText={(value) => onChange({ imageUrl: value })}
-            placeholder="Ảnh URL"
+            placeholder={strings.manageServicesImageUrlPlaceholder}
           />
           <View style={styles.toggleRow}>
             <Badge
               active={form.featuredInLookbook}
-              label="Đưa lên lookbook"
+              label={strings.manageServicesLookbookToggle}
               onPress={() => onChange({ featuredInLookbook: !form.featuredInLookbook })}
             />
             <Badge
               active={form.active}
-              label="Đang hoạt động"
+              label={strings.manageServicesActiveToggle}
               onPress={() => onChange({ active: !form.active })}
             />
             <Pressable style={styles.uploadPill} onPress={onPickImage}>
               <Feather name="upload" size={14} color={palette.sub} />
-              <Text style={styles.uploadPillText}>Upload ảnh</Text>
+              <Text style={styles.uploadPillText}>{strings.manageServicesUploadButton}</Text>
             </Pressable>
           </View>
           {form.imageUrl ? (
             <View style={styles.previewRow}>
               <CachedAppImage source={{ uri: form.imageUrl }} style={styles.previewThumb} />
-              <Text style={styles.previewText}>Đã có ảnh preview</Text>
+              <Text style={styles.previewText}>{strings.manageServicesPreviewReady}</Text>
             </View>
           ) : null}
         </View>
@@ -306,11 +309,13 @@ function ServiceRowCard({
 }
 
 function TrashRowCard({
+  strings,
   item,
   onDeleteForever,
   onRestore,
   saving,
 }: {
+  strings: ReturnType<typeof useAdminStrings>;
   item: MobileAdminService;
   onDeleteForever: () => void;
   onRestore: () => void;
@@ -321,10 +326,10 @@ function TrashRowCard({
       <View style={styles.serviceTitleRow}>
         <Text style={styles.serviceTitle}>{item.name}</Text>
         <View style={[styles.statePill, styles.inactivePill]}>
-          <Text style={[styles.statePillText, styles.inactivePillText]}>TRASH</Text>
+          <Text style={[styles.statePillText, styles.inactivePillText]}>{strings.manageServicesTrashPill}</Text>
         </View>
       </View>
-      <Text style={styles.serviceSubtitle}>{item.shortDescription || "Chưa có mô tả ngắn."}</Text>
+      <Text style={styles.serviceSubtitle}>{item.shortDescription || strings.manageServicesDescriptionEmpty}</Text>
       <View style={styles.serviceMetaRow}>
         <View style={styles.metaChip}>
           <Text style={styles.metaChipText}>{formatVnd(item.basePrice)}</Text>
@@ -338,10 +343,10 @@ function TrashRowCard({
       </View>
       <View style={styles.trashActions}>
         <Pressable disabled={saving} onPress={onRestore} style={styles.restoreButton}>
-          <Text style={styles.restoreButtonText}>Khôi phục</Text>
+          <Text style={styles.restoreButtonText}>{strings.manageServicesRestoreButton}</Text>
         </Pressable>
         <Pressable disabled={saving} onPress={onDeleteForever} style={styles.deleteForeverButton}>
-          <Text style={styles.deleteForeverButtonText}>Xóa hẳn</Text>
+          <Text style={styles.deleteForeverButtonText}>{strings.manageServicesDeleteForeverButton}</Text>
         </Pressable>
       </View>
     </View>
@@ -349,6 +354,7 @@ function TrashRowCard({
 }
 
 export default function AdminManageServicesScreen() {
+  const strings = useAdminStrings();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminService[]>([]);
@@ -370,7 +376,7 @@ export default function AdminManageServicesScreen() {
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageServicesMissingSupabase);
       setLoading(false);
       return;
     }
@@ -384,12 +390,12 @@ export default function AdminManageServicesScreen() {
       setError(null);
       setRows(await listAdminServicesForMobile(mobileSupabase, { observerScope: observer.observerScope }));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu dịch vụ.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesLoadFailed);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [observer.observerScope, rows.length]);
+  }, [observer.observerScope, rows.length, strings.manageServicesLoadFailed, strings.manageServicesMissingSupabase]);
 
   useEffect(() => {
     if (!observer.isReady) return;
@@ -437,7 +443,7 @@ export default function AdminManageServicesScreen() {
       );
       setCreateForm((prev) => ({ ...prev, imageUrl: uploaded.publicUrl }));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Upload ảnh thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesUploadFailed);
     } finally {
       setUploadingCreateImage(false);
     }
@@ -461,7 +467,7 @@ export default function AdminManageServicesScreen() {
       );
       setEditForm((prev) => (prev ? { ...prev, imageUrl: uploaded.publicUrl } : prev));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Upload ảnh thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesUploadFailed);
     } finally {
       setUploadingEditImage(false);
     }
@@ -470,11 +476,11 @@ export default function AdminManageServicesScreen() {
   async function submitCreate() {
     if (!mobileSupabase || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thêm dịch vụ.");
+      setError(strings.manageServicesObserverCreateBlocked);
       return;
     }
     if (!createForm.name.trim()) {
-      setError("Vui lòng nhập tên dịch vụ.");
+      setError(strings.manageServicesNameRequired);
       return;
     }
     try {
@@ -494,7 +500,7 @@ export default function AdminManageServicesScreen() {
       setVisibleSection(nextSection);
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Thêm dịch vụ thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesCreateFailed);
     } finally {
       setSubmitting(false);
     }
@@ -508,7 +514,7 @@ export default function AdminManageServicesScreen() {
   async function saveEdit() {
     if (!mobileSupabase || !editingId || !editForm || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật dịch vụ.");
+      setError(strings.manageServicesObserverEditBlocked);
       return;
     }
     try {
@@ -529,17 +535,17 @@ export default function AdminManageServicesScreen() {
       setEditForm(null);
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Cập nhật dịch vụ thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesUpdateFailed);
     } finally {
       setSubmitting(false);
     }
   }
 
   function confirmMoveToTrash(item: MobileAdminService) {
-    Alert.alert("Chuyển vào thùng rác", `Chuyển "${item.name}" vào thùng rác?`, [
-      { text: "Huỷ", style: "cancel" },
+    Alert.alert(strings.manageServicesMoveToTrashTitle, `${strings.manageServicesMoveToTrashMessagePrefix} "${item.name}" ${strings.manageServicesMoveToTrashMessageSuffix}`, [
+      { text: strings.manageServicesCancel, style: "cancel" },
       {
-        text: "Chuyển",
+        text: strings.manageServicesMoveAction,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -566,7 +572,7 @@ export default function AdminManageServicesScreen() {
               setVisibleSection("trash");
               await load(true);
             } catch (nextError) {
-              setError(nextError instanceof Error ? nextError.message : "Chuyển vào thùng rác thất bại.");
+              setError(nextError instanceof Error ? nextError.message : strings.manageServicesMoveToTrashFailed);
             } finally {
               setSubmitting(false);
             }
@@ -579,7 +585,7 @@ export default function AdminManageServicesScreen() {
   async function restoreFromTrash(item: MobileAdminService) {
     if (!mobileSupabase || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để khôi phục dịch vụ.");
+      setError(strings.manageServicesObserverRestoreBlocked);
       return;
     }
     try {
@@ -599,17 +605,17 @@ export default function AdminManageServicesScreen() {
       setVisibleSection(item.featuredInLookbook ? "lookbook" : "services");
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Khôi phục dịch vụ thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageServicesRestoreFailed);
     } finally {
       setSubmitting(false);
     }
   }
 
   function confirmDeleteForever(item: MobileAdminService) {
-    Alert.alert("Xóa vĩnh viễn", `Xóa hẳn "${item.name}"?`, [
-      { text: "Huỷ", style: "cancel" },
+    Alert.alert(strings.manageServicesDeleteForeverTitle, `${strings.manageServicesDeleteForeverMessagePrefix} "${item.name}"?`, [
+      { text: strings.manageServicesCancel, style: "cancel" },
       {
-        text: "Xóa hẳn",
+        text: strings.manageServicesDeleteForeverButton,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -621,7 +627,7 @@ export default function AdminManageServicesScreen() {
               await deleteAdminServiceForMobile(mobileSupabase, item.id);
               await load(true);
             } catch (nextError) {
-              setError(nextError instanceof Error ? nextError.message : "Xóa vĩnh viễn thất bại.");
+              setError(nextError instanceof Error ? nextError.message : strings.manageServicesDeleteForeverFailed);
             } finally {
               setSubmitting(false);
             }
@@ -643,27 +649,27 @@ export default function AdminManageServicesScreen() {
 
   return (
     <ManageScreenShell
-      title="Quản lý dịch vụ"
-      subtitle="Chuẩn hóa danh mục dịch vụ, lookbook và thùng rác theo module web."
+      title={strings.manageServicesTitle}
+      subtitle={strings.manageServicesSubtitle}
       currentKey="services"
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
       observerReadOnly={observerReadOnly}
-      observerReadOnlyMessage="Đang quan sát danh mục dịch vụ theo scope đã chọn. Chỉ khi quay về chi nhánh làm việc mới có thể thêm, sửa hoặc xóa."
+      observerReadOnlyMessage={strings.manageServicesObserverReadonlyMessage}
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="bar-chart-2" size={16} color={palette.sub} />
-            <Text style={styles.sectionTitle}>Tổng quan</Text>
+            <Text style={styles.sectionTitle}>{strings.manageServicesOverviewTitle}</Text>
           </View>
         </View>
         <View style={styles.metricGrid}>
-          <MetricCard icon="grid" iconColor="#FF6A5E" iconSoft="#FFF0EE" label="Tổng dịch vụ" value={activeRows.length} />
-          <MetricCard icon="folder" iconColor={palette.info} iconSoft={palette.infoSoft} label="Dịch vụ" value={serviceCount} />
-          <MetricCard icon="shopping-bag" iconColor={palette.warning} iconSoft={palette.warningSoft} label="Mẫu lookbook" value={lookbookCount} />
-          <MetricCard icon="trash-2" iconColor={palette.success} iconSoft={palette.successSoft} label="Thùng rác" value={trashRows.length} />
+          <MetricCard icon="grid" iconColor="#FF6A5E" iconSoft="#FFF0EE" label={strings.manageServicesMetricTotal} value={activeRows.length} />
+          <MetricCard icon="folder" iconColor={palette.info} iconSoft={palette.infoSoft} label={strings.manageServicesMetricServices} value={serviceCount} />
+          <MetricCard icon="shopping-bag" iconColor={palette.warning} iconSoft={palette.warningSoft} label={strings.manageServicesMetricLookbook} value={lookbookCount} />
+          <MetricCard icon="trash-2" iconColor={palette.success} iconSoft={palette.successSoft} label={strings.manageServicesMetricTrash} value={trashRows.length} />
         </View>
       </View>
 
@@ -671,14 +677,14 @@ export default function AdminManageServicesScreen() {
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="plus-circle" size={16} color={palette.accent} />
-            <Text style={styles.sectionTitle}>Thêm dịch vụ mới</Text>
+            <Text style={styles.sectionTitle}>{strings.manageServicesAddTitle}</Text>
           </View>
           {(refreshing || loading) ? <ActivityIndicator size="small" color={palette.accent} /> : null}
         </View>
 
         <View style={styles.formRow}>
           <View style={styles.formFlex}>
-            <Input value={createForm.name} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, name: value }))} placeholder="Tên dịch vụ" />
+            <Input value={createForm.name} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, name: value }))} placeholder={strings.manageServicesNamePlaceholder} />
           </View>
           <View style={styles.formPrice}>
             <Input value={createForm.priceInput} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, priceInput: value.replace(/\D/g, "") }))} keyboardType="number-pad" placeholder="250000" />
@@ -690,41 +696,41 @@ export default function AdminManageServicesScreen() {
 
         <View style={styles.formRow}>
           <View style={styles.formFlex}>
-            <Input value={createForm.imageUrl} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, imageUrl: value }))} placeholder="Ảnh URL" />
+            <Input value={createForm.imageUrl} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, imageUrl: value }))} placeholder={strings.manageServicesImageUrlPlaceholder} />
           </View>
           <View style={styles.formVat}>
             <Input value={createForm.vatInput} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, vatInput: value.replace(/[^\d.]/g, "") }))} keyboardType="decimal-pad" placeholder="VAT %" />
           </View>
         </View>
 
-        <Input multiline numberOfLines={4} value={createForm.shortDescription} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, shortDescription: value }))} placeholder="Mô tả ngắn" />
+        <Input multiline numberOfLines={4} value={createForm.shortDescription} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, shortDescription: value }))} placeholder={strings.manageServicesDescriptionPlaceholder} />
 
         <View style={styles.uploadBox}>
           <View style={styles.uploadHeader}>
             <View style={styles.uploadInfo}>
               <Feather name="image" size={16} color={palette.sub} />
               <View>
-                <Text style={styles.uploadTitle}>Đưa lên lookbook</Text>
-                <Text style={styles.uploadSubtitle}>{createForm.imageUrl ? "Đã có ảnh preview" : "Chưa có ảnh preview"}</Text>
+                <Text style={styles.uploadTitle}>{strings.manageServicesLookbookUploadTitle}</Text>
+                <Text style={styles.uploadSubtitle}>{createForm.imageUrl ? strings.manageServicesPreviewReady : strings.manageServicesPreviewMissing}</Text>
               </View>
             </View>
             <View style={styles.uploadActions}>
-              <Badge active={createForm.featuredInLookbook} label="Bật" onPress={() => setCreateForm((prev) => ({ ...prev, featuredInLookbook: !prev.featuredInLookbook }))} />
+              <Badge active={createForm.featuredInLookbook} label={strings.manageServicesToggleOn} onPress={() => setCreateForm((prev) => ({ ...prev, featuredInLookbook: !prev.featuredInLookbook }))} />
               <Pressable style={styles.uploadButton} onPress={() => void pickCreateImage()}>
-                {uploadingCreateImage ? <ActivityIndicator size="small" color={palette.sub} /> : <Text style={styles.uploadButtonText}>Upload ảnh</Text>}
+                {uploadingCreateImage ? <ActivityIndicator size="small" color={palette.sub} /> : <Text style={styles.uploadButtonText}>{strings.manageServicesUploadButton}</Text>}
               </Pressable>
             </View>
           </View>
           {createForm.imageUrl ? (
             <View style={styles.previewRow}>
               <CachedAppImage source={{ uri: createForm.imageUrl }} style={styles.previewThumb} />
-              <Text style={styles.previewText}>Ảnh sẽ dùng cho lookbook/landing.</Text>
+              <Text style={styles.previewText}>{strings.manageServicesPreviewUsage}</Text>
             </View>
           ) : null}
         </View>
 
         <Pressable disabled={submitting} style={[styles.primaryButton, submitting ? styles.primaryButtonDisabled : null]} onPress={() => void submitCreate()}>
-          <Text style={styles.primaryButtonText}>{submitting ? "Đang thêm dịch vụ..." : "Thêm dịch vụ"}</Text>
+          <Text style={styles.primaryButtonText}>{submitting ? strings.manageServicesSubmitting : strings.manageServicesAddButton}</Text>
         </Pressable>
       </View>
 
@@ -732,18 +738,18 @@ export default function AdminManageServicesScreen() {
 
       <View style={styles.linksCard}>
         <View style={styles.toggleRow}>
-          <Badge active={visibleSection === "services"} label={`Dịch vụ (${serviceCount})`} onPress={() => setVisibleSection("services")} />
-          <Badge active={visibleSection === "lookbook"} label={`Lookbook (${lookbookCount})`} onPress={() => setVisibleSection("lookbook")} />
-          <Badge active={visibleSection === "trash"} label={`Thùng rác (${trashRows.length})`} onPress={() => setVisibleSection("trash")} />
+          <Badge active={visibleSection === "services"} label={`${strings.manageServicesTabServices} (${serviceCount})`} onPress={() => setVisibleSection("services")} />
+          <Badge active={visibleSection === "lookbook"} label={`${strings.manageServicesTabLookbook} (${lookbookCount})`} onPress={() => setVisibleSection("lookbook")} />
+          <Badge active={visibleSection === "trash"} label={`${strings.manageServicesTrashLabel} (${trashRows.length})`} onPress={() => setVisibleSection("trash")} />
         </View>
-        <Input value={search} onChangeText={setSearch} placeholder="Tìm tên hoặc mô tả" />
+        <Input value={search} onChangeText={setSearch} placeholder={strings.manageServicesSearchPlaceholder} />
       </View>
 
       <View style={styles.listCard}>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name={visibleSection === "services" ? "folder" : visibleSection === "lookbook" ? "image" : "trash-2"} size={16} color={visibleSection === "lookbook" ? palette.warning : visibleSection === "trash" ? palette.success : palette.info} />
-            <Text style={styles.sectionTitle}>{visibleSection === "services" ? "Dịch vụ" : visibleSection === "lookbook" ? "Mẫu lookbook" : "Thùng rác"}</Text>
+            <Text style={styles.sectionTitle}>{visibleSection === "services" ? strings.manageServicesTabServices : visibleSection === "lookbook" ? strings.manageServicesMetricLookbook : strings.manageServicesTrashLabel}</Text>
           </View>
           <Text style={styles.sectionCount}>{visibleRows.length}</Text>
         </View>
@@ -751,16 +757,16 @@ export default function AdminManageServicesScreen() {
         {loading ? (
           <View style={styles.emptyState}>
             <ActivityIndicator size="small" color={palette.accent} />
-            <Text style={styles.emptyText}>Đang tải dữ liệu dịch vụ...</Text>
+            <Text style={styles.emptyText}>{strings.manageServicesLoading}</Text>
           </View>
         ) : visibleRows.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>{visibleSection === "trash" ? "Thùng rác đang trống." : "Không có mục nào khớp bộ lọc hiện tại."}</Text>
+            <Text style={styles.emptyText}>{visibleSection === "trash" ? strings.manageServicesEmptyTrash : strings.manageServicesEmptyFiltered}</Text>
           </View>
         ) : visibleSection === "trash" ? (
           <View style={styles.listStack}>
             {filteredTrash.map((item) => (
-              <TrashRowCard key={item.id} item={item} onDeleteForever={() => confirmDeleteForever(item)} onRestore={() => void restoreFromTrash(item)} saving={submitting} />
+              <TrashRowCard key={item.id} strings={strings} item={item} onDeleteForever={() => confirmDeleteForever(item)} onRestore={() => void restoreFromTrash(item)} saving={submitting} />
             ))}
           </View>
         ) : (
@@ -768,6 +774,7 @@ export default function AdminManageServicesScreen() {
             {(visibleSection === "services" ? filteredServices : filteredLookbook).map((item) => (
               <ServiceRowCard
                 key={item.id}
+                strings={strings}
                 editing={editingId === item.id}
                 form={editingId === item.id ? editForm : null}
                 item={item}

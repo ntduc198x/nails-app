@@ -42,7 +42,7 @@ export async function writeOptimisticBookingIntoUpcomingBookingsCache(
 ) {
   const optimisticItem: CustomerUpcomingBookingItem = {
     id: draft.bookingRequestId,
-    requestedService: draft.requestedService.trim() || "Yêu cầu đặt lịch",
+    requestedService: draft.requestedService.trim() || "Booking request",
     preferredStaff: draft.preferredStaff?.trim() || null,
     requestedStartAt: draft.requestedStartAt,
     requestedEndAt: draft.requestedEndAt ?? null,

@@ -10,7 +10,9 @@ import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -64,6 +66,8 @@ export default function AdminManageContentServiceDetailScreen() {
   const serviceId = typeof params.serviceId === "string" ? params.serviceId : "";
   const context = params.context === "home" ? "home" : "explore";
   const backHref = (typeof params.backHref === "string" ? params.backHref : "/(admin)/manage-content") as Href;
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
 
   const [form, setForm] = useState<MerchFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -72,7 +76,7 @@ export default function AdminManageContentServiceDetailScreen() {
 
   const loadService = useCallback(async () => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Database mobile.");
+      setError(strings.serviceDetailMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -82,14 +86,14 @@ export default function AdminManageContentServiceDetailScreen() {
     try {
       const services = await listAdminMerchServicesForMobile(mobileSupabase);
       const service = services.find((item) => item.id === serviceId);
-      if (!service) throw new Error("Không tìm thấy dịch vụ cần chỉnh sửa.");
+      if (!service) throw new Error(strings.serviceDetailNotFound);
       setForm(buildMerchForm(service));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được dịch vụ.");
+      setError(nextError instanceof Error ? nextError.message : strings.serviceDetailLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, [serviceId]);
+  }, [serviceId, strings.serviceDetailLoadFailed, strings.serviceDetailMissingSupabase, strings.serviceDetailNotFound]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -98,13 +102,13 @@ export default function AdminManageContentServiceDetailScreen() {
     return () => clearTimeout(timeoutId);
   }, [loadService]);
 
-  const title = useMemo(() => (context === "home" ? "Thiết lập dịch vụ Home" : "Thiết lập dịch vụ Explore"), [context]);
+  const title = useMemo(() => (context === "home" ? strings.serviceDetailHomeTitle : strings.serviceDetailExploreTitle), [context, strings.serviceDetailExploreTitle, strings.serviceDetailHomeTitle]);
 
   async function pickAndUploadImage() {
     if (!form) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện ảnh để tải ảnh.");
+      Alert.alert(strings.serviceDetailPermissionTitle, strings.serviceDetailPermissionBody);
       return;
     }
 
@@ -120,10 +124,10 @@ export default function AdminManageContentServiceDetailScreen() {
       const uploaded = await uploadPickedAdminContentImage(result.assets[0], {
         folder: "storefront",
         baseName: form.name || "service",
-      });
+      }, locale);
       setForm((current) => (current ? { ...current, imageUrl: uploaded.publicUrl } : current));
     } catch (nextError) {
-      Alert.alert("Không tải được ảnh", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.serviceDetailImageFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     }
   }
 
@@ -147,74 +151,74 @@ export default function AdminManageContentServiceDetailScreen() {
       });
       dismissToHref(router, backHref);
     } catch (nextError) {
-      Alert.alert("Không lưu được dịch vụ", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.serviceDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <ManageScreenShell title={title} subtitle="Mở từ màn trước và có thể vuốt để quay lại." currentKey="content" group="setup" backHref={backHref} showTabs={false} showBottomDock={false}>
+    <ManageScreenShell title={title} subtitle={strings.serviceDetailSubtitle} currentKey="content" group="setup" backHref={backHref} showTabs={false} showBottomDock={false}>
       <View style={styles.sectionCard}>
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải dịch vụ...</Text>
+            <Text style={styles.stateText}>{strings.serviceDetailLoading}</Text>
           </View>
         ) : error || !form ? (
           <View style={styles.stateCard}>
-            <Text style={styles.errorText}>{error ?? "Không có dữ liệu dịch vụ."}</Text>
+            <Text style={styles.errorText}>{error ?? strings.serviceDetailEmpty}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadService()}>
-              <Text style={styles.retryButtonText}>Tải lại</Text>
+              <Text style={styles.retryButtonText}>{strings.serviceDetailRetry}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.formColumn}>
             <View style={styles.headerBlock}>
-              <Text style={styles.eyebrow}>Mẫu dịch vụ</Text>
+              <Text style={styles.eyebrow}>{strings.serviceDetailTemplateLabel}</Text>
               <Text style={styles.serviceName}>{form.name}</Text>
             </View>
             {form.imageUrl ? <CachedAppImage source={{ uri: form.imageUrl }} style={styles.previewImage} alt={form.name} /> : null}
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Mô tả ngắn</Text>
-              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Thiết kế đính charm nhỏ gọn, hợp chụp ảnh." placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.shortDescription} onChangeText={(value) => setForm((current) => (current ? { ...current, shortDescription: value } : current))} />
+              <Text style={styles.label}>{strings.serviceDetailShortDescriptionLabel}</Text>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.serviceDetailShortDescriptionPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.shortDescription} onChangeText={(value) => setForm((current) => (current ? { ...current, shortDescription: value } : current))} />
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Ảnh dịch vụ</Text>
+              <Text style={styles.label}>{strings.serviceDetailImageLabel}</Text>
               <View style={styles.inlineRow}>
-                <AdminKeyboardTextInput placeholder="https://..." placeholderTextColor="#B4A89C" style={[styles.input, styles.flexInput]} value={form.imageUrl} onChangeText={(value) => setForm((current) => (current ? { ...current, imageUrl: value } : current))} />
+                <AdminKeyboardTextInput placeholder={strings.serviceDetailImagePlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.flexInput]} value={form.imageUrl} onChangeText={(value) => setForm((current) => (current ? { ...current, imageUrl: value } : current))} />
                 <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage()}>
                   <Feather name="upload" size={18} color={palette.accent} />
-                  <Text style={styles.secondaryButtonText}>Tải ảnh</Text>
+                  <Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text>
                 </Pressable>
               </View>
             </View>
             <View style={styles.inlineRow}>
               <View style={[styles.fieldBlock, styles.flexBlock]}>
-                <Text style={styles.label}>Nhãn thời lượng</Text>
-                <AdminKeyboardTextInput placeholder="75 phút" placeholderTextColor="#B4A89C" style={styles.input} value={form.durationLabel} onChangeText={(value) => setForm((current) => (current ? { ...current, durationLabel: value } : current))} />
+                <Text style={styles.label}>{strings.serviceDetailDurationLabel}</Text>
+                <AdminKeyboardTextInput placeholder={strings.serviceDetailDurationPlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.durationLabel} onChangeText={(value) => setForm((current) => (current ? { ...current, durationLabel: value } : current))} />
               </View>
               <View style={[styles.fieldBlock, styles.flexBlock]}>
-                <Text style={styles.label}>Thứ tự Explore</Text>
-                <AdminKeyboardTextInput placeholder="0" placeholderTextColor="#B4A89C" keyboardType="number-pad" style={styles.input} value={form.displayOrderExplore} onChangeText={(value) => setForm((current) => (current ? { ...current, displayOrderExplore: value } : current))} />
+                <Text style={styles.label}>{strings.serviceDetailDisplayOrderExploreLabel}</Text>
+                <AdminKeyboardTextInput placeholder={strings.serviceDetailDisplayOrderPlaceholder} placeholderTextColor="#B4A89C" keyboardType="number-pad" style={styles.input} value={form.displayOrderExplore} onChangeText={(value) => setForm((current) => (current ? { ...current, displayOrderExplore: value } : current))} />
               </View>
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Metadata lookbook</Text>
-              <AdminKeyboardTextInput placeholder="Nhóm lookbook" placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookCategory} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookCategory: value } : current))} />
-              <AdminKeyboardTextInput placeholder="Nhãn lookbook" placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookBadge} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookBadge: value } : current))} />
-              <AdminKeyboardTextInput placeholder="Tone lookbook" placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookTone} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookTone: value } : current))} />
+              <Text style={styles.label}>{strings.serviceDetailLookbookLabel}</Text>
+              <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookCategoryPlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookCategory} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookCategory: value } : current))} />
+              <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookBadgePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookBadge} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookBadge: value } : current))} />
+              <AdminKeyboardTextInput placeholder={strings.serviceDetailLookbookTonePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.lookbookTone} onChangeText={(value) => setForm((current) => (current ? { ...current, lookbookTone: value } : current))} />
             </View>
             <View style={styles.toggleRow}>
               <Pressable style={[styles.toggleChip, form.featuredInExplore ? styles.toggleChipActive : null]} onPress={() => setForm((current) => (current ? { ...current, featuredInExplore: !current.featuredInExplore } : current))}>
-                <Text style={[styles.toggleText, form.featuredInExplore ? styles.toggleTextActive : null]}>Nổi bật ở Explore</Text>
+                <Text style={[styles.toggleText, form.featuredInExplore ? styles.toggleTextActive : null]}>{strings.serviceDetailFeaturedExplore}</Text>
               </Pressable>
               <Pressable style={[styles.toggleChip, form.featuredInHome ? styles.toggleChipActive : null]} onPress={() => setForm((current) => (current ? { ...current, featuredInHome: !current.featuredInHome } : current))}>
-                <Text style={[styles.toggleText, form.featuredInHome ? styles.toggleTextActive : null]}>Nổi bật ở Home</Text>
+                <Text style={[styles.toggleText, form.featuredInHome ? styles.toggleTextActive : null]}>{strings.serviceDetailFeaturedHome}</Text>
               </Pressable>
             </View>
             <Pressable style={styles.primaryButton} onPress={() => void handleSave()} disabled={isSaving}>
-              <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu thay đổi"}</Text>
+              <Text style={styles.primaryButtonText}>{isSaving ? strings.serviceDetailSavingButton : strings.serviceDetailSaveButton}</Text>
             </Pressable>
           </View>
         )}

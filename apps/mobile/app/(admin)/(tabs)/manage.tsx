@@ -2,6 +2,7 @@ import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { AdminObserverScopeSwitcher } from "@/src/features/admin/observer-scope-switcher";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { filterManageScreenItemsForRole, MANAGE_SCREEN_ITEMS } from "@/src/features/admin/manage";
 import { ManageHubCard, useManageOwnerGuard } from "@/src/features/admin/manage-ui";
 import { getAdminNavHref, type AdminNavTarget } from "@/src/features/admin/navigation";
@@ -22,6 +23,7 @@ export default function AdminManageHubScreen() {
   const router = useRouter();
   const { isHydrated, allowed, role } = useManageOwnerGuard();
   const observer = useAdminObserverScope();
+  const strings = useAdminStrings();
 
   if (!isHydrated || !allowed) {
     return <View style={styles.screen} />;
@@ -38,9 +40,9 @@ export default function AdminManageHubScreen() {
           <View style={styles.headerCopy}>
             <View style={styles.heroBadge}>
               <Feather name="shield" size={14} color={palette.accent} />
-              <Text style={styles.heroBadgeText}>Admin only</Text>
+              <Text style={styles.heroBadgeText}>{strings.manageHubBadge}</Text>
             </View>
-            <Text style={styles.headerTitle}>Quản lý</Text>
+            <Text style={styles.headerTitle}>{strings.manageHubTitle}</Text>
           </View>
           <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
@@ -54,8 +56,8 @@ export default function AdminManageHubScreen() {
           />
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Thiết lập vận hành</Text>
-            <Text style={styles.sectionSubtitle}>Nhóm màn hình Dịch vụ, Tài nguyên, Nhân sự và Lịch làm việc cho vận hành.</Text>
+            <Text style={styles.sectionTitle}>{strings.manageHubSetupTitle}</Text>
+            <Text style={styles.sectionSubtitle}>{strings.manageHubSetupSubtitle}</Text>
             <View style={styles.cardColumn}>
               {setupItems.map((item) => (
                 <ManageHubCard key={item.key} item={item} />
@@ -64,8 +66,8 @@ export default function AdminManageHubScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Khách hàng và báo cáo</Text>
-            <Text style={styles.sectionSubtitle}>Nhóm màn hình CRM khách, Báo cáo và Sổ thuế.</Text>
+            <Text style={styles.sectionTitle}>{strings.manageHubInsightsTitle}</Text>
+            <Text style={styles.sectionSubtitle}>{strings.manageHubInsightsSubtitle}</Text>
             <View style={styles.cardColumn}>
               {insightItems.map((item) => (
                 <ManageHubCard key={item.key} item={item} />

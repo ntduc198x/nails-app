@@ -1,16 +1,38 @@
 import { Redirect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
-import { isCustomerRole } from "@nails/shared";
+import { normalizeLocale, translate, isCustomerRole, type Locale, type TranslationKey } from "@nails/shared";
 import { useSession } from "@/src/providers/session-provider";
+
+const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
 export default function IndexScreen() {
   const { error, isHydrated, role } = useSession();
+  const [locale, setLocale] = useState<Locale>("vi");
+  const t = useMemo(
+    () => (key: TranslationKey<"customer">) => translate(locale, "customer", key),
+    [locale],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const stored = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
+      if (mounted) {
+        setLocale(normalizeLocale(stored));
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   if (!isHydrated) {
     return (
       <View style={styles.container}>
         <ActivityIndicator color="#2f241d" />
-        <Text style={styles.label}>Đang khởi tạo mobile session...</Text>
+        <Text style={styles.label}>{t("appBootLoading")}</Text>
       </View>
     );
   }
@@ -18,9 +40,9 @@ export default function IndexScreen() {
   if (error) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorTitle}>Mobile session gặp lỗi</Text>
+        <Text style={styles.errorTitle}>{t("appBootErrorTitle")}</Text>
         <Text style={styles.errorText}>{error}</Text>
-        <Text style={styles.label}>Vui lòng đăng nhập lại để tiếp tục.</Text>
+        <Text style={styles.label}>{t("appBootErrorRetry")}</Text>
         <Redirect href="/sign-in" />
       </View>
     );

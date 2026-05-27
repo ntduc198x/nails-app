@@ -1,3 +1,4 @@
+import type { LocalizedTextValue } from "./localization";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppRole } from "./auth";
 
@@ -18,6 +19,7 @@ export type ObserverScopeInput = {
 export type OrgBranchSummary = {
   id: string;
   name: string;
+  translations: LocalizedTextValue | null;
 };
 
 export type MobileAdminViewContext = {
@@ -205,19 +207,44 @@ async function getCurrentOrgRole(
 }
 
 async function listOrgBranches(client: SharedSupabaseClient, orgId: string): Promise<OrgBranchSummary[]> {
-  const { data, error } = await client
+  const response = await client
     .from("branches")
-    .select("id,name")
+    .select("id,name,translations")
     .eq("org_id", orgId)
     .order("created_at", { ascending: true });
 
-  if (error) {
-    throw error;
+  if (response.error) {
+    const message = response.error.message || "";
+    const missingTranslationsColumn =
+      response.error.code === "42703" ||
+      message.includes("branches.translations") ||
+      message.includes("column translations does not exist");
+
+    if (!missingTranslationsColumn) {
+      throw response.error;
+    }
+
+    const fallback = await client
+      .from("branches")
+      .select("id,name")
+      .eq("org_id", orgId)
+      .order("created_at", { ascending: true });
+
+    if (fallback.error) {
+      throw fallback.error;
+    }
+
+    return (fallback.data ?? []).map((row) => ({
+      id: String(row.id ?? ""),
+      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Branch",
+      translations: null,
+    }));
   }
 
-  return (data ?? []).map((row) => ({
+  return (response.data ?? []).map((row) => ({
     id: String(row.id ?? ""),
-    name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Chi nhánh",
+    name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Branch",
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   }));
 }
 
@@ -261,7 +288,7 @@ export async function resolveMobileAdminViewContext(
 
   const viewBranchId = observerScope.mode === "branch" ? observerScope.branchId ?? workingBranchId : null;
   const branchName = viewBranchId ? branches.find((branch) => branch.id === viewBranchId)?.name ?? null : null;
-  const scopeLabel = observerScope.mode === "org" ? "Toàn công ty" : branchName ?? "Chi nhánh";
+  const scopeLabel = observerScope.mode === "org" ? "org" : branchName ?? "branch";
 
   return {
     orgId,

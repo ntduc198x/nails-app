@@ -36,6 +36,7 @@ import {
   saveStaffShiftProfile,
   type StaffShiftProfileRecord,
 } from "@/src/features/admin/shifts/data";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useSession } from "@/src/providers/session-provider";
@@ -44,20 +45,6 @@ const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
 const teamSortOrder: AppRole[] = ["TECH", "ACCOUNTANT", "RECEPTION", "MANAGER", "PARTNER", "OWNER"];
 const specialTeamRoles: AppRole[] = ["OWNER", "PARTNER"];
 const shiftTypeSortOrder: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
-const shiftTypeOptions: Array<{ value: ShiftType; label: string }> = [
-  { value: "MORNING", label: "Ca sáng" },
-  { value: "AFTERNOON", label: "Ca chiều" },
-  { value: "FULL_DAY", label: "Ca full" },
-];
-const weekdayOptions = [
-  { value: 1, label: "Thứ 2" },
-  { value: 2, label: "Thứ 3" },
-  { value: 3, label: "Thứ 4" },
-  { value: 4, label: "Thứ 5" },
-  { value: 5, label: "Thứ 6" },
-  { value: 6, label: "Thứ 7" },
-  { value: 0, label: "Chủ nhật" },
-] as const;
 
 const palette = {
   border: "#EADFD3",
@@ -199,6 +186,7 @@ function RoleChip({
 }
 
 export default function AdminManageTeamScreen() {
+  const strings = useAdminStrings();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const { role: currentRole } = useSession();
   const observer = useAdminObserverScope();
@@ -223,10 +211,31 @@ export default function AdminManageTeamScreen() {
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const shiftTypeOptions: Array<{ value: ShiftType; label: string }> = useMemo(
+    () => [
+      { value: "MORNING", label: strings.manageTeamShiftMorning },
+      { value: "AFTERNOON", label: strings.manageTeamShiftAfternoon },
+      { value: "FULL_DAY", label: strings.manageTeamShiftFullDay },
+    ],
+    [strings],
+  );
+  const weekdayOptions = useMemo(
+    () =>
+      [
+        { value: 1, label: strings.manageTeamWeekdayMonday },
+        { value: 2, label: strings.manageTeamWeekdayTuesday },
+        { value: 3, label: strings.manageTeamWeekdayWednesday },
+        { value: 4, label: strings.manageTeamWeekdayThursday },
+        { value: 5, label: strings.manageTeamWeekdayFriday },
+        { value: 6, label: strings.manageTeamWeekdaySaturday },
+        { value: 0, label: strings.manageTeamWeekdaySunday },
+      ] as const,
+    [strings],
+  );
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageTeamMissingSupabase);
       setLoading(false);
       return;
     }
@@ -275,12 +284,12 @@ export default function AdminManageTeamScreen() {
       setRoleDrafts({});
       setProfileDrafts({});
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu nhân sự.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamLoadFailed);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canManageProfiles, observer.observerScope, rows.length]);
+  }, [canManageProfiles, observer.observerScope, rows.length, strings]);
 
   useEffect(() => {
     if (!observer.isReady) return;
@@ -371,7 +380,7 @@ export default function AdminManageTeamScreen() {
   async function saveShiftProfile(member: TeamMemberRow) {
     if (!mobileSupabase || !canManageProfiles || profileSchemaMissing || profileBusyUserId) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật cấu hình nhân sự.");
+      setError(strings.manageTeamObserverProfileBlocked);
       return;
     }
     const nextProfile = getWorkingShiftProfile(member);
@@ -388,7 +397,7 @@ export default function AdminManageTeamScreen() {
         return next;
       });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Cập nhật kỹ năng và khung giờ thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamSaveProfileFailed);
     } finally {
       setProfileBusyUserId(null);
     }
@@ -397,7 +406,7 @@ export default function AdminManageTeamScreen() {
   async function createInvite() {
     if (!mobileSupabase || inviteBusy) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để tạo mã mời.");
+      setError(strings.manageTeamObserverInviteCreateBlocked);
       return;
     }
     try {
@@ -406,7 +415,7 @@ export default function AdminManageTeamScreen() {
       const invite = await generateTeamInviteCodeForMobile(mobileSupabase, inviteRole);
       setInviteRows((prev) => [invite, ...prev].slice(0, 20));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Tạo mã mời thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamCreateInviteFailed);
     } finally {
       setInviteBusy(false);
     }
@@ -415,7 +424,7 @@ export default function AdminManageTeamScreen() {
   async function revokeInvite(inviteId: string) {
     if (!mobileSupabase) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thu hồi mã mời.");
+      setError(strings.manageTeamObserverInviteRevokeBlocked);
       return;
     }
     try {
@@ -423,14 +432,14 @@ export default function AdminManageTeamScreen() {
       await revokeTeamInviteCodeForMobile(mobileSupabase, inviteId);
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Thu hồi mã mời thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamRevokeInviteFailed);
     }
   }
 
   async function saveName(userId: string) {
     if (!mobileSupabase || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật nhân sự.");
+      setError(strings.manageTeamObserverMemberUpdateBlocked);
       return;
     }
     try {
@@ -443,7 +452,7 @@ export default function AdminManageTeamScreen() {
       setEditingUserId(null);
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Cập nhật tên thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamSaveNameFailed);
     } finally {
       setSubmitting(false);
     }
@@ -452,7 +461,7 @@ export default function AdminManageTeamScreen() {
   async function saveRole(rowId: string) {
     if (!mobileSupabase || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật vai trò.");
+      setError(strings.manageTeamObserverRoleUpdateBlocked);
       return;
     }
     const current = rows.find((row) => row.id === rowId);
@@ -470,7 +479,7 @@ export default function AdminManageTeamScreen() {
       });
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Cập nhật vai trò thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTeamSaveRoleFailed);
     } finally {
       setSubmitting(false);
     }
@@ -484,28 +493,28 @@ export default function AdminManageTeamScreen() {
 
   return (
     <ManageScreenShell
-      title="Nhân sự"
-      subtitle="Quản lý vai trò, mã mời và danh sách nhân sự nội bộ."
+      title={strings.manageTeamTitle}
+      subtitle={strings.manageTeamSubtitle}
       currentKey="team"
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
       observerReadOnly={observerReadOnly}
-      observerReadOnlyMessage="Đang quan sát dữ liệu nhân sự theo scope đã chọn. Các thao tác mời, đổi vai trò và chỉnh cấu hình chỉ mở ở chi nhánh làm việc."
+      observerReadOnlyMessage={strings.manageTeamObserverReadonlyMessage}
     >
       <View style={styles.summaryCard}>
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="bar-chart-2" size={16} color={palette.sub} />
-            <Text style={styles.sectionTitle}>Tổng quan</Text>
+            <Text style={styles.sectionTitle}>{strings.manageTeamSummaryTitle}</Text>
           </View>
         </View>
         <View style={styles.metricGrid}>
-          <MetricCard icon="users" iconColor={palette.red} iconSoft={palette.redSoft} label="Tổng quan nhân sự" value={rows.length} />
-          <MetricCard icon="shield" iconColor={palette.success} iconSoft={palette.successSoft} label="Quản lý" value={roleStats.get("MANAGER") ?? 0} />
-          <MetricCard icon="user" iconColor={palette.warning} iconSoft={palette.warningSoft} label="Lễ tân" value={roleStats.get("RECEPTION") ?? 0} />
-          <MetricCard icon="credit-card" iconColor={palette.info} iconSoft={palette.infoSoft} label="Kế toán" value={roleStats.get("ACCOUNTANT") ?? 0} />
-          <MetricCard icon="scissors" iconColor="#5B9BD5" iconSoft="#EEF8FF" label="Kỹ thuật viên" value={roleStats.get("TECH") ?? 0} />
+          <MetricCard icon="users" iconColor={palette.red} iconSoft={palette.redSoft} label={strings.manageTeamMetricTotal} value={rows.length} />
+          <MetricCard icon="shield" iconColor={palette.success} iconSoft={palette.successSoft} label={strings.manageTeamMetricManager} value={roleStats.get("MANAGER") ?? 0} />
+          <MetricCard icon="user" iconColor={palette.warning} iconSoft={palette.warningSoft} label={strings.manageTeamMetricReception} value={roleStats.get("RECEPTION") ?? 0} />
+          <MetricCard icon="credit-card" iconColor={palette.info} iconSoft={palette.infoSoft} label={strings.manageTeamMetricAccountant} value={roleStats.get("ACCOUNTANT") ?? 0} />
+          <MetricCard icon="scissors" iconColor="#5B9BD5" iconSoft="#EEF8FF" label={strings.manageTeamMetricTech} value={roleStats.get("TECH") ?? 0} />
         </View>
       </View>
 
@@ -513,12 +522,12 @@ export default function AdminManageTeamScreen() {
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="plus-circle" size={16} color={palette.accent} />
-            <Text style={styles.sectionTitle}>Thêm nhân sự mới</Text>
+            <Text style={styles.sectionTitle}>{strings.manageTeamCreateTitle}</Text>
           </View>
-          {(refreshing || loading) ? <ActivityIndicator size="small" color={palette.accent} /> : <Text style={styles.ownerOnlyText}>Chỉ BOSS mới quản lý</Text>}
+          {(refreshing || loading) ? <ActivityIndicator size="small" color={palette.accent} /> : <Text style={styles.ownerOnlyText}>{strings.manageTeamOwnerOnlyText}</Text>}
         </View>
 
-        <Text style={styles.fieldLabel}>Vai trò</Text>
+        <Text style={styles.fieldLabel}>{strings.manageTeamRoleLabel}</Text>
         <View style={styles.roleChipRow}>
           {roleOptions.map((role) => (
             <RoleChip
@@ -532,24 +541,24 @@ export default function AdminManageTeamScreen() {
 
         <Pressable disabled={inviteBusy} style={[styles.primaryButton, inviteBusy ? styles.primaryButtonDisabled : null]} onPress={() => void createInvite()}>
           <Feather name="plus" size={15} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>{inviteBusy ? "Đang tạo..." : "Tạo mới"}</Text>
+          <Text style={styles.primaryButtonText}>{inviteBusy ? strings.manageTeamCreating : strings.manageTeamCreateButton}</Text>
         </Pressable>
 
         {latestInvite ? (
           <View style={styles.inviteInfoCard}>
             <Text style={styles.inviteCodeLabel}>{getRoleLabel(latestInvite.allowedRole)}</Text>
             <Text style={styles.inviteCodeValue}>{latestInvite.code}</Text>
-            <Text style={styles.inviteMeta}>Hết hạn: {new Date(latestInvite.expiresAt).toLocaleString("vi-VN")}</Text>
+            <Text style={styles.inviteMeta}>{strings.manageTeamInviteExpiresPrefix}: {new Date(latestInvite.expiresAt).toLocaleString("vi-VN")}</Text>
             <Pressable style={styles.revokeButton} onPress={() => void revokeInvite(latestInvite.id)}>
-              <Text style={styles.revokeButtonText}>Thu hồi mã mới nhất</Text>
+              <Text style={styles.revokeButtonText}>{strings.manageTeamRevokeLatestInvite}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.emptyInviteNote}>
             <Feather name="sun" size={15} color="#A7988A" />
             <View style={styles.emptyInviteCopy}>
-              <Text style={styles.emptyInviteTitle}>Chưa có nhân sự nào gần đây</Text>
-              <Text style={styles.emptyInviteSubtitle}>Tạo nhân sự mới để thêm nhân sự vào hệ thống.</Text>
+              <Text style={styles.emptyInviteTitle}>{strings.manageTeamInviteEmptyTitle}</Text>
+              <Text style={styles.emptyInviteSubtitle}>{strings.manageTeamInviteEmptySubtitle}</Text>
             </View>
           </View>
         )}
@@ -566,7 +575,7 @@ export default function AdminManageTeamScreen() {
         <View style={styles.errorCard}>
           <Feather name="alert-triangle" size={16} color={palette.warning} />
           <Text style={[styles.errorText, { color: palette.warning }]}>
-            Thiếu bảng `staff_shift_profiles`, hiện chưa thể cấu hình kỹ năng và khung giờ làm cho nhân sự.
+            {strings.manageTeamProfileSchemaMissing}
           </Text>
         </View>
       ) : null}
@@ -575,22 +584,22 @@ export default function AdminManageTeamScreen() {
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="users" size={16} color={palette.sub} />
-            <Text style={styles.sectionTitle}>Danh sách nhân sự</Text>
+            <Text style={styles.sectionTitle}>{strings.manageTeamListTitle}</Text>
           </View>
-          <Text style={styles.countPill}>{filteredRows.length} nhân sự</Text>
+          <Text style={styles.countPill}>{filteredRows.length} {strings.manageTeamCountSuffix}</Text>
         </View>
 
-        <Input value={search} onChangeText={setSearch} placeholder="Tìm theo tên, user hoặc vai trò" />
+        <Input value={search} onChangeText={setSearch} placeholder={strings.manageTeamSearchPlaceholder} />
 
         {loading ? (
           <View style={styles.emptyState}>
             <ActivityIndicator size="small" color={palette.accent} />
-            <Text style={styles.emptyText}>Đang tải nhân sự...</Text>
+            <Text style={styles.emptyText}>{strings.manageTeamLoading}</Text>
           </View>
         ) : filteredRows.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>
-              {rows.length === 0 ? "Chưa có dữ liệu nhân sự." : "Không có nhân sự khớp bộ lọc hiện tại."}
+              {rows.length === 0 ? strings.manageTeamEmpty : strings.manageTeamEmptyFiltered}
             </Text>
           </View>
         ) : (
@@ -615,9 +624,9 @@ export default function AdminManageTeamScreen() {
                       <View style={[styles.avatar, { backgroundColor: colors.soft }]}>
                         <Feather name={roleIcon(member.role)} size={16} color={colors.text} />
                       </View>
-                      <View style={styles.memberCopy}>
+                        <View style={styles.memberCopy}>
                         {isEditingName ? (
-                          <Input value={editingName} onChangeText={setEditingName} placeholder="Tên nhân sự" style={styles.editNameInput} />
+                          <Input value={editingName} onChangeText={setEditingName} placeholder={strings.manageTeamNamePlaceholder} style={styles.editNameInput} />
                         ) : (
                           <Text style={styles.memberName}>{member.displayName}</Text>
                         )}
@@ -680,7 +689,7 @@ export default function AdminManageTeamScreen() {
 
                   {canEditShiftProfile ? (
                     <View style={styles.profileEditorCard}>
-                      <Text style={styles.editorSectionLabel}>Kỹ năng</Text>
+                      <Text style={styles.editorSectionLabel}>{strings.manageTeamSkillsLabel}</Text>
                       <View style={styles.roleDraftRow}>
                         {SERVICE_SKILL_OPTIONS.map((skill) => (
                           <RoleChip
@@ -692,7 +701,7 @@ export default function AdminManageTeamScreen() {
                         ))}
                       </View>
 
-                      <Text style={styles.editorSectionLabel}>Khung giờ có thể đi làm</Text>
+                      <Text style={styles.editorSectionLabel}>{strings.manageTeamAvailabilityLabel}</Text>
                       <View style={styles.availabilityList}>
                         {weekdayOptions.map((weekday) => {
                           const activeRule = shiftProfile.availability.find((rule) => rule.weekday === weekday.value);

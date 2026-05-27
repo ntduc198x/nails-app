@@ -6,6 +6,7 @@ import type { MobileAdminMerchService } from "@nails/shared";
 import { listAdminMerchServicesForMobile } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 
@@ -32,6 +33,7 @@ function ItemThumbnail({ uri, label }: { uri: string | null; label: string }) {
 
 export default function AdminManageContentExploreServicesScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
   const [query, setQuery] = useState("");
   const [services, setServices] = useState<MobileAdminMerchService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,7 +41,7 @@ export default function AdminManageContentExploreServicesScreen() {
 
   const loadServices = useCallback(async () => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Database mobile.");
+      setError(strings.contentImagesMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -50,11 +52,11 @@ export default function AdminManageContentExploreServicesScreen() {
       const next = await listAdminMerchServicesForMobile(mobileSupabase);
       setServices(next);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được dịch vụ.");
+      setError(nextError instanceof Error ? nextError.message : strings.exploreServicesLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [strings.contentImagesMissingSupabase, strings.exploreServicesLoadFailed]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -74,8 +76,8 @@ export default function AdminManageContentExploreServicesScreen() {
 
   return (
     <ManageScreenShell
-      title="Dịch vụ thường dự phòng"
-      subtitle="Dùng khi khu sản phẩm và phụ kiện chưa có dữ liệu."
+      title={strings.exploreServicesTitle}
+      subtitle={strings.exploreServicesSubtitle}
       currentKey="content"
       group="setup"
       backHref="/(admin)/(tabs)/manage-content"
@@ -88,7 +90,7 @@ export default function AdminManageContentExploreServicesScreen() {
         <View style={styles.searchShell}>
           <Feather name="search" size={18} color={palette.sub} />
           <AdminKeyboardTextInput
-            placeholder="Tìm dịch vụ thường cho Khám phá..."
+            placeholder={strings.exploreServicesSearchPlaceholder}
             placeholderTextColor="#B4A89C"
             style={styles.searchInput}
             value={query}
@@ -99,13 +101,13 @@ export default function AdminManageContentExploreServicesScreen() {
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải dịch vụ...</Text>
+            <Text style={styles.stateText}>{strings.exploreServicesLoading}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{error}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadServices()}>
-              <Text style={styles.retryButtonText}>Tải lại</Text>
+              <Text style={styles.retryButtonText}>{strings.exploreServicesRetry}</Text>
             </Pressable>
           </View>
         ) : (
@@ -129,13 +131,13 @@ export default function AdminManageContentExploreServicesScreen() {
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{service.name}</Text>
                   <Text numberOfLines={2} style={styles.rowSubtitle}>
-                    {service.priceLabel || "Chưa có giá"} · {service.durationLabel || "Chưa có thời lượng"}
+                    {service.priceLabel || strings.exploreServicesNoPrice} · {service.durationLabel || strings.exploreServicesNoDuration}
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#A7988A" />
               </Pressable>
             ))}
-            {!filteredServices.length ? <Text style={styles.emptyText}>Không có dịch vụ phù hợp.</Text> : null}
+            {!filteredServices.length ? <Text style={styles.emptyText}>{strings.exploreServicesEmpty}</Text> : null}
           </View>
         )}
       </View>

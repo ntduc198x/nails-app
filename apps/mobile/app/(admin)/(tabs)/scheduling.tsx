@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 
 const palette = {
@@ -23,33 +24,6 @@ const palette = {
 type SchedulingFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "OTHER";
 type SchedulingTab = "appointments" | "bookings";
 type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED";
-
-const FILTER_OPTIONS = [
-  { value: "ALL" as const, label: "Tất cả", icon: "grid" as const, accent: "#8a6346", accentSoft: "#f7ece2" },
-  { value: "BOOKED" as const, label: "Chờ check-in", icon: "clock" as const, accent: "#d6a243", accentSoft: "#fff4de" },
-  { value: "CHECKED_IN" as const, label: "Đang phục vụ", icon: "users" as const, accent: "#55a973", accentSoft: "#e8f8ee" },
-  { value: "DONE" as const, label: "Hoàn tất", icon: "check-circle" as const, accent: "#55a973", accentSoft: "#eaf7ed" },
-  { value: "OTHER" as const, label: "Khác", icon: "more-horizontal" as const, accent: "#8b97ad", accentSoft: "#eff3fa" },
-];
-
-const TAB_OPTIONS: Array<{
-  key: SchedulingTab;
-  label: string;
-  icon: React.ComponentProps<typeof Feather>["name"];
-  accent: string;
-  accentSoft: string;
-}> = [
-  { key: "appointments", label: "Lịch hẹn", icon: "calendar", accent: "#936347", accentSoft: "#f7f3ef" },
-  { key: "bookings", label: "Booking web", icon: "globe", accent: "#6f98dc", accentSoft: "#eef4ff" },
-];
-
-const STATUS_META = {
-  BOOKED: { label: "Chờ check-in", bg: "#e9f4ff", fg: "#2d95df" },
-  CHECKED_IN: { label: "Đang phục vụ", bg: "#e9f4ff", fg: "#2d95df" },
-  DONE: { label: "Hoàn tất", bg: "#eef6e8", fg: "#729952" },
-  CANCELLED: { label: "Đã hủy", bg: "#ffeceb", fg: "#df6f61" },
-  NO_SHOW: { label: "Không đến", bg: "#f4efea", fg: "#8b7c71" },
-} as const;
 
 const STATUS_WEIGHT: Record<string, number> = {
   CHECKED_IN: 0,
@@ -111,22 +85,25 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function getBookingStatusLabel(status: BookingStatusGroup) {
-  if (status === "NEW") return "Mới";
-  if (status === "EXPIRED_UNCONFIRMED") return "Không được xác nhận";
-  return "Cần dời lịch";
+function getBookingStatusLabel(
+  status: BookingStatusGroup,
+  strings: ReturnType<typeof useAdminStrings>,
+) {
+  if (status === "NEW") return strings.manageSchedulingBookingStatusNew;
+  if (status === "EXPIRED_UNCONFIRMED") return strings.manageSchedulingBookingStatusExpiredUnconfirmed;
+  return strings.manageSchedulingBookingStatusNeedsReschedule;
 }
 
-function getBookingSourceLabel(source: string | null) {
-  if (!source) return "Khách tự do";
-  if (source === "landing_page") return "Landing web";
-  if (source === "mobile_guest") return "Mobile guest";
+function getBookingSourceLabel(source: string | null, strings: ReturnType<typeof useAdminStrings>) {
+  if (!source) return strings.manageSchedulingBookingSourceWalkIn;
+  if (source === "landing_page") return strings.manageSchedulingBookingSourceWeb;
+  if (source === "mobile_guest") return strings.manageSchedulingBookingSourceMobileGuest;
   return source.replace(/_/g, " ");
 }
 
 function getMembershipTierLabel(tierName: string | null | undefined) {
   if (!tierName) return null;
-  return `Hạng thành viên: ${tierName}`;
+  return tierName;
 }
 
 function normalizePhone(raw: string | null | undefined) {
@@ -160,6 +137,7 @@ function getResourceAccent(index: number) {
 }
 
 export default function AdminSchedulingScreen() {
+  const strings = useAdminStrings();
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string; tab?: string; focusBookingId?: string; status?: string }>();
   const {
@@ -202,6 +180,39 @@ export default function AdminSchedulingScreen() {
   const observerReadOnly =
     observerViewContext?.observerScope.mode === "org" ||
     (observerViewContext?.viewBranchId != null && observerViewContext.viewBranchId !== observerViewContext.workingBranchId);
+  const FILTER_OPTIONS = useMemo(
+    () => [
+      { value: "ALL" as const, label: strings.manageSchedulingFilterAll, icon: "grid" as const, accent: "#8a6346", accentSoft: "#f7ece2" },
+      { value: "BOOKED" as const, label: strings.manageSchedulingFilterBooked, icon: "clock" as const, accent: "#d6a243", accentSoft: "#fff4de" },
+      { value: "CHECKED_IN" as const, label: strings.manageSchedulingFilterCheckedIn, icon: "users" as const, accent: "#55a973", accentSoft: "#e8f8ee" },
+      { value: "DONE" as const, label: strings.manageSchedulingFilterDone, icon: "check-circle" as const, accent: "#55a973", accentSoft: "#eaf7ed" },
+      { value: "OTHER" as const, label: strings.manageSchedulingFilterOther, icon: "more-horizontal" as const, accent: "#8b97ad", accentSoft: "#eff3fa" },
+    ],
+    [strings],
+  );
+  const TAB_OPTIONS: Array<{
+    key: SchedulingTab;
+    label: string;
+    icon: React.ComponentProps<typeof Feather>["name"];
+    accent: string;
+    accentSoft: string;
+  }> = useMemo(
+    () => [
+      { key: "appointments", label: strings.manageSchedulingTabAppointments, icon: "calendar", accent: "#936347", accentSoft: "#f7f3ef" },
+      { key: "bookings", label: strings.manageSchedulingTabBookings, icon: "globe", accent: "#6f98dc", accentSoft: "#eef4ff" },
+    ],
+    [strings],
+  );
+  const STATUS_META = useMemo(
+    () => ({
+      BOOKED: { label: strings.manageSchedulingStatusBooked, bg: "#e9f4ff", fg: "#2d95df" },
+      CHECKED_IN: { label: strings.manageSchedulingStatusCheckedIn, bg: "#e9f4ff", fg: "#2d95df" },
+      DONE: { label: strings.manageSchedulingStatusDone, bg: "#eef6e8", fg: "#729952" },
+      CANCELLED: { label: strings.manageSchedulingStatusCancelled, bg: "#ffeceb", fg: "#df6f61" },
+      NO_SHOW: { label: strings.manageSchedulingStatusNoShow, bg: "#f4efea", fg: "#8b7c71" },
+    }),
+    [strings],
+  );
   // Parse date input (dd/mm/yyyy)
   function parseDateInput(value: string) {
     const [dd, mm, yyyy] = value.split("/");
@@ -328,8 +339,8 @@ export default function AdminSchedulingScreen() {
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>Điều phối lịch</Text>
-            <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
+            <Text style={styles.title}>{strings.manageSchedulingTitle}</Text>
+            <Text style={styles.subtitle}>{strings.manageSchedulingSubtitle}</Text>
           </View>
 
           <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
@@ -363,14 +374,14 @@ export default function AdminSchedulingScreen() {
       >
         {observerReadOnly ? (
           <View style={styles.inlineNotice}>
-            <Text style={styles.inlineNoticeText}>Observer mode chỉ dùng để xem. Muốn tạo hoặc sửa lịch, hãy quay về chi nhánh làm việc hiện tại.</Text>
+            <Text style={styles.inlineNoticeText}>{strings.manageSchedulingObserverReadonly}</Text>
           </View>
         ) : null}
 
         <View style={[styles.header, styles.hiddenHeader]}>
           <View style={styles.headerCopy}>
-            <Text style={styles.title}>Điều phối lịch</Text>
-            <Text style={styles.subtitle}>Quản lý và điều phối lịch thợ dễ dàng</Text>
+            <Text style={styles.title}>{strings.manageSchedulingTitle}</Text>
+            <Text style={styles.subtitle}>{strings.manageSchedulingSubtitle}</Text>
           </View>
 
           <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
@@ -380,7 +391,7 @@ export default function AdminSchedulingScreen() {
           <Field
             icon="user"
             iconColor="#6f98dc"
-            placeholder="Nhập tên khách hàng"
+            placeholder={strings.manageSchedulingCustomerPlaceholder}
             shellStyle={styles.fieldFull}
             value={customerName}
             onChangeText={setCustomerName}
@@ -408,14 +419,14 @@ export default function AdminSchedulingScreen() {
             icon="users"
             iconColor="#9a78d6"
             keyboardType="number-pad"
-            placeholder="60 phút"
+            placeholder={strings.manageSchedulingDurationPlaceholder}
             shellStyle={styles.fieldDuration}
             value={durationMinutes}
             onChangeText={setDurationMinutes}
           />
 
           <View style={styles.sectionBlock}>
-            <Text style={styles.blockLabel}>Chọn thợ</Text>
+            <Text style={styles.blockLabel}>{strings.manageSchedulingStaffLabel}</Text>
             <View style={styles.optionWrap}>
               {staffOptions.map((staff, index) => {
                 const active = staffUserId === staff.userId;
@@ -439,7 +450,7 @@ export default function AdminSchedulingScreen() {
           </View>
 
           <View style={styles.sectionBlock}>
-            <Text style={styles.blockLabel}>Chọn tài nguyên</Text>
+            <Text style={styles.blockLabel}>{strings.manageSchedulingResourceLabel}</Text>
             <View style={styles.optionWrap}>
               {resourceOptions.map((resource, index) => {
                 const active = resourceId === resource.id;
@@ -463,7 +474,7 @@ export default function AdminSchedulingScreen() {
           </View>
 
           <Pressable disabled={mutating || observerReadOnly} onPress={() => void handleCreateAppointment()} style={[styles.primaryButton, observerReadOnly ? styles.primaryButtonDisabled : null]}>
-            <Text style={styles.primaryButtonText}>{mutating ? "Đang tạo..." : "Tạo lịch nhanh"}</Text>
+            <Text style={styles.primaryButtonText}>{mutating ? strings.manageSchedulingCreating : strings.manageSchedulingCreateQuick}</Text>
           </Pressable>
         </View>
 
@@ -530,13 +541,13 @@ export default function AdminSchedulingScreen() {
           <View style={styles.listWrap}>
             {activeTab === "appointments" && filteredAppointments.length === 0 ? (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyText}>{loading ? "Đang tải lịch..." : "Chưa có lịch phù hợp"}</Text>
+                <Text style={styles.emptyText}>{loading ? strings.manageSchedulingLoadingAppointments : strings.manageSchedulingEmptyAppointments}</Text>
               </View>
             ) : null}
 
             {activeTab === "bookings" && visibleBookingRequests.length === 0 ? (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyText}>{loading ? "Đang tải booking..." : "Chưa có booking web cần xử lý"}</Text>
+                <Text style={styles.emptyText}>{loading ? strings.manageSchedulingLoadingBookings : strings.manageSchedulingEmptyBookings}</Text>
               </View>
             ) : null}
 
@@ -590,10 +601,10 @@ export default function AdminSchedulingScreen() {
                       <View style={styles.bookingSectionHeader}>
                         <Text style={styles.bookingSectionTitle}>
                           {groupKey === "NEEDS_RESCHEDULE"
-                            ? "Cần dời lịch"
+                            ? strings.manageSchedulingBookingGroupNeedsReschedule
                             : groupKey === "EXPIRED_UNCONFIRMED"
-                              ? "Không được xác nhận"
-                              : "Booking mới"}
+                              ? strings.manageSchedulingBookingGroupExpiredUnconfirmed
+                              : strings.manageSchedulingBookingGroupNew}
                         </Text>
                         <Text style={styles.bookingSectionCount}>{rows.length}</Text>
                       </View>
@@ -640,27 +651,27 @@ export default function AdminSchedulingScreen() {
                                       },
                                     ]}
                                   >
-                                    {getBookingStatusLabel(groupKey)}
+                                    {getBookingStatusLabel(groupKey, strings)}
                                   </Text>
                                 </View>
                               </View>
                               <Text style={[styles.appointmentMeta, isFocusedBooking ? styles.appointmentMetaFocused : null]}>
-                                {dateTime.time} • {dateTime.date} • {getBookingSourceLabel(item.source)}
+                                {dateTime.time} • {dateTime.date} • {getBookingSourceLabel(item.source, strings)}
                               </Text>
-                              <Text style={styles.bookingDetailLine}>{item.requestedService ?? "Chua chon dich vu"}</Text>
+                              <Text style={styles.bookingDetailLine}>{item.requestedService ?? strings.manageSchedulingBookingNoService}</Text>
                               <Text style={styles.bookingDetailLine}>
                                 {item.customerPhone ?? "-"}
-                                {item.preferredStaff ? ` • Uu tien: ${item.preferredStaff}` : ""}
+                                {item.preferredStaff ? ` • ${strings.manageSchedulingBookingPreferredStaffPrefix} ${item.preferredStaff}` : ""}
                               </Text>
                               {crm ? (
                                 <Text style={styles.bookingCrmLine}>
-                                  CRM: {crm.customerStatus} • {crm.totalVisits} luot • {crm.totalSpend.toLocaleString("vi-VN")} VND
+                                  {strings.manageSchedulingBookingCrmPrefix} {crm.customerStatus} • {crm.totalVisits} {strings.manageSchedulingBookingVisitsUnit} • {crm.totalSpend.toLocaleString("vi-VN")} {strings.manageSchedulingBookingCurrencyCode}
                                 </Text>
                               ) : null}
-                              {membershipTierLabel ? <Text style={styles.bookingMembershipLine}>{membershipTierLabel}</Text> : null}
+                              {membershipTierLabel ? <Text style={styles.bookingMembershipLine}>{strings.manageSchedulingBookingMembershipPrefix} {membershipTierLabel}</Text> : null}
                               {item.note ? (
                                 <Text numberOfLines={2} style={styles.bookingNoteLine}>
-                                  Ghi chu: {item.note}
+                                  {strings.manageSchedulingBookingNotePrefix} {item.note}
                                 </Text>
                               ) : null}
                             </View>
@@ -681,10 +692,10 @@ export default function AdminSchedulingScreen() {
       <Modal visible={showDatePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn ngày</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Ngày</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerDay}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
                     <Pressable key={day} style={[styles.pickerItem, pickerDay === day && styles.pickerItemActive]} onPress={() => setPickerDay(day)}>
@@ -694,7 +705,7 @@ export default function AdminSchedulingScreen() {
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Tháng</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMonth}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                     <Pressable key={month} style={[styles.pickerItem, pickerMonth === month && styles.pickerItemActive]} onPress={() => setPickerMonth(month)}>
@@ -704,7 +715,7 @@ export default function AdminSchedulingScreen() {
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Năm</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerYear}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
                     <Pressable key={year} style={[styles.pickerItem, pickerYear === year && styles.pickerItemActive]} onPress={() => setPickerYear(year)}>
@@ -715,7 +726,7 @@ export default function AdminSchedulingScreen() {
               </View>
             </View>
             <Pressable style={styles.pickerConfirmButton} onPress={confirmDatePicker}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -725,10 +736,10 @@ export default function AdminSchedulingScreen() {
       <Modal visible={showTimePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn giờ</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Giờ</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerHour}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
                     <Pressable key={hour} style={[styles.pickerItem, pickerHour === hour && styles.pickerItemActive]} onPress={() => setPickerHour(hour)}>
@@ -738,7 +749,7 @@ export default function AdminSchedulingScreen() {
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Phút</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMinute}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {[0, 15, 30, 45].map((minute) => (
                     <Pressable key={minute} style={[styles.pickerItem, pickerMinute === minute && styles.pickerItemActive]} onPress={() => setPickerMinute(minute)}>
@@ -749,7 +760,7 @@ export default function AdminSchedulingScreen() {
               </View>
             </View>
             <Pressable style={styles.pickerConfirmButton} onPress={confirmTimePicker}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>

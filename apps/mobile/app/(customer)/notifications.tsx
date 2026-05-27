@@ -2,19 +2,17 @@ import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { type Locale, translate } from "@nails/shared";
+import { localizeNotificationItem } from "@/src/features/customer/localize";
 import { CustomerScreen, CustomerTopActions } from "@/src/features/customer/ui";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerNotifications } from "@/src/hooks/use-customer-notifications";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const { colors, radius } = premiumTheme;
 
-const FILTERS = [
-  { key: "Tất cả", label: "Tất cả", icon: "bell" },
-  { key: "Lịch hẹn", label: "Lịch hẹn", icon: "calendar" },
-  { key: "Cập nhật", label: "Cập nhật", icon: "layers" },
-] as const;
-
-type FilterKey = (typeof FILTERS)[number]["key"];
+type FilterKey = "all" | "appointments" | "updates";
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
 type NotificationItem = {
@@ -37,11 +35,11 @@ function normalizeVietnamese(value: string) {
 
 function normalizeGroup(value: string): FilterKey {
   const normalized = normalizeVietnamese(value);
-  if (normalized.includes("booking") || normalized.includes("lich")) return "Lịch hẹn";
-  return "Cập nhật";
+  if (normalized.includes("booking") || normalized.includes("lich")) return "appointments";
+  return "updates";
 }
 
-function formatTime(isoString: string): string {
+function formatTime(isoString: string, locale: Locale): string {
   if (!isoString) return "";
   const date = new Date(isoString);
   const now = new Date();
@@ -49,10 +47,10 @@ function formatTime(isoString: string): string {
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMins / 60);
 
-  if (diffMins < 1) return "Vừa xong";
-  if (diffMins < 60) return `${diffMins} phút trước`;
-  if (diffHours < 24) return `${diffHours} giờ trước`;
-  return date.toLocaleDateString("vi-VN");
+  if (diffMins < 1) return translate(locale, "customer", "notificationsLoadingNow");
+  if (diffMins < 60) return translate(locale, "customer", "minutesAgo", { count: diffMins });
+  if (diffHours < 24) return translate(locale, "customer", "hoursAgo", { count: diffHours });
+  return date.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN");
 }
 
 function getVisualFromType(type: string): { accent: string; icon: FeatherIconName; surface: string } {
@@ -73,24 +71,37 @@ function getVisualFromType(type: string): { accent: string; icon: FeatherIconNam
 }
 
 export default function NotificationsScreen() {
-  const [activeFilter, setActiveFilter] = useState<FilterKey>("Tất cả");
+  const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
   const { items: rawItems, isLoading, isRefreshing, refresh, markAsRead, markAllAsRead } = useCustomerNotifications(50);
+  const filters = useMemo(
+    () => [
+      { key: "all" as const, label: strings.notificationsFilterAll, icon: "bell" as const },
+      { key: "appointments" as const, label: strings.notificationsFilterAppointments, icon: "calendar" as const },
+      { key: "updates" as const, label: strings.notificationsFilterUpdates, icon: "layers" as const },
+    ],
+    [strings],
+  );
 
   const notifications: NotificationItem[] = useMemo(
-    () => rawItems.map((item) => ({
-      id: item.id,
-      title: item.title,
-      body: item.body,
-      created_at: item.createdAt,
-      type: item.type,
-      is_read: item.isRead,
-    })),
-    [rawItems],
+    () => rawItems.map((item) => {
+      const localized = localizeNotificationItem(locale, item);
+      return {
+        id: item.id,
+        title: localized.title,
+        body: localized.body,
+        created_at: item.createdAt,
+        type: item.type,
+        is_read: item.isRead,
+      };
+    }),
+    [locale, rawItems],
   );
 
   const items = useMemo(() => {
     if (notifications.length > 0) {
-      if (activeFilter === "Tất cả") return notifications;
+      if (activeFilter === "all") return notifications;
       return notifications.filter((item) => normalizeGroup(item.type) === activeFilter);
     }
     return [];
@@ -99,7 +110,7 @@ export default function NotificationsScreen() {
   return (
     <CustomerScreen
       hideHeader
-      title="Thông báo"
+      title={strings.notificationsTitle}
       contentContainerStyle={styles.content}
       onRefresh={() => void refresh()}
       refreshing={isRefreshing || isLoading}
@@ -116,14 +127,14 @@ export default function NotificationsScreen() {
         </Pressable>
         <View style={styles.headerCopy}>
           <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
-          <Text style={styles.pageTitle}>Thông báo</Text>
+          <Text style={styles.pageTitle}>{strings.notificationsTitle}</Text>
         </View>
 
         <CustomerTopActions />
       </View>
 
       <View style={styles.segmentWrap}>
-        {FILTERS.map((item) => {
+        {filters.map((item) => {
           const active = activeFilter === item.key;
 
           return (
@@ -143,13 +154,13 @@ export default function NotificationsScreen() {
 
       <View style={styles.list}>
         {isLoading ? (
-          <Text style={styles.emptyText}>Đang tải...</Text>
+          <Text style={styles.emptyText}>{strings.loading}</Text>
         ) : items.length === 0 ? (
-          <Text style={styles.emptyText}>Không có thông báo nào</Text>
+          <Text style={styles.emptyText}>{strings.noNotifications}</Text>
         ) : (
           items.map((item) => {
             const visual = getVisualFromType(item.type);
-            const content = { title: item.title, body: item.body, time: formatTime(item.created_at) };
+            const content = { title: item.title, body: item.body, time: formatTime(item.created_at, locale) };
 
             return (
               <Pressable
@@ -176,7 +187,7 @@ export default function NotificationsScreen() {
       <Pressable style={styles.readAllButton} onPress={() => void markAllAsRead()}>
         <View style={styles.readAllCopy}>
           <Feather color="#8d7d6f" name="inbox" size={15} />
-          <Text style={styles.readAllText}>Đánh dấu tất cả đã đọc</Text>
+          <Text style={styles.readAllText}>{strings.markAllRead}</Text>
         </View>
         <Feather color="#9c8c7d" name="chevron-right" size={18} />
       </Pressable>

@@ -2,27 +2,35 @@ import Feather from "@expo/vector-icons/Feather";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
-import { useCustomerStrings } from "@/src/features/customer/strings";
-import type { CustomerMembershipTier } from "@nails/shared";
+import {
+  localizeMembershipTier,
+  localizeOfferCard,
+  localizeUsageHint,
+} from "@/src/features/customer/localize";
+import { type CustomerStringKey, useCustomerStrings } from "@/src/features/customer/strings";
+import { formatDateLabel, formatMoneyVnd, translate, type CustomerMembershipTier, type Locale } from "@nails/shared";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const { colors, radius } = premiumTheme;
 
-function formatNumber(value: number) {
-  return value.toLocaleString("vi-VN");
+function formatNumber(value: number, locale: Locale) {
+  return value.toLocaleString(locale === "en" ? "en-US" : "vi-VN");
 }
 
-function formatDate(value: string | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString("vi-VN");
+function formatDate(value: string | null, locale: Locale) {
+  return formatDateLabel(value, locale) || null;
+}
+
+function t(locale: Locale, key: CustomerStringKey, params?: Record<string, string | number | null | undefined>) {
+  return translate(locale, "customer", key, params);
 }
 
 function buildHelperText(input: {
+  locale: Locale;
   hasMembership: boolean;
   hasTierData: boolean;
   currentTierName: string | null;
@@ -35,45 +43,72 @@ function buildHelperText(input: {
   remainingVisitsToNext: number;
   expiresAt: string | null;
 }) {
+  const orWord = t(input.locale, "conjunctionOr");
+  const spendLabel = (value: number) =>
+    t(input.locale, "membershipRequirementSpending", { amount: formatMoneyVnd(value, input.locale) });
+  const visitLabel = (value: number) =>
+    t(input.locale, "membershipRequirementQualifiedVisits", { count: formatNumber(value, input.locale) });
+
   if (!input.hasTierData) {
-    return "Bạn đang là thành viên thường. Dữ liệu quyền lợi đang được đồng bộ thêm.";
+    return t(input.locale, "membershipHelperNoTierData");
   }
 
   if (!input.hasMembership && input.nextTierName) {
     const parts: string[] = [];
     if (input.remainingSpentToNext > 0) {
-      parts.push(`${formatNumber(input.remainingSpentToNext)}đ chi tiêu`);
+      parts.push(spendLabel(input.remainingSpentToNext));
     }
     if (input.remainingVisitsToNext > 0) {
-      parts.push(`${formatNumber(input.remainingVisitsToNext)} lượt hẹn chuẩn`);
+      parts.push(visitLabel(input.remainingVisitsToNext));
     }
 
-    const guidance = parts.length ? `Còn ${parts.join(" hoặc ")} để lên ${input.nextTierName}.` : `Mục tiêu tiếp theo là ${input.nextTierName}.`;
-    return `Bạn đang ở hạng thành viên thường và có thể bắt đầu tích lũy để lên ${input.nextTierName}. ${guidance}`;
+    const guidance = parts.length
+      ? t(input.locale, "membershipGuidanceRemainingToTier", {
+          requirements: parts.join(` ${orWord} `),
+          tierName: input.nextTierName,
+        })
+      : t(input.locale, "membershipGuidanceNextTarget", { tierName: input.nextTierName });
+    return t(input.locale, "membershipHelperStandardTarget", {
+      tierName: input.nextTierName,
+      guidance,
+    });
   }
 
   if (input.nextTierName) {
     const parts: string[] = [];
     if (input.remainingSpentToNext > 0) {
-      parts.push(`${formatNumber(input.remainingSpentToNext)}đ chi tiêu`);
+      parts.push(spendLabel(input.remainingSpentToNext));
     }
     if (input.remainingVisitsToNext > 0) {
-      parts.push(`${formatNumber(input.remainingVisitsToNext)} lượt hẹn chuẩn`);
+      parts.push(visitLabel(input.remainingVisitsToNext));
     }
 
-    const guidance = parts.length ? `Còn ${parts.join(" hoặc ")} để lên ${input.nextTierName}.` : `Mục tiêu tiếp theo là ${input.nextTierName}.`;
-    return `Bạn đang ở hạng ${input.currentTierName ?? "hiện tại"}, có ${formatNumber(input.pointsBalance)} điểm, ${formatNumber(input.eligibleVisitsMinSpend)}/${formatNumber(input.totalVisits)} lượt hẹn chuẩn và ${formatNumber(input.totalSpent)}đ chi tiêu. ${guidance}`;
+    const guidance = parts.length
+      ? t(input.locale, "membershipGuidanceRemainingToTier", {
+          requirements: parts.join(` ${orWord} `),
+          tierName: input.nextTierName,
+        })
+      : t(input.locale, "membershipGuidanceNextTarget", { tierName: input.nextTierName });
+    return t(input.locale, "membershipHelperCurrentProgress", {
+      tierName: input.currentTierName ?? t(input.locale, "membershipBadgeCurrent").toLowerCase(),
+      points: formatNumber(input.pointsBalance, input.locale),
+      eligibleVisits: formatNumber(input.eligibleVisitsMinSpend, input.locale),
+      totalVisits: formatNumber(input.totalVisits, input.locale),
+      totalSpent: formatMoneyVnd(input.totalSpent, input.locale),
+      guidance,
+    });
   }
 
-  const expiresText = formatDate(input.expiresAt);
+  const expiresText = formatDate(input.expiresAt, input.locale);
   if (expiresText) {
-    return `Bạn đang ở hạng cao nhất. Quyền lợi hiện tại có hiệu lực đến ${expiresText}.`;
+    return t(input.locale, "membershipHelperHighestUntil", { expiresAt: expiresText });
   }
 
-  return `Bạn đang là thành viên và có thể tiếp tục tích lũy để mở thêm quyền lợi.`;
+  return t(input.locale, "membershipHelperKeepAccumulating");
 }
 
 function describeTierRequirements(tier: {
+  locale: Locale;
   spendingThreshold: number;
   visitThreshold: number;
   visitMinSpend?: number;
@@ -81,15 +116,22 @@ function describeTierRequirements(tier: {
   const parts: string[] = [];
 
   if (tier.spendingThreshold > 0) {
-    parts.push(`${formatNumber(tier.spendingThreshold)} chi tiêu`);
+    parts.push(t(tier.locale, "membershipRequirementThresholdSpending", { amount: formatMoneyVnd(tier.spendingThreshold, tier.locale) }));
   }
 
   if (tier.visitThreshold > 0) {
     const visitMinSpend = Math.max(0, tier.visitMinSpend ?? 300000);
-    parts.push(`${formatNumber(tier.visitThreshold)} lượt hẹn chuẩn (bill từ ${formatNumber(visitMinSpend)}đ)`);
+    parts.push(
+      t(tier.locale, "membershipRequirementThresholdVisits", {
+        count: formatNumber(tier.visitThreshold, tier.locale),
+        amount: formatMoneyVnd(visitMinSpend, tier.locale),
+      }),
+    );
   }
 
-  return parts.length ? parts.join(" hoặc ") : "điều kiện linh hoạt theo cửa hàng";
+  return parts.length
+    ? parts.join(` ${t(tier.locale, "conjunctionOr")} `)
+    : t(tier.locale, "membershipFlexibleRequirements");
 }
 
 function getTierGradient(tier: CustomerMembershipTier | null) {
@@ -130,17 +172,19 @@ function getTierIconName(tier: CustomerMembershipTier | null): React.ComponentPr
 }
 
 function getTierBadgeLabel(input: {
+  locale: Locale;
   tier: CustomerMembershipTier;
   currentTier: CustomerMembershipTier | null;
   nextTier: CustomerMembershipTier | null;
 }) {
-  if (input.currentTier?.id === input.tier.id) return "Hiện tại";
-  if (input.nextTier?.id === input.tier.id) return "Tiếp theo";
-  if (input.currentTier && input.tier.sortOrder < input.currentTier.sortOrder) return "Đã đạt";
-  return "Khóa";
+  if (input.currentTier?.id === input.tier.id) return t(input.locale, "membershipBadgeCurrent");
+  if (input.nextTier?.id === input.tier.id) return t(input.locale, "membershipBadgeNext");
+  if (input.currentTier && input.tier.sortOrder < input.currentTier.sortOrder) return t(input.locale, "membershipBadgeCompleted");
+  return t(input.locale, "membershipBadgeLocked");
 }
 
 function buildNextTierGuidance(input: {
+  locale: Locale;
   hasTierData: boolean;
   nextTier: {
     name: string;
@@ -153,11 +197,13 @@ function buildNextTierGuidance(input: {
   pointsBalance: number;
 }) {
   if (!input.hasTierData) {
-    return "Chưa có dữ liệu tier để tính mốc nâng hạng.";
+    return t(input.locale, "membershipNextGuidanceNoTierData");
   }
 
   if (!input.nextTier) {
-    return `Bạn đang có ${formatNumber(input.pointsBalance)} điểm và đã ở hạng cao nhất.`;
+    return t(input.locale, "membershipNextGuidanceHighest", {
+      points: formatNumber(input.pointsBalance, input.locale),
+    });
   }
 
   const remainingSpend = Math.max(0, input.nextTier.spendingThreshold - input.totalSpent);
@@ -165,45 +211,61 @@ function buildNextTierGuidance(input: {
   const milestones: string[] = [];
 
   if (input.nextTier.spendingThreshold > 0) {
-    milestones.push(`Chi tiêu tối thiểu ${formatNumber(input.nextTier.spendingThreshold)}đ`);
+    milestones.push(
+      t(input.locale, "membershipRequirementThresholdSpending", {
+        amount: formatMoneyVnd(input.nextTier.spendingThreshold, input.locale),
+      }),
+    );
   }
 
   if (input.nextTier.visitThreshold > 0) {
-    milestones.push(`${formatNumber(input.nextTier.visitThreshold)} lượt hẹn chuẩn (bill từ ${formatNumber(input.nextTier.visitMinSpend ?? 300000)}đ)`);
+    milestones.push(
+      t(input.locale, "membershipRequirementThresholdVisits", {
+        count: formatNumber(input.nextTier.visitThreshold, input.locale),
+        amount: formatMoneyVnd(input.nextTier.visitMinSpend ?? 300000, input.locale),
+      }),
+    );
   }
 
   const remainingParts: string[] = [];
   if (remainingSpend > 0) {
-    remainingParts.push(`${formatNumber(remainingSpend)}đ chi tiêu`);
+    remainingParts.push(t(input.locale, "membershipRequirementSpending", { amount: formatMoneyVnd(remainingSpend, input.locale) }));
   }
   if (remainingVisits > 0) {
-    remainingParts.push(`${formatNumber(remainingVisits)} lượt hẹn chuẩn`);
+    remainingParts.push(t(input.locale, "membershipRequirementQualifiedVisits", { count: formatNumber(remainingVisits, input.locale) }));
   }
 
-  return `Mốc ${input.nextTier.name}: ${milestones.join(" hoặc ")}. Hiện tại bạn có ${formatNumber(input.pointsBalance)} điểm và còn thiếu ${remainingParts.join(" hoặc ")}.`;
+  return t(input.locale, "membershipNextGuidanceWithTarget", {
+    tierName: input.nextTier.name,
+    milestones: milestones.join(` ${t(input.locale, "conjunctionOr")} `),
+    points: formatNumber(input.pointsBalance, input.locale),
+    requirements: remainingParts.join(` ${t(input.locale, "conjunctionOr")} `),
+  });
 }
 
 function buildTierMomentLine(tier: {
+  locale: Locale;
   name: string;
   code?: string;
 }) {
   switch ((tier.code || tier.name).toLowerCase()) {
     case "bronze":
-      return "Hạng khởi đầu dành cho khách mới bắt đầu tích lũy quyền lợi thành viên.";
+      return t(tier.locale, "membershipTierMomentBronze");
     case "silver":
-      return "Phù hợp với khách quay lại đều và bắt đầu nhận thêm ưu tiên.";
+      return t(tier.locale, "membershipTierMomentSilver");
     case "gold":
-      return "Dành cho khách thân thiết với quyền lợi rõ ràng và trải nghiệm tốt hơn.";
+      return t(tier.locale, "membershipTierMomentGold");
     case "platinum":
-      return "Hạng cao cấp với nhiều ưu tiên hơn trong lịch hẹn và quà tặng.";
+      return t(tier.locale, "membershipTierMomentPlatinum");
     case "diamond":
-      return "Hạng cao nhất với đặc quyền nổi bật và trải nghiệm chăm sóc ưu tiên.";
+      return t(tier.locale, "membershipTierMomentDiamond");
     default:
-      return "Mỗi hạng thành viên sẽ có quyền lợi và mức ưu tiên khác nhau.";
+      return t(tier.locale, "membershipTierMomentDefault");
   }
 }
 
 function buildTierPrivilegeLine(tier: {
+  locale: Locale;
   name: string;
   code?: string;
   perks: string[];
@@ -212,7 +274,7 @@ function buildTierPrivilegeLine(tier: {
     return tier.perks.join(", ");
   }
 
-  return "Ưu đãi của hạng này đang được hoàn thiện thêm.";
+  return t(tier.locale, "membershipTierPerksUpdating");
 }
 
 function getOfferCode(offer: { metadata?: Record<string, unknown> }) {
@@ -220,9 +282,11 @@ function getOfferCode(offer: { metadata?: Record<string, unknown> }) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function getOfferUsageHint(offer: { metadata?: Record<string, unknown> }) {
+function getOfferUsageHint(offer: { metadata?: Record<string, unknown> }, locale: Locale) {
   const value = offer.metadata?.usageHint;
-  return typeof value === "string" && value.trim() ? value.trim() : "Dùng khi đặt lịch hoặc báo trực tiếp cho cửa hàng để được áp dụng.";
+  return typeof value === "string" && value.trim()
+    ? localizeUsageHint(locale, value.trim()) ?? value.trim()
+    : t(locale, "membershipOfferUsageHintDefault");
 }
 
 function getOfferRedeemLabel(offer: { metadata?: Record<string, unknown> }) {
@@ -234,47 +298,50 @@ function isOfferDisabled(offer: { claimStatus?: string | null }) {
   return offer.claimStatus === "RESERVED" || offer.claimStatus === "REDEEMED" || offer.claimStatus === "EXPIRED";
 }
 
-function getOfferStatusLabel(offer: { claimStatus?: string | null }) {
+function getOfferStatusLabel(offer: { claimStatus?: string | null }, locale: Locale) {
   switch (offer.claimStatus) {
     case "RESERVED":
-      return "Đang giữ chỗ";
+      return t(locale, "statusReserved");
     case "REDEEMED":
-      return "Đã dùng";
+      return t(locale, "statusUsed");
     case "EXPIRED":
-      return "Hết hạn";
+      return t(locale, "statusExpired");
     case "CANCELLED":
-      return "Đã hủy";
+      return t(locale, "statusCancelled");
     default:
-      return "Sẵn sàng dùng";
+      return t(locale, "statusReadyToUse");
   }
 }
 
-function getOfferBookingCtaLabel(offer: { metadata?: Record<string, unknown> }) {
+function getOfferBookingCtaLabel(offer: { metadata?: Record<string, unknown> }, locale: Locale) {
   const value = offer.metadata?.bookingCtaLabel;
-  return typeof value === "string" && value.trim() ? value.trim() : "Dùng khi đặt lịch";
+  return typeof value === "string" && value.trim()
+    ? localizeUsageHint(locale, value.trim()) ?? value.trim()
+    : t(locale, "membershipOfferBookingCtaDefault");
 }
 
-function getOfferPackageLabel(offer: { metadata?: Record<string, unknown> }) {
+function getOfferPackageLabel(offer: { metadata?: Record<string, unknown> }, locale: Locale) {
   const packageTier = typeof offer.metadata?.packageTier === "string" ? offer.metadata.packageTier.trim().toUpperCase() : "REGULAR";
   switch (packageTier) {
     case "BRONZE":
-      return "Gói Bronze";
+      return t(locale, "membershipOfferPackageBronze");
     case "SILVER":
-      return "Gói Silver";
+      return t(locale, "membershipOfferPackageSilver");
     case "GOLD":
-      return "Gói Gold";
+      return t(locale, "membershipOfferPackageGold");
     case "PLATINUM":
-      return "Gói Platinum";
+      return t(locale, "membershipOfferPackagePlatinum");
     case "DIAMOND":
-      return "Gói Diamond";
+      return t(locale, "membershipOfferPackageDiamond");
     case "REGULAR":
     default:
-      return "Gói thành viên thường";
+      return t(locale, "membershipOfferPackageRegular");
   }
 }
 
 export default function MembershipScreen() {
   const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
   const [showUsageModal, setShowUsageModal] = useState(false);
   const [selectedTier, setSelectedTier] = useState<CustomerMembershipTier | null>(null);
@@ -299,15 +366,22 @@ export default function MembershipScreen() {
     remainingSpentToNext,
     remainingVisitsToNext,
   } = useCustomerMembership();
+  const currentTierLocalized = localizeMembershipTier(locale, currentTier);
+  const nextTierLocalized = localizeMembershipTier(locale, nextTier);
+  const tiersLocalized = tiers
+    .map((tier) => localizeMembershipTier(locale, tier))
+    .filter((tier): tier is CustomerMembershipTier => Boolean(tier));
+  const offersLocalized = offers.map((offer) => localizeOfferCard(locale, offer));
 
-  const hasTierData = tiers.length > 0;
-  const hasCurrentTierBadge = Boolean(currentTier);
-  const tierAccent = currentTier?.accentColor || "#efc26d";
+  const hasTierData = tiersLocalized.length > 0;
+  const hasCurrentTierBadge = Boolean(currentTierLocalized);
+  const tierAccent = currentTierLocalized?.accentColor || "#efc26d";
   const helperText = buildHelperText({
+    locale,
     hasMembership,
     hasTierData,
-    currentTierName: currentTier?.name ?? null,
-    nextTierName: nextTier?.name ?? null,
+    currentTierName: currentTierLocalized?.name ?? null,
+    nextTierName: nextTierLocalized?.name ?? null,
     pointsBalance,
     totalSpent,
     totalVisits,
@@ -318,51 +392,38 @@ export default function MembershipScreen() {
   });
   const progressWidth = `${Math.max(0, Math.min(progress, 1)) * 100}%` as `${number}%`;
   const nextTierGuidance = buildNextTierGuidance({
+    locale,
     hasTierData,
-    nextTier,
+    nextTier: nextTierLocalized,
     totalSpent,
     eligibleVisitsMinSpend,
     pointsBalance,
   });
   const milestoneSummary = !hasTierData
-    ? "Chưa có dữ liệu tier để hiển thị lộ trình nâng hạng."
-    : nextTier
-      ? `Mốc ${nextTier.name}: cần ${describeTierRequirements(nextTier)}.`
-      : "Bạn đang ở hạng cao nhất.";
-  const heroGradient = getTierGradient(currentTier);
-  const selectedTierBadge = selectedTier ? getTierBadgeLabel({ tier: selectedTier, currentTier, nextTier }) : null;
+    ? t(locale, "membershipMilestoneNoTierData")
+    : nextTierLocalized
+      ? t(locale, "membershipMilestoneNext", {
+          tierName: nextTierLocalized.name,
+          requirements: describeTierRequirements({ ...nextTierLocalized, locale }),
+        })
+      : t(locale, "membershipMilestoneHighest");
+  const heroGradient = getTierGradient(currentTierLocalized);
+  const selectedTierLocalized = selectedTier ? localizeMembershipTier(locale, selectedTier) : null;
+  const selectedTierBadge = selectedTierLocalized ? getTierBadgeLabel({ locale, tier: selectedTierLocalized, currentTier: currentTierLocalized, nextTier: nextTierLocalized }) : null;
   const selectedTierRemainingSpend = selectedTier ? Math.max(0, selectedTier.spendingThreshold - totalSpent) : 0;
-  const selectedTierEligibleVisits = selectedTier ? (eligibleVisitsByTierCode[selectedTier.code] ?? eligibleVisitsMinSpend) : 0;
+  const selectedTierEligibleVisits = selectedTierLocalized ? (eligibleVisitsByTierCode[selectedTierLocalized.code] ?? eligibleVisitsMinSpend) : 0;
   const selectedTierRemainingVisits = selectedTier ? Math.max(0, selectedTier.visitThreshold - selectedTierEligibleVisits) : 0;
-  const selectedTierState = selectedTier
-    ? currentTier?.id === selectedTier.id
+  const selectedTierState = selectedTierLocalized
+    ? currentTierLocalized?.id === selectedTierLocalized.id
       ? "current"
-      : nextTier?.id === selectedTier.id
+      : nextTierLocalized?.id === selectedTierLocalized.id
         ? "next"
-        : currentTier && selectedTier.sortOrder < currentTier.sortOrder
+        : currentTierLocalized && selectedTierLocalized.sortOrder < currentTierLocalized.sortOrder
           ? "completed"
           : "locked"
     : null;
-  const selectedTierIndex = selectedTier ? tiers.findIndex((tier) => tier.id === selectedTier.id) : -1;
-  const selectedTierPrevious = selectedTierIndex > 0 ? tiers[selectedTierIndex - 1] ?? null : null;
-
-  useEffect(() => {
-    console.log("[membership] tiers loaded", {
-      count: tiers.length,
-      tierIds: tiers.map((tier) => tier.id),
-      currentTierId: currentTier?.id ?? null,
-      nextTierId: nextTier?.id ?? null,
-    });
-  }, [currentTier?.id, nextTier?.id, tiers]);
-
-  useEffect(() => {
-    console.log("[membership] selectedTier changed", {
-      selectedTierId: selectedTier?.id ?? null,
-      selectedTierName: selectedTier?.name ?? null,
-      modalVisible: Boolean(selectedTier),
-      state: selectedTierState,
-    });
-  }, [selectedTier, selectedTierState]);
+  const selectedTierIndex = selectedTierLocalized ? tiersLocalized.findIndex((tier) => tier.id === selectedTierLocalized.id) : -1;
+  const selectedTierPrevious = selectedTierIndex > 0 ? tiersLocalized[selectedTierIndex - 1] ?? null : null;
 
   return (
     <CustomerScreen hideHeader title={strings.membershipTitle} contentContainerStyle={styles.content} onRefresh={() => void refresh()} refreshing={isRefreshing}>
@@ -376,20 +437,22 @@ export default function MembershipScreen() {
         <View style={styles.patternSmall} />
 
         <View style={styles.heroHeadingRow}>
-          <Text style={styles.brand}>CHẠM BEAUTY</Text>
+          <Text style={styles.brand}>{strings.membershipBrandName}</Text>
           {hasCurrentTierBadge ? (
-            <View style={[styles.tierBadge, { borderColor: tierAccent }]}> 
-              <Feather color={tierAccent} name={getTierIconName(currentTier)} size={14} />
-              <Text style={[styles.tierBadgeText, { color: tierAccent }]}>{currentTier?.name}</Text>
+            <View style={[styles.tierBadge, { borderColor: tierAccent }]}>
+              <Feather color={tierAccent} name={getTierIconName(currentTierLocalized)} size={14} />
+              <Text style={[styles.tierBadgeText, { color: tierAccent }]}>{currentTierLocalized?.name}</Text>
             </View>
           ) : (
-            <Text style={styles.tier}>Member</Text>
+            <Text style={styles.tier}>{strings.profileMemberLabel}</Text>
           )}
         </View>
-        <Text style={styles.tierEyebrow}>MEMBERSHIP CARD</Text>
+        <Text style={styles.tierEyebrow}>{strings.membershipTitle.toUpperCase()}</Text>
 
-        <Text style={styles.pointsLabel}>Điểm hiện tại</Text>
-        <Text style={styles.points}>{formatNumber(pointsBalance)} điểm</Text>
+        <Text style={styles.pointsLabel}>{strings.membershipCurrentPointsLabel}</Text>
+        <Text style={styles.points}>
+          {formatNumber(pointsBalance, locale)} {strings.membershipPointsUnit}
+        </Text>
 
         <View style={styles.progressRow}>
           <View style={styles.progressTrack}>
@@ -399,16 +462,14 @@ export default function MembershipScreen() {
           <Pressable
             style={[styles.heroBadge, !hasTierData ? styles.heroBadgeDisabled : null]}
             disabled={!hasTierData}
-            onPress={() => {
-              console.log("[membership] hero benefits button pressed", {
-                currentTierId: currentTier?.id ?? null,
-                currentTierName: currentTier?.name ?? null,
-              });
-              setSelectedTier(currentTier ?? nextTier ?? tiers[0] ?? null);
-            }}
+            onPress={() => setSelectedTier(currentTier ?? nextTier ?? tiers[0] ?? null)}
           >
-            <Feather color="#f1c56d" name={getTierIconName(nextTier ?? currentTier)} size={14} />
-            <Text style={styles.heroBadgeText}>{nextTier?.name ? `Lên ${nextTier.name}` : "Quyền lợi"}</Text>
+            <Feather color="#f1c56d" name={getTierIconName(nextTierLocalized ?? currentTierLocalized)} size={14} />
+            <Text style={styles.heroBadgeText}>
+              {nextTierLocalized?.name
+                ? t(locale, "membershipMoveToTier", { tierName: nextTierLocalized.name })
+                : strings.membershipBenefitsTitle}
+            </Text>
           </Pressable>
         </View>
 
@@ -425,7 +486,7 @@ export default function MembershipScreen() {
           <View style={styles.medalShell}>
             <View style={styles.medalOuter}>
               <View style={styles.medalInner}>
-                <Feather color="#bb7723" name={getTierIconName(currentTier)} size={26} />
+                <Feather color="#bb7723" name={getTierIconName(currentTierLocalized)} size={26} />
               </View>
             </View>
           </View>
@@ -434,38 +495,51 @@ export default function MembershipScreen() {
 
       <View style={styles.progressSummaryWrap}>
         <SurfaceCard style={styles.progressMetricCard}>
-          <Text style={styles.progressMetricLabel}>Chi tiêu hiện tại</Text>
-          <Text style={styles.progressMetricValue}>{formatNumber(totalSpent)}đ</Text>
+          <Text style={styles.progressMetricLabel}>{strings.profileTotalSpent}</Text>
+          <Text style={styles.progressMetricValue}>{formatMoneyVnd(totalSpent, locale)}</Text>
           <View style={styles.inlineTrack}>
             <View style={[styles.inlineFill, { width: `${Math.max(0, Math.min(progressSpent, 1)) * 100}%` }]} />
           </View>
           <Text style={styles.progressMetricHint}>
-            {nextTier
-              ? `Mốc ${nextTier.name}: còn ${formatNumber(remainingSpentToNext)}đ chi tiêu.`
-              : currentTier
-                ? `Bạn đang ở hạng ${currentTier.name}.`
-                : "Đang đồng bộ hạng thành viên."}
+            {nextTierLocalized
+              ? t(locale, "membershipSpentHintNext", {
+                  tierName: nextTierLocalized.name,
+                  amount: formatMoneyVnd(remainingSpentToNext, locale),
+                })
+              : currentTierLocalized
+                ? t(locale, "membershipSpentHintCurrent", { tierName: currentTierLocalized.name })
+                : t(locale, "membershipSpentHintSyncing")}
           </Text>
         </SurfaceCard>
         <SurfaceCard style={styles.progressMetricCard}>
-          <Text style={styles.progressMetricLabel}>Lượt hẹn chuẩn</Text>
-          <Text style={styles.progressMetricValue}>{formatNumber(eligibleVisitsMinSpend)}/{formatNumber(totalVisits)}</Text>
+          <Text style={styles.progressMetricLabel}>{strings.membershipQualifiedVisitsLabel}</Text>
+          <Text style={styles.progressMetricValue}>
+            {formatNumber(eligibleVisitsMinSpend, locale)}/{formatNumber(totalVisits, locale)}
+          </Text>
           <View style={styles.inlineTrack}>
             <View style={[styles.inlineFill, { width: `${Math.max(0, Math.min(progressVisits, 1)) * 100}%` }]} />
           </View>
           <Text style={styles.progressMetricHint}>
-            {nextTier
-              ? `Mốc ${nextTier.name}: còn ${formatNumber(remainingVisitsToNext)} lượt chuẩn. Chỉ tính bill từ ${formatNumber(nextTier.visitMinSpend ?? 300000)}đ.`
-              : `Hiện đang tính lượt chuẩn từ bill ${formatNumber(currentTier?.visitMinSpend ?? 300000)}đ.`}
+            {nextTierLocalized
+              ? t(locale, "membershipVisitsHintNext", {
+                  tierName: nextTierLocalized.name,
+                  count: formatNumber(remainingVisitsToNext, locale),
+                  amount: formatMoneyVnd(nextTierLocalized.visitMinSpend ?? 300000, locale),
+                })
+              : t(locale, "membershipVisitsHintCurrent", {
+                  amount: formatMoneyVnd(currentTierLocalized?.visitMinSpend ?? 300000, locale),
+                })}
           </Text>
         </SurfaceCard>
       </View>
 
       <View style={styles.sectionBlock}>
-        <Text style={styles.sectionTitle}>Quyền lợi của bạn</Text>
+        <Text style={styles.sectionTitle}>{strings.membershipBenefitsTitle}</Text>
 
         <View style={styles.perkList}>
-          {(perks.length ? perks : ["Không có quyền lợi nào được cấu hình cho hạng hiện tại."]).map((perk) => (
+          {((currentTierLocalized?.perks ?? perks).length
+            ? (currentTierLocalized?.perks ?? perks)
+            : [strings.membershipNoCurrentTierPerks]).map((perk) => (
             <SurfaceCard key={perk} style={styles.perkCard}>
               <View style={styles.perkIcon}>
                 <Feather color={colors.text} name="star" size={18} />
@@ -473,7 +547,7 @@ export default function MembershipScreen() {
 
               <View style={styles.perkCopy}>
                 <Text style={styles.perkTitle}>{perk}</Text>
-                <Text style={styles.perkDetail}>Dữ liệu quyền lợi đang đọc trực tiếp từ hạng thành viên thật.</Text>
+                <Text style={styles.perkDetail}>{strings.membershipCurrentTierPerksSource}</Text>
               </View>
             </SurfaceCard>
           ))}
@@ -483,22 +557,22 @@ export default function MembershipScreen() {
 
       <View style={styles.sectionBlock}>
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Ưu đãi đang áp dụng</Text>
+          <Text style={styles.sectionTitle}>{strings.membershipActiveOffersTitle}</Text>
           <Pressable style={styles.inlineActionButton} onPress={() => setShowUsageModal(true)}>
             <Feather color={colors.text} name="help-circle" size={14} />
-            <Text style={styles.inlineActionText}>Cách dùng ưu đãi</Text>
+            <Text style={styles.inlineActionText}>{strings.membershipHowToUseOffers}</Text>
           </Pressable>
         </View>
 
         <View style={styles.perkList}>
-          {offers.length ? (
-            offers.map((offer) => {
+          {offersLocalized.length ? (
+            offersLocalized.map((offer) => {
               const offerCode = getOfferCode(offer);
-              const offerUsageHint = getOfferUsageHint(offer);
+              const offerUsageHint = getOfferUsageHint(offer, locale);
               const redeemLabel = getOfferRedeemLabel(offer);
-              const offerBookingCtaLabel = getOfferBookingCtaLabel(offer);
+              const offerBookingCtaLabel = getOfferBookingCtaLabel(offer, locale);
               const disabled = isOfferDisabled(offer);
-              const offerStatusLabel = getOfferStatusLabel(offer);
+              const offerStatusLabel = getOfferStatusLabel(offer, locale);
               void redeemLabel;
               void offerBookingCtaLabel;
 
@@ -532,7 +606,7 @@ export default function MembershipScreen() {
                         <Text numberOfLines={2} style={styles.perkDetail}>{offer.description}</Text>
                         <View style={styles.offerTierChip}>
                           <Feather color={colors.accentWarm} name="award" size={12} />
-                          <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer)}</Text>
+                          <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer, locale)}</Text>
                         </View>
                         <View style={styles.offerTierChip}>
                           <Feather color={disabled ? colors.textSoft : colors.text} name={disabled ? "lock" : "check-circle"} size={12} />
@@ -562,7 +636,7 @@ export default function MembershipScreen() {
                                 })
                           }
                         >
-                          <Text style={styles.offerMetaLabel}>Mã ưu đãi</Text>
+                          <Text style={styles.offerMetaLabel}>{strings.membershipOfferCodeLabel}</Text>
                           <Text style={styles.offerCodeText}>{offerCode}</Text>
                         </Pressable>
                       ) : null}
@@ -582,8 +656,10 @@ export default function MembershipScreen() {
                 <Feather color={colors.textSoft} name="gift" size={18} />
               </View>
               <View style={styles.perkCopy}>
-                <Text style={styles.offerEmptyTitle}>Chưa có ưu đãi đang bật</Text>
-                <Text style={styles.offerEmptyText}>Khi admin cập nhật Landing Feed, ưu đãi sẽ tự động hiển thị tại đây.</Text>
+                <Text style={styles.offerEmptyTitle}>
+                  {strings.membershipNoActiveOffersTitle}
+                </Text>
+                <Text style={styles.offerEmptyText}>{strings.membershipNoActiveOffersBody}</Text>
               </View>
             </SurfaceCard>
           )}
@@ -594,40 +670,25 @@ export default function MembershipScreen() {
         visible={Boolean(selectedTier)}
         transparent
         animationType="fade"
-        onShow={() => {
-          console.log("[membership] tier modal shown", {
-            selectedTierId: selectedTier?.id ?? null,
-            selectedTierName: selectedTier?.name ?? null,
-          });
-        }}
-        onRequestClose={() => {
-          console.log("[membership] tier modal request close", {
-            selectedTierId: selectedTier?.id ?? null,
-            selectedTierName: selectedTier?.name ?? null,
-          });
-          setSelectedTier(null);
-        }}
+        onRequestClose={() => setSelectedTier(null)}
       >
         <View style={styles.modalOverlay}>
           <Pressable
             style={StyleSheet.absoluteFill}
-            onPress={() => {
-              console.log("[membership] tier modal backdrop pressed", {
-                selectedTierId: selectedTier?.id ?? null,
-                selectedTierName: selectedTier?.name ?? null,
-              });
-              setSelectedTier(null);
-            }}
+            onPress={() => setSelectedTier(null)}
           />
           <View style={styles.modalCard}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
               <View style={styles.modalTierHero}>
                 <LinearGradient colors={getTierGradient(selectedTier)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.modalTierBadge}>
-                  <Feather color="#fffaf5" name={getTierIconName(selectedTier)} size={18} />
+                  <Feather color="#fffaf5" name={getTierIconName(selectedTierLocalized)} size={18} />
                 </LinearGradient>
                 <View style={styles.modalTierHeroCopy}>
-                  <Text style={styles.modalTitle}>{selectedTier?.name}</Text>
-                  <Text style={styles.modalBody}>{selectedTier?.description?.trim() || "Thông tin hạng thành viên đang được cập nhật."}</Text>
+                  <Text style={styles.modalTitle}>{selectedTierLocalized?.name}</Text>
+                  <Text style={styles.modalBody}>
+                    {selectedTierLocalized?.description?.trim() ||
+                      strings.membershipTierDetailsUpdating}
+                  </Text>
                 </View>
               </View>
 
@@ -635,56 +696,61 @@ export default function MembershipScreen() {
 
               {selectedTierState === "current" ? (
                 <>
-                  <Text style={styles.modalBody}>• Bạn đang ở hạng này.</Text>
-                  <Text style={styles.modalBody}>• Mô tả: {selectedTier ? buildTierMomentLine(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Quyền lợi hiện có: {selectedTier ? buildTierPrivilegeLine(selectedTier) : "Đang cập nhật."}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalCurrentTierIntro}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalSummary}: {selectedTierLocalized ? buildTierMomentLine({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalCurrentPerks}: {selectedTierLocalized ? buildTierPrivilegeLine({ ...selectedTierLocalized, locale }) : strings.membershipModalUpdatingShort}</Text>
                   <Text style={styles.modalBody}>
-                    • Tiến độ lên hạng tiếp theo: {nextTier ? `còn ${formatNumber(remainingSpentToNext)}đ chi tiêu hoặc ${formatNumber(remainingVisitsToNext)} lượt hẹn chuẩn.` : "bạn đang ở hạng cao nhất."}
+                    • {strings.membershipModalNextTierProgress}: {nextTierLocalized
+                      ? t(locale, "membershipGuidanceRemainingToTier", {
+                          requirements: [
+                            t(locale, "membershipRequirementSpending", { amount: formatMoneyVnd(remainingSpentToNext, locale) }),
+                            t(locale, "membershipRequirementQualifiedVisits", { count: formatNumber(remainingVisitsToNext, locale) }),
+                          ].join(` ${strings.conjunctionOr} `),
+                          tierName: nextTierLocalized.name,
+                        })
+                      : strings.membershipModalHighestTierShort}
                   </Text>
-                  <Text style={styles.modalBody}>• Hạng tiếp theo: {nextTier ? nextTier.name : "Chưa có hạng tiếp theo"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalNextTier}: {nextTierLocalized ? nextTierLocalized.name : strings.membershipModalNoNextTier}</Text>
                 </>
               ) : null}
 
               {selectedTierState === "next" ? (
                 <>
-                  <Text style={styles.modalBody}>• Mô tả: {selectedTier ? buildTierMomentLine(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Điều kiện cần: {selectedTier ? describeTierRequirements(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Hiện tại bạn có: {formatNumber(totalSpent)}đ chi tiêu và {formatNumber(selectedTierEligibleVisits)}/{formatNumber(totalVisits)} lượt hẹn chuẩn cho mốc này.</Text>
-                  <Text style={styles.modalBody}>• Còn thiếu: {formatNumber(selectedTierRemainingSpend)}đ chi tiêu hoặc {formatNumber(selectedTierRemainingVisits)} lượt hẹn chuẩn.</Text>
-                  <Text style={styles.modalBody}>• Quyền lợi khi lên hạng: {selectedTier ? buildTierPrivilegeLine(selectedTier) : "Đang cập nhật."}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalSummary}: {selectedTierLocalized ? buildTierMomentLine({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalRequirementsNeeded}: {selectedTierLocalized ? describeTierRequirements({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalCurrentProgress}: {formatMoneyVnd(totalSpent, locale)}, {formatNumber(selectedTierEligibleVisits, locale)}/{formatNumber(totalVisits, locale)}.</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalStillNeeded}: {[
+                    t(locale, "membershipRequirementSpending", { amount: formatMoneyVnd(selectedTierRemainingSpend, locale) }),
+                    t(locale, "membershipRequirementQualifiedVisits", { count: formatNumber(selectedTierRemainingVisits, locale) }),
+                  ].join(` ${strings.conjunctionOr} `)}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalPerksAfterUpgrade}: {selectedTierLocalized ? buildTierPrivilegeLine({ ...selectedTierLocalized, locale }) : strings.membershipModalUpdatingShort}</Text>
                 </>
               ) : null}
 
               {selectedTierState === "locked" ? (
                 <>
-                  <Text style={styles.modalBody}>• Mô tả: {selectedTier ? buildTierMomentLine(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Điều kiện: {selectedTier ? describeTierRequirements(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Còn thiếu: {formatNumber(selectedTierRemainingSpend)}đ chi tiêu hoặc {formatNumber(selectedTierRemainingVisits)} lượt hẹn chuẩn.</Text>
-                  <Text style={styles.modalBody}>• Lộ trình: {selectedTierPrevious ? `hãy hoàn thành ${selectedTierPrevious.name} trước.` : `mục tiêu tiếp theo là ${selectedTier?.name}.`}</Text>
-                  <Text style={styles.modalBody}>• Quyền lợi của hạng này: {selectedTier ? buildTierPrivilegeLine(selectedTier) : "Đang cập nhật."}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalSummary}: {selectedTierLocalized ? buildTierMomentLine({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalRequirements}: {selectedTierLocalized ? describeTierRequirements({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalStillNeeded}: {[
+                    t(locale, "membershipRequirementSpending", { amount: formatMoneyVnd(selectedTierRemainingSpend, locale) }),
+                    t(locale, "membershipRequirementQualifiedVisits", { count: formatNumber(selectedTierRemainingVisits, locale) }),
+                  ].join(` ${strings.conjunctionOr} `)}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalPath}: {selectedTierPrevious ? t(locale, "membershipModalPathFinishFirst", { tierName: selectedTierPrevious.name }) : t(locale, "membershipModalPathNextTarget", { tierName: selectedTierLocalized?.name ?? "" })}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalTierPerks}: {selectedTierLocalized ? buildTierPrivilegeLine({ ...selectedTierLocalized, locale }) : strings.membershipModalUpdatingShort}</Text>
                 </>
               ) : null}
 
               {selectedTierState === "completed" ? (
                 <>
-                  <Text style={styles.modalBody}>• Bạn đã vượt qua hạng này.</Text>
-                  <Text style={styles.modalBody}>• Mô tả: {selectedTier ? buildTierMomentLine(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Điều kiện của hạng: {selectedTier ? describeTierRequirements(selectedTier) : "-"}</Text>
-                  <Text style={styles.modalBody}>• Quyền lợi của hạng: {selectedTier ? buildTierPrivilegeLine(selectedTier) : "Đang cập nhật."}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalCompletedIntro}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalSummary}: {selectedTierLocalized ? buildTierMomentLine({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalTierRequirements}: {selectedTierLocalized ? describeTierRequirements({ ...selectedTierLocalized, locale }) : "-"}</Text>
+                  <Text style={styles.modalBody}>• {strings.membershipModalTierPerks}: {selectedTierLocalized ? buildTierPrivilegeLine({ ...selectedTierLocalized, locale }) : strings.membershipModalUpdatingShort}</Text>
                 </>
               ) : null}
 
-              <Pressable
-                style={styles.modalCloseButton}
-                onPress={() => {
-                  console.log("[membership] tier modal close button pressed", {
-                    selectedTierId: selectedTier?.id ?? null,
-                    selectedTierName: selectedTier?.name ?? null,
-                  });
-                  setSelectedTier(null);
-                }}
-              >
-                <Text style={styles.modalCloseText}>Đã hiểu</Text>
+              <Pressable style={styles.modalCloseButton} onPress={() => setSelectedTier(null)}>
+                <Text style={styles.modalCloseText}>{strings.membershipModalGotIt}</Text>
               </Pressable>
             </ScrollView>
           </View>
@@ -697,17 +763,17 @@ export default function MembershipScreen() {
           <View style={styles.modalCard}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
               <Text style={styles.modalTitle}>{strings.membershipBenefitsTitle}</Text>
-              <Text style={styles.modalBody}>{currentTier?.description?.trim() || strings.membershipBenefitsBody}</Text>
-              <Text style={styles.modalSectionTitle}>Cách nâng hạng</Text>
+              <Text style={styles.modalBody}>{currentTierLocalized?.description?.trim() || strings.membershipBenefitsBody}</Text>
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalHowToLevelUp}</Text>
               <Text style={styles.modalBody}>{nextTierGuidance}</Text>
               <Text style={styles.modalBody}>{strings.membershipHowToUpgrade}</Text>
-              <Text style={styles.modalSectionTitle}>Cách tăng ưu đãi</Text>
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalHowToUnlockPerks}</Text>
               <Text style={styles.modalBody}>{strings.membershipHowToBoost}</Text>
-              <Text style={styles.modalSectionTitle}>Điểm thưởng có ý nghĩa gì?</Text>
-              <Text style={styles.modalBody}>Điểm thưởng là chỉ số tích lũy dành cho thành viên và sẽ là nền cho rule đổi quà / voucher / add-on theo từng mốc.</Text>
-              <Text style={styles.modalBody}>Ở giai đoạn hiện tại, điểm đang hiển thị để theo dõi tiến trình thành viên. Khi rule đổi điểm được bật đầy đủ, cửa hàng có thể áp dụng các mốc như đổi add-on, voucher hoặc quà riêng cho từng hạng.</Text>
-              <Text style={styles.modalSectionTitle}>Ưu đãi theo từng hạng</Text>
-              {tiers.map((tier) => (
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalRewardPointsPurposeTitle}</Text>
+              <Text style={styles.modalBody}>{strings.membershipModalRewardPointsPurposeBody1}</Text>
+              <Text style={styles.modalBody}>{strings.membershipModalRewardPointsPurposeBody2}</Text>
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalPerksByTier}</Text>
+              {tiersLocalized.map((tier) => (
                 <View key={tier.id} style={styles.modalTierBlock}>
                   <View style={styles.modalTierRow}>
                     <LinearGradient colors={getTierGradient(tier)} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.modalTierListBadge}>
@@ -715,14 +781,14 @@ export default function MembershipScreen() {
                     </LinearGradient>
                     <Text style={styles.modalTierTitle}>{tier.name}</Text>
                   </View>
-                  <Text style={styles.modalBody}>Điều kiện: {describeTierRequirements(tier)}</Text>
+                  <Text style={styles.modalBody}>{strings.membershipModalRequirements}: {describeTierRequirements({ ...tier, locale })}</Text>
                   <Text style={styles.modalBody}>
-                    Ưu đãi: {tier.perks.length ? tier.perks.join(", ") : "Chưa có mô tả ưu đãi cho hạng này."}
+                    {strings.membershipModalPerksLabel}: {tier.perks.length ? tier.perks.join(", ") : strings.membershipModalNoPerkDescription}
                   </Text>
                 </View>
               ))}
               <Pressable style={styles.modalCloseButton} onPress={() => setShowBenefitsModal(false)}>
-                <Text style={styles.modalCloseText}>Đã hiểu</Text>
+                <Text style={styles.modalCloseText}>{strings.membershipModalGotIt}</Text>
               </Pressable>
             </ScrollView>
           </View>
@@ -734,18 +800,18 @@ export default function MembershipScreen() {
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowUsageModal(false)} />
           <View style={styles.modalCard}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.modalScrollContent}>
-              <Text style={styles.modalTitle}>Cách dùng ưu đãi</Text>
-              <Text style={styles.modalBody}>Ưu đãi trong thẻ thành viên là các quyền lợi bạn có thể dùng khi đặt lịch hoặc sử dụng dịch vụ tại cửa hàng.</Text>
-              <Text style={styles.modalSectionTitle}>Cách áp dụng</Text>
-              <Text style={styles.modalBody}>• Xem tên ưu đãi trong danh sách ưu đãi đang áp dụng.</Text>
-              <Text style={styles.modalBody}>• Khi đặt lịch hoặc đến cửa hàng, bạn chỉ cần báo tên ưu đãi hoặc mã ưu đãi cho nhân viên.</Text>
-              <Text style={styles.modalBody}>• Nếu app chưa có nút áp trực tiếp, cửa hàng sẽ hỗ trợ xác nhận và áp dụng ưu đãi trong quá trình đặt lịch hoặc thanh toán.</Text>
-              <Text style={styles.modalSectionTitle}>Điểm thưởng dùng để làm gì?</Text>
-              <Text style={styles.modalBody}>• Điểm thưởng dùng để theo dõi tích lũy thành viên.</Text>
-              <Text style={styles.modalBody}>• Theo hướng rule hiện tại, điểm sẽ phù hợp nhất với các mốc đổi quà, đổi voucher hoặc đổi add-on thay vì quy đổi thẳng ra tiền.</Text>
-              <Text style={styles.modalBody}>• Khi cửa hàng bật chính sách đổi điểm cụ thể, bạn sẽ thấy các mốc và phần quà tương ứng rõ hơn trong app.</Text>
+              <Text style={styles.modalTitle}>{strings.membershipHowToUseOffers}</Text>
+              <Text style={styles.modalBody}>{strings.membershipModalHowToUseOffersIntro}</Text>
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalHowToApply}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalApplyStep1}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalApplyStep2}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalApplyStep3}</Text>
+              <Text style={styles.modalSectionTitle}>{strings.membershipModalPointsUsedForTitle}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalPointsStep1}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalPointsStep2}</Text>
+              <Text style={styles.modalBody}>• {strings.membershipModalPointsStep3}</Text>
               <Pressable style={styles.modalCloseButton} onPress={() => setShowUsageModal(false)}>
-                <Text style={styles.modalCloseText}>Đã hiểu</Text>
+                <Text style={styles.modalCloseText}>{strings.membershipModalGotIt}</Text>
               </Pressable>
             </ScrollView>
           </View>

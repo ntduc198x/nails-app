@@ -99,7 +99,7 @@ export function useLookbookServices(
       try {
         const { data, error } = await mobileSupabase
           .from("services")
-          .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at")
+          .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations")
           .eq("active", true)
           .eq("featured_in_lookbook", true)
           .eq("featured_in_explore", true)

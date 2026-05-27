@@ -20,6 +20,7 @@ import {
   type CustomerStatus,
   type SafeCustomerDuplicateCandidate,
 } from "@nails/shared";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
@@ -42,22 +43,26 @@ const palette = {
   mutedSoft: "#F8F4EF",
 };
 
-const STATUS_OPTIONS: Array<{ label: string; value: CustomerStatus | "ALL" }> = [
-  { label: "Tất cả trạng thái", value: "ALL" },
-  { label: "Mới", value: "NEW" },
-  { label: "Đang hoạt động", value: "ACTIVE" },
-  { label: "Quay lại", value: "RETURNING" },
-  { label: "VIP", value: "VIP" },
-  { label: "Có nguy cơ", value: "AT_RISK" },
-  { label: "Rời bỏ", value: "LOST" },
-];
+function buildStatusOptions(strings: ReturnType<typeof useAdminStrings>): Array<{ label: string; value: CustomerStatus | "ALL" }> {
+  return [
+    { label: strings.manageCustomersAllStatuses, value: "ALL" },
+    { label: strings.manageCustomersStatusNewShort, value: "NEW" },
+    { label: strings.manageCustomersStatusActiveShort, value: "ACTIVE" },
+    { label: strings.manageCustomersStatusReturningShort, value: "RETURNING" },
+    { label: "VIP", value: "VIP" },
+    { label: strings.manageCustomersStatusAtRiskShort, value: "AT_RISK" },
+    { label: strings.manageCustomersStatusLostShort, value: "LOST" },
+  ];
+}
 
-const DORMANT_DAY_OPTIONS = [
-  { label: "7 ngày gần nhất", value: 7 },
-  { label: "30 ngày gần nhất", value: 30 },
-  { label: "60 ngày gần nhất", value: 60 },
-  { label: "90 ngày gần nhất", value: 90 },
-];
+function buildDormantDayOptions(strings: ReturnType<typeof useAdminStrings>) {
+  return [
+    { label: strings.manageCustomersLast7Days, value: 7 },
+    { label: strings.manageCustomersLast30Days, value: 30 },
+    { label: strings.manageCustomersLast60Days, value: 60 },
+    { label: strings.manageCustomersLast90Days, value: 90 },
+  ];
+}
 
 function formatVnd(amount: number) {
   return new Intl.NumberFormat("vi-VN", {
@@ -65,8 +70,8 @@ function formatVnd(amount: number) {
   }).format(amount || 0);
 }
 
-function formatDateLabel(value: string | null) {
-  if (!value) return "Chưa cập nhật";
+function formatDateLabel(strings: ReturnType<typeof useAdminStrings>, value: string | null) {
+  if (!value) return strings.manageCustomersNotUpdated;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("vi-VN", {
@@ -76,13 +81,13 @@ function formatDateLabel(value: string | null) {
   }).format(date);
 }
 
-function statusLabel(status: CustomerStatus) {
-  if (status === "NEW") return "Khách mới";
-  if (status === "ACTIVE") return "Đã ghé tiệm";
-  if (status === "RETURNING") return "Thường xuyên tới";
+function statusLabel(strings: ReturnType<typeof useAdminStrings>, status: CustomerStatus) {
+  if (status === "NEW") return strings.manageCustomersStatusNew;
+  if (status === "ACTIVE") return strings.manageCustomersStatusActive;
+  if (status === "RETURNING") return strings.manageCustomersStatusReturning;
   if (status === "VIP") return "VIP";
-  if (status === "AT_RISK") return "Có nguy cơ";
-  return "Cần chăm sóc";
+  if (status === "AT_RISK") return strings.manageCustomersStatusAtRiskShort;
+  return strings.manageCustomersStatusNeedsCare;
 }
 
 function statusTone(status: CustomerStatus) {
@@ -117,8 +122,8 @@ function initials(name: string) {
   return parts.slice(-2).map((part) => part.charAt(0).toUpperCase()).join("");
 }
 
-function sourceLabel(source: string | null) {
-  if (!source) return "walk-in";
+function sourceLabel(strings: ReturnType<typeof useAdminStrings>, source: string | null) {
+  if (!source) return strings.manageCustomersWalkIn;
   return source;
 }
 
@@ -236,9 +241,11 @@ function OptionSheet<T extends string | number>({
 function CustomerRow({
   item,
   onPress,
+  strings,
 }: {
   item: CustomerCrmSummary;
   onPress: () => void;
+  strings: ReturnType<typeof useAdminStrings>;
 }) {
   const tone = statusTone(item.customerStatus);
 
@@ -254,18 +261,18 @@ function CustomerRow({
             {item.fullName}
           </Text>
           <View style={[styles.statusBadge, { backgroundColor: tone.soft }]}>
-            <Text style={[styles.statusBadgeText, { color: tone.text }]}>{statusLabel(item.customerStatus)}</Text>
+            <Text style={[styles.statusBadgeText, { color: tone.text }]}>{statusLabel(strings, item.customerStatus)}</Text>
           </View>
         </View>
 
         <View style={styles.customerMetaRow}>
-          <Text style={styles.phonePill}>{item.phone ?? "Chưa có số"}</Text>
+          <Text style={styles.phonePill}>{item.phone ?? strings.manageCustomersNoPhone}</Text>
           <Text style={styles.metaDot}>•</Text>
-          <Text style={styles.metaText}>{item.totalVisits} lượt</Text>
+          <Text style={styles.metaText}>{item.totalVisits} {strings.manageCustomersVisitsUnit}</Text>
           <Text style={styles.metaDot}>•</Text>
-          <Text style={styles.metaText}>{formatVnd(item.totalSpend)} đ</Text>
+          <Text style={styles.metaText}>{formatVnd(item.totalSpend)} {strings.manageCustomersCurrencySuffix}</Text>
           <Text style={styles.metaDot}>•</Text>
-          <Text style={styles.metaText}>{sourceLabel(item.source)}</Text>
+          <Text style={styles.metaText}>{sourceLabel(strings, item.source)}</Text>
         </View>
       </View>
 
@@ -318,6 +325,7 @@ function normalizeDuplicateCandidatesForRender(candidates: SafeCustomerDuplicate
 export default function AdminManageCustomersScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "RECEPTION"]);
   const observer = useAdminObserverScope();
+  const strings = useAdminStrings();
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
   const [duplicateCandidates, setDuplicateCandidates] = useState<SafeCustomerDuplicateCandidate[]>([]);
@@ -345,10 +353,12 @@ export default function AdminManageCustomersScreen() {
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const statusOptions = useMemo(() => buildStatusOptions(strings), [strings]);
+  const dormantDayOptions = useMemo(() => buildDormantDayOptions(strings), [strings]);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageCustomersMissingSupabase);
       setLoading(false);
       return;
     }
@@ -379,12 +389,12 @@ export default function AdminManageCustomersScreen() {
       setMetrics(dashboard);
       setDuplicateCandidates(normalizeDuplicateCandidatesForRender(duplicates));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được CRM khách.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageCustomersLoadFailed);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dormantDays, observer.observerScope, rows.length, search, source, status, vipOnly]);
+  }, [dormantDays, observer.observerScope, rows.length, search, source, status, strings, vipOnly]);
 
   useEffect(() => {
     if (!observer.isReady) return;
@@ -403,22 +413,22 @@ export default function AdminManageCustomersScreen() {
     }
 
     return [
-      { label: "Tất cả nguồn", value: "ALL" },
+      { label: strings.manageCustomersAllSources, value: "ALL" },
       ...Array.from(unique).sort().map((item) => ({ label: item, value: item })),
     ];
-  }, [allRows]);
+  }, [allRows, strings.manageCustomersAllSources]);
 
   const selectedStatusLabel = useMemo(
-    () => STATUS_OPTIONS.find((option) => option.value === status)?.label ?? "Tất cả trạng thái",
-    [status],
+    () => statusOptions.find((option) => option.value === status)?.label ?? strings.manageCustomersAllStatuses,
+    [status, statusOptions, strings.manageCustomersAllStatuses],
   );
   const selectedSourceLabel = useMemo(
-    () => sourceOptions.find((option) => option.value === source)?.label ?? "Tất cả nguồn",
-    [source, sourceOptions],
+    () => sourceOptions.find((option) => option.value === source)?.label ?? strings.manageCustomersAllSources,
+    [source, sourceOptions, strings.manageCustomersAllSources],
   );
   const selectedDormantLabel = useMemo(
-    () => DORMANT_DAY_OPTIONS.find((option) => option.value === dormantDays)?.label ?? `${dormantDays} ngày`,
-    [dormantDays],
+    () => dormantDayOptions.find((option) => option.value === dormantDays)?.label ?? `${dormantDays} ${strings.manageCustomersDaysUnit}`,
+    [dormantDayOptions, dormantDays],
   );
 
   const renderRows = useMemo(() => dedupeCustomerRowsForRender(rows), [rows]);
@@ -441,7 +451,7 @@ export default function AdminManageCustomersScreen() {
       return;
     }
     if (observerReadOnly) {
-      Alert.alert("Đang ở chế độ quan sát", "Hãy quay về chi nhánh làm việc để thực hiện merge hồ sơ khách.");
+      Alert.alert(strings.manageCustomersObserverTitle, strings.manageCustomersObserverMergeUnavailable);
       return;
     }
 
@@ -453,12 +463,12 @@ export default function AdminManageCustomersScreen() {
         duplicateCustomerId,
         reason: `MANUAL_${candidate.matchType}_MERGE`,
       });
-      Alert.alert("Đã merge", "Đã gộp hồ sơ trùng và làm mới danh sách.");
+      Alert.alert(strings.manageCustomersMergeSuccessTitle, strings.manageCustomersMergeSuccessBody);
       await load(true);
     } catch (mergeError) {
       Alert.alert(
-        "Không merge được",
-        mergeError instanceof Error ? mergeError.message : "Merge thất bại.",
+        strings.manageCustomersMergeFailedTitle,
+        mergeError instanceof Error ? mergeError.message : strings.manageCustomersMergeFailedBody,
       );
     } finally {
       setMergingPairKey(null);
@@ -471,20 +481,20 @@ export default function AdminManageCustomersScreen() {
 
   return (
     <ManageScreenShell
-      title="CRM khách"
-      subtitle="Theo dõi khách mới, khách quay lại, tệp có nguy cơ rời bỏ và khách VIP."
+      title={strings.manageCustomersTitle}
+      subtitle={strings.manageCustomersSubtitle}
       currentKey="customers"
       group="insights"
       showBackButton={false}
       observerReadOnly={observerReadOnly}
-      observerReadOnlyMessage="Đang quan sát dữ liệu CRM theo scope đã chọn. Các thao tác merge hồ sơ chỉ mở khi quay về chi nhánh làm việc."
+      observerReadOnlyMessage={strings.manageCustomersObserverMessage}
     >
 
       <View style={styles.metricGrid}>
-        <MetricCard icon="users" kind="new" label="Khách mới hôm nay" value={String(metrics.newToday)} />
-        <MetricCard icon="refresh-cw" kind="returning" label="Khách quay lại" value={String(metrics.returningToday)} />
-        <MetricCard icon="alert-triangle" kind="risk" label="Có nguy cơ rời bỏ" value={String(metrics.atRiskCount)} />
-        <MetricCard icon="trending-up" kind="repeat" label="Repeat rate 30 ngày" value={`${metrics.repeat30}%`} />
+        <MetricCard icon="users" kind="new" label={strings.manageCustomersMetricNewToday} value={String(metrics.newToday)} />
+        <MetricCard icon="refresh-cw" kind="returning" label={strings.manageCustomersMetricReturning} value={String(metrics.returningToday)} />
+        <MetricCard icon="alert-triangle" kind="risk" label={strings.manageCustomersMetricAtRisk} value={String(metrics.atRiskCount)} />
+        <MetricCard icon="trending-up" kind="repeat" label={strings.manageCustomersMetricRepeat30} value={`${metrics.repeat30}%`} />
       </View>
 
       <View style={styles.sectionCard}>
@@ -493,7 +503,7 @@ export default function AdminManageCustomersScreen() {
             <View style={styles.sectionIcon}>
               <Feather name="filter" size={15} color={palette.accent} />
             </View>
-            <Text style={styles.sectionTitle}>Bộ lọc CRM</Text>
+            <Text style={styles.sectionTitle}>{strings.manageCustomersFiltersTitle}</Text>
           </View>
           <Pressable style={styles.refreshButton} onPress={() => void load(true)}>
             {refreshing ? (
@@ -501,21 +511,21 @@ export default function AdminManageCustomersScreen() {
             ) : (
               <>
                 <Feather name="rotate-cw" size={14} color={palette.sub} />
-                <Text style={styles.refreshButtonText}>Làm mới</Text>
+                <Text style={styles.refreshButtonText}>{strings.manageCustomersRefresh}</Text>
               </>
             )}
           </Pressable>
         </View>
 
         <View style={styles.filterGrid}>
-          <SelectField label="Tất cả trạng thái" value={selectedStatusLabel} onPress={() => setShowStatusSheet(true)} />
-          <SelectField label="Tất cả nguồn" value={selectedSourceLabel} onPress={() => setShowSourceSheet(true)} />
-          <SelectField label="30 ngày gần nhất" value={selectedDormantLabel} onPress={() => setShowDormantSheet(true)} />
+          <SelectField label={strings.manageCustomersAllStatuses} value={selectedStatusLabel} onPress={() => setShowStatusSheet(true)} />
+          <SelectField label={strings.manageCustomersAllSources} value={selectedSourceLabel} onPress={() => setShowSourceSheet(true)} />
+          <SelectField label={strings.manageCustomersLast30Days} value={selectedDormantLabel} onPress={() => setShowDormantSheet(true)} />
           <Pressable style={styles.vipField} onPress={() => setVipOnly((current) => !current)}>
             <View style={[styles.checkbox, vipOnly ? styles.checkboxActive : null]}>
               {vipOnly ? <Feather name="check" size={12} color="#FFFFFF" /> : null}
             </View>
-            <Text style={styles.vipFieldText}>Chỉ khách VIP</Text>
+            <Text style={styles.vipFieldText}>{strings.manageCustomersVipOnly}</Text>
           </Pressable>
         </View>
       </View>
@@ -526,27 +536,27 @@ export default function AdminManageCustomersScreen() {
             <View style={styles.sectionIcon}>
               <Feather name="git-merge" size={15} color={palette.accent} />
             </View>
-            <Text style={styles.sectionTitle}>Rà hồ sơ trùng an toàn</Text>
+            <Text style={styles.sectionTitle}>{strings.manageCustomersDuplicateTitle}</Text>
           </View>
           <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{duplicateCandidates.length} nhóm</Text>
+            <Text style={styles.countPillText}>{`${duplicateCandidates.length} ${strings.manageCustomersGroupSuffix}`}</Text>
           </View>
         </View>
 
         <View style={styles.duplicateSummaryRow}>
           <View style={styles.duplicateSummaryCard}>
-            <Text style={styles.duplicateSummaryLabel}>Safe email</Text>
+            <Text style={styles.duplicateSummaryLabel}>{strings.manageCustomersSafeEmail}</Text>
             <Text style={styles.duplicateSummaryValue}>{safeEmailPreviewCount}</Text>
           </View>
           <View style={styles.duplicateSummaryCard}>
-            <Text style={styles.duplicateSummaryLabel}>Safe phone</Text>
+            <Text style={styles.duplicateSummaryLabel}>{strings.manageCustomersSafePhone}</Text>
             <Text style={styles.duplicateSummaryValue}>{safePhonePreviewCount}</Text>
           </View>
         </View>
 
         {duplicateCandidates.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Hiện chưa có nhóm hồ sơ nào đủ điều kiện merge an toàn.</Text>
+            <Text style={styles.emptyText}>{strings.manageCustomersDuplicateEmpty}</Text>
           </View>
         ) : (
           <View style={styles.listStack}>
@@ -557,10 +567,10 @@ export default function AdminManageCustomersScreen() {
               >
                 <View style={styles.duplicateHeader}>
                   <Text style={styles.duplicateTitle}>{candidate.matchType} · {candidate.matchValue}</Text>
-                  <Text style={styles.duplicateMeta}>{candidate.duplicateCount} hồ sơ</Text>
+                  <Text style={styles.duplicateMeta}>{candidate.duplicateCount} {strings.manageCustomersProfilesUnit}</Text>
                 </View>
-                <Text style={styles.duplicateHint}>Bản chính: {candidate.canonicalCustomerId.slice(0, 8)}…</Text>
-                <Text style={styles.duplicateHint}>Rule: {candidate.reason}</Text>
+                <Text style={styles.duplicateHint}>{`${strings.manageCustomersCanonicalPrefix}: ${candidate.canonicalCustomerId.slice(0, 8)}…`}</Text>
+                <Text style={styles.duplicateHint}>{`${strings.manageCustomersRulePrefix}: ${candidate.reason}`}</Text>
                 <View style={styles.duplicateActions}>
                   {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId, duplicateIndex) => {
                     const busyKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
@@ -573,7 +583,7 @@ export default function AdminManageCustomersScreen() {
                         disabled={busy}
                         onPress={() => void handleMergeDuplicate(candidate, duplicateId)}
                       >
-                        {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.mergeButtonText}>Merge {duplicateId.slice(0, 8)}…</Text>}
+                        {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.mergeButtonText}>{`${strings.manageCustomersMergePrefix} ${duplicateId.slice(0, 8)}…`}</Text>}
                       </Pressable>
                     );
                   })}
@@ -590,11 +600,11 @@ export default function AdminManageCustomersScreen() {
             <View style={styles.sectionIcon}>
               <Feather name="users" size={15} color={palette.accent} />
             </View>
-            <Text style={styles.sectionTitle}>Danh sách khách</Text>
+            <Text style={styles.sectionTitle}>{strings.manageCustomersListTitle}</Text>
           </View>
           <View style={styles.headerActions}>
             <View style={styles.countPill}>
-              <Text style={styles.countPillText}>{renderRows.length} khách</Text>
+              <Text style={styles.countPillText}>{`${renderRows.length} ${strings.manageCustomersCountSuffix}`}</Text>
             </View>
             <Pressable
               style={styles.collapseButton}
@@ -606,7 +616,7 @@ export default function AdminManageCustomersScreen() {
                 color={palette.sub}
               />
               <Text style={styles.collapseButtonText}>
-                {customerListExpanded ? "Thu gọn" : "Mở rộng"}
+                {customerListExpanded ? strings.manageContentCollapse : strings.manageContentExpand}
               </Text>
             </Pressable>
           </View>
@@ -620,7 +630,7 @@ export default function AdminManageCustomersScreen() {
                 <Input
                   value={search}
                   onChangeText={setSearch}
-                  placeholder="Tìm theo tên, số điện thoại..."
+                  placeholder={strings.manageCustomersSearchPlaceholder}
                   style={styles.searchInput}
                 />
               </View>
@@ -639,11 +649,11 @@ export default function AdminManageCustomersScreen() {
             {loading ? (
               <View style={styles.emptyState}>
                 <ActivityIndicator size="small" color={palette.accent} />
-                <Text style={styles.emptyText}>Đang tải danh sách khách...</Text>
+                <Text style={styles.emptyText}>{strings.manageCustomersLoading}</Text>
               </View>
             ) : renderRows.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>Không có khách nào khớp bộ lọc hiện tại.</Text>
+                <Text style={styles.emptyText}>{strings.manageCustomersEmptyFiltered}</Text>
               </View>
             ) : (
               <View style={styles.listStack}>
@@ -651,6 +661,7 @@ export default function AdminManageCustomersScreen() {
                   <CustomerRow
                     key={`${item.id}:${index}`}
                     item={item}
+                    strings={strings}
                     onPress={() => setSelectedCustomerId(item.id)}
                   />
                 ))}
@@ -661,22 +672,22 @@ export default function AdminManageCustomersScreen() {
           <View style={styles.collapsedSummary}>
             <Feather name="minimize-2" size={15} color={palette.sub} />
             <Text style={styles.collapsedSummaryText}>
-              Danh sách khách đang được thu gọn. Bấm mở rộng để xem và chọn chi tiết.
+              {strings.manageCustomersCollapsedSummary}
             </Text>
           </View>
         )}
       </View>
 
       <OptionSheet
-        title="Chọn trạng thái"
-        options={STATUS_OPTIONS}
+        title={strings.manageCustomersSelectStatus}
+        options={statusOptions}
         selected={status}
         visible={showStatusSheet}
         onClose={() => setShowStatusSheet(false)}
         onSelect={setStatus}
       />
       <OptionSheet
-        title="Chọn nguồn khách"
+        title={strings.manageCustomersSelectSource}
         options={sourceOptions}
         selected={source}
         visible={showSourceSheet}
@@ -684,8 +695,8 @@ export default function AdminManageCustomersScreen() {
         onSelect={setSource}
       />
       <OptionSheet
-        title="Chọn khoảng theo dõi"
-        options={DORMANT_DAY_OPTIONS}
+        title={strings.manageCustomersSelectDormantWindow}
+        options={dormantDayOptions}
         selected={dormantDays}
         visible={showDormantSheet}
         onClose={() => setShowDormantSheet(false)}
@@ -705,7 +716,7 @@ export default function AdminManageCustomersScreen() {
                   <View style={styles.detailHeaderCopy}>
                     <Text style={styles.modalTitle}>{selectedCustomer.fullName}</Text>
                     <Text style={styles.detailSubtitle}>
-                      {statusLabel(selectedCustomer.customerStatus)} · {sourceLabel(selectedCustomer.source)}
+                      {statusLabel(strings, selectedCustomer.customerStatus)} · {sourceLabel(strings, selectedCustomer.source)}
                     </Text>
                   </View>
                   <Pressable style={styles.modalCloseButton} onPress={() => setSelectedCustomerId(null)}>
@@ -715,54 +726,54 @@ export default function AdminManageCustomersScreen() {
 
                 <View style={styles.detailGrid}>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Số điện thoại</Text>
-                    <Text style={styles.detailValue}>{selectedCustomer.phone ?? "Chưa cập nhật"}</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailPhone}</Text>
+                    <Text style={styles.detailValue}>{selectedCustomer.phone ?? strings.manageCustomersNotUpdated}</Text>
                   </View>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Sinh nhật</Text>
-                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.birthday)}</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailBirthday}</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(strings, selectedCustomer.birthday)}</Text>
                   </View>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Lượt ghé</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailVisits}</Text>
                     <Text style={styles.detailValue}>{selectedCustomer.totalVisits}</Text>
                   </View>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Tổng chi</Text>
-                    <Text style={styles.detailValue}>{formatVnd(selectedCustomer.totalSpend)} đ</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailSpend}</Text>
+                    <Text style={styles.detailValue}>{formatVnd(selectedCustomer.totalSpend)} {strings.manageCustomersCurrencySuffix}</Text>
                   </View>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Lần đầu</Text>
-                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.firstVisitAt)}</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailFirstVisit}</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(strings, selectedCustomer.firstVisitAt)}</Text>
                   </View>
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Lần gần nhất</Text>
-                    <Text style={styles.detailValue}>{formatDateLabel(selectedCustomer.lastVisitAt)}</Text>
+                    <Text style={styles.detailLabel}>{strings.manageCustomersDetailLastVisit}</Text>
+                    <Text style={styles.detailValue}>{formatDateLabel(strings, selectedCustomer.lastVisitAt)}</Text>
                   </View>
                 </View>
 
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailBlockLabel}>Dịch vụ gần nhất</Text>
+                  <Text style={styles.detailBlockLabel}>{strings.manageCustomersDetailLastService}</Text>
                   <Text style={styles.detailBlockValue}>
-                    {selectedCustomer.lastServiceSummary ?? "Chưa có dữ liệu"}
+                    {selectedCustomer.lastServiceSummary ?? strings.manageCustomersDetailNoData}
                   </Text>
                 </View>
 
                 <View style={styles.detailBlock}>
-                  <Text style={styles.detailBlockLabel}>Ghi chú / care note</Text>
+                  <Text style={styles.detailBlockLabel}>{strings.manageCustomersDetailCareNote}</Text>
                   <Text style={styles.detailBlockValue}>
-                    {selectedCustomer.careNote ?? "Chưa có ghi chú chăm sóc"}
+                    {selectedCustomer.careNote ?? strings.manageCustomersDetailNoCareNote}
                   </Text>
                 </View>
 
                 <View style={styles.detailFooterRow}>
                   <View style={styles.detailMetaPill}>
                     <Text style={styles.detailMetaPillText}>
-                      Follow-up: {selectedCustomer.followUpStatus}
+                      {`${strings.manageCustomersFollowUpPrefix}: ${selectedCustomer.followUpStatus}`}
                     </Text>
                   </View>
                   <View style={styles.detailMetaPill}>
                     <Text style={styles.detailMetaPillText}>
-                      Ngày rời xa: {selectedCustomer.dormantDays ?? 0}
+                      {`${strings.manageCustomersDormantDaysPrefix}: ${selectedCustomer.dormantDays ?? 0}`}
                     </Text>
                   </View>
                 </View>

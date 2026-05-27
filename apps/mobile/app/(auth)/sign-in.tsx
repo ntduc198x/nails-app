@@ -1,6 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Redirect } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import {
   Alert,
@@ -23,6 +25,7 @@ const { colors } = premiumTheme;
 
 const HERO_IMAGE_URI =
   "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=1200&auto=format&fit=crop";
+const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
 type AuthMode = "login" | "signup";
 type RegistrationMode = "USER" | "ADMIN";
@@ -48,7 +51,13 @@ export default function SignInScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailFallback, setShowEmailFallback] = useState(false);
+  const [locale, setLocale] = useState<Locale>("vi");
   const scrollRef = useRef<ScrollView | null>(null);
+  const t = useCallback(
+    (key: TranslationKey<"mobileAuth">, params?: Record<string, string | number>) =>
+      translate(locale, "mobileAuth", key, params),
+    [locale],
+  );
 
   const isSignup = mode === "signup";
   const isRegisterAdmin = isSignup && registrationMode === "ADMIN";
@@ -58,24 +67,31 @@ export default function SignInScreen() {
 
   const heroTitle = useMemo(() => {
     if (isRegisterAdmin) {
-      return "Đăng ký tài khoản quản trị để quản lý lịch hẹn, nhân sự và các hoạt động vận hành của tiệm.";
+      return t("heroAdmin");
     }
 
-    return "Đăng nhập để quản lý lịch hẹn, ưu đãi và thông tin cá nhân.";
-  }, [isRegisterAdmin]);
+    return t("heroCustomer");
+  }, [isRegisterAdmin, t]);
 
   const formTitle = useMemo(() => {
-    if (mode === "login") return "Đăng nhập bằng email";
-    if (isRegisterAdmin) return "Đăng ký tài khoản quản trị";
-    return "Đăng ký bằng email";
-  }, [isRegisterAdmin, mode]);
+    if (mode === "login") return t("loginEmailTitle");
+    if (isRegisterAdmin) return t("signupAdminTitle");
+    return t("signupEmailTitle");
+  }, [isRegisterAdmin, mode, t]);
 
   const submitLabel = useMemo(() => {
-    if (isBusy) return "Đang xử lý...";
-    if (mode === "login") return "Đăng nhập";
-    if (isRegisterAdmin) return "Tạo tài khoản quản trị";
-    return "Tạo tài khoản";
-  }, [isBusy, isRegisterAdmin, mode]);
+    if (isBusy) return t("processing");
+    if (mode === "login") return t("login");
+    if (isRegisterAdmin) return t("createAdminAccount");
+    return t("createAccount");
+  }, [isBusy, isRegisterAdmin, mode, t]);
+
+  useEffect(() => {
+    void (async () => {
+      const storedLocale = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
+      setLocale(normalizeLocale(storedLocale));
+    })();
+  }, []);
 
   const scrollFocusedInputIntoView = useCallback(() => {
     const focusedInput = TextInput.State.currentlyFocusedInput?.();
@@ -132,8 +148,8 @@ export default function SignInScreen() {
 
       setMessage(
         registrationMode === "USER"
-          ? "Tài khoản khách hàng đã được tạo. Bạn có thể tiếp tục đăng nhập ngay."
-          : "Tài khoản quản trị đã được tạo thành công.",
+          ? t("customerCreated")
+          : t("adminCreated"),
       );
       return;
     }
@@ -144,24 +160,24 @@ export default function SignInScreen() {
   async function handlePasswordReset() {
     const nextEmail = email.trim();
     if (!nextEmail) {
-      setMessage("Nhập email trước khi gửi yêu cầu đặt lại mật khẩu.");
+      setMessage(t("emailRequiredForReset"));
       return;
     }
 
     Alert.alert(
-      "Xác nhận gửi link",
-      `Gửi email đặt lại mật khẩu tới ${nextEmail}?`,
+      t("resetConfirmTitle"),
+      t("resetConfirmBody", { email: nextEmail }),
       [
-        { text: "Hủy", style: "cancel" },
+        { text: translate(locale, "customer", "cancel"), style: "cancel" },
         {
-          text: "Gửi link",
+          text: t("sendLink"),
           onPress: () => {
             void (async () => {
               try {
                 setMessage(null);
                 clearError();
                 await requestPasswordReset(nextEmail);
-                setMessage("Đã gửi email đặt lại mật khẩu. Vui lòng kiểm tra hộp thư đến của bạn.");
+                setMessage(t("resetSent"));
               } catch {
                 // Session provider already surfaces the concrete error state.
               }
@@ -237,7 +253,7 @@ export default function SignInScreen() {
               clearError();
             }}
           >
-            <Text style={[styles.switchText, mode === "login" ? styles.switchTextActive : null]}>Đăng nhập</Text>
+            <Text style={[styles.switchText, mode === "login" ? styles.switchTextActive : null]}>{t("login")}</Text>
           </Pressable>
 
           <Pressable
@@ -250,7 +266,7 @@ export default function SignInScreen() {
               clearError();
             }}
           >
-            <Text style={[styles.switchText, mode === "signup" ? styles.switchTextActive : null]}>Đăng ký</Text>
+            <Text style={[styles.switchText, mode === "signup" ? styles.switchTextActive : null]}>{t("signup")}</Text>
           </Pressable>
         </View>
 
@@ -259,7 +275,7 @@ export default function SignInScreen() {
             <RoleButton
               active={registrationMode === "USER"}
               icon="user"
-              label="Khách hàng"
+              label={t("customerRole")}
               onPress={() => {
                 setRegistrationMode("USER");
                 setShowEmailFallback(false);
@@ -268,7 +284,7 @@ export default function SignInScreen() {
             <RoleButton
               active={registrationMode === "ADMIN"}
               icon="shield"
-              label="Quản trị"
+              label={t("adminRole")}
               onPress={() => {
                 setRegistrationMode("ADMIN");
                 setShowEmailFallback(true);
@@ -280,16 +296,16 @@ export default function SignInScreen() {
         <View style={styles.card}>
           {showSocialSection ? (
             <>
-              <Text style={styles.cardTitle}>{mode === "login" ? "Đăng nhập nhanh" : "Tạo tài khoản nhanh"}</Text>
+              <Text style={styles.cardTitle}>{mode === "login" ? t("quickLogin") : t("quickSignup")}</Text>
 
               <SocialButton
                 icon="chrome"
-                label="Tiếp tục với Google"
+                label={t("continueWithGoogle")}
                 onPress={() => void handleGooglePress()}
                 disabled={isBusy}
               />
 
-              <Separator label="HOẶC" />
+              <Separator label={t("or")} />
             </>
           ) : null}
 
@@ -300,7 +316,7 @@ export default function SignInScreen() {
               {isSignup ? (
                 <InputField
                   icon="user"
-                  placeholder="Họ và tên"
+                  placeholder={t("fullName")}
                   value={name}
                   onChangeText={setName}
                   autoCapitalize="words"
@@ -310,7 +326,7 @@ export default function SignInScreen() {
               {isRegisterAdmin ? (
                 <InputField
                   icon="tag"
-                  placeholder="Mã mời quản trị"
+                  placeholder={t("inviteCode")}
                   value={inviteCode}
                   onChangeText={(value) => setInviteCode(value.toUpperCase())}
                   autoCapitalize="characters"
@@ -319,7 +335,7 @@ export default function SignInScreen() {
 
               <InputField
                 icon="mail"
-                placeholder="Email"
+                placeholder={t("email")}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
@@ -328,7 +344,7 @@ export default function SignInScreen() {
 
               <InputField
                 icon="lock"
-                placeholder="Mật khẩu"
+                placeholder={t("password")}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -341,7 +357,7 @@ export default function SignInScreen() {
 
               {mode === "login" ? (
                 <Pressable style={styles.forgotWrap} onPress={() => void handlePasswordReset()}>
-                  <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+                  <Text style={styles.forgotText}>{t("forgotPassword")}</Text>
                 </Pressable>
               ) : null}
 
@@ -349,7 +365,7 @@ export default function SignInScreen() {
             </>
           ) : (
             <Pressable style={styles.emailFallbackWrap} onPress={() => setShowEmailFallback(true)}>
-              <Text style={styles.emailFallbackText}>Dùng email thay thế</Text>
+              <Text style={styles.emailFallbackText}>{translate(locale, "customer", "useEmailInstead")}</Text>
             </Pressable>
           )}
 
@@ -361,16 +377,16 @@ export default function SignInScreen() {
           <View style={styles.securityIcon}>
             <Feather color="#B67C53" name="shield" size={16} />
           </View>
-          <Text style={styles.securityText}>Bảo mật & an toàn</Text>
+          <Text style={styles.securityText}>{translate(locale, "customer", "secureAndSafe")}</Text>
           <View style={styles.securityMiniBadge}>
             <Feather color="#B67C53" name="check" size={14} />
           </View>
         </View>
 
         <View style={styles.supportRow}>
-          <Text style={styles.supportLabel}>Cần hỗ trợ?</Text>
+          <Text style={styles.supportLabel}>{translate(locale, "customer", "supportQuestion")}</Text>
           <Pressable>
-            <Text style={styles.supportLink}>Liên hệ chúng tôi</Text>
+            <Text style={styles.supportLink}>{translate(locale, "customer", "contactUs")}</Text>
           </Pressable>
           <Feather color="#C08A63" name="message-circle" size={14} />
         </View>

@@ -25,11 +25,13 @@ import {
   listRecentTicketsForMobile,
   listServicesForMobile,
   saveAppointmentForMobile,
+  translate,
   updateBookingRequestForMobile,
   updateAppointmentStatusForMobile,
   updateBookingRequestStatusForMobile,
 } from "@nails/shared";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -79,15 +81,15 @@ const INITIAL_STATE: AdminOperationsState = {
   staleCheckInCleanupError: null,
 };
 
-function normalizeAdminOperationError(error: unknown): string {
+function normalizeAdminOperationError(error: unknown, locale: "vi" | "en"): string {
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
-    return "Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.";
+    return translate(locale, "errors", "appointmentCheckInWindow");
   }
   if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) {
-    return "Trạng thái lịch hẹn không hợp lệ cho thao tác này.";
+    return translate(locale, "errors", "invalidAppointmentStatusTransition");
   }
-  return message || "Thao tác thất bại";
+  return message || translate(locale, "errors", "appointmentMutationFailed");
 }
 
 const ADMIN_OPERATIONS_CACHE_TTL_MS = 60 * 1000;
@@ -139,7 +141,7 @@ function normalizePhone(raw: string | null | undefined) {
   return digits;
 }
 
-async function listStaffOptions(): Promise<StaffOption[]> {
+export async function listStaffOptions(): Promise<StaffOption[]> {
   if (!mobileSupabase) {
     return [];
   }
@@ -224,7 +226,7 @@ async function listStaffOptions(): Promise<StaffOption[]> {
   });
 }
 
-async function listResourceOptions(): Promise<ResourceOption[]> {
+export async function listResourceOptions(): Promise<ResourceOption[]> {
   if (!mobileSupabase) {
     return [];
   }
@@ -253,6 +255,7 @@ async function listResourceOptions(): Promise<ResourceOption[]> {
 }
 
 export function useAdminOperations() {
+  const { locale } = useAdminPreferences();
   const { isHydrated, role, user } = useSession();
   const observer = useAdminObserverScope();
   const userId = user?.id ?? null;
@@ -382,7 +385,7 @@ export function useAdminOperations() {
     try {
       return await inflightAdminLoad;
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Khong tai duoc du lieu van hanh");
+      setError(nextError instanceof Error ? nextError.message : translate(locale, "errors", "appointmentMutationFailed"));
       throw nextError;
     } finally {
       inflightAdminLoad = null;
@@ -418,14 +421,14 @@ export function useAdminOperations() {
         await action();
         await load(true);
       } catch (nextError) {
-        setError(normalizeAdminOperationError(nextError));
+        setError(normalizeAdminOperationError(nextError, locale));
         throw nextError;
       } finally {
         setMutating(false);
         setBusyTargetId(null);
       }
     },
-    [load],
+    [load, locale],
   );
 
   const updateBookingRequestStatus = useCallback(

@@ -5,9 +5,9 @@ export const FALLBACK_SERVICES: LookbookService[] = [
     id: "luxury-gel",
     title: "Luxury Gel",
     category: "sang-trong",
-    blurb: "Form móng tối giản, nền đen bóng và chi tiết đá béo hiện đại.",
-    tone: "Nhẹ nhàng",
-    price: "350.000đ",
+    blurb: "Minimal nail shape with glossy black polish and modern crystal details.",
+    tone: "Soft",
+    price: "350,000 VND",
     image: "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=1200",
     aspectRatio: 1.28,
   },
@@ -15,19 +15,19 @@ export const FALLBACK_SERVICES: LookbookService[] = [
     id: "nail-art-design",
     title: "Nail Art Design",
     category: "noi-bat",
-    blurb: "Phối màu xám bạc và white milk cho layout sang trọng, sáng da.",
-    tone: "Nổi bật",
-    price: "500.000đ",
+    blurb: "Silver gray with milky white accents for a polished, brighter-hand finish.",
+    tone: "Standout",
+    price: "500,000 VND",
     image: "https://images.unsplash.com/photo-1607779097040-26e80aa78e66?q=80&w=1200",
     aspectRatio: 0.98,
   },
   {
     id: "nail-han-quoc",
     category: "don-gian",
-    title: "Nail Hàn Quốc",
-    blurb: "Base nude trong veo, điểm nhấn phụ kiện kim loại nhỏ và sáng.",
-    tone: "Nhẹ nhàng",
-    price: "400.000đ",
+    title: "Korean Nail",
+    blurb: "Sheer nude base with clean metallic accents and a glossy finish.",
+    tone: "Soft",
+    price: "400,000 VND",
     image: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?q=80&w=1200",
     aspectRatio: 1.16,
   },
@@ -35,9 +35,9 @@ export const FALLBACK_SERVICES: LookbookService[] = [
     id: "french-chic",
     category: "sang-trong",
     title: "French Chic",
-    blurb: "French mỏng và gam beige hồng, hợp hẹn hò và đi làm mỗi ngày.",
-    tone: "Sang trọng",
-    price: "300.000đ",
+    blurb: "Thin French tips with rosy beige tones for date nights and everyday wear.",
+    tone: "Luxury",
+    price: "300,000 VND",
     image: "https://images.unsplash.com/photo-1522337660859-02fbefca4702?q=80&w=1200",
     aspectRatio: 1.24,
   },
@@ -45,9 +45,9 @@ export const FALLBACK_SERVICES: LookbookService[] = [
     id: "matcha-mood",
     category: "ca-tinh",
     title: "Matcha Mood",
-    blurb: "Gam xanh olive mix sticker mini cho bộ móng cá tính nhưng vẫn mềm.",
-    tone: "Cá tính",
-    price: "380.000đ",
+    blurb: "Olive green shades with mini stickers for an edgy but still soft set.",
+    tone: "Edgy",
+    price: "380,000 VND",
     image: "https://images.unsplash.com/photo-1610992015732-2449b76344bc?q=80&w=1200",
     aspectRatio: 1.06,
   },
@@ -55,33 +55,33 @@ export const FALLBACK_SERVICES: LookbookService[] = [
     id: "milky-glow",
     category: "don-gian",
     title: "Milky Glow",
-    blurb: "Overlay ánh ngọc trai và những điểm nhấn nhỏ cho da tay sáng hơn.",
-    tone: "Đơn giản",
-    price: "320.000đ",
+    blurb: "Pearl glow overlay with subtle details to brighten the hands.",
+    tone: "Minimal",
+    price: "320,000 VND",
     image: "https://images.unsplash.com/photo-1632345031435-8727f6897d53?q=80&w=1200",
     aspectRatio: 1.14,
   },
 ];
 
 export const CATEGORY_ITEMS = [
-  { key: "all", label: "Tất cả" },
-  { key: "don-gian", label: "Đơn giản" },
-  { key: "sang-trong", label: "Sang trọng" },
-  { key: "ca-tinh", label: "Cá tính" },
-  { key: "noi-bat", label: "Nổi bật" },
+  { key: "all" },
+  { key: "don-gian" },
+  { key: "sang-trong" },
+  { key: "ca-tinh" },
+  { key: "noi-bat" },
 ] as const;
 
 export const QUICK_CONTACTS = [
-  { label: "Hotline", value: "0916 080 398", actionLabel: "Gọi", href: "tel:0916080398" },
+  { label: "Hotline", value: "0916 080 398", actionLabel: "Call", href: "tel:0916080398" },
   { label: "Messenger", value: "m.me/chambeautyyy", actionLabel: "Chat", href: "https://m.me/chambeautyyy" },
-  { label: "Instagram", value: "@cham.beautyy", actionLabel: "Xem", href: "https://www.instagram.com/cham.beautyy" },
+  { label: "Instagram", value: "@cham.beautyy", actionLabel: "View", href: "https://www.instagram.com/cham.beautyy" },
 ] as const;
 
 export const QUICK_CONTACTS_CARD = [
   {
     label: "Hotline",
     value: "0916 080 398",
-    actionLabel: "Gọi",
+    actionLabel: "Call",
     href: "tel:0916080398",
     icon: "phone-call",
     actionIcon: "phone",
@@ -97,7 +97,7 @@ export const QUICK_CONTACTS_CARD = [
   {
     label: "Instagram",
     value: "@cham.beautyy",
-    actionLabel: "Xem",
+    actionLabel: "View",
     href: "https://www.instagram.com/cham.beautyy",
     icon: "instagram",
     actionIcon: "external-link",
@@ -105,35 +105,35 @@ export const QUICK_CONTACTS_CARD = [
 ] as const;
 
 export const EXPLORE_STATS = [
-  { id: "services", label: "Dịch vụ", value: "6 mẫu", icon: "shopping-bag" },
-  { id: "customers", label: "Khách hàng", value: "2k+", icon: "users" },
-  { id: "experience", label: "Kinh nghiệm", value: "+6 năm", icon: "calendar" },
-  { id: "offers", label: "Ưu đãi", value: "4 mới", icon: "tag" },
+  { id: "services", label: "Services", value: "6 looks", icon: "shopping-bag" },
+  { id: "customers", label: "Customers", value: "2k+", icon: "users" },
+  { id: "experience", label: "Experience", value: "6+ years", icon: "calendar" },
+  { id: "offers", label: "Offers", value: "4 new", icon: "tag" },
 ] as const;
 
 export const EXPLORE_SHOP_PRODUCTS = [
   {
     id: "product-1",
-    title: "Charm đính móng ánh bạc",
-    price: "79.000đ",
+    title: "Silver Nail Charm",
+    price: "79,000 VND",
     image: "https://images.unsplash.com/photo-1522337660859-02fbefca4702?q=80&w=1200",
   },
   {
     id: "product-2",
-    title: "Sơn gel nude milk",
-    price: "149.000đ",
+    title: "Milky Nude Gel Polish",
+    price: "149,000 VND",
     image: "https://images.unsplash.com/photo-1632345031435-8727f6897d53?q=80&w=1200",
   },
   {
     id: "product-3",
-    title: "Dầu dưỡng viền móng",
-    price: "95.000đ",
+    title: "Cuticle Care Oil",
+    price: "95,000 VND",
     image: "https://images.unsplash.com/photo-1610992015732-2449b76344bc?q=80&w=1200",
   },
   {
     id: "product-4",
-    title: "Set phụ kiện nail box",
-    price: "169.000đ",
+    title: "Nail Box Accessory Set",
+    price: "169,000 VND",
     image: "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=1200",
   },
 ] as const;
@@ -147,19 +147,19 @@ export const EXPLORE_TEAM = [
   },
   {
     id: "staff-2",
-    name: "Thảo Vy",
+    name: "Thao Vy",
     role: "Nail Artist",
     image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?q=80&w=800",
   },
   {
     id: "staff-3",
-    name: "Quỳnh Anh",
+    name: "Quynh Anh",
     role: "Nail Artist",
     image: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?q=80&w=800",
   },
   {
     id: "staff-4",
-    name: "Minh Thư",
+    name: "Minh Thu",
     role: "Nail Artist",
     image: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?q=80&w=800",
   },
@@ -169,11 +169,11 @@ export const EXPLORE_STORE_INFO = {
   name: "CHAM BEAUTY",
   category: "Nail & Beauty",
   rating: "4.9",
-  reviews: "128 đánh giá",
+  reviews: "128 reviews",
   coverImage: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?q=80&w=1200",
-  highlights: ["Uy tín", "Chất lượng", "Tận tâm"],
+  highlights: ["Trusted", "High quality", "Attentive"],
   address: "38A ngách 358/40 Bùi Xương Trạch, Khương Định, Thanh Xuân, Hà Nội",
-  openingHours: "Mở cửa: 09:00 - 21:00 (Tất cả ngày)",
+  openingHours: "Open daily: 09:00 - 21:00",
   mapImage: "https://images.unsplash.com/photo-1480714378408-67cf0d13bc1b?q=80&w=1200",
   mapUrl: "https://maps.app.goo.gl/Qu9oyq4emP3iWHDd6",
 } as const;
@@ -209,33 +209,33 @@ export const NEWS_ITEMS = [
   {
     id: "news-1",
     tag: "Hot trend",
-    title: "Chrome olive và cat-eye nude đang là tông màu được đặt nhiều nhất tuần này",
-    body: "Khách hàng đang ưu tiên tông nude sáng tay, mix thêm chi tiết chrome mỏng để vẫn dễ đi làm mỗi ngày.",
+    title: "Olive chrome and nude cat-eye are the most booked tones this week",
+    body: "Customers are leaning toward bright nude shades with slim chrome accents that still feel wearable every day.",
   },
   {
     id: "news-2",
-    tag: "Ưu đãi",
-    title: "Cham Beauty mở thêm combo nail art premium + spa tay trong khung giờ sáng",
-    body: "Booking trước 11:00 sẽ được free spa tay và ưu tiên chọn slot kỹ thuật viên.",
+    tag: "Offers",
+    title: "Cham Beauty added a premium nail art plus hand spa combo for morning slots",
+    body: "Bookings before 11:00 include a complimentary hand spa and priority technician availability.",
   },
   {
     id: "news-3",
-    tag: "Cập nhật",
-    title: "Lookbook tháng này thêm nhiều form French mới hợp layout ảnh Pinterest",
-    body: "Đã cập nhật thêm các mẫu French Chic, milky glow và olive mood để bạn lưu nhanh sang màn Khám phá.",
+    tag: "Update",
+    title: "This month’s lookbook adds more French styles inspired by Pinterest layouts",
+    body: "Fresh French Chic, Milky Glow, and Olive Mood looks are now ready to save from Explore.",
   },
 ] as const;
 
 export const HOME_SHORTCUTS = [
-  { id: "shortcut-1", title: "Mẫu hot hôm nay", detail: "Mở màn Khám phá để xem trend hiện tại", href: "/(customer)/(tabs)/explore" },
-  { id: "shortcut-2", title: "Đặt lịch nhanh", detail: "Gửi yêu cầu và chọn khung giờ phù hợp", href: "/(customer)/(tabs)/booking" },
-  { id: "shortcut-3", title: "Ưu đãi thành viên", detail: "Voucher mới và điểm tích lũy hiện tại", href: "/(customer)/offers" },
+  { id: "shortcut-1", title: "Today’s hot looks", detail: "Open Explore to view current trends", href: "/(customer)/(tabs)/explore" },
+  { id: "shortcut-2", title: "Quick booking", detail: "Send a request and pick the best time slot", href: "/(customer)/(tabs)/booking" },
+  { id: "shortcut-3", title: "Member offers", detail: "New vouchers and current reward points", href: "/(customer)/offers" },
 ] as const;
 
 export const OFFERS = [
-  { id: "offer-20", title: "Giảm 20%", detail: "Tất cả dịch vụ nail art", expiry: "HSD: 30/04/2026" },
-  { id: "offer-10", title: "Giảm 10%", detail: "Cho đơn từ 500k", expiry: "HSD: 15/05/2026" },
-  { id: "offer-30k", title: "Giảm 30k", detail: "Cho dịch vụ từ 300k", expiry: "HSD: 01/05/2026" },
+  { id: "offer-20", title: "20% off", detail: "All nail art services", expiry: "Valid until: 30/04/2026" },
+  { id: "offer-10", title: "10% off", detail: "For orders from 500k", expiry: "Valid until: 15/05/2026" },
+  { id: "offer-30k", title: "30k off", detail: "For services from 300k", expiry: "Valid until: 01/05/2026" },
 ] as const;
 
 export const MEMBERSHIP = {
@@ -243,13 +243,13 @@ export const MEMBERSHIP = {
   tier: "Member Gold",
   points: "1.250",
   progress: 0.62,
-  renewal: "Bạn cần thêm 750 điểm để lên hạng Platinum",
-  perks: ["Tích điểm đổi quà", "Ưu đãi sinh nhật", "Ưu tiên đặt lịch", "Giảm giá đặc biệt"],
+  renewal: "You need 750 more points to reach Platinum",
+  perks: ["Collect points for rewards", "Birthday perks", "Priority booking", "Special discounts"],
 };
 
 export const UPCOMING_BOOKINGS = [
-  { id: "upcoming-1", title: "Luxury Gel", slot: "09:00 24/04/2026", staff: "Bùi Thị Tuyết" },
-  { id: "upcoming-2", title: "French Chic", slot: "14:30 27/04/2026", staff: "Võ Hà Linh" },
+  { id: "upcoming-1", title: "Luxury Gel", slot: "09:00 24/04/2026", staff: "Bui Thi Tuyet" },
+  { id: "upcoming-2", title: "French Chic", slot: "14:30 27/04/2026", staff: "Vo Ha Linh" },
 ] as const;
 
 export const UPCOMING_BOOKING_CARDS = [
@@ -257,14 +257,14 @@ export const UPCOMING_BOOKING_CARDS = [
     id: "upcoming-card-1",
     title: "Luxury Gel",
     slot: "09:00 - 24/04/2026",
-    staff: "Bùi Thị Tuyết",
+    staff: "Bui Thi Tuyet",
     image: FALLBACK_SERVICES[0].image,
   },
   {
     id: "upcoming-card-2",
     title: "French Chic",
     slot: "14:30 - 27/04/2026",
-    staff: "Võ Hà Linh",
+    staff: "Vo Ha Linh",
     image: FALLBACK_SERVICES[3].image,
   },
 ] as const;
@@ -273,33 +273,33 @@ export const BOOKING_HISTORY = [
   {
     id: "history-1",
     time: "19:00 18/04/2026",
-    staff: "Nguyễn Khánh Ly",
+    staff: "Nguyen Khanh Ly",
     service: "Nail Art Design",
-    status: "Đã xác nhận",
+    status: "Confirmed",
     tone: "success",
   },
   {
     id: "history-2",
     time: "14:00 15/04/2026",
-    staff: "Võ Hà Linh",
+    staff: "Vo Ha Linh",
     service: "French Chic",
-    status: "Đã đến",
+    status: "Visited",
     tone: "success",
   },
   {
     id: "history-3",
     time: "10:30 10/04/2026",
-    staff: "Bùi Thúy An",
-    service: "Nail Hàn Quốc",
-    status: "Đã hủy",
+    staff: "Bui Thuy An",
+    service: "Korean Nail",
+    status: "Cancelled",
     tone: "danger",
   },
   {
     id: "history-4",
     time: "13:00 05/04/2026",
-    staff: "Trần Hà Linh",
+    staff: "Tran Ha Linh",
     service: "Luxury Gel",
-    status: "Đã đến",
+    status: "Visited",
     tone: "success",
   },
 ] as const;
@@ -315,34 +315,34 @@ export const NOTIFICATIONS = [
   {
     id: "notify-1",
     icon: "⏰",
-    title: "Đặt lịch thành công",
-    body: "Bạn đã đặt lịch với Nguyễn Khánh Ly vào 19:00 18/04",
-    time: "2 phút trước",
-    group: "Tất cả",
+    title: "Booking confirmed",
+    body: "You booked with Nguyen Khanh Ly at 19:00 on 18/04.",
+    time: "2 min ago",
+    group: "All",
   },
   {
     id: "notify-2",
     icon: "📅",
-    title: "Nhắc lịch hẹn",
-    body: "Bạn có lịch hẹn vào 19:00 18/04 với Nguyễn Khánh Ly",
-    time: "10 phút trước",
-    group: "Hệ thống",
+    title: "Appointment reminder",
+    body: "You have an appointment at 19:00 on 18/04 with Nguyen Khanh Ly.",
+    time: "10 min ago",
+    group: "System",
   },
   {
     id: "notify-3",
     icon: "🏷",
-    title: "Ưu đãi đặc biệt",
-    body: "Giảm 20% tất cả dịch vụ nail art trong tuần này!",
-    time: "1 giờ trước",
-    group: "Khuyến mãi",
+    title: "Special offer",
+    body: "Get 20% off all nail art services this week.",
+    time: "1 hour ago",
+    group: "Promotions",
   },
   {
     id: "notify-4",
     icon: "✉",
-    title: "Đánh giá dịch vụ",
-    body: "Cảm ơn bạn đã sử dụng dịch vụ. Hãy đánh giá để giúp chúng tôi cải thiện nhé!",
-    time: "2 giờ trước",
-    group: "Hệ thống",
+    title: "Rate your service",
+    body: "Thanks for visiting us. Leave a review to help us improve.",
+    time: "2 hours ago",
+    group: "System",
   },
 ] as const;
 
@@ -350,7 +350,7 @@ export const REVIEWS = [
   {
     id: "review-1",
     service: "Nail Art Design",
-    staff: "Nguyễn Khánh Ly",
+    staff: "Nguyen Khanh Ly",
     date: "18/04/2026",
     rating: 5,
     image: FALLBACK_SERVICES[1].image,
@@ -358,7 +358,7 @@ export const REVIEWS = [
   {
     id: "review-2",
     service: "French Chic",
-    staff: "Võ Hà Linh",
+    staff: "Vo Ha Linh",
     date: "15/04/2026",
     rating: 5,
     image: FALLBACK_SERVICES[3].image,
@@ -366,7 +366,7 @@ export const REVIEWS = [
   {
     id: "review-3",
     service: "Luxury Gel",
-    staff: "Trần Hà Linh",
+    staff: "Tran Ha Linh",
     date: "05/04/2026",
     rating: 4,
     image: FALLBACK_SERVICES[0].image,
@@ -374,22 +374,22 @@ export const REVIEWS = [
 ] as const;
 
 export const PAYMENT_METHODS = [
-  { id: "payment-1", title: "Tiền mặt", detail: "Thanh toán tại quầy" },
+  { id: "payment-1", title: "Cash", detail: "Pay at the counter" },
   { id: "payment-2", title: "Ví Momo", detail: "Cham Beauty shop" },
-  { id: "payment-3", title: "ZaloPay", detail: "Liên kết nhanh sau booking" },
-  { id: "payment-4", title: "Thẻ ngân hàng", detail: "Hỗ trợ Visa và Napas" },
+  { id: "payment-3", title: "ZaloPay", detail: "Quick link after booking" },
+  { id: "payment-4", title: "Bank card", detail: "Supports Visa and Napas" },
 ] as const;
 
 export const ADDRESSES = [
-  { id: "address-1", title: "Nhà riêng", detail: "123 Đường ABC, Quận 1, TP. HCM", selected: true },
-  { id: "address-2", title: "Công ty", detail: "456 Đường DEF, Quận 3, TP. HCM", selected: false },
+  { id: "address-1", title: "Home", detail: "123 ABC Street, District 1, Ho Chi Minh City", selected: true },
+  { id: "address-2", title: "Office", detail: "456 DEF Street, District 3, Ho Chi Minh City", selected: false },
 ] as const;
 
 export const SETTINGS = [
-  { id: "setting-1", title: "Nhận thông báo", value: "Bật" },
-  { id: "setting-2", title: "Âm thanh", value: "Tắt" },
-  { id: "setting-3", title: "Ngôn ngữ", value: "Tiếng Việt" },
-  { id: "setting-4", title: "Chế độ hiển thị", value: "Sáng" },
+  { id: "setting-1", title: "Notifications", value: "On" },
+  { id: "setting-2", title: "Sound", value: "Off" },
+  { id: "setting-3", title: "Language", value: "English" },
+  { id: "setting-4", title: "Display mode", value: "Light" },
 ] as const;
 
 export const PROFILE_SUMMARY = {
@@ -397,22 +397,22 @@ export const PROFILE_SUMMARY = {
   birthDate: "21/04/1998",
   phone: "0916 080 398",
   email: "linh.vo@example.com",
-  address: "123 Đường ABC, Quận 1, TP. HCM",
-  editLabel: "Chỉnh sửa",
+  address: "123 ABC Street, District 1, Ho Chi Minh City",
+  editLabel: "Edit",
   avatar:
     "https://images.unsplash.com/photo-1494790108377-be9c29b29330?q=80&w=800",
-  language: "Tiếng Việt",
-  passwordLabel: "Đổi mật khẩu",
+  language: "English",
+  passwordLabel: "Change password",
 };
 
 export const PROFILE_LINKS = [
-  { id: "profile-link-1", title: "Thông tin cá nhân", href: "/(customer)/settings", detail: "" },
-  { id: "profile-link-3", title: "Phương thức thanh toán", href: "/(customer)/payment-methods", detail: "" },
-  { id: "profile-link-4", title: "Bảo mật", href: "/(customer)/settings", detail: "" },
-  { id: "profile-link-5", title: "Ngôn ngữ", href: "/(customer)/settings", detail: "Tiếng Việt" },
-  { id: "profile-link-6", title: "Cài đặt thông báo", href: "/(customer)/notifications", detail: "" },
-  { id: "profile-link-7", title: "Giới thiệu ứng dụng", href: "/(customer)/settings", detail: "" },
-  { id: "profile-link-8", title: "Đăng xuất", href: "/(auth)/sign-in", detail: "" },
+  { id: "profile-link-1", title: "Personal info", href: "/(customer)/settings", detail: "" },
+  { id: "profile-link-3", title: "Payment methods", href: "/(customer)/payment-methods", detail: "" },
+  { id: "profile-link-4", title: "Security", href: "/(customer)/settings", detail: "" },
+  { id: "profile-link-5", title: "Language", href: "/(customer)/settings", detail: "English" },
+  { id: "profile-link-6", title: "Notification settings", href: "/(customer)/notifications", detail: "" },
+  { id: "profile-link-7", title: "About the app", href: "/(customer)/settings", detail: "" },
+  { id: "profile-link-8", title: "Sign out", href: "/(auth)/sign-in", detail: "" },
 ] as const;
 
 export function matchesCategory(service: LookbookService, category: (typeof CATEGORY_ITEMS)[number]["key"]) {
@@ -427,8 +427,10 @@ export function matchesCategory(service: LookbookService, category: (typeof CATE
       normalizedCategory === "noi-bat" ||
       normalizedBadge.includes("nổi bật") ||
       normalizedBadge.includes("noi bat") ||
+      normalizedBadge.includes("standout") ||
       normalizedTone.includes("nổi bật") ||
       normalizedTone.includes("noi bat") ||
+      normalizedTone.includes("standout") ||
       haystack.includes("art") ||
       haystack.includes("design")
     );
@@ -439,15 +441,15 @@ export function matchesCategory(service: LookbookService, category: (typeof CATE
   }
 
   if (category === "don-gian") {
-    return normalizedTone.includes("nhẹ nhàng") || normalizedTone.includes("đơn giản") || haystack.includes("milky");
+    return normalizedTone.includes("nhẹ nhàng") || normalizedTone.includes("đơn giản") || normalizedTone.includes("soft") || normalizedTone.includes("minimal") || haystack.includes("milky");
   }
 
   if (category === "sang-trong") {
-    return normalizedTone.includes("sang trọng") || haystack.includes("french") || haystack.includes("luxury");
+    return normalizedTone.includes("sang trọng") || normalizedTone.includes("luxury") || haystack.includes("french") || haystack.includes("luxury");
   }
 
   if (category === "ca-tinh") {
-    return normalizedTone.includes("cá tính") || haystack.includes("olive") || haystack.includes("matcha");
+    return normalizedTone.includes("cá tính") || normalizedTone.includes("edgy") || haystack.includes("olive") || haystack.includes("matcha");
   }
 
   return true;

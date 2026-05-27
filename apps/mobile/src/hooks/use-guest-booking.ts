@@ -2,7 +2,10 @@
 import {
   createPublicBookingRequest,
   createPublicBookingRequestForMobile,
+  formatDateTimeLabel,
   publicBookingInputSchema,
+  translate,
+  type Locale,
   type PublicBookingInput,
   type PublicBookingSubmissionResult,
 } from "@nails/shared";
@@ -43,18 +46,18 @@ const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
   return `${String(hour).padStart(2, "0")}:${minute}`;
 });
 
-function getDateLabel(date: Date, index: number) {
-  if (index === 0) return "HÃ´m nay";
-  if (index === 1) return "NgÃ y mai";
+function getDateLabel(date: Date, index: number, locale: Locale) {
+  if (index === 0) return translate(locale, "customer", "today");
+  if (index === 1) return translate(locale, "customer", "tomorrow");
 
-  return date.toLocaleDateString("vi-VN", {
+  return date.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN", {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
   });
 }
 
-function createDateOptions() {
+function createDateOptions(locale: Locale) {
   return Array.from({ length: 21 }, (_, index) => {
     const date = new Date();
     date.setHours(0, 0, 0, 0);
@@ -66,7 +69,7 @@ function createDateOptions() {
         String(date.getMonth() + 1).padStart(2, "0"),
         String(date.getDate()).padStart(2, "0"),
       ].join("-"),
-      label: getDateLabel(date, index),
+      label: getDateLabel(date, index, locale),
     };
   });
 }
@@ -77,7 +80,7 @@ function toIsoDateTime(dateValue: string, timeValue: string) {
   return new Date(year, (month ?? 1) - 1, day ?? 1, hours ?? 0, minutes ?? 0, 0, 0).toISOString();
 }
 
-function normalizeBookingErrorMessage(message: string) {
+function normalizeBookingErrorMessage(message: string, locale: Locale) {
   const normalized = message.trim();
   const lower = normalized.toLowerCase();
 
@@ -86,34 +89,34 @@ function normalizeBookingErrorMessage(message: string) {
     lower.includes("profiles") ||
     lower.includes("user_id_fkey")
   ) {
-    return "Æ¯u Ä‘Ã£i nÃ y chÆ°a sáºµn sÃ ng Ä‘á»ƒ dÃ¹ng trÃªn tÃ i khoáº£n cá»§a báº¡n. Báº¡n vui lÃ²ng má»Ÿ Há»“ sÆ¡ kiá»ƒm tra láº¡i sá»‘ Ä‘iá»‡n thoáº¡i hoáº·c chá»n Æ°u Ä‘Ã£i khÃ¡c, bÃªn em sáº½ há»— trá»£ ngay náº¿u cáº§n.";
+    return translate(locale, "errors", "bookingOfferNotReady");
   }
 
   if (lower.includes("offer_already_used_or_reserved")) {
-    return "Æ¯u Ä‘Ã£i nÃ y vá»«a Ä‘Æ°á»£c giá»¯ chá»— hoáº·c Ä‘Ã£ Ä‘Æ°á»£c sá»­ dá»¥ng rá»“i. Báº¡n vui lÃ²ng chá»n Æ°u Ä‘Ã£i khÃ¡c giÃºp em nhÃ©.";
+    return translate(locale, "errors", "bookingOfferAlreadyUsedOrReserved");
   }
 
   if (lower.includes("offer_not_available")) {
-    return "Æ¯u Ä‘Ã£i nÃ y hiá»‡n khÃ´ng cÃ²n kháº£ dá»¥ng ná»¯a. Báº¡n vui lÃ²ng chá»n Æ°u Ä‘Ã£i khÃ¡c giÃºp em nhÃ©.";
+    return translate(locale, "errors", "bookingOfferNotAvailable");
   }
 
   if (lower.includes("offer_requires_linked_customer")) {
-    return "TÃ i khoáº£n cá»§a báº¡n chÆ°a liÃªn káº¿t Ä‘á»§ thÃ´ng tin thÃ nh viÃªn Ä‘á»ƒ dÃ¹ng Æ°u Ä‘Ã£i nÃ y. Vui lÃ²ng kiá»ƒm tra láº¡i há»“ sÆ¡ trÆ°á»›c khi Ä‘áº·t lá»‹ch.";
+    return translate(locale, "errors", "bookingOfferRequiresLinkedCustomer");
   }
 
   if (lower.includes("customer_name_required")) {
-    return "Vui lÃ²ng nháº­p tÃªn khÃ¡ch hÃ ng.";
+    return translate(locale, "errors", "bookingMissingName");
   }
 
   if (lower.includes("customer_phone_required")) {
-    return "Vui lÃ²ng nháº­p sá»‘ Ä‘iá»‡n thoáº¡i.";
+    return translate(locale, "errors", "bookingMissingPhone");
   }
 
   if (lower.includes("requested_start_required") || lower.includes("invalid_time_range")) {
-    return "Vui lÃ²ng chá»n láº¡i ngÃ y giá» Ä‘áº·t lá»‹ch há»£p lá»‡.";
+    return translate(locale, "errors", "bookingMissingStartAt");
   }
 
-  return normalized || "KhÃ´ng thá»ƒ gá»­i yÃªu cáº§u Ä‘áº·t lá»‹ch lÃºc nÃ y. Báº¡n vui lÃ²ng thá»­ láº¡i sau Ã­t phÃºt.";
+  return normalized || translate(locale, "errors", "bookingRequestFailed");
 }
 
 function inferFieldErrors(message: string): GuestBookingFieldErrors {
@@ -134,23 +137,23 @@ function isValidWorkingSlot(timeValue: string) {
   return DEFAULT_TIME_SLOTS.includes(timeValue);
 }
 
-function validateRequestedDateTime(dateValue: string, timeValue: string) {
+function validateRequestedDateTime(dateValue: string, timeValue: string, locale: Locale) {
   if (!dateValue || !timeValue) {
-    return "Vui lÃ²ng chá»n ngÃ y giá» Ä‘áº·t lá»‹ch há»£p lá»‡.";
+    return translate(locale, "errors", "bookingMissingStartAt");
   }
 
   if (!isValidWorkingSlot(timeValue)) {
-    return "Khung giá» Ä‘Ã£ chá»n náº±m ngoÃ i giá» lÃ m viá»‡c cá»§a salon.";
+    return translate(locale, "errors", "bookingTimeOutsideWorkingHours");
   }
 
   const requestedAt = new Date(toIsoDateTime(dateValue, timeValue));
   if (Number.isNaN(requestedAt.getTime())) {
-    return "NgÃ y giá» Ä‘áº·t lá»‹ch khÃ´ng há»£p lá»‡.";
+    return translate(locale, "errors", "invalidBookingTime");
   }
 
   const now = new Date();
   if (requestedAt.getTime() <= now.getTime()) {
-    return "KhÃ´ng thá»ƒ Ä‘áº·t lá»‹ch á»Ÿ thá»i Ä‘iá»ƒm quÃ¡ khá»©.";
+    return translate(locale, "errors", "bookingTimePast");
   }
 
   return null;
@@ -164,21 +167,13 @@ function isSameCalendarDay(left: Date, right: Date) {
   );
 }
 
-function formatBookingDateTime(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function formatBookingDateTime(value: string, locale: Locale) {
+  return formatDateTimeLabel(value, locale) || value;
 }
 
-export function useGuestBooking() {
+export function useGuestBooking(locale: Locale) {
   const { user } = useSession();
-  const dateOptions = useMemo(() => createDateOptions(), []);
+  const dateOptions = useMemo(() => createDateOptions(locale), [locale]);
   const [values, setValues] = useState<GuestBookingFormValues>({
     customerName: "",
     customerPhone: "",
@@ -222,7 +217,7 @@ export function useGuestBooking() {
 
   async function submit() {
     if (!mobileSupabase && !mobileEnv.apiBaseUrl) {
-      setSubmitError("Thieu cau hinh ket noi booking tren mobile.");
+      setSubmitError(translate(locale, "errors", "bookingConnectionMissing"));
       return;
     }
 
@@ -231,7 +226,7 @@ export function useGuestBooking() {
     setSubmitError(null);
 
     try {
-      const dateTimeError = validateRequestedDateTime(values.selectedDate, values.selectedTime);
+      const dateTimeError = validateRequestedDateTime(values.selectedDate, values.selectedTime, locale);
       if (dateTimeError) {
         setFieldErrors({ selectedDate: dateTimeError, selectedTime: dateTimeError });
         setSubmitError(dateTimeError);
@@ -274,7 +269,7 @@ export function useGuestBooking() {
         const typedPhone = normalizePhone(values.customerPhone);
         const canonicalPhone = normalizePhone(linkedPhone);
         if (canonicalPhone && typedPhone && canonicalPhone !== typedPhone) {
-          const mismatchMessage = "Sá»‘ Ä‘iá»‡n thoáº¡i Ä‘áº·t lá»‹ch pháº£i khá»›p vá»›i sá»‘ trong tÃ i khoáº£n cÃ¡ nhÃ¢n.";
+          const mismatchMessage = translate(locale, "errors", "bookingPhoneMismatch");
           setFieldErrors({ customerPhone: mismatchMessage });
           setSubmitError(mismatchMessage);
           return;
@@ -307,7 +302,9 @@ export function useGuestBooking() {
             });
 
             if (conflict && typeof conflict.requested_start_at === "string") {
-              const conflictMessage = `Báº¡n Ä‘Ã£ cÃ³ lá»‹ch Ä‘áº·t vÃ o ${formatBookingDateTime(conflict.requested_start_at)}. Náº¿u cáº§n Ä‘á»•i lá»‹ch, báº¡n vui lÃ²ng liÃªn há»‡ trá»±c tiáº¿p vá»›i tiá»‡m Ä‘á»ƒ Ä‘Æ°á»£c há»— trá»£ nhanh nháº¥t.`;
+              const conflictMessage = translate(locale, "errors", "bookingDuplicateExisting", {
+                dateTime: formatBookingDateTime(conflict.requested_start_at, locale),
+              });
               setSubmitError(conflictMessage);
               return;
             }
@@ -341,7 +338,7 @@ export function useGuestBooking() {
           }
         }
         setFieldErrors(nextErrors);
-        setSubmitError("Vui long kiem tra lai thong tin dat lich.");
+        setSubmitError(translate(locale, "errors", "bookingFormIncomplete"));
         return;
       }
 
@@ -426,8 +423,9 @@ export function useGuestBooking() {
       })().catch(() => {});
       return;
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "Gui booking request that bai.";
-      const friendlyMessage = normalizeBookingErrorMessage(rawMessage);
+      const rawMessage =
+        error instanceof Error ? error.message : translate(locale, "errors", "bookingRequestFailed");
+      const friendlyMessage = normalizeBookingErrorMessage(rawMessage, locale);
       setFieldErrors(inferFieldErrors(friendlyMessage));
       setSubmitError(friendlyMessage);
       setIsSubmitting(false);

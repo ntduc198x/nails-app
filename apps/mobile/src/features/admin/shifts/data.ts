@@ -1,4 +1,4 @@
-import { ensureOrgContext, resolveMobileAdminViewContext, type AppRole, type ObserverScopeInput } from "@nails/shared";
+import { ensureOrgContext, resolveMobileAdminViewContext, translations, type AppRole, type ObserverScopeInput } from "@nails/shared";
 import {
   generateWeekDates,
   getEffectiveShiftSlotsForDate as getEffectiveShiftSlotsForDateFromShared,
@@ -169,9 +169,10 @@ const SHIFT_TYPE_OPTIONS: ShiftType[] = ["MORNING", "AFTERNOON", "FULL_DAY"];
 const STAFF_ROLE_OPTIONS: StaffRole[] = ["MANAGER", "RECEPTION", "TECH", "ACCOUNTANT"];
 const FORECAST_BOOKING_STATUSES = ["BOOKED", "CHECKED_IN", "DONE"] as const;
 const FORECAST_REQUEST_STATUSES = ["OPEN", "PENDING", "CONFIRMED"] as const;
+const shiftStrings = translations.vi.admin;
 
 function requireSupabase() {
-  if (!mobileSupabase) throw new Error("Thiếu cấu hình Supabase mobile.");
+  if (!mobileSupabase) throw new Error(shiftStrings.manageTeamMissingSupabase);
   return mobileSupabase;
 }
 
@@ -500,7 +501,7 @@ async function getCurrentUserId() {
   const { data, error } = await supabase.auth.getSession();
   if (error) throw error;
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
   return userId;
 }
 
@@ -825,7 +826,7 @@ export function describeShiftWindow(window: ShiftWindow | null, now = new Date()
       ended: false,
       lateMinutes: 0,
       withinGrace: false,
-      reason: "Hôm nay bạn không có ca đã được xuất bản.",
+      reason: shiftStrings.manageShiftsNoPublishedToday,
     };
   }
 
@@ -845,7 +846,7 @@ export function describeShiftWindow(window: ShiftWindow | null, now = new Date()
       ended,
       lateMinutes: 0,
       withinGrace: false,
-      reason: "Bạn chỉ có thể mở ca khi ca của mình bắt đầu.",
+      reason: shiftStrings.manageShiftsOpenOnlyWhenStarts,
     };
   }
 
@@ -857,7 +858,7 @@ export function describeShiftWindow(window: ShiftWindow | null, now = new Date()
       ended,
       lateMinutes,
       withinGrace: false,
-      reason: "Ca này đã kết thúc, không thể mở ca nữa.",
+      reason: shiftStrings.manageShiftsShiftEndedCannotOpen,
     };
   }
 
@@ -1059,7 +1060,7 @@ async function assertTargetSlotStillPublished(
     );
 
   if (!slot) {
-    throw new Error("Ca đích không còn tồn tại trong lịch hiệu lực.");
+    throw new Error(shiftStrings.manageShiftsTargetShiftMissingEffective);
   }
 
   return slot;
@@ -1085,7 +1086,7 @@ async function validateProposedOverrideSet(
 
   for (const coverageKey of removedCoverage) {
     if (!publishedCoverage.has(coverageKey)) {
-      throw new Error("Không thể gỡ ca không tồn tại trong lịch hiệu lực.");
+      throw new Error(shiftStrings.manageShiftsCannotRemoveMissingEffective);
     }
   }
 
@@ -1117,7 +1118,7 @@ async function validateProposedOverrideSet(
   for (const coverageKey of addedCoverage) {
     const coverageCount = Array.from(nextByUser.values()).flat().filter((slot) => toShiftCoverageKey(slot) === coverageKey).length;
     if (coverageCount > 1) {
-      throw new Error("Không thể có 2 người cùng giữ cùng một ca hiệu lực.");
+      throw new Error(shiftStrings.manageShiftsCannotDoubleHoldShift);
     }
   }
 }
@@ -1165,14 +1166,14 @@ export async function submitShiftChangeRequest(input: {
       : branchId;
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
   if (input.requestKind === "SWAP" && !input.sourceSlot) {
-    throw new Error("Xin đổi ca bắt buộc chọn ca nguồn của bạn.");
+    throw new Error(shiftStrings.manageShiftsSwapNeedsSource);
   }
 
   const targetSlot = await assertTargetSlotStillPublished(input.targetSlot, input.observerScope);
   if (targetSlot.holderUserId === userId) {
-    throw new Error("Không thể tạo yêu cầu với chính ca của bạn.");
+    throw new Error(shiftStrings.manageShiftsCannotRequestOwnShift);
   }
 
   const { data: inserted, error } = await supabase
@@ -1199,24 +1200,24 @@ export async function createShiftCheckIn(slot: EffectiveShiftSlot) {
   const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   await syncExpiredShiftEntries();
 
   const existingEntries = await listPersonalShiftEntries(userId);
   if (existingEntries.some((entry) => entry.clock_out === null && entry.approval_status !== "REJECTED")) {
-    throw new Error("Bạn đang có một ca làm chưa đóng.");
+    throw new Error(shiftStrings.manageShiftsExistingOpenShift);
   }
 
   const window = createShiftWindowFromSlot(slot);
   const windowState = describeShiftWindow(window, new Date());
   if (!window || !windowState.canCheckIn) {
-    throw new Error(windowState.reason ?? "Không thể mở ca vào lúc này.");
+    throw new Error(windowState.reason ?? shiftStrings.manageShiftsCannotOpenNow);
   }
 
   const dayOffRequest = await getApprovedDayOffRequest(userId, window.dateKey);
   if (dayOffRequest) {
-    throw new Error("Bạn đã được duyệt nghỉ cho ca này nên không thể mở ca.");
+    throw new Error(shiftStrings.manageShiftsApprovedLeaveCannotOpen);
   }
 
   const nowIso = new Date().toISOString();
@@ -1259,7 +1260,7 @@ export async function closeShiftEntryIfAllowed(entry: ShiftTimeEntryRecord) {
   const now = new Date();
   const scheduledEnd = entry.scheduled_end ? new Date(entry.scheduled_end) : null;
   if (scheduledEnd && now.getTime() < scheduledEnd.getTime()) {
-    throw new Error("Muốn về sớm bạn cần gửi xin nghỉ sớm để quản lý duyệt.");
+    throw new Error(shiftStrings.manageShiftsEarlyLeaveNeedsApproval);
   }
 
   const closedAt = entry.scheduled_end ?? now.toISOString();
@@ -1287,7 +1288,7 @@ export async function reviewShiftCheckIn(entryId: string, approve: boolean, atte
   const supabase = requireSupabase();
   const { data } = await supabase.auth.getSession();
   const ownerId = data.session?.user?.id;
-  if (!ownerId) throw new Error("Chưa đăng nhập");
+  if (!ownerId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   const { data: current, error: fetchError } = await supabase
     .from("time_entries")
@@ -1349,11 +1350,11 @@ export async function submitDayOffRequest(dateKey: string, note?: string) {
   const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   const window = await loadPublishedShiftWindowForUser(userId, new Date(`${dateKey}T12:00:00`));
   if (!window || window.dateKey !== dateKey) {
-    throw new Error("Ngày này không có ca đã publish để xin nghỉ.");
+    throw new Error(shiftStrings.manageShiftsNoPublishedShiftForDayOff);
   }
 
   const { data: inserted, error } = await supabase
@@ -1379,17 +1380,17 @@ export async function submitEarlyLeaveRequest(entry: ShiftTimeEntryRecord, reque
   const { orgId, branchId } = await ensureOrgContext(supabase);
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
-  if (!entry.scheduled_end) throw new Error("Ca này không có giờ kết thúc chuẩn.");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
+  if (!entry.scheduled_end) throw new Error(shiftStrings.manageShiftsNoStandardEndTime);
 
   const requestedEnd = new Date(requestedEndIso);
   const scheduledEnd = new Date(entry.scheduled_end);
   const actualStart = new Date(entry.clock_in);
   if (requestedEnd.getTime() <= actualStart.getTime()) {
-    throw new Error("Giờ xin nghỉ sớm phải sau giờ mở ca.");
+    throw new Error(shiftStrings.manageShiftsEarlyLeaveMustBeAfterStart);
   }
   if (requestedEnd.getTime() >= scheduledEnd.getTime()) {
-    throw new Error("Nếu làm hết ca, hệ thống sẽ tự động đóng ca, không cần xin nghỉ sớm.");
+    throw new Error(shiftStrings.manageShiftsEarlyLeaveAutoClose);
   }
 
   const { data: inserted, error } = await supabase
@@ -1416,7 +1417,7 @@ export async function reviewShiftLeaveRequest(requestId: string, approve: boolea
   const supabase = requireSupabase();
   const { data } = await supabase.auth.getSession();
   const ownerId = data.session?.user?.id;
-  if (!ownerId) throw new Error("Chưa đăng nhập");
+  if (!ownerId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   const { data: current, error: fetchError } = await supabase
     .from("shift_leave_requests")
@@ -1476,7 +1477,7 @@ export async function reviewShiftChangeRequest(
       : branchId;
   const { data } = await supabase.auth.getSession();
   const ownerId = data.session?.user?.id;
-  if (!ownerId) throw new Error("Chưa đăng nhập");
+  if (!ownerId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   const { data: current, error: fetchError } = await supabase
     .from("shift_change_requests")
@@ -1499,7 +1500,7 @@ export async function reviewShiftChangeRequest(
     ];
 
     if (request.request_kind === "SWAP") {
-      if (!request.source_slot_json) throw new Error("Yêu cầu đổi ca thiếu ca nguồn.");
+      if (!request.source_slot_json) throw new Error(shiftStrings.manageShiftsRequestMissingSource);
       proposedOverrides.push(
         createOverrideDraft(request.source_slot_json, request.requester_user_id, "REMOVE", "REQUEST_APPROVAL", request.id, ownerId),
       );
@@ -1564,7 +1565,7 @@ export async function createManualShiftOverride(input: {
       : branchId;
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user?.id;
-  if (!userId) throw new Error("Chưa đăng nhập");
+  if (!userId) throw new Error(shiftStrings.manageShiftsUnauthenticated);
 
   const overrideDraft = createOverrideDraft(input.slot, input.staffUserId, input.action, "MANUAL_SETUP", null, userId);
   await validateProposedOverrideSet(input.weekStart, [overrideDraft], input.observerScope);
@@ -1631,7 +1632,7 @@ export function applyApprovedDayOffToAssignments(assignments: AutoScheduleAssign
       ? {
           ...assignment,
           shiftType: "OFF" as const,
-          shiftLabel: "Nghỉ (đã duyệt)",
+          shiftLabel: shiftStrings.manageShiftsApprovedDayOffLabel,
           shortCode: "OFF",
           startTime: "",
           endTime: "",

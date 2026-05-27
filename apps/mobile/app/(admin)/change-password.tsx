@@ -1,11 +1,19 @@
-﻿import Feather from "@expo/vector-icons/Feather";
+import Feather from "@expo/vector-icons/Feather";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { dismissToHref } from "@/src/features/admin/navigation";
-import { AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminBottomBarPadding, useKeyboardVisible } from "@/src/features/admin/ui";
+import {
+  AdminHeaderActions,
+  AdminKeyboardAwareScrollView,
+  AdminKeyboardTextInput,
+  ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE,
+  getAdminBottomBarPadding,
+  useKeyboardVisible,
+} from "@/src/features/admin/ui";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { useSession } from "@/src/providers/session-provider";
 
 const TOKENS = {
@@ -28,6 +36,7 @@ type PasswordFormState = {
 
 export default function AdminChangePasswordScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
   const { user } = useSession();
   const keyboardVisible = useKeyboardVisible();
   const [passwordForm, setPasswordForm] = useState<PasswordFormState>({
@@ -43,33 +52,33 @@ export default function AdminChangePasswordScreen() {
 
   async function handlePasswordSubmit() {
     if (!mobileSupabase) {
-      Alert.alert("Chưa cấu hình", "Ứng dụng chưa kết nối được Supabase để cập nhật mật khẩu.");
+      Alert.alert(strings.changePasswordMissingConfigTitle, strings.changePasswordMissingConfigBody);
       return;
     }
 
     const email = user?.email?.trim();
     if (!email) {
-      Alert.alert("Thiếu tài khoản", "Không tìm thấy email tài khoản để đổi mật khẩu.");
+      Alert.alert(strings.changePasswordMissingAccountTitle, strings.changePasswordMissingAccountBody);
       return;
     }
 
     if (!passwordForm.currentPassword.trim()) {
-      Alert.alert("Thiếu thông tin", "Vui lòng nhập mật khẩu cũ.");
+      Alert.alert(strings.changePasswordMissingCurrentTitle, strings.changePasswordMissingCurrentBody);
       return;
     }
 
     if (passwordForm.nextPassword.length < 6) {
-      Alert.alert("Mật khẩu chưa hợp lệ", "Mật khẩu mới cần có ít nhất 6 ký tự.");
+      Alert.alert(strings.changePasswordInvalidTitle, strings.changePasswordInvalidBody);
       return;
     }
 
     if (passwordForm.nextPassword !== passwordForm.confirmPassword) {
-      Alert.alert("Không khớp", "Xác nhận mật khẩu mới chưa trùng khớp.");
+      Alert.alert(strings.changePasswordMismatchTitle, strings.changePasswordMismatchBody);
       return;
     }
 
     if (passwordForm.currentPassword === passwordForm.nextPassword) {
-      Alert.alert("Chưa thay đổi", "Mật khẩu mới cần khác mật khẩu cũ.");
+      Alert.alert(strings.changePasswordUnchangedTitle, strings.changePasswordUnchangedBody);
       return;
     }
 
@@ -82,7 +91,7 @@ export default function AdminChangePasswordScreen() {
       });
 
       if (signInError) {
-        throw new Error("Mật khẩu cũ không đúng.");
+        throw new Error(strings.changePasswordWrongCurrent);
       }
 
       const { error: updateError } = await mobileSupabase.auth.updateUser({
@@ -93,16 +102,16 @@ export default function AdminChangePasswordScreen() {
         throw updateError;
       }
 
-Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đổi thành công.", [
-          {
-            text: "OK",
-            onPress: goBackToSettings,
-          },
-        ]);
+      Alert.alert(strings.changePasswordSuccessTitle, strings.changePasswordSuccessBody, [
+        {
+          text: "OK",
+          onPress: goBackToSettings,
+        },
+      ]);
     } catch (error) {
       Alert.alert(
-        "Không thể thực hiện",
-        error instanceof Error ? error.message : "Không thể đổi mật khẩu lúc này.",
+        strings.changePasswordActionFailedTitle,
+        error instanceof Error ? error.message : strings.changePasswordActionFailedBody,
       );
     } finally {
       setIsUpdatingPassword(false);
@@ -135,59 +144,56 @@ Alert.alert("Đã cập nhật", "Mật khẩu của bạn đã được thay đ
           automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
         >
-        <View style={styles.header}>
-          <View style={styles.headerTopRow}>
-            <View style={styles.headerTitleRow}>
-              <Pressable hitSlop={10} onPress={goBackToSettings} style={styles.headerBackButton}>
-                <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
-              </Pressable>
-              <Text style={styles.headerTitle}>Đổi mật khẩu</Text>
+          <View style={styles.header}>
+            <View style={styles.headerTopRow}>
+              <View style={styles.headerTitleRow}>
+                <Pressable hitSlop={10} onPress={goBackToSettings} style={styles.headerBackButton}>
+                  <Feather color={TOKENS.textPrimary} name="chevron-left" size={21} />
+                </Pressable>
+                <Text style={styles.headerTitle}>{strings.changePasswordTitle}</Text>
+              </View>
+              <AdminHeaderActions onSettingsPress={goBackToSettings} />
             </View>
-            <AdminHeaderActions onSettingsPress={goBackToSettings} />
+
+            <View style={styles.headerCopy}>
+              <Text style={styles.headerSubtitle}>{strings.changePasswordSubtitle}</Text>
+            </View>
           </View>
 
-          <View style={styles.headerCopy}>
-            
-            <Text style={styles.headerSubtitle}>
-              Nhập mật khẩu cũ và mật khẩu mới để cập nhật trực tiếp trong ứng dụng.
-            </Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{strings.changePasswordSecurityTitle}</Text>
+
+            <PasswordInputField
+              icon="lock"
+              label={strings.changePasswordCurrentLabel}
+              value={passwordForm.currentPassword}
+              onChangeText={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))}
+            />
+            <PasswordInputField
+              icon="key"
+              label={strings.changePasswordNewLabel}
+              value={passwordForm.nextPassword}
+              onChangeText={(value) => setPasswordForm((current) => ({ ...current, nextPassword: value }))}
+            />
+            <PasswordInputField
+              icon="check-circle"
+              label={strings.changePasswordConfirmLabel}
+              value={passwordForm.confirmPassword}
+              onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
+            />
+
+            <View style={styles.passwordActions}>
+              <Pressable onPress={goBackToSettings} style={styles.secondaryButton}>
+                <Text style={styles.secondaryButtonText}>{strings.changePasswordCancel}</Text>
+              </Pressable>
+
+              <Pressable onPress={() => void handlePasswordSubmit()} style={styles.primaryButton}>
+                <Text style={styles.primaryButtonText}>
+                  {isUpdatingPassword ? strings.changePasswordUpdating : strings.changePasswordSave}
+                </Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Thông tin bảo mật</Text>
-
-          <PasswordInputField
-            icon="lock"
-            label="Mật khẩu cũ"
-            value={passwordForm.currentPassword}
-            onChangeText={(value) => setPasswordForm((current) => ({ ...current, currentPassword: value }))}
-          />
-          <PasswordInputField
-            icon="key"
-            label="Mật khẩu mới"
-            value={passwordForm.nextPassword}
-            onChangeText={(value) => setPasswordForm((current) => ({ ...current, nextPassword: value }))}
-          />
-          <PasswordInputField
-            icon="check-circle"
-            label="Xác nhận mật khẩu mới"
-            value={passwordForm.confirmPassword}
-            onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
-          />
-
-          <View style={styles.passwordActions}>
-            <Pressable onPress={goBackToSettings} style={styles.secondaryButton}>
-              <Text style={styles.secondaryButtonText}>Hủy</Text>
-            </Pressable>
-
-            <Pressable onPress={() => void handlePasswordSubmit()} style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>
-                {isUpdatingPassword ? "Đang cập nhật..." : "Lưu mật khẩu mới"}
-              </Text>
-            </Pressable>
-          </View>
-        </View>
         </AdminKeyboardAwareScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>

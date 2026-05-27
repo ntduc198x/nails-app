@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import type { MobileAdminViewContext, ObserverScopeInput } from "@nails/shared";
 import { MANAGE_SCREEN_ITEMS, canViewManageScreenItem, type ManageScreenItem, type ManageScreenKey } from "@/src/features/admin/manage";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { dismissToHref, getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 import { AdminObserverScopeSwitcher } from "@/src/features/admin/observer-scope-switcher";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
@@ -73,6 +74,7 @@ export function ManageModuleTabs({
   hiddenTabKeys?: ManageScreenKey[];
 }) {
   const router = useRouter();
+  const strings = useAdminStrings();
   const tabs = getGroupTabs(group).filter(
     (item) => canViewManageScreenItem(role, item.key) && !hiddenTabKeys.includes(item.key),
   );
@@ -87,7 +89,7 @@ export function ManageModuleTabs({
             style={[styles.tabPill, active ? styles.tabPillActive : null]}
             onPress={() => void router.replace(item.route as never)}
           >
-            <Text style={[styles.tabText, active ? styles.tabTextActive : null]}>{item.title}</Text>
+            <Text style={[styles.tabText, active ? styles.tabTextActive : null]}>{strings[item.titleKey]}</Text>
           </Pressable>
         );
       })}
@@ -101,6 +103,7 @@ export function ManageHubCard({
   item: ManageScreenItem;
 }) {
   const router = useRouter();
+  const strings = useAdminStrings();
   const tone = getManageCardTone(item.key);
 
   return (
@@ -117,8 +120,8 @@ export function ManageHubCard({
         <Feather name={item.icon} size={18} color={tone.iconColor} />
       </View>
       <View style={styles.gridCopy}>
-        <Text style={styles.gridTitle}>{item.title}</Text>
-        <Text style={styles.gridSubtitle}>{item.subtitle}</Text>
+        <Text style={styles.gridTitle}>{strings[item.titleKey]}</Text>
+        <Text style={styles.gridSubtitle}>{strings[item.subtitleKey]}</Text>
       </View>
       <Feather name="chevron-right" size={18} color="#A7988A" />
     </Pressable>
@@ -166,6 +169,7 @@ export function ManageScreenShell({
 }) {
   const router = useRouter();
   const { role } = useSession();
+  const strings = useAdminStrings();
   const keyboardVisible = useKeyboardVisible();
   const effectiveHiddenTabKeys = Array.from(
     new Set([
@@ -238,7 +242,7 @@ export function ManageScreenShell({
             <View style={styles.inlineNotice}>
               <Feather name="eye" size={16} color={palette.sub} />
               <Text style={styles.inlineNoticeText}>
-                {observerReadOnlyMessage ?? "Đang ở chế độ quan sát. Các thao tác ghi vẫn bám theo chi nhánh làm việc thật."}
+                {observerReadOnlyMessage ?? strings.observerReadonlyNotice}
               </Text>
             </View>
           ) : null}

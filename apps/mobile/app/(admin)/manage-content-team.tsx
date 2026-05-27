@@ -6,6 +6,7 @@ import type { MobileAdminContentSnapshot } from "@nails/shared";
 import { listAdminContentSnapshotForMobile } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { mobileSupabase } from "@/src/lib/supabase";
 
@@ -32,6 +33,7 @@ function ItemThumbnail({ uri, label }: { uri: string | null; label: string }) {
 
 export default function AdminManageContentTeamScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
   const [query, setQuery] = useState("");
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,7 +41,7 @@ export default function AdminManageContentTeamScreen() {
 
   const loadSnapshot = useCallback(async () => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Database mobile.");
+      setError(strings.teamListMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -50,11 +52,11 @@ export default function AdminManageContentTeamScreen() {
       const next = await listAdminContentSnapshotForMobile(mobileSupabase, { includeServices: false });
       setSnapshot(next);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được nhân sự.");
+      setError(nextError instanceof Error ? nextError.message : strings.teamListLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [strings.teamListLoadFailed, strings.teamListMissingSupabase]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -72,8 +74,8 @@ export default function AdminManageContentTeamScreen() {
 
   return (
     <ManageScreenShell
-      title="Nhân sự tiệm"
-      subtitle="Mở người cần sửa ở màn riêng để vuốt quay lại mượt hơn."
+      title={strings.teamListTitle}
+      subtitle={strings.teamListSubtitle}
       currentKey="content"
       group="setup"
       backHref="/(admin)/(tabs)/manage-content"
@@ -92,24 +94,24 @@ export default function AdminManageContentTeamScreen() {
             })
           }
         >
-          <Text style={styles.primaryButtonText}>Thêm nhân sự</Text>
+          <Text style={styles.primaryButtonText}>{strings.teamListAddButton}</Text>
         </Pressable>
 
         <View style={styles.searchShell}>
           <Feather name="search" size={18} color={palette.sub} />
-          <AdminKeyboardTextInput placeholder="Tìm nhân sự..." placeholderTextColor="#B4A89C" style={styles.searchInput} value={query} onChangeText={setQuery} />
+          <AdminKeyboardTextInput placeholder={strings.teamListSearchPlaceholder} placeholderTextColor="#B4A89C" style={styles.searchInput} value={query} onChangeText={setQuery} />
         </View>
 
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải nhân sự...</Text>
+            <Text style={styles.stateText}>{strings.teamListLoading}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{error}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadSnapshot()}>
-              <Text style={styles.retryButtonText}>Tải lại</Text>
+              <Text style={styles.retryButtonText}>{strings.teamListRetry}</Text>
             </Pressable>
           </View>
         ) : (
@@ -128,12 +130,12 @@ export default function AdminManageContentTeamScreen() {
                 <ItemThumbnail uri={member.avatarUrl} label={member.displayName} />
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{member.displayName}</Text>
-                  <Text numberOfLines={2} style={styles.rowSubtitle}>{member.roleLabel || "Chưa có chức danh"} · Thứ tự {member.displayOrder} · {member.isVisible ? "Đang hiển thị" : "Đang ẩn"}</Text>
+                  <Text numberOfLines={2} style={styles.rowSubtitle}>{`${member.roleLabel || strings.teamListNoRole} · ${strings.teamListDisplayOrderPrefix} ${member.displayOrder} · ${member.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden}`}</Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#A7988A" />
               </Pressable>
             ))}
-            {!members.length ? <Text style={styles.emptyText}>Chưa có nhân sự nào.</Text> : null}
+            {!members.length ? <Text style={styles.emptyText}>{strings.teamListEmpty}</Text> : null}
           </View>
         )}
       </View>

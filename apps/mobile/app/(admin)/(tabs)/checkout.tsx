@@ -13,6 +13,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, createCheckoutKey, formatVnd, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
@@ -65,16 +66,17 @@ function formatShortDateTime(value: string | null | undefined) {
   });
 }
 
-function formatStaleDays(value: string | null | undefined, fallback: string) {
+function formatStaleDays(value: string | null | undefined, fallback: string, fallbackLabel: string) {
   const reference = value ?? fallback;
   const diffMs = Date.now() - new Date(reference).getTime();
-  if (!Number.isFinite(diffMs) || diffMs <= 0) return "kẹt lâu";
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return fallbackLabel;
   const days = Math.max(1, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
-  return `kẹt ${days} ngày`;
+  return `${fallbackLabel} ${days}d`;
 }
 
 export default function AdminCheckoutScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   useSession();
   const {
@@ -172,7 +174,7 @@ export default function AdminCheckoutScreen() {
       appointmentId: selectedAppointment.id,
       idempotencyKey: createCheckoutKey(),
     });
-    setCheckoutNotice("Đã thanh toán.");
+    setCheckoutNotice(strings.checkoutPaidNotice);
     setLastReceiptToken(result?.receiptToken ?? null);
     setCheckoutLines([{ serviceId: "", qty: 1 }]);
     setServiceQueries([""]);
@@ -191,8 +193,8 @@ export default function AdminCheckoutScreen() {
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Thanh toán</Text>
-            <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
+            <Text style={styles.headerTitle}>{strings.checkoutTitle}</Text>
+            <Text style={styles.headerSubtitle}>{strings.checkoutSubtitle}</Text>
           </View>
           <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
         </View>
@@ -217,21 +219,21 @@ export default function AdminCheckoutScreen() {
         >
           {observerReadOnly ? (
             <View style={styles.noticeCard}>
-              <Text style={styles.noticeText}>Observer mode chỉ để xem. Muốn thanh toán hoặc đóng ticket, hãy quay về chi nhánh làm việc hiện tại.</Text>
+              <Text style={styles.noticeText}>{strings.checkoutObserverReadOnly}</Text>
             </View>
           ) : null}
 
           <View style={[styles.header, styles.hiddenHeader]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.headerTitle}>Thanh toán</Text>
-              <Text style={styles.headerSubtitle}>Quản lý thanh toán cho khách hàng</Text>
+              <Text style={styles.headerTitle}>{strings.checkoutTitle}</Text>
+              <Text style={styles.headerSubtitle}>{strings.checkoutSubtitle}</Text>
             </View>
             <AdminHeaderActions onSettingsPress={() => void router.push("/settings")} />
           </View>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Khách đang phục vụ</Text>
-            {staleCheckInAutoCancelledCount > 0 ? <Text style={styles.successText}>Đã tự hủy {staleCheckInAutoCancelledCount} stale check-ins quá 7 ngày.</Text> : null}
+            <Text style={styles.cardTitle}>{strings.checkoutServingCustomersTitle}</Text>
+            {staleCheckInAutoCancelledCount > 0 ? <Text style={styles.successText}>{strings.checkoutAutoCancelledPrefix} {staleCheckInAutoCancelledCount} {strings.checkoutAutoCancelledSuffix}</Text> : null}
             {staleCheckInCleanupError ? <Text style={styles.errorText}>{staleCheckInCleanupError}</Text> : null}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pillRow}>
               {checkoutAppointments.map((item) => {
@@ -249,23 +251,23 @@ export default function AdminCheckoutScreen() {
                 );
               })}
             </ScrollView>
-            {checkedInAppointments.length === 0 ? <Text style={styles.emptyText}>Chưa có khách đang phục vụ</Text> : null}
+            {checkedInAppointments.length === 0 ? <Text style={styles.emptyText}>{strings.checkoutNoServingCustomers}</Text> : null}
           </View>
 
           {staleCheckedInAppointments.length > 0 ? (
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Stale check-ins</Text>
+              <Text style={styles.cardTitle}>{strings.checkoutStaleTitle}</Text>
               <View style={{ gap: 10 }}>
                 {staleCheckedInAppointments.map((item) => (
                   <View key={`stale-${item.id}`} style={styles.staleRow}>
                     <View style={{ flex: 1, gap: 4 }}>
                       <Text style={styles.staleName}>{item.customerName}</Text>
-                      <Text style={styles.staleMeta}>
-                        {formatShortDateTime(item.checkedInAt ?? item.startAt)} · {formatStaleDays(item.checkedInAt, item.startAt)}
+                        <Text style={styles.staleMeta}>
+                        {formatShortDateTime(item.checkedInAt ?? item.startAt)} · {formatStaleDays(item.checkedInAt, item.startAt, strings.checkoutStaleFallback)}
                       </Text>
                     </View>
                     <View style={styles.staleBadge}>
-                      <Text style={styles.staleBadgeText}>Đang hủy</Text>
+                      <Text style={styles.staleBadgeText}>{strings.checkoutCancellingBadge}</Text>
                     </View>
                   </View>
                 ))}
@@ -284,7 +286,7 @@ export default function AdminCheckoutScreen() {
                 <View style={{ flex: 1, gap: 8 }}>
                   <View style={styles.profileTop}>
                     <Text style={styles.profileName}>{selectedAppointment.customerName}</Text>
-                    <View style={styles.badge}><Text style={styles.badgeText}>Đang phục vụ</Text></View>
+                    <View style={styles.badge}><Text style={styles.badgeText}>{strings.checkoutServingBadge}</Text></View>
                   </View>
                   <View style={styles.timeRow}>
                     <View style={styles.timePill}><Feather name="clock" size={13} color={palette.muted} /><Text style={styles.timeText}>{formatShortDateTime(selectedAppointment.startAt)}</Text></View>
@@ -294,7 +296,7 @@ export default function AdminCheckoutScreen() {
               </View>
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              {role === "TECH" && techShiftOpen === false ? <Text style={styles.errorText}>Chưa mở ca. Mở ca trước khi thanh toán.</Text> : null}
+              {role === "TECH" && techShiftOpen === false ? <Text style={styles.errorText}>{strings.checkoutShiftNotOpen}</Text> : null}
               {checkoutNotice ? <Text style={styles.successText}>{checkoutNotice}</Text> : null}
 
               <View style={styles.methodRow}>
@@ -303,14 +305,14 @@ export default function AdminCheckoutScreen() {
                   return (
                     <Pressable key={method} style={[styles.methodButton, active && styles.methodButtonActive]} onPress={() => setCheckoutPaymentMethod(method)}>
                       <Feather name={method === "CASH" ? "credit-card" : "home"} size={16} color={active ? palette.text : "#7D7066"} />
-                      <Text style={[styles.methodText, active && styles.methodTextActive]}>{method === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</Text>
+                      <Text style={[styles.methodText, active && styles.methodTextActive]}>{method === "CASH" ? strings.checkoutMethodCash : strings.checkoutMethodTransfer}</Text>
                     </Pressable>
                   );
                 })}
               </View>
 
               <View style={styles.serviceCard}>
-                <Text style={styles.serviceTitle}>Dịch vụ</Text>
+                <Text style={styles.serviceTitle}>{strings.checkoutServicesTitle}</Text>
                 {checkoutLines.map((line, index) => {
                   const filteredServices = activeCheckoutServices.filter((service) => {
                     const query = (serviceQueries[index] ?? "").trim().toLowerCase();
@@ -320,7 +322,7 @@ export default function AdminCheckoutScreen() {
                     <View key={`checkout-line-${index}`} style={{ gap: 10 }}>
                       <Pressable style={styles.field} onPress={() => setOpenServicePickerIndex((current) => (current === index ? null : index))}>
                         <Text style={line.serviceId ? styles.fieldValue : styles.fieldPlaceholder}>
-                          {activeCheckoutServices.find((service) => service.id === line.serviceId)?.name ?? "Chọn dịch vụ"}
+                          {activeCheckoutServices.find((service) => service.id === line.serviceId)?.name ?? strings.checkoutServicePlaceholder}
                         </Text>
                         <Feather name="chevron-down" size={18} color={palette.muted} />
                       </Pressable>
@@ -333,7 +335,7 @@ export default function AdminCheckoutScreen() {
                               style={styles.searchInput}
                               value={serviceQueries[index] ?? ""}
                               onChangeText={(value) => updateServiceQuery(index, value)}
-                              placeholder="Tìm dịch vụ"
+                              placeholder={strings.checkoutServiceSearchPlaceholder}
                               placeholderTextColor="#A69789"
                             />
                           </View>
@@ -356,7 +358,7 @@ export default function AdminCheckoutScreen() {
                                   </Pressable>
                                 );
                               })}
-                              {filteredServices.length === 0 ? <Text style={styles.emptyText}>Không tìm thấy dịch vụ</Text> : null}
+                              {filteredServices.length === 0 ? <Text style={styles.emptyText}>{strings.checkoutServiceNotFound}</Text> : null}
                             </View>
                           </ScrollView>
                         </View>
@@ -364,7 +366,7 @@ export default function AdminCheckoutScreen() {
 
                       <View style={styles.quantityBar}>
                         <View style={styles.quantityLeft}>
-                          <Text style={styles.quantityLabel}>SL</Text>
+                          <Text style={styles.quantityLabel}>{strings.checkoutQtyShort}</Text>
                           <View style={styles.quantityControls}>
                             <Pressable style={styles.qtyButton} onPress={() => updateCheckoutQty(index, line.qty - 1)}><Text style={styles.qtyButtonText}>-</Text></Pressable>
                             <View style={styles.qtyValueShell}>
@@ -382,7 +384,7 @@ export default function AdminCheckoutScreen() {
                         </View>
                         <View style={styles.quantityDivider} />
                         <Pressable style={styles.addLineButton} onPress={addCheckoutLine}>
-                          <Text style={styles.addLineText}>Thêm dòng</Text>
+                          <Text style={styles.addLineText}>{strings.checkoutAddLine}</Text>
                           <Feather name="plus-circle" size={18} color="#8B7C70" />
                         </Pressable>
                       </View>
@@ -402,8 +404,8 @@ export default function AdminCheckoutScreen() {
 
                 <View style={styles.totalCard}>
                   <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>Tổng cộng</Text>
-                    <Text style={styles.totalValue}>{checkoutSummary.serviceCount} dịch vụ • {formatVnd(checkoutSummary.total)}</Text>
+                    <Text style={styles.totalLabel}>{strings.checkoutTotalLabel}</Text>
+                    <Text style={styles.totalValue}>{checkoutSummary.serviceCount} {strings.checkoutServiceCountUnit} • {formatVnd(checkoutSummary.total)}</Text>
                   </View>
                   {checkoutSummary.selectedLines.length > 0 ? (
                     <View style={styles.totalBreakdown}>
@@ -428,14 +430,14 @@ export default function AdminCheckoutScreen() {
                   disabled={observerReadOnly || mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
                   onPress={() => void handleCreateCheckout()}
                 >
-                  <Text style={styles.primaryButtonText}>{busyTargetId === selectedAppointment.id ? "Đang thanh toán..." : "Thanh toán"}</Text>
+                  <Text style={styles.primaryButtonText}>{busyTargetId === selectedAppointment.id ? strings.checkoutProcessingButton : strings.checkoutPayButton}</Text>
                 </Pressable>
 
                 <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/scheduling")}>
-                  <Text style={styles.secondaryButtonText}>Về lịch</Text>
+                  <Text style={styles.secondaryButtonText}>{strings.checkoutBackToScheduling}</Text>
                 </Pressable>
-                {lastReceiptToken && mobileEnv.apiBaseUrl ? <Pressable style={styles.linkButton} onPress={() => void openReceipt()}><Text style={styles.linkText}>Mở hóa đơn</Text></Pressable> : null}
-                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/shifts")}><Text style={styles.linkText}>Mở ca</Text></Pressable> : null}
+                {lastReceiptToken && mobileEnv.apiBaseUrl ? <Pressable style={styles.linkButton} onPress={() => void openReceipt()}><Text style={styles.linkText}>{strings.checkoutOpenReceipt}</Text></Pressable> : null}
+                {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/shifts")}><Text style={styles.linkText}>{strings.checkoutOpenShift}</Text></Pressable> : null}
               </View>
             </View>
           ) : null}

@@ -1,3 +1,5 @@
+import type { LocalizedTextValue } from "./localization";
+
 export type LookbookRow = {
   id?: string | null;
   name?: string | null;
@@ -15,6 +17,7 @@ export type LookbookRow = {
   display_order_home?: number | null;
   display_order_explore?: number | null;
   created_at?: string | null;
+  translations?: LocalizedTextValue | null;
 };
 
 export type LookbookItem = {
@@ -31,6 +34,7 @@ export type LookbookItem = {
   aspectRatio: number;
   displayOrder: number;
   createdAt: string | null;
+  translations: LocalizedTextValue | null;
 };
 
 export type CustomerContentPost = {
@@ -44,6 +48,7 @@ export type CustomerContentPost = {
   publishedAt: string | null;
   priority: number;
   metadata: Record<string, unknown>;
+  translations?: LocalizedTextValue | null;
 };
 
 export type MarketingOfferCard = {
@@ -55,6 +60,7 @@ export type MarketingOfferCard = {
   startsAt: string | null;
   endsAt: string | null;
   metadata: Record<string, unknown>;
+  translations?: LocalizedTextValue | null;
 };
 
 function inferLookbookTone(text: string) {
@@ -156,9 +162,7 @@ export function normalizeLookbookRows(
     .filter((row) => row.featured_in_lookbook === true && row.name && row.image_url)
     .map((row) => {
       const title = String(row.name ?? "");
-      const blurb =
-        row.short_description?.trim() ||
-        `Thoi gian ${Number(row.duration_min ?? 0)} phut, len form gon va dung chat lookbook cua tiem.`;
+      const blurb = row.short_description?.trim() || title;
       const classifiedText = `${title} ${blurb}`;
 
       return {
@@ -171,10 +175,11 @@ export function normalizeLookbookRows(
         price: formatLookbookPrice(row.base_price),
         image: String(row.image_url ?? ""),
         durationMin: row.duration_min ?? null,
-        durationLabel: row.duration_label?.trim() || (row.duration_min ? `${row.duration_min} phut` : null),
+        durationLabel: row.duration_label?.trim() || null,
         aspectRatio: 1.2,
         displayOrder: getDisplayOrder(row, context),
         createdAt: row.created_at ?? null,
+        translations: row.translations ?? null,
       };
     })
     .sort((left, right) => {

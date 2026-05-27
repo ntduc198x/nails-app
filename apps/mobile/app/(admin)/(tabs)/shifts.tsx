@@ -10,8 +10,10 @@ import {
   View,
 } from "react-native";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE } from "@/src/features/admin/ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import {
@@ -36,6 +38,7 @@ import {
   type ShiftType,
   type StaffRole,
   type TeamMemberRow,
+  translations,
 } from "@nails/shared";
 import {
   applyApprovedDayOffToAssignments,
@@ -114,24 +117,29 @@ function addDays(dateKey: string, amount: number) {
   return toDateKey(next);
 }
 
-function getWeekLabel(weekStart: string) {
+function getLocaleTag(locale: "vi" | "en") {
+  return locale === "en" ? "en-US" : "vi-VN";
+}
+
+function getWeekLabel(weekStart: string, locale: "vi" | "en") {
   const dates = generateWeekDates(weekStart);
   const start = new Date(`${dates[0]}T00:00:00`);
   const end = new Date(`${dates[6]}T00:00:00`);
-  return `${start.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })} - ${end.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit" })}`;
+  const localeTag = getLocaleTag(locale);
+  return `${start.toLocaleDateString(localeTag, { day: "2-digit", month: "2-digit" })} - ${end.toLocaleDateString(localeTag, { day: "2-digit", month: "2-digit" })}`;
 }
 
-function formatDayChip(dateKey: string) {
-  return new Date(`${dateKey}T00:00:00`).toLocaleDateString("vi-VN", {
+function formatDayChip(dateKey: string, locale: "vi" | "en") {
+  return new Date(`${dateKey}T00:00:00`).toLocaleDateString(getLocaleTag(locale), {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
   });
 }
 
-function formatTime(value: string | null | undefined) {
+function formatTime(value: string | null | undefined, locale: "vi" | "en") {
   if (!value) return "--:--";
-  return new Date(value).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString(getLocaleTag(locale), { hour: "2-digit", minute: "2-digit" });
 }
 
 function initials(name: string) {
@@ -176,14 +184,14 @@ function looksLikePlaceholderName(value: string | null | undefined) {
   return /^nhân sự\s+\d+$/i.test(normalized) || /^staff\s+\d+$/i.test(normalized);
 }
 
-function resolveTeamMemberName(row: TeamMemberRow, index: number) {
+function resolveTeamMemberName(row: TeamMemberRow, index: number, fallbackStaffName: string) {
   const displayName = row.displayName?.trim() ?? "";
   if (displayName && !looksLikeUserId(displayName) && !looksLikeGenericTeamName(displayName)) return displayName;
   const emailName = row.email?.split("@")[0]?.trim() ?? "";
   if (emailName) return emailName;
   const phoneName = row.phone?.trim() ?? "";
   if (phoneName) return phoneName;
-  return `Nhân sự ${index + 1}`;
+  return `${fallbackStaffName} ${index + 1}`;
 }
 
 function getPersonDisplayName(
@@ -204,8 +212,8 @@ function getPersonDisplayName(
   return userId;
 }
 
-function resolvePlannerDisplayName(row: TeamMemberRow, index: number) {
-  const baseName = resolveTeamMemberName(row, index);
+function resolvePlannerDisplayName(row: TeamMemberRow, index: number, fallbackStaffName: string) {
+  const baseName = resolveTeamMemberName(row, index, fallbackStaffName);
   if (baseName && !looksLikeGenericTeamName(baseName) && !/^user$/i.test(baseName.trim())) {
     return baseName;
   }
@@ -217,6 +225,43 @@ function resolvePlannerDisplayName(row: TeamMemberRow, index: number) {
   if (emailName) return emailName;
 
   return baseName;
+}
+
+type AdminStringsShape = Record<keyof typeof translations.vi.admin, string>;
+
+function localizeAdminLiteral(
+  strings: AdminStringsShape,
+  value: string | null | undefined,
+) {
+  const normalized = value?.trim() ?? "";
+  if (!normalized) return normalized;
+
+  for (const key of Object.keys(translations.vi.admin) as Array<keyof typeof translations.vi.admin>) {
+    if (translations.vi.admin[key] === normalized || translations.en.admin[key] === normalized) {
+      return strings[key];
+    }
+  }
+
+  return normalized;
+}
+
+function getLocalizedShiftLabel(
+  strings: AdminStringsShape,
+  shiftType: ShiftType,
+  fallbackLabel?: string | null,
+) {
+  switch (shiftType) {
+    case "MORNING":
+      return strings.manageTeamShiftMorning;
+    case "AFTERNOON":
+      return strings.manageTeamShiftAfternoon;
+    case "FULL_DAY":
+      return strings.manageTeamShiftFullDay;
+    case "OFF":
+      return strings.manageShiftsOffLabel;
+    default:
+      return localizeAdminLiteral(strings, fallbackLabel);
+  }
 }
 
 function hydrateSlotNames(slots: EffectiveShiftSlot[], namesByUserId: Map<string, string>) {
@@ -272,7 +317,11 @@ function augmentTeamDirectoryRows(
   ];
 }
 
-function buildEmployeeList(rows: TeamMemberRow[], profiles: StaffShiftProfileRecord[]) {
+function buildEmployeeList(
+  rows: TeamMemberRow[],
+  profiles: StaffShiftProfileRecord[],
+  fallbackStaffName: string,
+) {
   const profileMap = new Map(profiles.map((item) => [item.userId, item]));
   return rows
     .filter((row) => isSchedulableTeamRole(row.role))
@@ -281,7 +330,7 @@ function buildEmployeeList(rows: TeamMemberRow[], profiles: StaffShiftProfileRec
       const profile = profileMap.get(row.userId) ?? createEmptyStaffShiftProfile(row.userId, role);
       return {
         id: row.userId,
-        name: resolvePlannerDisplayName(row, index),
+        name: resolvePlannerDisplayName(row, index, fallbackStaffName),
         role,
         skills: profile.skills,
         availability: profile.availability,
@@ -378,6 +427,8 @@ function replaceProfile(profiles: StaffShiftProfileRecord[], nextProfile: StaffS
 }
 
 export default function AdminShiftsScreen() {
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, role, user } = useSession();
   const observer = useAdminObserverScope();
   const canManage = canManageShiftPlans(role);
@@ -442,8 +493,8 @@ export default function AdminShiftsScreen() {
     [teamDirectoryRows],
   );
   const schedulableEmployees = useMemo(
-    () => buildEmployeeList(schedulableTeamRows, profiles),
-    [profiles, schedulableTeamRows],
+    () => buildEmployeeList(schedulableTeamRows, profiles, strings.manageShiftsFallbackStaffName),
+    [profiles, schedulableTeamRows, strings.manageShiftsFallbackStaffName],
   );
   const assignmentMap = useMemo(
     () => new Map((draftResult?.assignments ?? []).map((assignment) => [`${assignment.employeeId}:${assignment.dateKey}`, assignment])),
@@ -454,10 +505,10 @@ export default function AdminShiftsScreen() {
       new Map(
         teamDirectoryRows.map((row, index) => [
           row.userId,
-          resolvePlannerDisplayName(row, index),
+          resolvePlannerDisplayName(row, index, strings.manageShiftsFallbackStaffName),
         ]),
       ),
-    [teamDirectoryRows],
+    [strings.manageShiftsFallbackStaffName, teamDirectoryRows],
   );
   const teamMemberMap = useMemo(
     () => new Map(teamDirectoryRows.map((row) => [row.userId, row])),
@@ -467,7 +518,7 @@ export default function AdminShiftsScreen() {
     (userId: string | null | undefined, fallbackName?: string | null) => {
       if (!userId) {
         return {
-          name: "Nhân sự",
+          name: strings.manageShiftsFallbackStaffName,
           email: null as string | null,
           phone: null as string | null,
         };
@@ -480,7 +531,32 @@ export default function AdminShiftsScreen() {
         phone: row?.phone?.trim() || null,
       };
     },
-    [teamMemberMap, teamNameMap],
+    [strings.manageShiftsFallbackStaffName, teamMemberMap, teamNameMap],
+  );
+
+  const localizeErrorMessage = useCallback(
+    (nextError: unknown, fallback: string) =>
+      nextError instanceof Error ? localizeAdminLiteral(strings, nextError.message) : fallback,
+    [strings],
+  );
+  const localizeShiftLabel = useCallback(
+    (shiftType: ShiftType, fallbackLabel?: string | null) => getLocalizedShiftLabel(strings, shiftType, fallbackLabel),
+    [strings],
+  );
+  const localizeSavedShiftLabel = useCallback(
+    (shiftType: string | null | undefined, fallbackLabel?: string | null) => {
+      if (
+        shiftType === "MORNING"
+        || shiftType === "AFTERNOON"
+        || shiftType === "FULL_DAY"
+        || shiftType === "OFF"
+      ) {
+        return getLocalizedShiftLabel(strings, shiftType, fallbackLabel);
+      }
+
+      return localizeAdminLiteral(strings, fallbackLabel) || strings.manageShiftsFlexibleShift;
+    },
+    [strings],
   );
 
   const loadData = useCallback(
@@ -585,11 +661,11 @@ export default function AdminShiftsScreen() {
         const nextTeamNameMap = new Map(
           directoryRows.map((row, index) => [
             row.userId,
-            resolvePlannerDisplayName(row, index),
+            resolvePlannerDisplayName(row, index, strings.manageShiftsFallbackStaffName),
           ]),
         );
         const normalizedProfiles = normalizeStaffShiftProfiles(profileRowsRaw as never[], nextFallbackRoles);
-        const nextEmployees = buildEmployeeList(schedulableRows, normalizedProfiles);
+        const nextEmployees = buildEmployeeList(schedulableRows, normalizedProfiles, strings.manageShiftsFallbackStaffName);
         const basePlan = nextDraftPlan ?? nextPublishedPlan;
         const nextDemands = basePlan?.demands ?? buildDefaultWeekDemands({ weekStart, employees: nextEmployees, forecast });
         const baseResult = basePlan?.result ?? generateDraftSchedule({ weekStart, employees: nextEmployees, demands: nextDemands });
@@ -626,7 +702,7 @@ export default function AdminShiftsScreen() {
           return nextTodaySlots[0] ? `${nextTodaySlots[0].dateKey}:${nextTodaySlots[0].shiftType}` : "";
         });
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Không tải được dữ liệu ca làm.");
+        setError(localizeErrorMessage(nextError, strings.manageShiftsLoadFailed));
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -680,18 +756,18 @@ export default function AdminShiftsScreen() {
   );
   const todayShiftStatus = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Đang chấm công"
-      : "Sẵn sàng chấm công"
+      ? strings.manageShiftsTodayStatusClockingIn
+      : strings.manageShiftsTodayStatusReady
     : todayDraftAssignment
-      ? "Chờ xuất lịch"
-      : "Chưa có lịch";
+      ? strings.manageShiftsTodayStatusWaitingPublish
+      : strings.manageShiftsTodayStatusNoSchedule;
   const todayShiftMessage = todayPublishedAssignment
     ? activePersonalEntry
-      ? "Bạn đang trong ca. Check-in đúng giờ hoặc trong 10 phút đầu ca sẽ tự duyệt; check-in trễ hơn sẽ vào chờ duyệt."
-      : "Ca hôm nay đã sẵn sàng. Check-in đúng giờ hoặc trong 10 phút đầu ca sẽ tự duyệt; nếu trễ, hệ thống sẽ chuyển sang duyệt ngoại lệ."
+      ? strings.manageShiftsTodayMessageClockingIn
+      : strings.manageShiftsTodayMessageReady
     : todayDraftAssignment
-      ? "Bạn đã được xếp lịch, nhưng ca này chưa được xuất lịch chính thức."
-      : "Hôm nay chưa có ca nào được xuất lịch cho bạn.";
+      ? strings.manageShiftsTodayMessageWaitingPublish
+      : strings.manageShiftsTodayMessageNoSchedule;
   const selectedEmployee = useMemo(
     () => schedulableEmployees.find((employee) => employee.id === currentSelectedCell?.employeeId) ?? null,
     [currentSelectedCell?.employeeId, schedulableEmployees],
@@ -817,7 +893,7 @@ export default function AdminShiftsScreen() {
       const nextDraft = generateDraftSchedule({ weekStart, employees: schedulableEmployees, demands });
       await persistDraft(nextDraft, "draft");
     } catch (nextError) {
-      Alert.alert("Không thể tự động xếp ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsAutoScheduleFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -828,9 +904,9 @@ export default function AdminShiftsScreen() {
     try {
       setSaving(true);
       await persistDraft(draftResult, "published");
-      Alert.alert("Đã xuất lịch", "Lịch ca tuần này đã được cập nhật cho nhân sự.");
+      Alert.alert(strings.manageShiftsPublishSuccessTitle, strings.manageShiftsPublishSuccessBody);
     } catch (nextError) {
-      Alert.alert("Không thể xuất lịch", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsPublishFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -844,7 +920,7 @@ export default function AdminShiftsScreen() {
       await persistDraft(nextDraft, "draft");
       setSelectedCell(null);
     } catch (nextError) {
-      Alert.alert("Không thể cập nhật ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsUpdateShiftFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -870,7 +946,7 @@ export default function AdminShiftsScreen() {
       }
       setSelectedCell(null);
     } catch (nextError) {
-      Alert.alert("Không thể cập nhật ngày nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsUpdateDayOffFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -882,7 +958,7 @@ export default function AdminShiftsScreen() {
       await reviewShiftCheckIn(entryId, approve, attendanceFraction);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể duyệt chấm công", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsReviewCheckInFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -894,7 +970,7 @@ export default function AdminShiftsScreen() {
       await reviewShiftLeaveRequest(requestId, approve, attendanceFraction);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể duyệt nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsReviewLeaveFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -925,7 +1001,7 @@ export default function AdminShiftsScreen() {
       });
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể thêm override", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsAddOverrideFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -937,7 +1013,7 @@ export default function AdminShiftsScreen() {
       await removeManualShiftOverride(overrideId, observerScope);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể gỡ override", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsRemoveOverrideFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -949,7 +1025,7 @@ export default function AdminShiftsScreen() {
       await reviewShiftChangeRequest(requestId, approve, undefined, observerScope);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể duyệt đổi ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsReviewSwapFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -964,11 +1040,11 @@ export default function AdminShiftsScreen() {
         : null;
 
     if (!resolvedTarget) {
-      Alert.alert("Thiếu ca đích", "Hãy chọn ca đích đã xuất lịch.");
+      Alert.alert(strings.manageShiftsMissingTargetTitle, strings.manageShiftsMissingTargetBody);
       return;
     }
     if (shiftRequestKind === "SWAP" && !resolvedSource) {
-      Alert.alert("Thiếu ca nguồn", "Xin đổi ca cần chọn ca nguồn của bạn.");
+      Alert.alert(strings.manageShiftsMissingSourceTitle, strings.manageShiftsMissingSourceBody);
       return;
     }
 
@@ -986,7 +1062,7 @@ export default function AdminShiftsScreen() {
       setSelectedRequestSourceKey("");
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể gửi yêu cầu", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsSubmitRequestFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -999,7 +1075,7 @@ export default function AdminShiftsScreen() {
       await createShiftCheckIn(selectedTodaySlot);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể mở ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsOpenShiftFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -1012,7 +1088,7 @@ export default function AdminShiftsScreen() {
       await closeShiftEntryIfAllowed(activePersonalEntry);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể đóng ca", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsCloseShiftFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -1025,7 +1101,7 @@ export default function AdminShiftsScreen() {
       await submitDayOffRequest(todayPublishedAssignment.dateKey);
       await loadData(true);
     } catch (nextError) {
-      Alert.alert("Không thể gửi xin nghỉ", nextError instanceof Error ? nextError.message : "Vui lòng thử lại.");
+      Alert.alert(strings.manageShiftsRequestLeaveFailedTitle, localizeErrorMessage(nextError, strings.manageShiftsTryAgain));
     } finally {
       setSaving(false);
     }
@@ -1046,7 +1122,7 @@ export default function AdminShiftsScreen() {
       <View style={styles.screen}>
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={c.primary} />
-          <Text style={styles.loadingText}>Đang tải lịch ca...</Text>
+          <Text style={styles.loadingText}>{strings.manageShiftsLoading}</Text>
         </View>
       </View>
     );
@@ -1054,8 +1130,8 @@ export default function AdminShiftsScreen() {
 
   return (
     <ManageScreenShell
-      title="Lịch làm việc"
-      subtitle={canManage ? "Quản trị ca làm, duyệt chấm công ngoại lệ và điều chỉnh lịch tuần." : "Theo dõi ca làm, chấm công vào ca và gửi xin nghỉ."}
+      title={strings.manageShiftsTitle}
+      subtitle={canManage ? strings.manageShiftsManageSubtitle : strings.manageShiftsStaffSubtitle}
       currentKey="shifts"
       group="setup"
       showBackButton={false}
@@ -1064,26 +1140,26 @@ export default function AdminShiftsScreen() {
       observerReadOnly={observerReadOnly}
       observerReadOnlyMessage={
         observerOrgMode
-          ? "Đang quan sát toàn công ty. Lịch tuần và cấu hình ca chỉ nên chỉnh khi quay về một chi nhánh cụ thể."
-          : "Đang quan sát chi nhánh khác. Các thao tác xuất lịch, duyệt chấm công ngoại lệ và chỉnh ca chỉ mở ở chi nhánh làm việc."
+          ? strings.manageShiftsObserverOrgReadonly
+          : strings.manageShiftsObserverBranchReadonly
       }
     >
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
-          {observerOrgMode ? <Text style={styles.warnText}>Đang ở scope toàn công ty. Danh sách nhân sự và chấm công đã đổi theo observer, nhưng điều phối lịch tuần nên thực hiện trên từng chi nhánh cụ thể.</Text> : null}
-          {planSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `shift_plans`, đang dùng draft tạm trên mobile.</Text> : null}
-          {profileSchemaMissing ? <Text style={styles.warnText}>Thiếu bảng `staff_shift_profiles`, chức năng nghỉ theo ngày sẽ bị giới hạn.</Text> : null}
+          {observerOrgMode ? <Text style={styles.warnText}>{strings.manageShiftsObserverOrgPlannerHint}</Text> : null}
+          {planSchemaMissing ? <Text style={styles.warnText}>{strings.manageShiftsPlanSchemaMissing}</Text> : null}
+          {profileSchemaMissing ? <Text style={styles.warnText}>{strings.manageShiftsProfileSchemaMissing}</Text> : null}
 
           <View style={styles.sectionCard}>
             <View style={styles.rowBetween}>
-              <Text style={styles.sectionTitle}>Tuần làm việc</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsWorkweekTitle}</Text>
               <Text style={styles.badgeText}>
                 {canManage
                   ? draftPlan?.status === "published" || publishedPlan
-                    ? "Đã có lịch"
-                    : "Chưa xuất lịch"
+                    ? strings.manageShiftsWeekBadgePublished
+                    : strings.manageShiftsWeekBadgeDraft
                   : hasPersonalPublishedSchedule
-                    ? "Đã có lịch"
-                    : "Chưa có ca"}
+                    ? strings.manageShiftsWeekBadgePublished
+                    : strings.manageShiftsWeekBadgeNoShift}
               </Text>
             </View>
             <View style={styles.weekNavRow}>
@@ -1091,7 +1167,7 @@ export default function AdminShiftsScreen() {
                 <Feather name="chevron-left" size={18} color={c.text} />
               </Pressable>
               <View style={styles.weekLabelPill}>
-                <Text style={styles.weekLabel}>{getWeekLabel(weekStart)}</Text>
+                <Text style={styles.weekLabel}>{getWeekLabel(weekStart, locale)}</Text>
               </View>
               <Pressable style={styles.iconRound} onPress={() => handleWeekChange(7)}>
                 <Feather name="chevron-right" size={18} color={c.text} />
@@ -1102,22 +1178,22 @@ export default function AdminShiftsScreen() {
                 <>
                   <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleAutoSchedule()} disabled={saving}>
                     <Feather name="shuffle" size={16} color={c.white} />
-                    <Text style={styles.primaryButtonText}>Tự động xếp ca</Text>
+                    <Text style={styles.primaryButtonText}>{strings.manageShiftsAutoScheduleButton}</Text>
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handlePublish()} disabled={saving || !draftResult}>
                     <Feather name="upload" size={16} color={c.text} />
-                    <Text style={styles.secondaryButtonText}>Xuất lịch</Text>
+                    <Text style={styles.secondaryButtonText}>{strings.manageShiftsPublishButton}</Text>
                   </Pressable>
                 </>
               ) : (
                 <>
                   <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
                     <Feather name="play" size={16} color={c.white} />
-                    <Text style={styles.primaryButtonText}>Chấm công vào ca</Text>
+                    <Text style={styles.primaryButtonText}>{strings.manageShiftsCheckInButton}</Text>
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckOut()} disabled={saving || !activePersonalEntry}>
                     <Feather name="stop-circle" size={16} color={c.text} />
-                    <Text style={styles.secondaryButtonText}>Kết thúc ca</Text>
+                    <Text style={styles.secondaryButtonText}>{strings.manageShiftsCheckOutButton}</Text>
                   </Pressable>
                 </>
               )}
@@ -1127,15 +1203,15 @@ export default function AdminShiftsScreen() {
           <View style={styles.metricsRow}>
             <View style={styles.metricCard}>
               <Text style={styles.metricValue}>{totalAssigned}</Text>
-              <Text style={styles.metricLabel}>Ca đã xếp</Text>
+              <Text style={styles.metricLabel}>{strings.manageShiftsMetricAssigned}</Text>
             </View>
             <View style={styles.metricCard}>
               <Text style={styles.metricValue}>{totalRequired}</Text>
-              <Text style={styles.metricLabel}>Nhu cầu tuần</Text>
+              <Text style={styles.metricLabel}>{strings.manageShiftsMetricDemand}</Text>
             </View>
             <View style={styles.metricCard}>
               <Text style={[styles.metricValue, { color: totalConflicts ? c.danger : c.success }]}>{totalConflicts}</Text>
-              <Text style={styles.metricLabel}>Xung đột</Text>
+              <Text style={styles.metricLabel}>{strings.manageShiftsMetricConflicts}</Text>
             </View>
           </View>
 
@@ -1152,7 +1228,7 @@ export default function AdminShiftsScreen() {
                   : null;
                 return (
                   <Pressable key={dateKey} style={[styles.dayChip, active ? styles.dayChipActive : null]} onPress={() => handleSelectedDateChange(dateKey)}>
-                    <Text style={[styles.dayChipText, active ? styles.dayChipTextActive : null]}>{formatDayChip(dateKey)}</Text>
+                    <Text style={[styles.dayChipText, active ? styles.dayChipTextActive : null]}>{formatDayChip(dateKey, locale)}</Text>
                     <Text style={[styles.dayChipSub, active ? styles.dayChipTextActive : null]}>
                       {canManage ? `${summary?.scheduledCount ?? 0}/${summary?.requiredCount ?? 0}` : personalAssignment?.shortCode ?? "--"}
                     </Text>
@@ -1164,16 +1240,16 @@ export default function AdminShiftsScreen() {
 
           {canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Planner theo ngày</Text>
-              <Text style={styles.sectionSubtitle}>Chạm vào từng nhân sự để sửa nhanh khung giờ hoặc đánh dấu nghỉ.</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsPlannerTitle}</Text>
+              <Text style={styles.sectionSubtitle}>{strings.manageShiftsPlannerSubtitle}</Text>
               <View style={styles.daySummaryCard}>
                 <View style={styles.daySummaryMetric}>
                   <Text style={styles.daySummaryValue}>{selectedDaySummary?.scheduledCount ?? 0}</Text>
-                  <Text style={styles.daySummaryLabel}>Đã xếp</Text>
+                  <Text style={styles.daySummaryLabel}>{strings.manageShiftsDaySummaryAssigned}</Text>
                 </View>
                 <View style={styles.daySummaryMetric}>
                   <Text style={styles.daySummaryValue}>{selectedDaySummary?.requiredCount ?? 0}</Text>
-                  <Text style={styles.daySummaryLabel}>Cần</Text>
+                  <Text style={styles.daySummaryLabel}>{strings.manageShiftsDaySummaryNeeded}</Text>
                 </View>
                 <View style={styles.daySummaryMetric}>
                   <Text
@@ -1184,17 +1260,17 @@ export default function AdminShiftsScreen() {
                   >
                     {selectedDaySummary?.shortageCount ?? 0}
                   </Text>
-                  <Text style={styles.daySummaryLabel}>Thiếu</Text>
+                  <Text style={styles.daySummaryLabel}>{strings.manageShiftsDaySummaryShortage}</Text>
                 </View>
               </View>
               <View style={styles.legendRow}>
-                {(["MORNING", "AFTERNOON", "FULL", "OFF"] as ShiftType[]).map((shiftType) => {
+                {(["MORNING", "AFTERNOON", "FULL_DAY", "OFF"] as ShiftType[]).map((shiftType) => {
                   const definition = getShiftDefinition(shiftType);
                   const colors = getShiftColors(definition);
                   return (
                     <View key={shiftType} style={[styles.legendChip, { backgroundColor: colors.bg, borderColor: colors.border }]}>
                       <Text style={[styles.legendChipCode, { color: colors.text }]}>{definition.shortCode}</Text>
-                      <Text style={[styles.legendChipText, { color: colors.text }]}>{definition.label}</Text>
+                      <Text style={[styles.legendChipText, { color: colors.text }]}>{localizeShiftLabel(shiftType, definition.label)}</Text>
                     </View>
                   );
                 })}
@@ -1217,9 +1293,9 @@ export default function AdminShiftsScreen() {
                         {employeeInfo.email ? <Text style={styles.personContact}>{employeeInfo.email}</Text> : null}
                         <Text style={styles.personMeta}>{getRoleLabel(employee.role)}</Text>
                         <View style={styles.personShiftMetaRow}>
-                          <Text style={[styles.personShiftLabel, { color: colors.text }]}>{assignment.shiftLabel}</Text>
+                          <Text style={[styles.personShiftLabel, { color: colors.text }]}>{localizeShiftLabel(assignment.shiftType, assignment.shiftLabel)}</Text>
                           <Text style={styles.personShiftHours}>
-                            {assignment.startTime && assignment.endTime ? `${assignment.startTime} - ${assignment.endTime}` : "Nghỉ"}
+                            {assignment.startTime && assignment.endTime ? `${assignment.startTime} - ${assignment.endTime}` : strings.manageShiftsOffLabel}
                           </Text>
                         </View>
                       </View>
@@ -1235,7 +1311,7 @@ export default function AdminShiftsScreen() {
 
           {canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Yêu cầu đổi / nhận ca</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsPendingSwapTitle}</Text>
               {pendingOwnerShiftChanges.length ? (
                 <View style={styles.cardStack}>
                   {pendingOwnerShiftChanges.map((request) => (
@@ -1250,35 +1326,37 @@ export default function AdminShiftsScreen() {
                         );
                       })()}
                       <Text style={styles.reviewMeta}>
-                        {request.request_kind === "SWAP" ? "Xin đổi ca" : "Xin nhận ca"} • {request.target_slot_json.dateKey} • {request.target_slot_json.shiftLabel}
+                        {request.request_kind === "SWAP" ? strings.manageShiftsSwapRequestLabel : strings.manageShiftsPickupRequestLabel} • {request.target_slot_json.dateKey} • {localizeAdminLiteral(strings, request.target_slot_json.shiftLabel)}
                       </Text>
                       <Text style={styles.reviewMeta}>
-                        Holder hiện tại: {getTeamMemberInfo(request.target_slot_json.holderUserId, request.target_slot_json.holderName).name}
+                        {strings.manageShiftsCurrentHolderPrefix} {getTeamMemberInfo(request.target_slot_json.holderUserId, request.target_slot_json.holderName).name}
                       </Text>
                       <View style={styles.actionsRow}>
                         <Pressable style={styles.approveButton} onPress={() => void handleApproveShiftChange(request.id, true)} disabled={saving}>
-                          <Text style={styles.approveText}>Duyệt</Text>
+                          <Text style={styles.approveText}>{strings.manageShiftsApproveButton}</Text>
                         </Pressable>
                         <Pressable style={styles.rejectButton} onPress={() => void handleApproveShiftChange(request.id, false)} disabled={saving}>
-                          <Text style={styles.rejectText}>Từ chối</Text>
+                          <Text style={styles.rejectText}>{strings.manageShiftsRejectButton}</Text>
                         </Pressable>
                       </View>
                     </View>
                   ))}
                 </View>
               ) : (
-                <Text style={styles.emptyText}>Không có yêu cầu đổi hoặc nhận ca đang chờ duyệt.</Text>
+                <Text style={styles.emptyText}>{strings.manageShiftsPendingSwapEmpty}</Text>
               )}
             </View>
           ) : null}
 
           {!canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Lịch của tôi trong tuần</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsMyWeekTitle}</Text>
               <Text style={styles.sectionSubtitle}>
                 {selectedPersonalAssignment
-                  ? `Ngày ${formatDayChip(selectedDateKey)} bạn được phân ${selectedPersonalAssignment.shiftLabel.toLowerCase()}.`
-                  : "Chọn từng ngày để xem rõ bạn được xếp ca sáng, ca chiều hay cả ngày."}
+                  ? strings.manageShiftsMyWeekAssignedTemplate
+                    .replace("{date}", formatDayChip(selectedDateKey, locale))
+                    .replace("{shift}", localizeShiftLabel(selectedPersonalAssignment.shiftType, selectedPersonalAssignment.shiftLabel).toLowerCase())
+                  : strings.manageShiftsPersonalScheduleHint}
               </Text>
               <View style={styles.cardStack}>
                 {personalWeekAssignments.map(({ dateKey, assignments }) => {
@@ -1301,11 +1379,11 @@ export default function AdminShiftsScreen() {
                     >
                       <View style={styles.rowBetween}>
                         <View style={styles.personalShiftDayCopy}>
-                          <Text style={styles.personalShiftDayTitle}>{formatDayChip(dateKey)}</Text>
+                          <Text style={styles.personalShiftDayTitle}>{formatDayChip(dateKey, locale)}</Text>
                           <Text style={styles.personalShiftDayMeta}>
                             {assignment
-                              ? `${assignment.shiftLabel} • ${assignment.startTime} - ${assignment.endTime}`
-                              : "Chưa có ca được xuất lịch"}
+                              ? `${localizeShiftLabel(assignment.shiftType, assignment.shiftLabel)} • ${assignment.startTime} - ${assignment.endTime}`
+                              : strings.manageShiftsNoPublishedShift}
                           </Text>
                         </View>
                         <View style={[styles.todayShiftBadge, { borderColor: assignment ? colors.border : c.border }]}>
@@ -1316,7 +1394,7 @@ export default function AdminShiftsScreen() {
                       </View>
                       <View style={styles.personalShiftMetaRow}>
                         <Text style={styles.personalShiftStatus}>
-                          {published ? "Đi làm" : assignment ? "Chờ xuất lịch" : "Nghỉ"}
+                          {published ? strings.manageShiftsWorkingLabel : assignment ? strings.manageShiftsTodayStatusWaitingPublish : strings.manageShiftsOffLabel}
                         </Text>
                         {assignment ? <Text style={styles.personalShiftHours}>{assignment.startTime} - {assignment.endTime}</Text> : null}
                       </View>
@@ -1329,7 +1407,7 @@ export default function AdminShiftsScreen() {
 
           {canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Duyệt chấm công ngoại lệ</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsExceptionAttendanceTitle}</Text>
               {pendingOwnerEntries.length ? (
                 <View style={styles.cardStack}>
                   {pendingOwnerEntries.map((entry) => (
@@ -1344,7 +1422,7 @@ export default function AdminShiftsScreen() {
                         );
                       })()}
                       <Text style={styles.reviewMeta}>
-                        Check-in {formatTime(entry.clock_in)} • Dự kiến {formatTime(entry.scheduled_start)} - {formatTime(entry.scheduled_end)}
+                        {strings.manageShiftsCheckInPrefix} {formatTime(entry.clock_in, locale)} • {strings.manageShiftsExpectedTimePrefix} {formatTime(entry.scheduled_start, locale)} - {formatTime(entry.scheduled_end, locale)}
                       </Text>
                       <View style={styles.actionsRow}>
                         <Pressable style={styles.approveButton} onPress={() => void handleApproveEntry(entry.id, true, 1)} disabled={saving}>
@@ -1357,21 +1435,21 @@ export default function AdminShiftsScreen() {
                           <Text style={styles.approveText}>0.5</Text>
                         </Pressable>
                         <Pressable style={styles.rejectButton} onPress={() => void handleApproveEntry(entry.id, false)} disabled={saving}>
-                          <Text style={styles.rejectText}>Từ chối</Text>
+                          <Text style={styles.rejectText}>{strings.manageShiftsRejectButton}</Text>
                         </Pressable>
                       </View>
                     </View>
                   ))}
                 </View>
               ) : (
-                <Text style={styles.emptyText}>Không có bản ghi chấm công ngoại lệ nào đang chờ duyệt.</Text>
+                <Text style={styles.emptyText}>{strings.manageShiftsExceptionAttendanceEmpty}</Text>
               )}
             </View>
           ) : null}
 
           {canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Yêu cầu nghỉ ca</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsPendingLeaveTitle}</Text>
               {pendingOwnerLeaves.length ? (
                 <View style={styles.cardStack}>
                   {pendingOwnerLeaves.map((request) => (
@@ -1386,7 +1464,7 @@ export default function AdminShiftsScreen() {
                         );
                       })()}
                       <Text style={styles.reviewMeta}>
-                        {request.request_type === "DAY_OFF" ? "Xin nghỉ ca" : "Xin về sớm"} • {request.scheduled_date ?? "Chưa rõ ngày"}
+                        {request.request_type === "DAY_OFF" ? strings.manageShiftsLeaveRequestLabel : strings.manageShiftsEarlyLeaveRequestLabel} • {request.scheduled_date ?? strings.manageShiftsUnknownDate}
                       </Text>
                       {request.note ? <Text style={styles.reviewMeta}>{request.note}</Text> : null}
                       <View style={styles.actionsRow}>
@@ -1404,27 +1482,27 @@ export default function AdminShiftsScreen() {
                           </>
                         ) : (
                           <Pressable style={styles.approveButton} onPress={() => void handleApproveLeave(request.id, true)} disabled={saving}>
-                            <Text style={styles.approveText}>Duyệt</Text>
+                            <Text style={styles.approveText}>{strings.manageShiftsApproveButton}</Text>
                           </Pressable>
                         )}
                         <Pressable style={styles.rejectButton} onPress={() => void handleApproveLeave(request.id, false)} disabled={saving}>
-                          <Text style={styles.rejectText}>Từ chối</Text>
+                          <Text style={styles.rejectText}>{strings.manageShiftsRejectButton}</Text>
                         </Pressable>
                       </View>
                     </View>
                   ))}
                 </View>
               ) : (
-                <Text style={styles.emptyText}>Không có yêu cầu nghỉ nào đang chờ duyệt.</Text>
+                <Text style={styles.emptyText}>{strings.manageShiftsPendingLeaveEmpty}</Text>
               )}
             </View>
           ) : null}
 
           {shouldShowManagerPersonalCard ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Ca và công của tôi</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsMyShiftsAndAttendanceTitle}</Text>
               <Text style={styles.sectionSubtitle}>
-                Tóm tắt riêng ca hiệu lực và các bản ghi công của bạn trong tuần này.
+                {strings.manageShiftsMyShiftsAndAttendanceSubtitle}
               </Text>
               {personalEffectiveSlots.length ? (
                 <View style={styles.cardStack}>
@@ -1439,9 +1517,9 @@ export default function AdminShiftsScreen() {
                           style={[styles.personCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
                         >
                           <View style={styles.personCopy}>
-                            <Text style={styles.personName}>{formatDayChip(dateKey)}</Text>
+                            <Text style={styles.personName}>{formatDayChip(dateKey, locale)}</Text>
                             <Text style={styles.personShiftHours}>
-                              {assignment.shiftLabel} • {assignment.startTime} - {assignment.endTime}
+                              {localizeShiftLabel(assignment.shiftType, assignment.shiftLabel)} • {assignment.startTime} - {assignment.endTime}
                             </Text>
                           </View>
                           <View style={[styles.shiftBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
@@ -1456,12 +1534,12 @@ export default function AdminShiftsScreen() {
                 <View style={styles.cardStack}>
                   {personalEntriesForCurrentWeek.map((entry) => (
                     <View key={`manager-personal-entry-${entry.id}`} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
-                      <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
+                      <Text style={styles.reviewTitle}>{localizeSavedShiftLabel(entry.scheduled_shift_type, entry.scheduled_shift_label)}</Text>
+                      <Text style={styles.reviewMeta}>{strings.manageShiftsActualTimePrefix} {formatTime(entry.clock_in, locale)} - {formatTime(entry.clock_out, locale)}</Text>
                       <Text style={styles.reviewMeta}>
-                        Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}
+                        {strings.manageShiftsAttendanceTimePrefix} {formatTime(entry.effective_clock_in ?? entry.clock_in, locale)} - {formatTime(entry.effective_clock_out ?? entry.clock_out, locale)}
                       </Text>
-                      <Text style={styles.reviewMeta}>Ngày công {formatAttendanceFraction(entry.attendance_fraction)}</Text>
+                      <Text style={styles.reviewMeta}>{strings.manageShiftsAttendanceDayPrefix} {formatAttendanceFraction(entry.attendance_fraction)}</Text>
                     </View>
                   ))}
                 </View>
@@ -1471,11 +1549,11 @@ export default function AdminShiftsScreen() {
 
           {!canManage ? (
             <View style={styles.sectionCard}>
-              <Text style={styles.sectionTitle}>Ca hôm nay</Text>
+              <Text style={styles.sectionTitle}>{strings.manageShiftsTodayTitle}</Text>
               <Text style={styles.sectionSubtitle}>
                 {todayPublishedAssignment
-                  ? `${todayPublishedAssignment.shiftLabel} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
-                  : "Hôm nay chưa có ca nào được xuất lịch cho bạn."}
+                  ? `${localizeShiftLabel(todayPublishedAssignment.shiftType, todayPublishedAssignment.shiftLabel)} • ${todayPublishedAssignment.startTime} - ${todayPublishedAssignment.endTime}`
+                  : strings.manageShiftsTodayMessageNoSchedule}
               </Text>
               {visibleTodayAssignment ? (
                 <View
@@ -1490,12 +1568,12 @@ export default function AdminShiftsScreen() {
                   <View style={styles.rowBetween}>
                     <View style={styles.todayShiftHeaderCopy}>
                       <Text style={[styles.todayShiftTitle, { color: todayShiftColors.text }]}>
-                        {visibleTodayAssignment.shiftLabel}
+                        {localizeShiftLabel(visibleTodayAssignment.shiftType, visibleTodayAssignment.shiftLabel)}
                       </Text>
                       <Text style={styles.todayShiftHours}>
                         {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                           ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
-                          : "Đang nghỉ"}
+                          : strings.manageShiftsRestingLabel}
                       </Text>
                     </View>
                     <View style={[styles.todayShiftBadge, { borderColor: todayShiftColors.border }]}>
@@ -1507,11 +1585,11 @@ export default function AdminShiftsScreen() {
 
                   <View style={styles.todayShiftMetaGrid}>
                     <View style={styles.todayShiftMetaItem}>
-                      <Text style={styles.todayShiftMetaLabel}>Loại ca</Text>
-                      <Text style={styles.todayShiftMetaValue}>{visibleTodayAssignment.shiftLabel}</Text>
+                      <Text style={styles.todayShiftMetaLabel}>{strings.manageShiftsTodayShiftTypeLabel}</Text>
+                      <Text style={styles.todayShiftMetaValue}>{localizeShiftLabel(visibleTodayAssignment.shiftType, visibleTodayAssignment.shiftLabel)}</Text>
                     </View>
                     <View style={styles.todayShiftMetaItem}>
-                      <Text style={styles.todayShiftMetaLabel}>Trạng thái</Text>
+                      <Text style={styles.todayShiftMetaLabel}>{strings.manageShiftsTodayStatusLabel}</Text>
                       <Text
                         style={[
                           styles.todayShiftMetaValue,
@@ -1522,7 +1600,7 @@ export default function AdminShiftsScreen() {
                       </Text>
                     </View>
                     <View style={styles.todayShiftMetaItem}>
-                      <Text style={styles.todayShiftMetaLabel}>Giờ làm</Text>
+                      <Text style={styles.todayShiftMetaLabel}>{strings.manageShiftsTodayHoursLabel}</Text>
                       <Text style={styles.todayShiftMetaValue}>
                         {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                           ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
@@ -1530,7 +1608,7 @@ export default function AdminShiftsScreen() {
                       </Text>
                     </View>
                     <View style={styles.todayShiftMetaItem}>
-                      <Text style={styles.todayShiftMetaLabel}>Tính công</Text>
+                      <Text style={styles.todayShiftMetaLabel}>{strings.manageShiftsTodayAttendanceLabel}</Text>
                       <Text style={styles.todayShiftMetaValue}>
                         {visibleTodayAssignment.startTime && visibleTodayAssignment.endTime
                           ? `${visibleTodayAssignment.startTime} - ${visibleTodayAssignment.endTime}`
@@ -1541,7 +1619,7 @@ export default function AdminShiftsScreen() {
                   <Text style={styles.todayShiftHint}>{todayShiftMessage}</Text>
                   {todayEffectiveSlots.length > 1 ? (
                     <View style={{ gap: 8 }}>
-                      <Text style={styles.reviewMeta}>Chọn đúng ca để chấm công</Text>
+                      <Text style={styles.reviewMeta}>{strings.manageShiftsTodayPickCorrectShift}</Text>
                       <View style={styles.cardStack}>
                         {todayEffectiveSlots.map((slot) => {
                           const active = `${slot.dateKey}:${slot.shiftType}` === selectedTodaySlotKey;
@@ -1556,7 +1634,7 @@ export default function AdminShiftsScreen() {
                               onPress={() => setSelectedTodaySlotKey(`${slot.dateKey}:${slot.shiftType}`)}
                             >
                               <View style={styles.personCopy}>
-                                <Text style={styles.personName}>{slot.shiftLabel}</Text>
+                                <Text style={styles.personName}>{localizeShiftLabel(slot.shiftType, slot.shiftLabel)}</Text>
                                 <Text style={styles.personShiftHours}>{slot.startTime} - {slot.endTime}</Text>
                               </View>
                               <View style={[styles.shiftBadge, { backgroundColor: colors.bg, borderColor: colors.border }]}>
@@ -1573,30 +1651,30 @@ export default function AdminShiftsScreen() {
               {todayPublishedAssignment ? (
                 <View style={styles.actionsRow}>
                   <Pressable style={[styles.primaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleCheckIn()} disabled={saving || !!activePersonalEntry}>
-                    <Text style={styles.primaryButtonText}>Chấm công vào ca</Text>
+                    <Text style={styles.primaryButtonText}>{strings.manageShiftsCheckInButton}</Text>
                   </Pressable>
                   <Pressable style={[styles.secondaryButton, saving ? styles.buttonDisabled : null]} onPress={() => void handleRequestDayOff()} disabled={saving}>
-                    <Text style={styles.secondaryButtonText}>Xin nghỉ / về sớm</Text>
+                    <Text style={styles.secondaryButtonText}>{strings.manageShiftsRequestTimeOffButton}</Text>
                   </Pressable>
                 </View>
               ) : null}
               <View style={styles.reviewCard}>
-                <Text style={styles.reviewTitle}>Xin nhận / đổi ca</Text>
+                <Text style={styles.reviewTitle}>{strings.manageShiftsRequestSwapTitle}</Text>
                 <Text style={styles.reviewMeta}>
-                  Chọn ca đã xuất lịch của người khác để xin nhận, hoặc chọn thêm ca nguồn của bạn để đổi.
+                  {strings.manageShiftsRequestSwapHint}
                 </Text>
                 <View style={styles.actionsRow}>
                   <Pressable
                     style={shiftRequestKind === "PICKUP" ? styles.approveButton : styles.secondaryButton}
                     onPress={() => setShiftRequestKind("PICKUP")}
                   >
-                    <Text style={shiftRequestKind === "PICKUP" ? styles.approveText : styles.secondaryButtonText}>Xin nhận ca</Text>
+                    <Text style={shiftRequestKind === "PICKUP" ? styles.approveText : styles.secondaryButtonText}>{strings.manageShiftsPickupRequestLabel}</Text>
                   </Pressable>
                   <Pressable
                     style={shiftRequestKind === "SWAP" ? styles.approveButton : styles.secondaryButton}
                     onPress={() => setShiftRequestKind("SWAP")}
                   >
-                    <Text style={shiftRequestKind === "SWAP" ? styles.approveText : styles.secondaryButtonText}>Xin đổi ca</Text>
+                    <Text style={shiftRequestKind === "SWAP" ? styles.approveText : styles.secondaryButtonText}>{strings.manageShiftsSwapRequestLabel}</Text>
                   </Pressable>
                 </View>
                 {shiftRequestKind === "SWAP" ? (
@@ -1611,7 +1689,7 @@ export default function AdminShiftsScreen() {
                           onPress={() => setSelectedRequestSourceKey(`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`)}
                         >
                           <View style={styles.personCopy}>
-                            <Text style={styles.personName}>Ca nguồn: {slot.shiftLabel}</Text>
+                            <Text style={styles.personName}>{strings.manageShiftsSourceShiftPrefix} {localizeShiftLabel(slot.shiftType, slot.shiftLabel)}</Text>
                             <Text style={styles.personMeta}>{holderInfo.name}</Text>
                             {holderInfo.email ? <Text style={styles.personContact}>{holderInfo.email}</Text> : null}
                             <Text style={styles.personShiftHours}>{slot.dateKey} • {slot.startTime} - {slot.endTime}</Text>
@@ -1632,7 +1710,7 @@ export default function AdminShiftsScreen() {
                         onPress={() => setSelectedRequestTargetKey(`${slot.dateKey}:${slot.shiftType}:${slot.holderUserId}`)}
                       >
                         <View style={styles.personCopy}>
-                          <Text style={styles.personName}>{slot.shiftLabel}</Text>
+                          <Text style={styles.personName}>{localizeShiftLabel(slot.shiftType, slot.shiftLabel)}</Text>
                           <Text style={styles.personMeta}>{holderInfo.name}</Text>
                           {holderInfo.email ? <Text style={styles.personContact}>{holderInfo.email}</Text> : null}
                           <Text style={styles.personShiftHours}>{slot.dateKey} • {slot.startTime} - {slot.endTime}</Text>
@@ -1646,20 +1724,20 @@ export default function AdminShiftsScreen() {
                   onPress={() => void handleSubmitShiftChange()}
                   disabled={saving || !selectedRequestTargetKey || (shiftRequestKind === "SWAP" && !selectedRequestSourceKey)}
                 >
-                  <Text style={styles.primaryButtonText}>Gửi yêu cầu</Text>
+                  <Text style={styles.primaryButtonText}>{strings.manageShiftsSubmitRequestButton}</Text>
                 </Pressable>
               </View>
               <View style={styles.cardStack}>
                 {personalEntries.length ? (
                   personalEntries.map((entry) => (
                     <View key={entry.id} style={styles.reviewCard}>
-                      <Text style={styles.reviewTitle}>{entry.scheduled_shift_label ?? "Ca linh hoạt"}</Text>
-                      <Text style={styles.reviewMeta}>Thực tế {formatTime(entry.clock_in)} - {formatTime(entry.clock_out)}</Text>
-                      <Text style={styles.reviewMeta}>Tính công {formatTime(entry.effective_clock_in ?? entry.clock_in)} - {formatTime(entry.effective_clock_out ?? entry.clock_out)}</Text>
+                      <Text style={styles.reviewTitle}>{localizeSavedShiftLabel(entry.scheduled_shift_type, entry.scheduled_shift_label)}</Text>
+                      <Text style={styles.reviewMeta}>{strings.manageShiftsActualTimePrefix} {formatTime(entry.clock_in, locale)} - {formatTime(entry.clock_out, locale)}</Text>
+                      <Text style={styles.reviewMeta}>{strings.manageShiftsAttendanceTimePrefix} {formatTime(entry.effective_clock_in ?? entry.clock_in, locale)} - {formatTime(entry.effective_clock_out ?? entry.clock_out, locale)}</Text>
                     </View>
                   ))
                 ) : (
-                  <Text style={styles.emptyText}>Chưa có lịch sử chấm công nào.</Text>
+                  <Text style={styles.emptyText}>{strings.manageShiftsNoAttendanceHistory}</Text>
                 )}
               </View>
             </View>
@@ -1675,7 +1753,7 @@ export default function AdminShiftsScreen() {
                   {selectedEmployee && getTeamMemberInfo(selectedEmployee.id, selectedEmployee.name).email ? (
                     <Text style={styles.sectionSubtitle}>{getTeamMemberInfo(selectedEmployee.id, selectedEmployee.name).email}</Text>
                   ) : null}
-                  <Text style={styles.sectionSubtitle}>{selectedAssignment ? formatDayChip(selectedAssignment.dateKey) : ""}</Text>
+                  <Text style={styles.sectionSubtitle}>{selectedAssignment ? formatDayChip(selectedAssignment.dateKey, locale) : ""}</Text>
                 </View>
                 <Pressable style={styles.iconRound} onPress={() => setSelectedCell(null)}>
                   <Feather name="x" size={18} color={c.text} />
@@ -1694,9 +1772,9 @@ export default function AdminShiftsScreen() {
                       ]}
                       onPress={() => void handleManualChange(option.type)}
                     >
-                      <Text style={[styles.optionTitle, { color: colors.text }]}>{option.label}</Text>
+                      <Text style={[styles.optionTitle, { color: colors.text }]}>{localizeShiftLabel(option.type, option.label)}</Text>
                       <Text style={[styles.optionSub, { color: colors.text }]}>
-                        {option.startTime && option.endTime ? `${option.startTime} - ${option.endTime}` : "Không xếp ca"}
+                        {option.startTime && option.endTime ? `${option.startTime} - ${option.endTime}` : strings.manageShiftsNoAssignmentLabel}
                       </Text>
                     </Pressable>
                   );
@@ -1704,24 +1782,24 @@ export default function AdminShiftsScreen() {
               </View>
               {canManage ? (
                 <View style={styles.cardStack}>
-                  <Text style={styles.reviewTitle}>Điều chỉnh hiệu lực ngay</Text>
+                  <Text style={styles.reviewTitle}>{strings.manageShiftsImmediateOverrideTitle}</Text>
                   {selectedEffectiveAssignments.length ? (
                     selectedEffectiveAssignments.map((assignment, index) => (
                       <View key={`${assignment.dateKey}:${assignment.shiftType}:${index}`} style={styles.reviewCard}>
-                        <Text style={styles.reviewTitle}>{assignment.shiftLabel}</Text>
+                        <Text style={styles.reviewTitle}>{localizeShiftLabel(assignment.shiftType, assignment.shiftLabel)}</Text>
                         <Text style={styles.reviewMeta}>{assignment.startTime} - {assignment.endTime}</Text>
                         {selectedManualOverrides[index]?.overrideId ? (
                           <Pressable
                             style={styles.secondaryButton}
                             onPress={() => void handleRemoveEffectiveOverride(selectedManualOverrides[index].overrideId as string)}
                           >
-                            <Text style={styles.secondaryButtonText}>Gỡ override</Text>
+                            <Text style={styles.secondaryButtonText}>{strings.manageShiftsRemoveOverrideButton}</Text>
                           </Pressable>
                         ) : null}
                       </View>
                     ))
                   ) : (
-                    <Text style={styles.emptyText}>Ngày này chưa có ca hiệu lực cho nhân sự đã chọn.</Text>
+                    <Text style={styles.emptyText}>{strings.manageShiftsNoEffectiveAssignmentsForDate}</Text>
                   )}
                   <View style={styles.optionsGrid}>
                     {DEFAULT_SHIFT_DEFINITIONS.filter((item) => item.type !== "OFF").map((option) => {
@@ -1732,7 +1810,7 @@ export default function AdminShiftsScreen() {
                           style={[styles.optionCard, { backgroundColor: colors.bg, borderColor: colors.border }]}
                           onPress={() => void handleCreateEffectiveOverride(option.type)}
                         >
-                          <Text style={[styles.optionTitle, { color: colors.text }]}>{option.label}</Text>
+                          <Text style={[styles.optionTitle, { color: colors.text }]}>{localizeShiftLabel(option.type, option.label)}</Text>
                           <Text style={[styles.optionSub, { color: colors.text }]}>{option.startTime} - {option.endTime}</Text>
                         </Pressable>
                       );
@@ -1745,8 +1823,8 @@ export default function AdminShiftsScreen() {
                   <Feather name="calendar" size={16} color={c.text} />
                   <Text style={styles.leaveToggleText}>
                     {selectedProfile.leaveDateKeys.includes(selectedAssignment?.dateKey ?? "")
-                      ? "Bỏ đánh dấu nghỉ ngày này"
-                      : "Đánh dấu nghỉ ngày này"}
+                      ? strings.manageShiftsToggleLeaveOff
+                      : strings.manageShiftsToggleLeaveOn}
                   </Text>
                 </Pressable>
               ) : null}

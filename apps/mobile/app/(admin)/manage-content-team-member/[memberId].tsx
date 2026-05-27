@@ -10,7 +10,9 @@ import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -46,6 +48,8 @@ export default function AdminManageContentTeamMemberDetailScreen() {
   const memberId = typeof params.memberId === "string" ? params.memberId : "new";
   const isCreate = memberId === "new";
   const backHref = (typeof params.backHref === "string" ? params.backHref : "/(admin)/manage-content-team") as Href;
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
 
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
   const [form, setForm] = useState<TeamFormState>(emptyTeamForm());
@@ -55,7 +59,7 @@ export default function AdminManageContentTeamMemberDetailScreen() {
 
   const loadSnapshot = useCallback(async () => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Database mobile.");
+      setError(strings.teamMemberDetailMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -69,15 +73,15 @@ export default function AdminManageContentTeamMemberDetailScreen() {
         setForm(emptyTeamForm());
       } else {
         const member = next.team.find((item) => item.id === memberId);
-        if (!member) throw new Error("Không tìm thấy nhân sự cần chỉnh sửa.");
+        if (!member) throw new Error(strings.teamMemberDetailNotFound);
         setForm({ id: member.id, displayName: member.displayName, roleLabel: member.roleLabel ?? "", avatarUrl: member.avatarUrl ?? "", bio: member.bio ?? "", displayOrder: String(member.displayOrder), isVisible: member.isVisible });
       }
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được nhân sự.");
+      setError(nextError instanceof Error ? nextError.message : strings.teamMemberDetailLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, [isCreate, memberId]);
+  }, [isCreate, memberId, strings.teamMemberDetailLoadFailed, strings.teamMemberDetailMissingSupabase, strings.teamMemberDetailNotFound]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -89,7 +93,7 @@ export default function AdminManageContentTeamMemberDetailScreen() {
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện ảnh để tải ảnh đại diện.");
+      Alert.alert(strings.teamMemberDetailPermissionTitle, strings.teamMemberDetailPermissionBody);
       return;
     }
 
@@ -97,17 +101,17 @@ export default function AdminManageContentTeamMemberDetailScreen() {
     if (result.canceled || !result.assets[0]) return;
 
     try {
-      const uploaded = await uploadPickedAdminContentImage(result.assets[0], { folder: "storefront", baseName: form.displayName || "team-member" });
+      const uploaded = await uploadPickedAdminContentImage(result.assets[0], { folder: "storefront", baseName: form.displayName || "team-member" }, locale);
       setForm((current) => ({ ...current, avatarUrl: uploaded.publicUrl }));
     } catch (nextError) {
-      Alert.alert("Không tải được ảnh", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.teamMemberDetailImageFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     }
   }
 
   async function handleSave() {
     if (!mobileSupabase || !snapshot?.storefront?.id) return;
     if (!form.displayName.trim()) {
-      Alert.alert("Thiếu dữ liệu", "Cần nhập tên hiển thị của nhân sự.");
+      Alert.alert(strings.teamMemberDetailMissingDataTitle, strings.teamMemberDetailMissingDataBody);
       return;
     }
 
@@ -128,63 +132,63 @@ export default function AdminManageContentTeamMemberDetailScreen() {
       }
       dismissToHref(router, backHref);
     } catch (nextError) {
-      Alert.alert("Không lưu nhân sự", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.teamMemberDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setIsSaving(false);
     }
   }
 
   return (
-    <ManageScreenShell title={isCreate ? "Thêm nhân sự" : "Sửa nhân sự"} subtitle="Màn chỉnh sửa riêng để quay lại danh sách bằng gesture." currentKey="content" group="setup" backHref={backHref} showTabs={false} showBottomDock={false}>
+    <ManageScreenShell title={isCreate ? strings.teamMemberDetailCreateTitle : strings.teamMemberDetailEditTitle} subtitle={strings.teamMemberDetailSubtitle} currentKey="content" group="setup" backHref={backHref} showTabs={false} showBottomDock={false}>
       <View style={styles.sectionCard}>
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải nhân sự...</Text>
+            <Text style={styles.stateText}>{strings.teamMemberDetailLoading}</Text>
           </View>
         ) : error ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{error}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadSnapshot()}>
-              <Text style={styles.retryButtonText}>Tải lại</Text>
+              <Text style={styles.retryButtonText}>{strings.teamListRetry}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.formColumn}>
             {form.avatarUrl ? <CachedAppImage source={{ uri: form.avatarUrl }} style={styles.previewImage} alt={form.displayName || "member"} /> : null}
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Tên hiển thị</Text>
-              <AdminKeyboardTextInput placeholder="Ngọc Anh" placeholderTextColor="#B4A89C" style={styles.input} value={form.displayName} onChangeText={(value) => setForm((current) => ({ ...current, displayName: value }))} />
+              <Text style={styles.label}>{strings.teamMemberDetailDisplayNameLabel}</Text>
+              <AdminKeyboardTextInput placeholder={strings.teamMemberDetailDisplayNamePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.displayName} onChangeText={(value) => setForm((current) => ({ ...current, displayName: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Chức danh</Text>
-              <AdminKeyboardTextInput placeholder="Nail artist" placeholderTextColor="#B4A89C" style={styles.input} value={form.roleLabel} onChangeText={(value) => setForm((current) => ({ ...current, roleLabel: value }))} />
+              <Text style={styles.label}>{strings.teamMemberDetailRoleLabel}</Text>
+              <AdminKeyboardTextInput placeholder={strings.teamMemberDetailRolePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.roleLabel} onChangeText={(value) => setForm((current) => ({ ...current, roleLabel: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Ảnh đại diện</Text>
+              <Text style={styles.label}>{strings.teamMemberDetailAvatarLabel}</Text>
               <View style={styles.inlineRow}>
-                <AdminKeyboardTextInput placeholder="https://..." placeholderTextColor="#B4A89C" style={[styles.input, styles.flexInput]} value={form.avatarUrl} onChangeText={(value) => setForm((current) => ({ ...current, avatarUrl: value }))} />
+                <AdminKeyboardTextInput placeholder={strings.teamMemberDetailAvatarPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.flexInput]} value={form.avatarUrl} onChangeText={(value) => setForm((current) => ({ ...current, avatarUrl: value }))} />
                 <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage()}>
                   <Feather name="upload" size={18} color={palette.accent} />
-                  <Text style={styles.secondaryButtonText}>Tải ảnh</Text>
+                  <Text style={styles.secondaryButtonText}>{strings.teamMemberDetailUploadButton}</Text>
                 </Pressable>
               </View>
             </View>
             <View style={styles.fieldBlock}>
-              <Text style={styles.label}>Giới thiệu ngắn</Text>
-              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Mô tả ngắn về nhân sự." placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.bio} onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))} />
+              <Text style={styles.label}>{strings.teamMemberDetailBioLabel}</Text>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.teamMemberDetailBioPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.bio} onChangeText={(value) => setForm((current) => ({ ...current, bio: value }))} />
             </View>
             <View style={styles.inlineRow}>
               <View style={[styles.fieldBlock, styles.flexBlock]}>
-                <Text style={styles.label}>Thứ tự hiển thị</Text>
-                <AdminKeyboardTextInput placeholder="0" placeholderTextColor="#B4A89C" keyboardType="number-pad" style={styles.input} value={form.displayOrder} onChangeText={(value) => setForm((current) => ({ ...current, displayOrder: value }))} />
+                <Text style={styles.label}>{strings.teamMemberDetailDisplayOrderLabel}</Text>
+                <AdminKeyboardTextInput placeholder={strings.teamMemberDetailDisplayOrderPlaceholder} placeholderTextColor="#B4A89C" keyboardType="number-pad" style={styles.input} value={form.displayOrder} onChangeText={(value) => setForm((current) => ({ ...current, displayOrder: value }))} />
               </View>
               <Pressable style={[styles.toggleChip, form.isVisible ? styles.toggleChipActive : null]} onPress={() => setForm((current) => ({ ...current, isVisible: !current.isVisible }))}>
-                <Text style={[styles.toggleText, form.isVisible ? styles.toggleTextActive : null]}>{form.isVisible ? "Đang hiển thị" : "Đang ẩn"}</Text>
+                <Text style={[styles.toggleText, form.isVisible ? styles.toggleTextActive : null]}>{form.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden}</Text>
               </Pressable>
             </View>
             <Pressable style={styles.primaryButton} onPress={() => void handleSave()} disabled={isSaving}>
-              <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu nhân sự"}</Text>
+              <Text style={styles.primaryButtonText}>{isSaving ? strings.teamMemberDetailSavingButton : strings.teamMemberDetailSaveButton}</Text>
             </Pressable>
           </View>
         )}

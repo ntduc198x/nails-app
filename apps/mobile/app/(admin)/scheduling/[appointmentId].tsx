@@ -1,11 +1,24 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { canCheckInAppointmentAt } from "@nails/shared";
-import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { AdminBottomNavDock, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
+import {
+  canCheckInAppointmentAt,
+  deleteAppointmentForMobile,
+  getAppointmentForMobile,
+  listBookingRequestsForMobile,
+  saveAppointmentForMobile,
+  updateAppointmentStatusForMobile,
+  type AppRole,
+  type MobileAppointmentSummary,
+} from "@nails/shared";
+import { useAdminStrings } from "@/src/features/admin/strings";
+import { listResourceOptions, listStaffOptions, type ResourceOption, type StaffOption } from "@/src/hooks/use-admin-operations";
+import { AdminBottomNavDock, AdminDetailLoadingScreen, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
+import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { mobileSupabase } from "@/src/lib/supabase";
+import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
   bg: "#FCFAF8",
@@ -80,22 +93,43 @@ function formatDisplayTime(isoValue: string) {
   return `${hh}:${mm}`;
 }
 
-type AppointmentEditorProps = ReturnType<typeof useAdminOperations>["appointments"][number];
+type AppointmentEditorProps = {
+  appointment: MobileAppointmentSummary;
+  resourceOptions: ResourceOption[];
+  role: AppRole | null;
+  staffOptions: StaffOption[];
+  userId: string | null;
+  busyTargetId: string | null;
+  error: string | null;
+  mutating: boolean;
+  saveAppointment: (input: {
+    appointmentId: string;
+    customerName: string;
+    customerPhone?: string | null;
+    startAt: string;
+    endAt: string;
+    staffUserId?: string | null;
+    resourceId?: string | null;
+  }) => Promise<void>;
+  updateAppointmentStatus: (appointmentId: string, status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW") => Promise<void>;
+  deleteAppointment: (appointmentId: string) => Promise<void>;
+};
 
-function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProps }) {
+function AppointmentEditor({
+  appointment,
+  resourceOptions,
+  role,
+  staffOptions,
+  userId,
+  busyTargetId,
+  error,
+  mutating,
+  saveAppointment,
+  updateAppointmentStatus,
+  deleteAppointment,
+}: AppointmentEditorProps) {
+  const strings = useAdminStrings();
   const router = useRouter();
-  const {
-    resourceOptions,
-    role,
-    staffOptions,
-    user,
-    busyTargetId,
-    error,
-    mutating,
-    saveAppointment,
-    updateAppointmentStatus,
-    deleteAppointment,
-  } = useAdminOperations();
 
   const [customerName, setCustomerName] = useState(appointment.customerName);
   const [customerPhone, setCustomerPhone] = useState(appointment.customerPhone ?? "");
@@ -104,7 +138,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
   const [durationMinutes, setDurationMinutes] = useState(() =>
     String(Math.max(15, Math.round((new Date(appointment.endAt).getTime() - new Date(appointment.startAt).getTime()) / 60000))),
   );
-  const [staffUserId, setStaffUserId] = useState(appointment.staffUserId ?? (role === "TECH" ? user?.id ?? "" : ""));
+  const [staffUserId, setStaffUserId] = useState(appointment.staffUserId ?? (role === "TECH" ? userId ?? "" : ""));
   const [resourceId, setResourceId] = useState(appointment.resourceId ?? "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const handleFieldFocus = useAdminKeyboardFieldFocus();
@@ -195,10 +229,10 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
               <Text style={styles.bookingName}>{appointment.customerName}</Text>
             </View>
             <View style={styles.statusBadgeWrap}>
-              <Text style={styles.statusLabel}>Trạng thái lịch hẹn</Text>
+              <Text style={styles.statusLabel}>{strings.manageSchedulingDetailStatusLabel}</Text>
               <View style={[styles.statusBadge, appointment.status === "BOOKED" && styles.statusBadgeBooked]}>
                 <Text style={[styles.statusBadgeText, appointment.status === "BOOKED" && styles.statusBadgeTextBooked]}>
-                  {appointment.status === "BOOKED" ? "Chờ check-in" : "Đang phục vụ"}
+                  {appointment.status === "BOOKED" ? strings.manageSchedulingStatusBooked : strings.manageSchedulingStatusCheckedIn}
                 </Text>
               </View>
             </View>
@@ -214,14 +248,14 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
           </View>
           <View style={styles.infoPill}>
             <Feather name="map-pin" size={12} color={palette.textSecondary} />
-            <Text style={styles.infoPillText}>Chi nhánh Hà Nội</Text>
+            <Text style={styles.infoPillText}>{strings.manageSchedulingDetailBranchLabel}</Text>
           </View>
         </View>
       </View>
 
       {/* Customer Form Card */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Thông tin khách</Text>
+        <Text style={styles.cardTitle}>{strings.manageSchedulingDetailCustomerInfo}</Text>
 
         <View style={styles.inputGroup}>
           <View style={styles.inputWrapper}>
@@ -231,7 +265,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
               style={styles.inputText}
               value={customerName}
               onChangeText={setCustomerName}
-              placeholder="Tên khách"
+              placeholder={strings.manageSchedulingDetailCustomerNamePlaceholder}
               placeholderTextColor={palette.textMuted}
             />
           </View>
@@ -246,7 +280,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
               value={customerPhone}
               onChangeText={setCustomerPhone}
               keyboardType="phone-pad"
-              placeholder="Số điện thoại"
+              placeholder={strings.manageSchedulingDetailPhonePlaceholder}
               placeholderTextColor={palette.textMuted}
             />
           </View>
@@ -254,7 +288,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
 
         <View style={styles.formRow}>
           <View style={[styles.inputGroup, { flex: 1 }]}>
-            <Text style={styles.inputLabel}>Ngày</Text>
+            <Text style={styles.inputLabel}>{strings.manageSchedulingDetailDateLabel}</Text>
             <Pressable style={styles.inputWrapper} onPress={openDatePicker}>
               <Feather name="calendar" size={14} color={palette.textMuted} />
               <Text style={styles.inputText}>{dateInput}</Text>
@@ -262,7 +296,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
             </Pressable>
           </View>
           <View style={[styles.inputGroup, { flex: 1 }]}>
-            <Text style={styles.inputLabel}>Giờ</Text>
+            <Text style={styles.inputLabel}>{strings.manageSchedulingDetailTimeLabel}</Text>
             <Pressable style={styles.inputWrapper} onPress={openTimePicker}>
               <Feather name="clock" size={14} color={palette.textMuted} />
               <Text style={styles.inputText}>{timeInput}</Text>
@@ -272,7 +306,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.inputLabel}>Thời lượng (phút)</Text>
+          <Text style={styles.inputLabel}>{strings.manageSchedulingDetailDurationLabel}</Text>
           <View style={styles.inputWrapper}>
             <Feather name="watch" size={14} color={palette.textMuted} />
             <TextInput
@@ -292,7 +326,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       <View style={styles.card}>
         <View style={styles.cardHeaderRow}>
           <Feather name="user" size={16} color={palette.primary} />
-          <Text style={styles.cardTitle}>Chọn thợ</Text>
+          <Text style={styles.cardTitle}>{strings.manageSchedulingDetailStaffTitle}</Text>
         </View>
         <View style={styles.pillsRow}>
           {staffOptions.map((staff) => {
@@ -315,7 +349,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       <View style={styles.card}>
         <View style={styles.cardHeaderRow}>
           <Feather name="grid" size={16} color={palette.primary} />
-          <Text style={styles.cardTitle}>Chọn tài nguyên</Text>
+          <Text style={styles.cardTitle}>{strings.manageSchedulingDetailResourceTitle}</Text>
         </View>
         <View style={styles.resourceGrid}>
           {resourceOptions.map((resource) => {
@@ -341,7 +375,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
         onPress={() => void handleSave()}
       >
         <Feather name="save" size={18} color="#FFFFFF" />
-        <Text style={styles.primaryButtonText}>{busyTargetId === appointment.id ? "Đang lưu..." : "Lưu"}</Text>
+        <Text style={styles.primaryButtonText}>{busyTargetId === appointment.id ? strings.manageSchedulingDetailSaving : strings.manageSchedulingDetailSave}</Text>
       </Pressable>
 
       {appointment.status === "BOOKED" && (
@@ -352,10 +386,10 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
             onPress={() => void updateAppointmentStatus(appointment.id, "CHECKED_IN")}
           >
             <Feather name="user-check" size={16} color={palette.success} />
-            <Text style={styles.checkinButtonText}>Check-in</Text>
+            <Text style={styles.checkinButtonText}>{strings.manageSchedulingDetailCheckIn}</Text>
           </Pressable>
           {!canCheckInNow ? (
-            <Text style={styles.checkinHintText}>Chỉ được check-in trong khoảng 15 phút trước/sau giờ hẹn.</Text>
+            <Text style={styles.checkinHintText}>{strings.manageSchedulingDetailCheckInHint}</Text>
           ) : null}
         </>
       )}
@@ -363,19 +397,19 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       {appointment.status === "CHECKED_IN" && (
         <Pressable style={styles.secondaryButton} onPress={() => router.push({ pathname: "/checkout", params: { appointmentId: appointment.id } })}>
           <Feather name="credit-card" size={16} color={palette.textPrimary} />
-          <Text style={styles.secondaryButtonText}>Check-out</Text>
+          <Text style={styles.secondaryButtonText}>{strings.manageSchedulingDetailCheckOut}</Text>
         </Pressable>
       )}
 
       {deleteConfirm ? (
         <Pressable style={styles.dangerButton} disabled={mutating || busyTargetId === appointment.id} onPress={() => void handleDelete()}>
           <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>Xác nhận xóa lịch</Text>
+          <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailConfirmDelete}</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.dangerButton} onPress={() => setDeleteConfirm(true)}>
           <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>Xóa lịch</Text>
+          <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailDelete}</Text>
         </Pressable>
       )}
 
@@ -385,10 +419,10 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       <Modal visible={showDatePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn ngày</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Ngày</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerDay}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
                     <Pressable key={day} style={[styles.pickerItem, pickerDay === day && styles.pickerItemActive]} onPress={() => setPickerDay(day)}>
@@ -398,7 +432,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Tháng</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMonth}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                     <Pressable key={month} style={[styles.pickerItem, pickerMonth === month && styles.pickerItemActive]} onPress={() => setPickerMonth(month)}>
@@ -408,7 +442,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Năm</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerYear}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
                     <Pressable key={year} style={[styles.pickerItem, pickerYear === year && styles.pickerItemActive]} onPress={() => setPickerYear(year)}>
@@ -419,7 +453,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
               </View>
             </View>
             <Pressable style={styles.pickerConfirmButton} onPress={confirmDatePicker}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -429,10 +463,10 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
       <Modal visible={showTimePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn giờ</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Giờ</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerHour}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
                     <Pressable key={hour} style={[styles.pickerItem, pickerHour === hour && styles.pickerItemActive]} onPress={() => setPickerHour(hour)}>
@@ -442,7 +476,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Phút</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMinute}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {[0, 15, 30, 45].map((minute) => (
                     <Pressable key={minute} style={[styles.pickerItem, pickerMinute === minute && styles.pickerItemActive]} onPress={() => setPickerMinute(minute)}>
@@ -453,7 +487,7 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
               </View>
             </View>
             <Pressable style={styles.pickerConfirmButton} onPress={confirmTimePicker}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -464,34 +498,167 @@ function AppointmentEditor({ appointment }: { appointment: AppointmentEditorProp
 
 export default function AdminAppointmentDetailScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   const appointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
   const keyboardVisible = useKeyboardVisible();
-  const { appointments, bookingRequests, role } = useAdminOperations();
+  const { role, user } = useSession();
+  const observer = useAdminObserverScope();
+  const [appointment, setAppointment] = useState<MobileAppointmentSummary | null>(null);
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [resourceOptions, setResourceOptions] = useState<ResourceOption[]>([]);
+  const [newBookingCount, setNewBookingCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [mutating, setMutating] = useState(false);
+  const [busyTargetId, setBusyTargetId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   function goBackToScheduling() {
     dismissToHref(router, "/scheduling");
   }
 
-  const appointment = useMemo(
-    () => appointments.find((item) => item.id === appointmentId) ?? null,
-    [appointmentId, appointments],
+  const loadDetail = useCallback(async () => {
+    if (!mobileSupabase || !appointmentId || !observer.isReady) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const [nextAppointment, nextStaffOptions, nextResourceOptions, bookingRequests] = await Promise.all([
+        getAppointmentForMobile(mobileSupabase, appointmentId, { observerScope: observer.observerScope }),
+        listStaffOptions().catch(() => []),
+        listResourceOptions().catch(() => []),
+        listBookingRequestsForMobile(mobileSupabase, { observerScope: observer.observerScope }).catch(() => []),
+      ]);
+
+      setAppointment(nextAppointment);
+      setStaffOptions(nextStaffOptions);
+      setResourceOptions(nextResourceOptions);
+      setNewBookingCount(bookingRequests.filter((item) => item.status === "NEW").length);
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : strings.manageSchedulingDetailNotFound);
+    } finally {
+      setLoading(false);
+    }
+  }, [appointmentId, observer.isReady, observer.observerScope, strings.manageSchedulingDetailNotFound]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      void loadDetail();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [loadDetail]);
+
+  const runMutation = useCallback(
+    async (targetId: string, action: () => Promise<void>) => {
+      setMutating(true);
+      setBusyTargetId(targetId);
+      setError(null);
+
+      try {
+        await action();
+        await loadDetail();
+      } catch (nextError) {
+        setError(nextError instanceof Error ? nextError.message : strings.manageSchedulingDetailNotFound);
+        throw nextError;
+      } finally {
+        setMutating(false);
+        setBusyTargetId(null);
+      }
+    },
+    [loadDetail, strings.manageSchedulingDetailNotFound],
   );
 
-  const newBookingCount = useMemo(
-    () => bookingRequests.filter((item) => item.status === "NEW").length,
-    [bookingRequests],
+  const saveAppointment = useCallback(
+    async (input: {
+      appointmentId: string;
+      customerName: string;
+      customerPhone?: string | null;
+      startAt: string;
+      endAt: string;
+      staffUserId?: string | null;
+      resourceId?: string | null;
+    }) => {
+      const client = mobileSupabase;
+      if (!client) {
+        throw new Error("Thieu cau hinh Supabase mobile.");
+      }
+
+      await runMutation(input.appointmentId, async () => {
+        await saveAppointmentForMobile(client, input);
+      });
+    },
+    [runMutation],
   );
+
+  const updateAppointmentStatus = useCallback(
+    async (targetAppointmentId: string, status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW") => {
+      const client = mobileSupabase;
+      if (!client) {
+        throw new Error("Thieu cau hinh Supabase mobile.");
+      }
+
+      await runMutation(targetAppointmentId, async () => {
+        await updateAppointmentStatusForMobile(client, targetAppointmentId, status);
+      });
+    },
+    [runMutation],
+  );
+
+  const deleteAppointment = useCallback(
+    async (targetAppointmentId: string) => {
+      const client = mobileSupabase;
+      if (!client) {
+        throw new Error("Thieu cau hinh Supabase mobile.");
+      }
+
+      await runMutation(targetAppointmentId, async () => {
+        await deleteAppointmentForMobile(client, targetAppointmentId);
+      });
+    },
+    [runMutation],
+  );
+
+  if (loading) {
+    return (
+      <AdminDetailLoadingScreen
+        current="scheduling"
+        role={role}
+        subtitle={strings.manageSchedulingDetailHeaderSubtitle}
+        title={strings.manageSchedulingLoadingAppointments}
+        onBack={goBackToScheduling}
+        onNavigate={(target) => void router.replace(getAdminNavHref(target, role))}
+      />
+    );
+  }
 
   if (!appointment) {
     return (
       <View style={styles.screen}>
-        <View style={styles.header}>
-          <Pressable style={styles.headerButton} onPress={goBackToScheduling}>
-            <Feather name="chevron-left" size={24} color={palette.textPrimary} />
-          </Pressable>
-          <Text style={styles.headerTitle}>Không tìm thấy lịch</Text>
-          <View style={styles.headerActions} />
+        <AdminTopSafeArea style={styles.topChrome}>
+          <View style={styles.header}>
+            <Pressable style={styles.headerButton} onPress={goBackToScheduling}>
+              <Feather name="chevron-left" size={24} color={palette.textPrimary} />
+            </Pressable>
+            <View style={styles.headerCenter}>
+              <Text style={styles.headerSubtitle}>{strings.manageSchedulingDetailHeaderSubtitle}</Text>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {strings.manageSchedulingDetailNotFound}
+              </Text>
+            </View>
+            <View style={styles.headerActions} />
+          </View>
+        </AdminTopSafeArea>
+        <View style={styles.stateBody}>
+          <View style={styles.stateCard}>
+            <Text style={styles.stateTitle}>{strings.manageSchedulingDetailNotFound}</Text>
+          </View>
         </View>
         <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
       </View>
@@ -506,7 +673,7 @@ export default function AdminAppointmentDetailScreen() {
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <View style={styles.headerCenter}>
-            <Text style={styles.headerSubtitle}>Điều phối</Text>
+            <Text style={styles.headerSubtitle}>{strings.manageSchedulingDetailHeaderSubtitle}</Text>
             <Text style={styles.headerTitle} numberOfLines={1}>{appointment.customerName}</Text>
           </View>
           <View style={styles.headerActions}>
@@ -539,7 +706,19 @@ export default function AdminAppointmentDetailScreen() {
           contentInsetAdjustmentBehavior="always"
           automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
         >
-          <AppointmentEditor appointment={appointment} />
+          <AppointmentEditor
+            appointment={appointment}
+            resourceOptions={resourceOptions}
+            role={role as AppRole | null}
+            staffOptions={staffOptions}
+            userId={user?.id ?? null}
+            busyTargetId={busyTargetId}
+            error={error}
+            mutating={mutating}
+            saveAppointment={saveAppointment}
+            updateAppointmentStatus={updateAppointmentStatus}
+            deleteAppointment={deleteAppointment}
+          />
         </AdminKeyboardAwareScrollView>
       </KeyboardAvoidingView>
 
@@ -554,6 +733,9 @@ const styles = StyleSheet.create({
   scrollRegion: { flex: 1 },
   topChrome: { paddingHorizontal: 20, paddingBottom: 12 },
   content: { paddingHorizontal: 20, paddingTop: 0, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, gap: 16 },
+  stateBody: { flex: 1, paddingHorizontal: 20, paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, justifyContent: "center" },
+  stateCard: { backgroundColor: palette.card, borderRadius: 20, borderWidth: 1, borderColor: palette.border, padding: 20, alignItems: "center", justifyContent: "center" },
+  stateTitle: { fontSize: 16, fontWeight: "700", color: palette.textPrimary, textAlign: "center" },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 4, paddingBottom: 0 },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerCenter: { flex: 1, marginLeft: 8 },

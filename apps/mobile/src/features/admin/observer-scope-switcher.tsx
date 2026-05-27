@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { MobileAdminViewContext, ObserverScopeInput } from "@nails/shared";
+import { resolveLocalizedField, type MobileAdminViewContext, type ObserverScopeInput } from "@nails/shared";
+import { useAdminStrings } from "@/src/features/admin/strings";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 const palette = {
   border: "#EADFD3",
@@ -19,6 +21,9 @@ export function AdminObserverScopeSwitcher({
   loading?: boolean;
   onSelectScope: (scope: ObserverScopeInput) => void | Promise<void>;
 }) {
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
+
   if (!viewContext) {
     return null;
   }
@@ -28,24 +33,33 @@ export function AdminObserverScopeSwitcher({
   }
 
   const isOrgMode = viewContext.observerScope.mode === "org";
+  const activeBranch =
+    viewContext.observerScope.mode === "branch"
+      ? viewContext.branches.find((branch) => branch.id === viewContext.observerScope.branchId)
+      : null;
   const sortedBranches = [
     ...viewContext.branches.filter((branch) => branch.id === viewContext.workingBranchId),
     ...viewContext.branches.filter((branch) => branch.id !== viewContext.workingBranchId),
   ];
+  const badgeLabel = isOrgMode
+    ? strings.observerScopeOrg
+    : activeBranch?.id === viewContext.workingBranchId
+      ? strings.observerScopePrimaryBranch
+      : resolveLocalizedField(locale, activeBranch?.name ?? viewContext.branchName ?? strings.settingsBranchFallback, activeBranch?.translations, "name");
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
         <View style={styles.copy}>
-          <Text style={styles.title}>Phạm vi quan sát</Text>
+          <Text style={styles.title}>{strings.observerScopeTitle}</Text>
           <Text style={styles.subtitle}>
             {viewContext.canViewOrgWide
-              ? "OWNER có thể xem toàn công ty hoặc chốt vào một chi nhánh mà không đổi context ghi dữ liệu."
-              : "Tài khoản này chỉ xem được chi nhánh đang phụ trách."}
+              ? strings.observerScopeOwnerSubtitle
+              : strings.observerScopeRestrictedSubtitle}
           </Text>
         </View>
         <View style={styles.badge}>
-          <Text style={styles.badgeText}>{viewContext.scopeLabel}</Text>
+          <Text style={styles.badgeText}>{badgeLabel}</Text>
         </View>
       </View>
 
@@ -56,13 +70,13 @@ export function AdminObserverScopeSwitcher({
             disabled={loading}
             onPress={() => void onSelectScope({ mode: "org" })}
           >
-            <Text style={[styles.pillText, isOrgMode ? styles.pillTextActive : null]}>Toàn công ty</Text>
+            <Text style={[styles.pillText, isOrgMode ? styles.pillTextActive : null]}>{strings.observerScopeOrg}</Text>
           </Pressable>
         ) : null}
 
         {sortedBranches.map((branch) => {
           const active = viewContext.observerScope.mode === "branch" && viewContext.observerScope.branchId === branch.id;
-          const label = branch.id === viewContext.workingBranchId ? "Chi nhánh chính" : branch.name;
+          const label = resolveLocalizedField(locale, branch.name, branch.translations, "name") ?? branch.name;
           return (
             <Pressable
               key={branch.id}
@@ -76,7 +90,7 @@ export function AdminObserverScopeSwitcher({
         })}
       </View>
 
-      <Text style={styles.footnote}>Chi nhánh làm việc thật của tài khoản vẫn dùng cho các thao tác tạo, sửa và thanh toán.</Text>
+      <Text style={styles.footnote}>{strings.observerScopeFootnote}</Text>
     </View>
   );
 }

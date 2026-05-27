@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Href } from "expo-router";
-import { ensureOrgContext, resolveMobileAdminViewContext, type AppRole, type ObserverScopeInput } from "@nails/shared";
+import { ensureOrgContext, resolveMobileAdminViewContext, translate, type AppRole, type Locale, type ObserverScopeInput } from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 export type ManageNotificationKind =
@@ -127,15 +127,19 @@ const NOTIFICATION_PRIORITY: Record<ManageNotificationKind, number> = {
   shift_published: 10,
 };
 
-function formatTime(dateTime: string) {
-  return new Intl.DateTimeFormat("vi-VN", {
+function getLocaleTag(locale: Locale) {
+  return locale === "en" ? "en-US" : "vi-VN";
+}
+
+function formatTime(dateTime: string, locale: Locale) {
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(dateTime));
 }
 
-function formatDate(dateTime: string) {
-  return new Intl.DateTimeFormat("vi-VN", {
+function formatDate(dateTime: string, locale: Locale) {
+  return new Intl.DateTimeFormat(getLocaleTag(locale), {
     day: "2-digit",
     month: "2-digit",
   }).format(new Date(dateTime));
@@ -143,7 +147,7 @@ function formatDate(dateTime: string) {
 
 function pickCustomerName(
   customer: AppointmentNotificationRow["customers"],
-  fallback = "Khách mới",
+  fallback: string,
 ) {
   if (Array.isArray(customer)) {
     const first = customer[0];
@@ -397,6 +401,7 @@ export async function loadManageNotificationsForMobile(
   role: AppRole,
   userId?: string | null,
   observerScope?: ObserverScopeInput | null,
+  locale: Locale = "vi",
 ) {
   if (!mobileSupabase) return [] as ManageNotificationItem[];
 
@@ -440,8 +445,14 @@ export async function loadManageNotificationsForMobile(
           return {
             id: `arrival-overdue-${row.id}`,
             kind: "customer_arrival_overdue",
-            title: "Khách tới giờ nhưng chưa check-in",
-            message: `${pickCustomerName(row.customers)} đã qua giờ hẹn lúc ${formatTime(row.start_at)} mà chưa thấy đến.`,
+            title: translate(locale, "admin", "notificationsArrivalOverdueTitle"),
+            message: translate(locale, "admin", "notificationsArrivalOverdueMessage", {
+              customer: pickCustomerName(
+                row.customers,
+                translate(locale, "admin", "notificationsCustomerFallback"),
+              ),
+              time: formatTime(row.start_at, locale),
+            }),
             href: buildAppointmentHref(row.id),
             createdAt: row.start_at,
             actionRequired: true,
@@ -457,8 +468,14 @@ export async function loadManageNotificationsForMobile(
           return {
             id: `checked-in-stale-${row.id}`,
             kind: "customer_checked_in_stale",
-            title: "Khách check-in đã lâu",
-            message: `${pickCustomerName(row.customers)} đã check-in từ ${formatTime(row.checked_in_at)} và đang ở trong tiệm khá lâu.`,
+            title: translate(locale, "admin", "notificationsCheckedInStaleTitle"),
+            message: translate(locale, "admin", "notificationsCheckedInStaleMessage", {
+              customer: pickCustomerName(
+                row.customers,
+                translate(locale, "admin", "notificationsCustomerFallback"),
+              ),
+              time: formatTime(row.checked_in_at, locale),
+            }),
             href: mapNotificationHref("customer_checked_in_stale"),
             createdAt: row.checked_in_at,
             actionRequired: true,
@@ -469,8 +486,14 @@ export async function loadManageNotificationsForMobile(
         return {
           id: `checked-in-${row.id}`,
           kind: "customer_checked_in",
-          title: "Khách đã check-in",
-          message: `${pickCustomerName(row.customers)} đã check-in lúc ${formatTime(row.checked_in_at)}.`,
+          title: translate(locale, "admin", "notificationsCheckedInTitle"),
+          message: translate(locale, "admin", "notificationsCheckedInMessage", {
+            customer: pickCustomerName(
+              row.customers,
+              translate(locale, "admin", "notificationsCustomerFallback"),
+            ),
+            time: formatTime(row.checked_in_at, locale),
+          }),
           href: buildAppointmentHref(row.id),
           createdAt: row.checked_in_at,
           actionRequired: false,
@@ -482,8 +505,14 @@ export async function loadManageNotificationsForMobile(
         return {
           id: `checked-out-${row.id}`,
           kind: "customer_checked_out",
-          title: "Khách đã check-out",
-          message: `${pickCustomerName(row.customers)} đã hoàn tất lúc ${formatTime(row.updated_at)}.`,
+          title: translate(locale, "admin", "notificationsCheckedOutTitle"),
+          message: translate(locale, "admin", "notificationsCheckedOutMessage", {
+            customer: pickCustomerName(
+              row.customers,
+              translate(locale, "admin", "notificationsCustomerFallback"),
+            ),
+            time: formatTime(row.updated_at, locale),
+          }),
           href: buildAppointmentHref(row.id),
           createdAt: row.updated_at,
           actionRequired: false,
@@ -506,8 +535,10 @@ export async function loadManageNotificationsForMobile(
           .map<ManageNotificationItem>((plan) => ({
             id: `shift-published-${plan.id}`,
             kind: "shift_published",
-            title: "Lịch ca mới đã được publish",
-            message: `OWNER vừa publish lịch ca tuần bắt đầu ngày ${formatDate(plan.week_start)}. Bạn có thể vào xem lịch của mình ngay.`,
+            title: translate(locale, "admin", "notificationsShiftPublishedTitle"),
+            message: translate(locale, "admin", "notificationsShiftPublishedMessage", {
+              date: formatDate(plan.week_start, locale),
+            }),
             href: mapNotificationHref("shift_published"),
             createdAt: plan.published_at ?? new Date().toISOString(),
             actionRequired: false,
@@ -519,8 +550,11 @@ export async function loadManageNotificationsForMobile(
     ...pendingAttendance.map<ManageNotificationItem>((row) => ({
       id: `attendance-${row.id}`,
       kind: "staff_clock_in_approval" as const,
-      title: "Nhân sự vào ca chờ duyệt",
-      message: `${nameMap.get(row.staff_user_id) ?? "Nhân sự"} vừa chấm công vào ca lúc ${formatTime(row.clock_in)}.`,
+      title: translate(locale, "admin", "notificationsAttendanceApprovalTitle"),
+      message: translate(locale, "admin", "notificationsAttendanceApprovalMessage", {
+        staff: nameMap.get(row.staff_user_id) ?? translate(locale, "admin", "notificationsStaffFallback"),
+        time: formatTime(row.clock_in, locale),
+      }),
       href: mapNotificationHref("staff_clock_in_approval"),
       createdAt: row.clock_in,
       actionRequired: true,
@@ -529,11 +563,26 @@ export async function loadManageNotificationsForMobile(
     ...pendingLeaveRequests.map<ManageNotificationItem>((row) => ({
       id: `leave-${row.id}`,
       kind: "leave_request" as const,
-      title: row.request_type === "DAY_OFF" ? "Xin nghỉ ca chờ duyệt" : "Xin về sớm chờ duyệt",
+      title:
+        row.request_type === "DAY_OFF"
+          ? translate(locale, "admin", "notificationsLeaveDayOffTitle")
+          : translate(locale, "admin", "notificationsLeaveEarlyTitle"),
       message:
         row.request_type === "DAY_OFF"
-          ? `${nameMap.get(row.staff_user_id) ?? "Nhân sự"} xin nghỉ ngày ${row.scheduled_date ? formatDate(row.scheduled_date) : "chưa rõ"}.`
-          : `${nameMap.get(row.staff_user_id) ?? "Nhân sự"} xin về sớm${row.requested_end_at ? ` lúc ${formatTime(row.requested_end_at)}` : ""}.`,
+          ? translate(locale, "admin", "notificationsLeaveDayOffMessage", {
+              staff: nameMap.get(row.staff_user_id) ?? translate(locale, "admin", "notificationsStaffFallback"),
+              date: row.scheduled_date
+                ? formatDate(row.scheduled_date, locale)
+                : translate(locale, "admin", "notificationsUnknownDate"),
+            })
+          : row.requested_end_at
+            ? translate(locale, "admin", "notificationsLeaveEarlyMessageWithTime", {
+                staff: nameMap.get(row.staff_user_id) ?? translate(locale, "admin", "notificationsStaffFallback"),
+                time: formatTime(row.requested_end_at, locale),
+              })
+            : translate(locale, "admin", "notificationsLeaveEarlyMessageDefault", {
+                staff: nameMap.get(row.staff_user_id) ?? translate(locale, "admin", "notificationsStaffFallback"),
+              }),
       href: mapNotificationHref("leave_request"),
       createdAt: row.requested_at,
       actionRequired: true,
@@ -544,13 +593,18 @@ export async function loadManageNotificationsForMobile(
       kind: row.status === "EXPIRED_UNCONFIRMED" ? "booking_expired_unconfirmed" : "booking_request",
       title:
         row.status === "NEEDS_RESCHEDULE"
-          ? "Booking cần đổi lịch"
+          ? translate(locale, "admin", "notificationsBookingNeedsRescheduleTitle")
           : row.status === "EXPIRED_UNCONFIRMED"
-            ? "Booking không được xác nhận"
+            ? translate(locale, "admin", "notificationsBookingExpiredTitle")
             : typeof row.source === "string" && row.source.toLowerCase().includes("mobile")
-              ? "Booking mới từ mobile"
-              : "Booking mới từ web",
-      message: `${row.customer_name} · ${row.requested_service || "Dịch vụ chưa rõ"} · ${formatTime(row.requested_start_at)} ${formatDate(row.requested_start_at)}.`,
+              ? translate(locale, "admin", "notificationsBookingMobileTitle")
+              : translate(locale, "admin", "notificationsBookingWebTitle"),
+      message: translate(locale, "admin", "notificationsBookingMessage", {
+        customer: row.customer_name,
+        service: row.requested_service || translate(locale, "admin", "notificationsUnknownService"),
+        time: formatTime(row.requested_start_at, locale),
+        date: formatDate(row.requested_start_at, locale),
+      }),
       href: {
         pathname: "/scheduling",
         params: {
@@ -615,6 +669,7 @@ export function useAdminNotifications(
   email?: string | null,
   userId?: string | null,
   observerScope?: ObserverScopeInput | null,
+  locale: Locale = "vi",
 ) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
   const [legacySeenAt, setLegacySeenAt] = useState<string | null>(null);
@@ -677,12 +732,12 @@ export function useAdminNotifications(
     }
 
     try {
-      const rows = await loadManageNotificationsForMobile(role, userId, observerScope);
+      const rows = await loadManageNotificationsForMobile(role, userId, observerScope, locale);
       setNotifications(rows);
     } catch {
       setNotifications([]);
     }
-  }, [enabled, observerScope, role, userId]);
+  }, [enabled, locale, observerScope, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -701,7 +756,7 @@ export function useAdminNotifications(
 
     let disposed = false;
     async function run() {
-      const rows = await loadManageNotificationsForMobile(role as AppRole, userId, observerScope);
+      const rows = await loadManageNotificationsForMobile(role as AppRole, userId, observerScope, locale);
       if (!disposed) setNotifications(rows);
     }
 
@@ -714,7 +769,7 @@ export function useAdminNotifications(
       disposed = true;
       clearInterval(id);
     };
-  }, [enabled, observerScope, role, userId]);
+  }, [enabled, locale, observerScope, role, userId]);
 
   const actionNotifications = useMemo(
     () => notifications.filter((item) => item.actionRequired && !item.resolvedAt),

@@ -8,6 +8,7 @@ import {
   listReportStaffOptionsForMobile,
   listTicketsInRangeForMobile,
   formatAttendanceFraction,
+  resolveLocalizedField,
   type MobileReportBreakdown,
   type MobileReportStaffOption,
   type MobileReportTicketRow,
@@ -15,8 +16,10 @@ import {
   type MobileStaffRevenueRow,
 } from "@nails/shared";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 type RangeMode = "day" | "week" | "month" | "custom";
 
@@ -34,13 +37,6 @@ const palette = {
   violetSoft: "#F1EEFF",
   mutedSoft: "#F8F4EF",
 };
-
-const RANGE_MODE_OPTIONS: Array<{ label: string; value: RangeMode }> = [
-  { label: "Theo ngày", value: "day" },
-  { label: "Theo tuần", value: "week" },
-  { label: "Theo tháng", value: "month" },
-  { label: "Tùy chỉnh", value: "custom" },
-];
 
 function formatVnd(amount: number) {
   return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount || 0);
@@ -105,13 +101,17 @@ function shiftAnchorDate(anchor: Date, mode: RangeMode, delta: number) {
   return next;
 }
 
-function formatRangeLabel(mode: RangeMode, anchorDate: Date, customFrom: string, customTo: string) {
-  if (mode === "day") return anchorDate.toLocaleDateString("vi-VN");
+function formatDateByLocale(value: Date, locale: "vi" | "en") {
+  return value.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN");
+}
+
+function formatRangeLabel(mode: RangeMode, anchorDate: Date, customFrom: string, customTo: string, locale: "vi" | "en") {
+  if (mode === "day") return formatDateByLocale(anchorDate, locale);
   if (mode === "week") {
-    return `${startOfWeek(anchorDate).toLocaleDateString("vi-VN")} - ${endOfWeek(anchorDate).toLocaleDateString("vi-VN")}`;
+    return `${formatDateByLocale(startOfWeek(anchorDate), locale)} - ${formatDateByLocale(endOfWeek(anchorDate), locale)}`;
   }
-  if (mode === "month") return `Tháng ${anchorDate.getMonth() + 1}/${anchorDate.getFullYear()}`;
-  return `${new Date(`${customFrom}T00:00:00`).toLocaleDateString("vi-VN")} - ${new Date(`${customTo}T00:00:00`).toLocaleDateString("vi-VN")}`;
+  if (mode === "month") return `${anchorDate.getMonth() + 1}/${anchorDate.getFullYear()}`;
+  return `${formatDateByLocale(new Date(`${customFrom}T00:00:00`), locale)} - ${formatDateByLocale(new Date(`${customTo}T00:00:00`), locale)}`;
 }
 
 function buildRange(mode: RangeMode, anchorDate: Date, customFrom: string, customTo: string) {
@@ -194,7 +194,15 @@ function SelectLike({ label, value, onPress }: { label: string; value: string; o
   );
 }
 
+function formatMonthRangeLabel(anchorDate: Date, strings: ReturnType<typeof useAdminStrings>) {
+  return strings.manageReportsMonthLabelTemplate
+    .replace("{month}", String(anchorDate.getMonth() + 1))
+    .replace("{year}", String(anchorDate.getFullYear()));
+}
+
 export default function AdminManageReportsScreen() {
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "ACCOUNTANT"]);
   const observer = useAdminObserverScope();
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
@@ -216,6 +224,16 @@ export default function AdminManageReportsScreen() {
   const [showModeSheet, setShowModeSheet] = useState(false);
   const [showStaffSheet, setShowStaffSheet] = useState(false);
 
+  const rangeModeOptions = useMemo<Array<{ label: string; value: RangeMode }>>(
+    () => [
+      { label: strings.manageReportsModeDay, value: "day" },
+      { label: strings.manageReportsModeWeek, value: "week" },
+      { label: strings.manageReportsModeMonth, value: "month" },
+      { label: strings.manageReportsModeCustom, value: "custom" },
+    ],
+    [strings],
+  );
+
   const range = useMemo(() => buildRange(rangeMode, anchorDate, customFrom, customTo), [rangeMode, anchorDate, customFrom, customTo]);
 
   const filteredTickets = useMemo(() => {
@@ -234,12 +252,35 @@ export default function AdminManageReportsScreen() {
     };
   }, [breakdown, filteredTickets]);
 
-  const selectedModeLabel = useMemo(() => RANGE_MODE_OPTIONS.find((option) => option.value === rangeMode)?.label ?? "Theo ngày", [rangeMode]);
+  const selectedModeLabel = useMemo(
+    () => rangeModeOptions.find((option) => option.value === rangeMode)?.label ?? strings.manageReportsModeDay,
+    [rangeMode, rangeModeOptions, strings.manageReportsModeDay],
+  );
+  const rangeLabel = useMemo(
+    () => rangeMode === "month"
+      ? formatMonthRangeLabel(anchorDate, strings)
+      : formatRangeLabel(rangeMode, anchorDate, customFrom, customTo, locale),
+    [anchorDate, customFrom, customTo, locale, rangeMode, strings],
+  );
   const selectedStaffLabel = useMemo(() => {
-    if (staffFilter === "ALL") return "Tất cả nhân viên";
-    return staffOptions.find((option) => option.userId === staffFilter)?.name ?? "1 nhân viên";
-  }, [staffFilter, staffOptions]);
-  const staffSelectOptions = useMemo(() => [{ label: "Tất cả nhân viên", value: "ALL" }, ...staffOptions.map((option) => ({ label: option.name, value: option.userId }))], [staffOptions]);
+    if (staffFilter === "ALL") return strings.manageReportsAllStaff;
+    return staffOptions.find((option) => option.userId === staffFilter)?.name ?? strings.manageReportsSingleStaff;
+  }, [staffFilter, staffOptions, strings.manageReportsAllStaff, strings.manageReportsSingleStaff]);
+  const scopePillLabel = useMemo(() => {
+    if (!breakdown) return null;
+    if (breakdown.viewMode === "org") return strings.observerScopeOrg;
+
+    const activeBranch = observer.viewContext?.branches.find((branch) => branch.id === breakdown.branchId);
+    if (activeBranch) {
+      return resolveLocalizedField(locale, activeBranch.name, activeBranch.translations, "name") ?? activeBranch.name;
+    }
+
+    return breakdown.branchName ?? breakdown.scopeLabel ?? null;
+  }, [breakdown, locale, observer.viewContext?.branches, strings.observerScopeOrg]);
+  const staffSelectOptions = useMemo(
+    () => [{ label: strings.manageReportsAllStaff, value: "ALL" }, ...staffOptions.map((option) => ({ label: option.name, value: option.userId }))],
+    [staffOptions, strings.manageReportsAllStaff],
+  );
 
   const benchmarkSummary = breakdown?.orgBenchmark ?? null;
   const selectedBranchBenchmark = benchmarkSummary?.selectedBranch ?? null;
@@ -247,7 +288,7 @@ export default function AdminManageReportsScreen() {
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase || !observer.isReady) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageReportsMissingSupabase);
       setLoading(false);
       return;
     }
@@ -275,12 +316,20 @@ export default function AdminManageReportsScreen() {
       setStaffHours(nextStaffHours);
       setStaffOptions(nextStaffOptions);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được báo cáo.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageReportsLoadFailed);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [observer.isReady, observer.observerScope, range.from, range.to, tickets.length]);
+  }, [
+    observer.isReady,
+    observer.observerScope,
+    range.from,
+    range.to,
+    strings.manageReportsLoadFailed,
+    strings.manageReportsMissingSupabase,
+    tickets.length,
+  ]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -291,21 +340,21 @@ export default function AdminManageReportsScreen() {
 
   async function exportReport() {
     const lines = [
-      "Bao cao nails",
-      `Ky bao cao: ${formatRangeLabel(rangeMode, anchorDate, customFrom, customTo)}`,
-      `So bill: ${filteredTickets.length}`,
-      `Subtotal: ${formatVnd(summary.subtotal)}d`,
-      `VAT: ${formatVnd(summary.vat)}d`,
-      `Doanh thu: ${formatVnd(summary.revenue)}d`,
+      strings.manageReportsExportTitle,
+      `${strings.manageReportsExportPeriodPrefix}: ${rangeLabel}`,
+      `${strings.manageReportsExportBillCountPrefix}: ${filteredTickets.length}`,
+      `${strings.manageReportsExportSubtotalPrefix}: ${formatVnd(summary.subtotal)}d`,
+      `${strings.manageReportsExportVatPrefix}: ${formatVnd(summary.vat)}d`,
+      `${strings.manageReportsExportRevenuePrefix}: ${formatVnd(summary.revenue)}d`,
       "",
-      "Chi tiet bill:",
+      strings.manageReportsExportBillDetailsTitle,
       ...filteredTickets.map((ticket) => `${ticket.createdAt} | ${ticket.customerName ?? "-"} | ${ticket.status} | ${formatVnd(ticket.grandTotal)}d`),
     ];
 
     try {
       await Share.share({ message: lines.join("\n") });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không thể xuất báo cáo.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageReportsExportFailed);
     }
   }
 
@@ -314,50 +363,56 @@ export default function AdminManageReportsScreen() {
   }
 
   return (
-    <ManageScreenShell title="Báo cáo" subtitle="Tổng hợp bill, doanh thu, thanh toán và hiệu suất nhân viên theo kỳ." currentKey="reports" group="insights" showBackButton={false}>
+    <ManageScreenShell
+      title={strings.manageReportsTitle}
+      subtitle={strings.manageReportsSubtitle}
+      currentKey="reports"
+      group="insights"
+      showBackButton={false}
+    >
       <View style={styles.totalCard}>
-        <Text style={styles.totalCardText}>{filteredTickets.length} bill</Text>
+        <Text style={styles.totalCardText}>{filteredTickets.length} {strings.manageReportsTotalBillsSuffix}</Text>
       </View>
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Điều hướng nhanh</Text>
+          <Text style={styles.sectionTitle}>{strings.manageReportsQuickNavTitle}</Text>
           <Pressable style={styles.exportButton} onPress={() => void exportReport()}>
             <Feather name="download" size={14} color={palette.accent} />
-            <Text style={styles.exportButtonText}>Xuất Excel</Text>
+            <Text style={styles.exportButtonText}>{strings.manageReportsExportButton}</Text>
           </Pressable>
         </View>
 
         <View style={styles.metricGrid}>
-          <MetricCard label="Bill" value={String(summary.count)} />
-          <MetricCard label="Subtotal" value={`${formatVnd(summary.subtotal)}d`} />
-          <MetricCard label="VAT" value={`${formatVnd(summary.vat)}d`} />
-          <MetricCard label="Doanh thu" value={`${formatVnd(summary.revenue)}d`} tone="success" />
+          <MetricCard label={strings.manageReportsMetricBills} value={String(summary.count)} />
+          <MetricCard label={strings.manageReportsMetricSubtotal} value={`${formatVnd(summary.subtotal)}d`} />
+          <MetricCard label={strings.manageReportsMetricVat} value={`${formatVnd(summary.vat)}d`} />
+          <MetricCard label={strings.manageReportsMetricRevenue} value={`${formatVnd(summary.revenue)}d`} tone="success" />
         </View>
 
         <View style={styles.inlineMetaRow}>
           <View style={styles.periodPill}>
             <Text style={styles.periodPillText}>{selectedModeLabel}</Text>
           </View>
-          {breakdown?.scopeLabel ? (
+          {scopePillLabel ? (
             <View style={styles.periodPill}>
-              <Text style={styles.periodPillText}>{breakdown.scopeLabel}</Text>
+              <Text style={styles.periodPillText}>{scopePillLabel}</Text>
             </View>
           ) : null}
           <View style={styles.periodPill}>
-            <Text style={styles.periodPillText}>{staffFilter === "ALL" ? "Tất cả NV" : "1 NV"}</Text>
+            <Text style={styles.periodPillText}>{staffFilter === "ALL" ? strings.manageReportsAllStaffShort : strings.manageReportsOneStaffShort}</Text>
           </View>
         </View>
 
         {showFilters ? (
           <View style={styles.filterPanel}>
-            <SelectLike label="Kiểu báo cáo" value={selectedModeLabel} onPress={() => setShowModeSheet(true)} />
+            <SelectLike label={strings.manageReportsFiltersReportType} value={selectedModeLabel} onPress={() => setShowModeSheet(true)} />
             {(rangeMode === "day" || rangeMode === "week" || rangeMode === "month") ? (
               <View style={styles.rangeNavigator}>
                 <Pressable style={styles.navButton} onPress={() => setAnchorDate((current) => shiftAnchorDate(current, rangeMode, -1))}>
                   <Feather name="chevron-left" size={18} color={palette.accent} />
                 </Pressable>
                 <View style={styles.rangeLabelWrap}>
-                  <Text style={styles.rangeLabel}>{formatRangeLabel(rangeMode, anchorDate, customFrom, customTo)}</Text>
+                  <Text style={styles.rangeLabel}>{rangeLabel}</Text>
                 </View>
                 <Pressable style={styles.navButton} onPress={() => setAnchorDate((current) => shiftAnchorDate(current, rangeMode, 1))}>
                   <Feather name="chevron-right" size={18} color={palette.accent} />
@@ -366,40 +421,40 @@ export default function AdminManageReportsScreen() {
             ) : (
               <View style={styles.customRangeGrid}>
                 <Pressable style={styles.customQuickButton} onPress={() => setCustomFrom(toDateInput(new Date()))}>
-                  <Text style={styles.customQuickButtonText}>Từ hôm nay</Text>
+                  <Text style={styles.customQuickButtonText}>{strings.manageReportsFromToday}</Text>
                 </Pressable>
                 <Pressable style={styles.customQuickButton} onPress={() => setCustomTo(toDateInput(new Date()))}>
-                  <Text style={styles.customQuickButtonText}>Đến hôm nay</Text>
+                  <Text style={styles.customQuickButtonText}>{strings.manageReportsToToday}</Text>
                 </Pressable>
                 <View style={styles.customDateValue}>
-                  <Text style={styles.customDateLabel}>Từ</Text>
-                  <Text style={styles.customDateText}>{new Date(`${customFrom}T00:00:00`).toLocaleDateString("vi-VN")}</Text>
+                  <Text style={styles.customDateLabel}>{strings.manageReportsFromLabel}</Text>
+                  <Text style={styles.customDateText}>{formatDateByLocale(new Date(`${customFrom}T00:00:00`), locale)}</Text>
                 </View>
                 <View style={styles.customDateValue}>
-                  <Text style={styles.customDateLabel}>Đến</Text>
-                  <Text style={styles.customDateText}>{new Date(`${customTo}T00:00:00`).toLocaleDateString("vi-VN")}</Text>
+                  <Text style={styles.customDateLabel}>{strings.manageReportsToLabel}</Text>
+                  <Text style={styles.customDateText}>{formatDateByLocale(new Date(`${customTo}T00:00:00`), locale)}</Text>
                 </View>
               </View>
             )}
-            <SelectLike label="Nhân viên" value={selectedStaffLabel} onPress={() => setShowStaffSheet(true)} />
+            <SelectLike label={strings.manageReportsStaffLabel} value={selectedStaffLabel} onPress={() => setShowStaffSheet(true)} />
             <View style={styles.actionRow}>
               <Pressable style={styles.secondaryAction} onPress={() => setShowBills(true)}>
                 <Feather name="eye" size={14} color={palette.sub} />
-                <Text style={styles.secondaryActionText}>Xem bill</Text>
+                <Text style={styles.secondaryActionText}>{strings.manageReportsViewBills}</Text>
               </Pressable>
               <Pressable style={styles.secondaryAction} onPress={() => setShowInsights((current) => !current)}>
                 <Feather name="bar-chart-2" size={14} color={palette.sub} />
-                <Text style={styles.secondaryActionText}>{showInsights ? "Ẩn nhanh" : "Mở nhanh"}</Text>
+                <Text style={styles.secondaryActionText}>{showInsights ? strings.manageReportsQuickHide : strings.manageReportsQuickOpen}</Text>
               </Pressable>
             </View>
             <View style={styles.actionRow}>
               <Pressable style={styles.secondaryAction} onPress={() => setShowFilters(false)}>
                 <Feather name="filter" size={14} color={palette.sub} />
-                <Text style={styles.secondaryActionText}>Ẩn lọc</Text>
+                <Text style={styles.secondaryActionText}>{strings.manageReportsHideFilters}</Text>
               </Pressable>
               <Pressable style={styles.secondaryAction} onPress={() => void load()}>
                 {refreshing ? <ActivityIndicator size="small" color={palette.accent} /> : <Feather name="rotate-cw" size={14} color={palette.sub} />}
-                <Text style={styles.secondaryActionText}>Lọc</Text>
+                <Text style={styles.secondaryActionText}>{strings.manageReportsApplyFilters}</Text>
               </Pressable>
             </View>
           </View>
@@ -407,11 +462,11 @@ export default function AdminManageReportsScreen() {
           <View style={styles.actionRow}>
             <Pressable style={styles.secondaryAction} onPress={() => setShowBills(true)}>
               <Feather name="eye" size={14} color={palette.sub} />
-              <Text style={styles.secondaryActionText}>Xem bill</Text>
+              <Text style={styles.secondaryActionText}>{strings.manageReportsViewBills}</Text>
             </Pressable>
             <Pressable style={styles.secondaryAction} onPress={() => setShowFilters(true)}>
               <Feather name="filter" size={14} color={palette.sub} />
-              <Text style={styles.secondaryActionText}>Mở lọc</Text>
+              <Text style={styles.secondaryActionText}>{strings.manageReportsOpenFilters}</Text>
             </Pressable>
           </View>
         )}
@@ -427,26 +482,26 @@ export default function AdminManageReportsScreen() {
       {breakdown?.viewMode === "branch" && selectedBranchBenchmark && benchmarkSummary ? (
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>So với toàn công ty</Text>
+            <Text style={styles.sectionTitle}>{strings.manageReportsCompareOrgTitle}</Text>
             <View style={styles.periodPill}>
-              <Text style={styles.periodPillText}>Hạng #{selectedBranchBenchmark.revenueRank}</Text>
+              <Text style={styles.periodPillText}>{strings.manageReportsRankPrefix}{selectedBranchBenchmark.revenueRank}</Text>
             </View>
           </View>
 
           <View style={styles.metricGrid}>
             <MetricCard
-              label="Doanh thu branch"
+              label={strings.manageReportsBranchRevenue}
               value={`${formatVnd(selectedBranchBenchmark.revenue)}d`}
               tone={selectedBranchBenchmark.revenue >= benchmarkSummary.avgRevenuePerBranch ? "success" : "warning"}
             />
-            <MetricCard label="TB branch org" value={`${formatVnd(benchmarkSummary.avgRevenuePerBranch)}d`} />
+            <MetricCard label={strings.manageReportsOrgBranchAverage} value={`${formatVnd(benchmarkSummary.avgRevenuePerBranch)}d`} />
             <MetricCard
-              label="Check-in branch"
+              label={strings.manageReportsBranchCheckIn}
               value={formatPercent(selectedBranchBenchmark.checkInRate)}
               tone={selectedBranchBenchmark.checkInRate >= benchmarkSummary.avgCheckInRate ? "success" : "warning"}
             />
             <MetricCard
-              label="No-show branch"
+              label={strings.manageReportsBranchNoShow}
               value={formatPercent(selectedBranchBenchmark.noShowRate)}
               tone={selectedBranchBenchmark.noShowRate <= benchmarkSummary.avgNoShowRate ? "success" : "warning"}
             />
@@ -455,8 +510,8 @@ export default function AdminManageReportsScreen() {
           <View style={styles.stack}>
             <View style={styles.listItemCard}>
               <View style={styles.listItemCopy}>
-                <Text style={styles.listItemTitle}>Bill / lịch hẹn</Text>
-                <Text style={styles.listItemMeta}>Branch so với mặt bằng org</Text>
+                <Text style={styles.listItemTitle}>{strings.manageReportsBillsAppointmentsTitle}</Text>
+                <Text style={styles.listItemMeta}>{strings.manageReportsBillsAppointmentsSubtitle}</Text>
               </View>
               <Text style={styles.listItemAmount}>
                 {selectedBranchBenchmark.ticketCount} / {selectedBranchBenchmark.appointmentCount}
@@ -464,7 +519,7 @@ export default function AdminManageReportsScreen() {
             </View>
             <View style={styles.listItemCard}>
               <View style={styles.listItemCopy}>
-                <Text style={styles.listItemTitle}>Giá trị bill trung bình</Text>
+                <Text style={styles.listItemTitle}>{strings.manageReportsAverageTicketTitle}</Text>
                 <Text style={styles.listItemMeta}>Branch {formatVnd(selectedBranchBenchmark.avgTicketValue)}d</Text>
               </View>
               <Text style={styles.listItemAmount}>{formatVnd(benchmarkSummary.avgTicketValue)}d</Text>
@@ -476,9 +531,9 @@ export default function AdminManageReportsScreen() {
       {breakdown?.viewMode === "org" && topBranches.length ? (
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Xếp hạng chi nhánh</Text>
+            <Text style={styles.sectionTitle}>{strings.manageReportsBranchRankingTitle}</Text>
             <View style={styles.periodPill}>
-              <Text style={styles.periodPillText}>{benchmarkSummary?.branchCount ?? topBranches.length} chi nhánh</Text>
+              <Text style={styles.periodPillText}>{benchmarkSummary?.branchCount ?? topBranches.length} {strings.manageReportsBranchCountSuffix}</Text>
             </View>
           </View>
 
@@ -488,7 +543,7 @@ export default function AdminManageReportsScreen() {
                 <View style={styles.listItemCopy}>
                   <Text style={styles.listItemTitle}>#{branch.revenueRank} {branch.branchName}</Text>
                   <Text style={styles.listItemMeta}>
-                    {branch.ticketCount} bill • {branch.appointmentCount} lịch • check-in {formatPercent(branch.checkInRate)}
+                    {branch.ticketCount} {strings.manageReportsTotalBillsSuffix} • {branch.appointmentCount} appointments • check-in {formatPercent(branch.checkInRate)}
                   </Text>
                 </View>
                 <Text style={styles.listItemAmount}>{formatVnd(branch.revenue)}d</Text>
@@ -500,16 +555,16 @@ export default function AdminManageReportsScreen() {
 
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Phân tích doanh thu</Text>
+          <Text style={styles.sectionTitle}>{strings.manageReportsRevenueAnalysisTitle}</Text>
           <View style={styles.periodPill}>
-            <Text style={styles.periodPillText}>{showInsights ? "Đã mở" : "Đang ẩn"}</Text>
+            <Text style={styles.periodPillText}>{showInsights ? strings.manageReportsOpened : strings.manageReportsHidden}</Text>
           </View>
         </View>
 
         {showInsights ? (
           <View style={styles.insightGrid}>
             <View style={styles.insightBlock}>
-              <Text style={styles.insightTitle}>Top dịch vụ</Text>
+              <Text style={styles.insightTitle}>{strings.manageReportsTopServicesTitle}</Text>
               {breakdown?.byService.length ? (
                 breakdown.byService.slice(0, 4).map((item, index) => (
                   <View key={`${item.serviceName}-${index}`} style={styles.listItemCard}>
@@ -522,13 +577,13 @@ export default function AdminManageReportsScreen() {
                 ))
               ) : (
                 <View style={styles.emptySection}>
-                  <Text style={styles.emptySectionText}>Chưa có dữ liệu dịch vụ trong kỳ này.</Text>
+                  <Text style={styles.emptySectionText}>{strings.manageReportsServiceEmpty}</Text>
                 </View>
               )}
             </View>
 
             <View style={styles.insightBlock}>
-              <Text style={styles.insightTitle}>Theo nhân viên</Text>
+              <Text style={styles.insightTitle}>{strings.manageReportsByStaffTitle}</Text>
               {staffRevenue.length ? (
                 staffRevenue.slice(0, 4).map((item) => (
                   <View key={item.staffUserId} style={styles.listItemCard}>
@@ -541,7 +596,7 @@ export default function AdminManageReportsScreen() {
                 ))
               ) : (
                 <View style={styles.emptySection}>
-                  <Text style={styles.emptySectionText}>Chưa có dữ liệu doanh thu theo nhân viên.</Text>
+                  <Text style={styles.emptySectionText}>{strings.manageReportsStaffRevenueEmpty}</Text>
                 </View>
               )}
             </View>
@@ -551,7 +606,7 @@ export default function AdminManageReportsScreen() {
 
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Chi tiết bill</Text>
+          <Text style={styles.sectionTitle}>{strings.manageReportsBillDetailsSectionTitle}</Text>
           <View style={styles.countDot}>
             <Text style={styles.countDotText}>{filteredTickets.length}</Text>
           </View>
@@ -559,7 +614,7 @@ export default function AdminManageReportsScreen() {
         {loading ? (
           <View style={styles.emptySection}>
             <ActivityIndicator size="small" color={palette.accent} />
-            <Text style={styles.emptySectionText}>Đang tải bill...</Text>
+            <Text style={styles.emptySectionText}>{strings.manageReportsLoadingBills}</Text>
           </View>
         ) : showBills && filteredTickets.length ? (
           <View style={styles.stack}>
@@ -586,13 +641,13 @@ export default function AdminManageReportsScreen() {
         ) : (
           <View style={styles.emptySection}>
             <Feather name="file-text" size={16} color="#B6A899" />
-            <Text style={styles.emptySectionText}>Không có bill nào khớp bộ lọc hiện tại.</Text>
+            <Text style={styles.emptySectionText}>{strings.manageReportsNoBillsFiltered}</Text>
           </View>
         )}
       </View>
 
       <View style={styles.sectionCard}>
-        <Text style={styles.sectionTitle}>Theo phương thức thanh toán</Text>
+        <Text style={styles.sectionTitle}>{strings.manageReportsPaymentMethodTitle}</Text>
         {breakdown?.byPayment.length ? (
           <View style={styles.stack}>
             {breakdown.byPayment.map((item, index) => (
@@ -608,20 +663,20 @@ export default function AdminManageReportsScreen() {
         ) : (
           <View style={styles.emptySection}>
             <Feather name="credit-card" size={16} color="#B6A899" />
-            <Text style={styles.emptySectionText}>Chưa có dữ liệu thanh toán.</Text>
+            <Text style={styles.emptySectionText}>{strings.manageReportsPaymentEmpty}</Text>
           </View>
         )}
       </View>
 
       <View style={styles.sectionCard}>
-      <Text style={styles.sectionTitle}>Theo nhân viên (ngày công)</Text>
+        <Text style={styles.sectionTitle}>{strings.manageReportsStaffHoursTitle}</Text>
         {staffHours.length ? (
           <View style={styles.stack}>
             {staffHours.map((item) => (
               <View key={item.staffUserId} style={styles.listItemCard}>
                 <View style={styles.listItemCopy}>
                   <Text style={styles.listItemTitle}>{item.staff}</Text>
-                  <Text style={styles.listItemMeta}>{item.entries} ca • {item.minutes} phút</Text>
+                  <Text style={styles.listItemMeta}>{item.entries} {strings.manageReportsShiftsUnit} • {item.minutes} {strings.manageReportsMinutesUnit}</Text>
                 </View>
                 <Text style={styles.listItemAmount}>{formatAttendanceFraction(item.attendanceFraction)}</Text>
               </View>
@@ -630,13 +685,27 @@ export default function AdminManageReportsScreen() {
         ) : (
           <View style={styles.emptySection}>
             <Feather name="clock" size={16} color="#B6A899" />
-            <Text style={styles.emptySectionText}>Chưa có dữ liệu ngày công trong kỳ này.</Text>
+            <Text style={styles.emptySectionText}>{strings.manageReportsStaffHoursEmpty}</Text>
           </View>
         )}
       </View>
 
-      <OptionSheet title="Chọn kiểu báo cáo" options={RANGE_MODE_OPTIONS} selected={rangeMode} visible={showModeSheet} onClose={() => setShowModeSheet(false)} onSelect={setRangeMode} />
-      <OptionSheet title="Chọn nhân viên" options={staffSelectOptions} selected={staffFilter} visible={showStaffSheet} onClose={() => setShowStaffSheet(false)} onSelect={setStaffFilter} />
+      <OptionSheet
+        title={strings.manageReportsSelectReportType}
+        options={rangeModeOptions}
+        selected={rangeMode}
+        visible={showModeSheet}
+        onClose={() => setShowModeSheet(false)}
+        onSelect={setRangeMode}
+      />
+      <OptionSheet
+        title={strings.manageReportsSelectStaff}
+        options={staffSelectOptions}
+        selected={staffFilter}
+        visible={showStaffSheet}
+        onClose={() => setShowStaffSheet(false)}
+        onSelect={setStaffFilter}
+      />
     </ManageScreenShell>
   );
 }

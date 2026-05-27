@@ -15,10 +15,11 @@ import {
   type MobileAdminResourceType,
   updateResourceForMobile,
 } from "@nails/shared";
-import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
+import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
   border: "#EADFD3",
@@ -39,10 +40,10 @@ const palette = {
   inactiveText: "#8B7A6A",
 };
 
-function typeLabel(type: MobileAdminResourceType) {
-  if (type === "CHAIR") return "Ghế";
-  if (type === "TABLE") return "Bàn";
-  return "Phòng";
+function typeLabel(strings: ReturnType<typeof useAdminStrings>, type: MobileAdminResourceType) {
+  if (type === "CHAIR") return strings.manageResourcesTypeChair;
+  if (type === "TABLE") return strings.manageResourcesTypeTable;
+  return strings.manageResourcesTypeRoom;
 }
 
 function typeIcon(type: MobileAdminResourceType): keyof typeof Feather.glyphMap {
@@ -116,6 +117,7 @@ function MetricCard({
 }
 
 function ResourceRowCard({
+  strings,
   editing,
   editActive,
   editName,
@@ -129,6 +131,7 @@ function ResourceRowCard({
   onSave,
   saving,
 }: {
+  strings: ReturnType<typeof useAdminStrings>;
   editing: boolean;
   editActive: boolean;
   editName: string;
@@ -158,7 +161,7 @@ function ResourceRowCard({
               <Input
                 value={editName}
                 onChangeText={onChangeName}
-                placeholder="Tên tài nguyên"
+                placeholder={strings.manageResourcesNamePlaceholder}
                 style={styles.editNameInput}
               />
             ) : (
@@ -166,11 +169,11 @@ function ResourceRowCard({
             )}
             <View style={styles.badgeRow}>
               <View style={[styles.typeBadge, { backgroundColor: colors.soft }]}>
-                <Text style={[styles.typeBadgeText, { color: colors.text }]}>{typeLabel(currentType)}</Text>
+                <Text style={[styles.typeBadgeText, { color: colors.text }]}>{typeLabel(strings, currentType)}</Text>
               </View>
               <View style={[styles.stateBadge, currentActive ? styles.stateBadgeActive : styles.stateBadgeInactive]}>
                 <Text style={[styles.stateBadgeText, currentActive ? styles.stateBadgeActiveText : styles.stateBadgeInactiveText]}>
-                  {currentActive ? "Đang dùng" : "Tạm ẩn"}
+                  {currentActive ? strings.manageResourcesStateActive : strings.manageResourcesStateInactive}
                 </Text>
               </View>
             </View>
@@ -208,7 +211,7 @@ function ResourceRowCard({
                   ]}
                   onPress={() => onChangeType(option)}
                 >
-                  <Text style={[styles.typeSelectChipText, { color: active ? optionColors.text : palette.sub }]}>{typeLabel(option)}</Text>
+                  <Text style={[styles.typeSelectChipText, { color: active ? optionColors.text : palette.sub }]}>{typeLabel(strings, option)}</Text>
                 </Pressable>
               );
             })}
@@ -219,7 +222,7 @@ function ResourceRowCard({
           >
             <Feather name={editActive ? "check-circle" : "slash"} size={15} color={editActive ? palette.success : palette.sub} />
             <Text style={[styles.statusToggleText, { color: editActive ? palette.success : palette.sub }]}>
-              {editActive ? "Tài nguyên đang hoạt động" : "Tài nguyên đang tạm ẩn"}
+              {editActive ? strings.manageResourcesStateActiveLong : strings.manageResourcesStateInactiveLong}
             </Text>
           </Pressable>
         </View>
@@ -229,6 +232,7 @@ function ResourceRowCard({
 }
 
 export default function AdminManageResourcesScreen() {
+  const strings = useAdminStrings();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminResource[]>([]);
@@ -251,7 +255,7 @@ export default function AdminManageResourcesScreen() {
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageResourcesMissingSupabase);
       setLoading(false);
       return;
     }
@@ -268,12 +272,12 @@ export default function AdminManageResourcesScreen() {
         observerScope: observer.observerScope,
       }));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được tài nguyên.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageResourcesLoadFailed);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [observer.observerScope, rows.length]);
+  }, [observer.observerScope, rows.length, strings.manageResourcesLoadFailed, strings.manageResourcesMissingSupabase]);
 
   useEffect(() => {
     if (!observer.isReady) return;
@@ -302,11 +306,11 @@ export default function AdminManageResourcesScreen() {
   async function submitCreate() {
     if (!mobileSupabase || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để thêm tài nguyên.");
+      setError(strings.manageResourcesObserverCreateBlocked);
       return;
     }
     if (!name.trim()) {
-      setError("Vui lòng nhập tên tài nguyên.");
+      setError(strings.manageResourcesNameRequired);
       return;
     }
 
@@ -318,7 +322,7 @@ export default function AdminManageResourcesScreen() {
       setType("CHAIR");
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Tạo tài nguyên thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageResourcesCreateFailed);
     } finally {
       setSubmitting(false);
     }
@@ -334,7 +338,7 @@ export default function AdminManageResourcesScreen() {
   async function saveEdit() {
     if (!mobileSupabase || !editingId || submitting) return;
     if (observerReadOnly) {
-      setError("Đang ở chế độ quan sát. Hãy quay về chi nhánh làm việc để cập nhật tài nguyên.");
+      setError(strings.manageResourcesObserverEditBlocked);
       return;
     }
     try {
@@ -349,7 +353,7 @@ export default function AdminManageResourcesScreen() {
       setEditingId(null);
       await load(true);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Cập nhật tài nguyên thất bại.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageResourcesUpdateFailed);
     } finally {
       setSubmitting(false);
     }
@@ -361,14 +365,14 @@ export default function AdminManageResourcesScreen() {
 
   return (
     <ManageScreenShell
-      title="Tài nguyên"
-      subtitle="Quản lý ghế, bàn và tài nguyên trong cửa hàng."
+      title={strings.manageResourcesTitle}
+      subtitle={strings.manageResourcesSubtitle}
       currentKey="resources"
       group="setup"
       showBackButton={false}
       hiddenTabKeys={["content"]}
       observerReadOnly={observerReadOnly}
-      observerReadOnlyMessage="Đang quan sát tài nguyên theo scope đã chọn. Các thao tác tạo và chỉnh sửa chỉ mở ở chi nhánh làm việc."
+      observerReadOnlyMessage={strings.manageResourcesObserverReadonlyMessage}
     >
       <View style={styles.infoCard}>
         <View style={styles.infoHeader}>
@@ -376,8 +380,8 @@ export default function AdminManageResourcesScreen() {
             <Feather name="coffee" size={18} color={palette.accent} />
           </View>
           <View style={styles.infoCopy}>
-            <Text style={styles.infoTitle}>Tài nguyên</Text>
-            <Text style={styles.infoSubtitle}>Quản lý ghế, bàn và tài nguyên trong cửa hàng</Text>
+            <Text style={styles.infoTitle}>{strings.manageResourcesTitle}</Text>
+            <Text style={styles.infoSubtitle}>{strings.manageResourcesInfoSubtitle}</Text>
           </View>
         </View>
       </View>
@@ -386,18 +390,18 @@ export default function AdminManageResourcesScreen() {
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="bar-chart-2" size={16} color={palette.sub} />
-            <Text style={styles.sectionTitle}>Tổng quan tài nguyên</Text>
+            <Text style={styles.sectionTitle}>{strings.manageResourcesOverviewTitle}</Text>
           </View>
           <Pressable style={styles.headerPill} onPress={() => {}}>
             <Feather name="list" size={14} color={palette.sub} />
-            <Text style={styles.headerPillText}>Danh sách tài nguyên</Text>
+            <Text style={styles.headerPillText}>{strings.manageResourcesOverviewListPill}</Text>
           </Pressable>
         </View>
 
         <View style={styles.metricGrid}>
-          <MetricCard icon="grid" iconColor={palette.info} iconSoft={palette.infoSoft} label="Tổng" value={totalCount} />
-          <MetricCard icon="check-circle" iconColor={palette.success} iconSoft={palette.successSoft} label="Đang dùng" value={activeCount} />
-          <MetricCard icon="coffee" iconColor={palette.warning} iconSoft={palette.warningSoft} label="Ghế trống" value={availableChairCount} />
+          <MetricCard icon="grid" iconColor={palette.info} iconSoft={palette.infoSoft} label={strings.manageResourcesMetricTotal} value={totalCount} />
+          <MetricCard icon="check-circle" iconColor={palette.success} iconSoft={palette.successSoft} label={strings.manageResourcesMetricActive} value={activeCount} />
+          <MetricCard icon="coffee" iconColor={palette.warning} iconSoft={palette.warningSoft} label={strings.manageResourcesMetricAvailableChairs} value={availableChairCount} />
         </View>
       </View>
 
@@ -405,9 +409,9 @@ export default function AdminManageResourcesScreen() {
         <View style={styles.sectionHeaderRow}>
           <View style={styles.sectionHeadingWrap}>
             <Feather name="plus-circle" size={16} color={palette.accent} />
-            <Text style={styles.sectionTitle}>Thêm tài nguyên mới</Text>
+            <Text style={styles.sectionTitle}>{strings.manageResourcesAddTitle}</Text>
           </View>
-          {(refreshing || loading) ? <ActivityIndicator size="small" color={palette.accent} /> : <Text style={styles.alwaysText}>Form luôn hiển thị</Text>}
+          {(refreshing || loading) ? <ActivityIndicator size="small" color={palette.accent} /> : <Text style={styles.alwaysText}>{strings.manageResourcesFormAlwaysVisible}</Text>}
         </View>
 
         <View style={styles.typeSelectRow}>
@@ -423,7 +427,7 @@ export default function AdminManageResourcesScreen() {
                 ]}
                 onPress={() => setType(option)}
               >
-                <Text style={[styles.typeSelectChipText, { color: active ? colors.text : palette.sub }]}>{typeLabel(option)}</Text>
+                <Text style={[styles.typeSelectChipText, { color: active ? colors.text : palette.sub }]}>{typeLabel(strings, option)}</Text>
               </Pressable>
             );
           })}
@@ -432,12 +436,18 @@ export default function AdminManageResourcesScreen() {
         <Input
           value={name}
           onChangeText={setName}
-          placeholder={type === "CHAIR" ? "Tên tài nguyên (VD: Ghế chân 01)" : type === "TABLE" ? "Tên tài nguyên (VD: Bàn làm tay 01)" : "Tên tài nguyên (VD: Phòng VIP 01)"}
+          placeholder={
+            type === "CHAIR"
+              ? strings.manageResourcesPlaceholderChair
+              : type === "TABLE"
+                ? strings.manageResourcesPlaceholderTable
+                : strings.manageResourcesPlaceholderRoom
+          }
         />
 
         <Pressable disabled={submitting} style={[styles.primaryButton, submitting ? styles.primaryButtonDisabled : null]} onPress={() => void submitCreate()}>
           <Feather name="plus" size={15} color="#FFFFFF" />
-          <Text style={styles.primaryButtonText}>{submitting ? "Đang thêm..." : "Thêm tài nguyên"}</Text>
+          <Text style={styles.primaryButtonText}>{submitting ? strings.manageResourcesSubmitting : strings.manageResourcesAddButton}</Text>
         </Pressable>
       </View>
 
@@ -453,30 +463,30 @@ export default function AdminManageResourcesScreen() {
           <View style={styles.sectionHeadingWrap}>
             <Feather name="list" size={16} color={palette.sub} />
             <View>
-              <Text style={styles.sectionTitle}>Danh sách tài nguyên</Text>
-              <Text style={styles.sectionHint}>Quét nhanh tên, loại, trạng thái rồi sửa inline khi cần.</Text>
+              <Text style={styles.sectionTitle}>{strings.manageResourcesListTitle}</Text>
+              <Text style={styles.sectionHint}>{strings.manageResourcesListHint}</Text>
             </View>
           </View>
         </View>
 
-        <Input value={search} onChangeText={setSearch} placeholder="Tìm tên tài nguyên hoặc loại..." />
+        <Input value={search} onChangeText={setSearch} placeholder={strings.manageResourcesSearchPlaceholder} />
 
         <View style={styles.filterRow}>
-          <FilterChip active={filterType === "ALL"} label="Tất cả" onPress={() => setFilterType("ALL")} />
-          <FilterChip active={filterType === "CHAIR"} label="Ghế" onPress={() => setFilterType("CHAIR")} />
-          <FilterChip active={filterType === "TABLE"} label="Bàn" onPress={() => setFilterType("TABLE")} />
-          <FilterChip active={filterType === "ROOM"} label="Phòng" onPress={() => setFilterType("ROOM")} />
+          <FilterChip active={filterType === "ALL"} label={strings.manageResourcesFilterAll} onPress={() => setFilterType("ALL")} />
+          <FilterChip active={filterType === "CHAIR"} label={strings.manageResourcesTypeChair} onPress={() => setFilterType("CHAIR")} />
+          <FilterChip active={filterType === "TABLE"} label={strings.manageResourcesTypeTable} onPress={() => setFilterType("TABLE")} />
+          <FilterChip active={filterType === "ROOM"} label={strings.manageResourcesTypeRoom} onPress={() => setFilterType("ROOM")} />
         </View>
 
         {loading ? (
           <View style={styles.emptyState}>
             <ActivityIndicator size="small" color={palette.accent} />
-            <Text style={styles.emptyText}>Đang tải tài nguyên...</Text>
+            <Text style={styles.emptyText}>{strings.manageResourcesLoading}</Text>
           </View>
         ) : filteredRows.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>
-              {rows.length === 0 ? "Chưa có tài nguyên nào. Hãy tạo tài nguyên đầu tiên ở phía trên." : "Không có tài nguyên khớp bộ lọc hiện tại."}
+              {rows.length === 0 ? strings.manageResourcesEmpty : strings.manageResourcesEmptyFiltered}
             </Text>
           </View>
         ) : (
@@ -484,6 +494,7 @@ export default function AdminManageResourcesScreen() {
             {filteredRows.map((item) => (
               <ResourceRowCard
                 key={item.id}
+                strings={strings}
                 editing={editingId === item.id}
                 editActive={editActive}
                 editName={editName}

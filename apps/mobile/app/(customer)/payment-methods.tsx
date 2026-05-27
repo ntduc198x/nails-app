@@ -1,23 +1,24 @@
 import Feather from "@expo/vector-icons/Feather";
 import { StyleSheet, Text, View } from "react-native";
 import { CustomerScreen, SectionTitle, SurfaceCard } from "@/src/features/customer/ui";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
 
 const { colors } = premiumTheme;
 
 export default function PaymentMethodsScreen() {
+  const strings = useCustomerStrings();
+
   return (
-    <CustomerScreen title="Phương thức thanh toán" subtitle="Sẽ hiển thị dữ liệu thật khi flow checkout/customer wallet được nối hoàn chỉnh">
+    <CustomerScreen title={strings.paymentMethodsTitle} subtitle={strings.paymentMethodsSubtitle}>
       <SurfaceCard>
-        <SectionTitle title="Phương thức đã liên kết" subtitle="Hiện tại màn này không còn dùng mock cứng nữa." />
+        <SectionTitle title={strings.paymentMethodsSectionTitle} subtitle={strings.paymentMethodsSectionSubtitle} />
         <View style={styles.emptyState}>
           <View style={styles.iconWrap}>
             <Feather color={colors.textSoft} name="credit-card" size={20} />
           </View>
-          <Text style={styles.title}>Chưa có phương thức thanh toán được lưu</Text>
-          <Text style={styles.detail}>
-            Khi flow thanh toán thật được bật, danh sách thẻ/ví liên kết sẽ hiện ở đây thay vì dữ liệu mẫu.
-          </Text>
+          <Text style={styles.title}>{strings.paymentMethodsEmptyTitle}</Text>
+          <Text style={styles.detail}>{strings.paymentMethodsEmptyBody}</Text>
         </View>
       </SurfaceCard>
     </CustomerScreen>

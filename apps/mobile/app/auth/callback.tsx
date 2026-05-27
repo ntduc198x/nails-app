@@ -1,11 +1,35 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useMemo, useState } from "react";
+import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
+const LOCALE_STORAGE_KEY = "customer-preferences:locale";
+
 export default function AuthCallbackScreen() {
+  const [locale, setLocale] = useState<Locale>("vi");
+  const t = useMemo(
+    () => (key: TranslationKey<"mobileAuth">) => translate(locale, "mobileAuth", key),
+    [locale],
+  );
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const stored = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
+      if (mounted) {
+        setLocale(normalizeLocale(stored));
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       <ActivityIndicator color="#4a3424" />
-      <Text style={styles.title}>Đang hoàn tất đăng nhập...</Text>
-      <Text style={styles.subtitle}>Ứng dụng sẽ tự động quay lại trang phù hợp sau khi đồng bộ session.</Text>
+      <Text style={styles.title}>{t("callbackCompletingTitle")}</Text>
+      <Text style={styles.subtitle}>{t("callbackCompletingSubtitle")}</Text>
     </View>
   );
 }

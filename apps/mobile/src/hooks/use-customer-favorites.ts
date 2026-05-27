@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listCustomerFavoriteServiceIds, setCustomerFavoriteService } from "@nails/shared";
+import { listCustomerFavoriteServiceIds, setCustomerFavoriteService, translate } from "@nails/shared";
 import { hydrateCachedValue, peekCachedValue, writeCachedValue } from "@/src/lib/customer-feed-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 
 export function useCustomerFavorites(options: { autoRefreshOnMount?: boolean } = {}) {
+  const { locale } = useCustomerPreferences();
   const { isHydrated: sessionHydrated, user } = useSession();
   const autoRefreshOnMount = options.autoRefreshOnMount ?? true;
   const favoriteCacheKey = user?.id ? `favorites:${user.id}` : "favorites:guest";
@@ -36,12 +38,14 @@ export function useCustomerFavorites(options: { autoRefreshOnMount?: boolean } =
       setFavoriteIds(nextIds);
     } catch (error) {
       setFavoriteIds([]);
-      setLastError(error instanceof Error ? error.message : "Khong tai duoc danh sach yeu thich");
+      setLastError(
+        error instanceof Error ? error.message : translate(locale, "errors", "customerFavoritesLoadFailed"),
+      );
     } finally {
       setIsHydrated(true);
       setIsSyncing(false);
     }
-  }, [favoriteCacheKey, sessionHydrated, user]);
+  }, [favoriteCacheKey, locale, sessionHydrated, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,11 +97,13 @@ export function useCustomerFavorites(options: { autoRefreshOnMount?: boolean } =
       } catch (error) {
         void writeCachedValue(favoriteCacheKey, favoriteIds);
         setFavoriteIds(favoriteIds);
-        setLastError(error instanceof Error ? error.message : "Khong the luu yeu thich");
+        setLastError(
+          error instanceof Error ? error.message : translate(locale, "errors", "customerFavoriteSaveFailed"),
+        );
         throw error;
       }
     },
-    [favoriteCacheKey, favoriteIds, user],
+    [favoriteCacheKey, favoriteIds, locale, user],
   );
 
   const favoritesSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);

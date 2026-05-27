@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import { isCustomerRole } from "@nails/shared";
 import { premiumTheme } from "@/src/design/premium-theme";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerPreferencesProvider, useCustomerPreferences, useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 
@@ -13,20 +14,22 @@ type CustomerRenderBoundaryState = {
   errorMessage: string | null;
 };
 
-class CustomerRenderBoundary extends Component<{ children: ReactNode }, CustomerRenderBoundaryState> {
+class CustomerRenderBoundary extends Component<{
+  children: ReactNode;
+  errorEyebrow: string;
+  errorTitle: string;
+  errorFallbackMessage: string;
+}, CustomerRenderBoundaryState> {
   state: CustomerRenderBoundaryState = {
     errorMessage: null,
   };
 
-  static getDerivedStateFromError(error: Error): CustomerRenderBoundaryState {
-    return {
-      errorMessage: error.message || "Customer layout render failed.",
-    };
-  }
-
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     void error;
     void errorInfo;
+    this.setState({
+      errorMessage: error.message || this.props.errorFallbackMessage,
+    });
     // Keep the fallback UI visible in production builds.
   }
 
@@ -36,8 +39,8 @@ class CustomerRenderBoundary extends Component<{ children: ReactNode }, Customer
         <View style={styles.errorContainer}>
           <StatusBar style="dark" />
           <View style={styles.errorCard}>
-            <Text style={styles.errorEyebrow}>Cham Beauty</Text>
-            <Text style={styles.errorTitle}>Customer screen crashed</Text>
+            <Text style={styles.errorEyebrow}>{this.props.errorEyebrow}</Text>
+            <Text style={styles.errorTitle}>{this.props.errorTitle}</Text>
             <Text style={styles.errorMessage}>{this.state.errorMessage}</Text>
           </View>
         </View>
@@ -48,10 +51,25 @@ class CustomerRenderBoundary extends Component<{ children: ReactNode }, Customer
   }
 }
 
+function LocalizedCustomerBoundary({ children }: { children: ReactNode }) {
+  const strings = useCustomerStrings();
+
+  return (
+    <CustomerRenderBoundary
+      errorEyebrow={strings.customerShellErrorEyebrow}
+      errorTitle={strings.customerShellErrorTitle}
+      errorFallbackMessage={strings.customerShellRenderFailed}
+    >
+      {children}
+    </CustomerRenderBoundary>
+  );
+}
+
 function CustomerLayoutContent() {
   const { isHydrated, role } = useSession();
   const { colorScheme } = useCustomerPreferences();
   const theme = useCustomerTheme();
+  const strings = useCustomerStrings();
   const { colors, radius, spacing } = theme;
 
   if (!isHydrated) {
@@ -59,9 +77,9 @@ function CustomerLayoutContent() {
       <View style={[styles.container, { backgroundColor: colors.background, padding: spacing.xl }]}>
         <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
         <View style={[styles.card, { backgroundColor: colors.surface, borderRadius: radius.xl, borderColor: colors.border, gap: spacing.sm, paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl }]}>
-          <Text style={[styles.eyebrow, { color: colors.accentWarm }]}>Chạm Beauty</Text>
+          <Text style={[styles.eyebrow, { color: colors.accentWarm }]}>{strings.customerShellErrorEyebrow}</Text>
           <ActivityIndicator color={colors.accent} />
-          <Text style={[styles.label, { color: colors.textSoft }]}>Đang tải không gian khách hàng...</Text>
+          <Text style={[styles.label, { color: colors.textSoft }]}>{strings.customerShellLoading}</Text>
         </View>
       </View>
     );
@@ -81,11 +99,11 @@ function CustomerLayoutContent() {
 
 export default function CustomerLayout() {
   return (
-    <CustomerRenderBoundary>
-      <CustomerPreferencesProvider>
+    <CustomerPreferencesProvider>
+      <LocalizedCustomerBoundary>
         <CustomerLayoutContent />
-      </CustomerPreferencesProvider>
-    </CustomerRenderBoundary>
+      </LocalizedCustomerBoundary>
+    </CustomerPreferencesProvider>
   );
 }
 

@@ -10,7 +10,7 @@
   type ReactNode,
 } from "react";
 import Feather from "@expo/vector-icons/Feather";
-import { formatViDate, formatVnd, type AppRole } from "@nails/shared";
+import { formatVnd, translate, type AppRole, type Locale } from "@nails/shared";
 import {
   Dimensions,
   Keyboard,
@@ -34,7 +34,9 @@ import {
 import { useRouter } from "expo-router";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
 import { isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
 
@@ -237,18 +239,19 @@ export function AdminKeyboardAwareScrollView({
 
 const ADMIN_NAV_ITEMS: Array<{
   key: AdminNavTarget;
-  label: string;
+  labelKey: "navStore" | "navScheduling" | "navCheckout" | "navProfile";
   icon: React.ComponentProps<typeof Feather>["name"];
 }> = [
-  { key: "booking", label: "Cửa tiệm", icon: "layout" },
-  { key: "scheduling", label: "\u0110i\u1ec1u ph\u1ed1i", icon: "users" },
-  { key: "checkout", label: "Thu ti\u1ec1n", icon: "briefcase" },
-  { key: "profile", label: "C\u00e1 nh\u00e2n", icon: "user" },
+  { key: "booking", labelKey: "navStore", icon: "layout" },
+  { key: "scheduling", labelKey: "navScheduling", icon: "users" },
+  { key: "checkout", labelKey: "navCheckout", icon: "briefcase" },
+  { key: "profile", labelKey: "navProfile", icon: "user" },
 ];
 
 function resolveAdminNavPresentation(
   key: AdminNavTarget,
   role: AppRole | null | undefined,
+  locale: Locale,
 ) {
   const item = ADMIN_NAV_ITEMS.find((entry) => entry.key === key);
   if (!item) {
@@ -256,25 +259,25 @@ function resolveAdminNavPresentation(
   }
 
   if (key !== "profile") {
-    return { label: item.label, icon: item.icon };
+    return { label: translate(locale, "admin", item.labelKey), icon: item.icon };
   }
 
   if (isOwnerRole(role)) {
-    return { label: "Quản lý", icon: "grid" as const };
+    return { label: translate(locale, "admin", "navManage"), icon: "grid" as const };
   }
 
-  return { label: "Ca làm", icon: "clock" as const };
+  return { label: translate(locale, "admin", "navShifts"), icon: "clock" as const };
 }
 
-function getStatusLabel(status: string) {
-  if (status === "NEEDS_RESCHEDULE") return "C\u1ea7n d\u1eddi l\u1ecbch";
-  if (status === "BOOKED") return "Ch\u1edd check-in";
-  if (status === "CHECKED_IN") return "\u0110ang ph\u1ee5c v\u1ee5";
-  if (status === "DONE") return "\u0110\u00e3 xong";
-  if (status === "NO_SHOW") return "Kh\u00f4ng t\u1edbi";
-  if (status === "CANCELLED") return "H\u1ee7y l\u1ecbch";
-  if (status === "NEW") return "M\u1edbi";
-  if (status === "CONVERTED") return "\u0110\u00e3 ch\u1ed1t";
+function getStatusLabel(status: string, locale: Locale) {
+  if (status === "NEEDS_RESCHEDULE") return translate(locale, "admin", "statusNeedsReschedule");
+  if (status === "BOOKED") return translate(locale, "admin", "statusBooked");
+  if (status === "CHECKED_IN") return translate(locale, "admin", "statusCheckedIn");
+  if (status === "DONE") return translate(locale, "admin", "statusDone");
+  if (status === "NO_SHOW") return translate(locale, "admin", "statusNoShow");
+  if (status === "CANCELLED") return translate(locale, "admin", "statusCancelled");
+  if (status === "NEW") return translate(locale, "admin", "statusNew");
+  if (status === "CONVERTED") return translate(locale, "admin", "statusConverted");
   return status;
 }
 
@@ -297,9 +300,10 @@ export function InfoTile({ label, value }: { label: string; value: string }) {
 }
 
 export function StatusBadge({ status }: { status: string }) {
+  const { locale } = useAdminPreferences();
   return (
     <View style={[styles.statusBadge, getStatusToneStyle(status)]}>
-      <Text style={styles.statusBadgeText}>{getStatusLabel(status)}</Text>
+      <Text style={styles.statusBadgeText}>{getStatusLabel(status, locale)}</Text>
     </View>
   );
 }
@@ -327,6 +331,9 @@ export function AdminScreen({
 }) {
   const insets = useSafeAreaInsets();
   const keyboardVisible = useKeyboardVisible();
+  const { locale } = useAdminPreferences();
+  const strings = useAdminStrings();
+  const today = new Date().toLocaleDateString(locale === "en" ? "en-US" : "vi-VN");
 
   return (
     <View style={styles.container}>
@@ -335,11 +342,11 @@ export function AdminScreen({
           <Text style={styles.title}>{title}</Text>
           {!compactHeader ? (
             <>
-              <Text style={styles.eyebrow}>Week 4 Admin Core Flows</Text>
+              <Text style={styles.eyebrow}>{strings.adminCoreFlows}</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
-              <Text style={styles.date}>Hôm nay: {formatViDate(new Date())}</Text>
-              <Text style={styles.date}>Role: {role ?? "-"}</Text>
-              <Text style={styles.date}>User: {userEmail ?? "-"}</Text>
+              <Text style={styles.date}>{translate(locale, "admin", "todayLabel", { date: today })}</Text>
+              <Text style={styles.date}>{translate(locale, "admin", "roleLabel", { role: role ?? "-" })}</Text>
+              <Text style={styles.date}>{translate(locale, "admin", "userLabel", { user: userEmail ?? "-" })}</Text>
             </>
           ) : null}
         </View>
@@ -472,13 +479,15 @@ export function AdminNavLinks({
   role: string | null | undefined;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
+  const { locale } = useAdminPreferences();
+  const strings = useAdminStrings();
   return (
     <View style={styles.section}>
-      <Text style={styles.sectionTitle}>\u0110i\u1ec1u h\u01b0\u1edbng nhanh</Text>
+      <Text style={styles.sectionTitle}>{strings.quickNavigation}</Text>
       <View style={styles.inlineWrap}>
-        {ADMIN_NAV_ITEMS.map(({ key, label, icon }) => {
-          const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined);
-          const resolvedLabel = resolved.label || label;
+        {ADMIN_NAV_ITEMS.map(({ key, labelKey, icon }) => {
+          const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined, locale);
+          const resolvedLabel = resolved.label || translate(locale, "admin", labelKey);
           const resolvedIcon = resolved.icon || icon;
 
           return (
@@ -519,15 +528,16 @@ export function AdminBottomNav({
   role: string | null | undefined;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
+  const { locale } = useAdminPreferences();
   const canLanding = canAccessLandingFeed(role as AppRole | null | undefined);
   const visibleItems = canLanding ? ADMIN_NAV_ITEMS : ADMIN_NAV_ITEMS.filter((item) => item.key !== "booking");
 
   return (
     <View style={styles.bottomNav}>
-      {visibleItems.map(({ key, label, icon }) => {
+      {visibleItems.map(({ key, labelKey, icon }) => {
         const active = current === key;
-        const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined);
-        const resolvedLabel = resolved.label || label;
+        const resolved = resolveAdminNavPresentation(key, role as AppRole | null | undefined, locale);
+        const resolvedLabel = resolved.label || translate(locale, "admin", labelKey);
         const resolvedIcon = resolved.icon || icon;
         const targetHref =
           key === "profile"
@@ -586,6 +596,83 @@ export function AdminBottomNavDock({
   );
 }
 
+export function AdminDetailLoadingScreen({
+  backLabel,
+  current,
+  onBack,
+  onNavigate,
+  role,
+  subtitle,
+  title,
+}: {
+  backLabel?: string;
+  current: AdminNavTarget | null;
+  onBack: () => void;
+  onNavigate: (target: AdminNavTarget) => void;
+  role: string | null | undefined;
+  subtitle: string;
+  title: string;
+}) {
+  return (
+    <View style={detailStateStyles.screen}>
+      <AdminTopSafeArea style={detailStateStyles.topChrome}>
+        <View style={detailStateStyles.header}>
+          <Pressable
+            style={detailStateStyles.headerButton}
+            accessibilityLabel={backLabel}
+            onPress={onBack}
+          >
+            <Feather name="chevron-left" size={24} color="#1F1A17" />
+          </Pressable>
+          <View style={detailStateStyles.headerCenter}>
+            <Text style={detailStateStyles.headerSubtitle}>{subtitle}</Text>
+            <Text style={detailStateStyles.headerTitle} numberOfLines={1}>
+              {title}
+            </Text>
+          </View>
+          <View style={detailStateStyles.headerActions}>
+            <View style={detailStateStyles.headerActionGhost} />
+            <View style={detailStateStyles.headerActionGhost} />
+          </View>
+        </View>
+      </AdminTopSafeArea>
+
+      <View style={detailStateStyles.body}>
+        <View style={detailStateStyles.heroCard}>
+          <View style={detailStateStyles.avatarGhost} />
+          <View style={detailStateStyles.heroCopy}>
+            <View style={detailStateStyles.linePrimary} />
+            <View style={detailStateStyles.lineSecondary} />
+            <View style={detailStateStyles.chipRow}>
+              <View style={detailStateStyles.chipGhost} />
+              <View style={detailStateStyles.chipGhostShort} />
+            </View>
+          </View>
+        </View>
+
+        <View style={detailStateStyles.sectionCard}>
+          <View style={detailStateStyles.sectionTitleGhost} />
+          <View style={detailStateStyles.fieldGhost} />
+          <View style={detailStateStyles.fieldGhost} />
+        </View>
+
+        <View style={detailStateStyles.sectionCard}>
+          <View style={detailStateStyles.sectionTitleGhostShort} />
+          <View style={detailStateStyles.pillRow}>
+            <View style={detailStateStyles.pillGhost} />
+            <View style={detailStateStyles.pillGhost} />
+            <View style={detailStateStyles.pillGhostShort} />
+          </View>
+        </View>
+
+        <View style={detailStateStyles.ctaGhost} />
+      </View>
+
+      <AdminBottomNavDock current={current} role={role} onNavigate={onNavigate} />
+    </View>
+  );
+}
+
 export function AdminHeaderActions({
   onSettingsPress,
 }: {
@@ -593,6 +680,8 @@ export function AdminHeaderActions({
 }) {
   const router = useRouter();
   const { role, user } = useSession();
+  const { locale } = useAdminPreferences();
+  const strings = useAdminStrings();
   const observer = useAdminObserverScope();
   const canOpenSettings = role != null && role !== "USER";
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -604,7 +693,7 @@ export function AdminHeaderActions({
     badgeCount,
     feedNotifications,
     markFeedRead,
-  } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id, observer.observerScope);
+  } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id, observer.observerScope, locale);
 
   const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
 
@@ -649,13 +738,20 @@ export function AdminHeaderActions({
           <Pressable style={styles.notificationsSheet} onPress={(event) => event.stopPropagation()}>
             <View style={styles.notificationsHeader}>
               <View style={styles.notificationsHeaderCopy}>
-                <Text style={styles.notificationsTitle}>Thông báo</Text>
+                <Text style={styles.notificationsTitle}>{strings.notificationsTitle}</Text>
                 <Text style={styles.notificationsSubtitle}>
                   {criticalActionCount > 0
-                    ? `${criticalActionCount} mục khẩn · ${bookingQueueCount} booking-request mở · ${actionOpenCount} việc đang mở`
+                    ? translate(locale, "admin", "notificationsSummaryCritical", {
+                        critical: criticalActionCount,
+                        booking: bookingQueueCount,
+                        open: actionOpenCount,
+                      })
                     : badgeCount > 0
-                      ? `${bookingQueueCount} booking-request mở · ${actionOpenCount} việc đang mở`
-                      : "Chưa có mục mới"}
+                      ? translate(locale, "admin", "notificationsSummaryDefault", {
+                          booking: bookingQueueCount,
+                          open: actionOpenCount,
+                        })
+                      : strings.notificationsEmptySummary}
                 </Text>
               </View>
               <Pressable style={styles.notificationsClose} onPress={() => setNotificationsOpen(false)}>
@@ -669,7 +765,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("action")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "action" ? styles.notificationsTabTextActive : null]}>
-                  Cần xử lý{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
+                  {strings.notificationsActionTab}{actionNotifications.length ? ` (${actionNotifications.length})` : ""}
                 </Text>
               </Pressable>
               <Pressable
@@ -677,7 +773,7 @@ export function AdminHeaderActions({
                 onPress={() => setNotificationTab("feed")}
               >
                 <Text style={[styles.notificationsTabText, notificationTab === "feed" ? styles.notificationsTabTextActive : null]}>
-                  Dòng sự kiện{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
+                  {strings.notificationsFeedTab}{feedNotifications.length ? ` (${feedNotifications.length})` : ""}
                 </Text>
               </Pressable>
             </View>
@@ -715,14 +811,14 @@ export function AdminHeaderActions({
                                 item.severity === "critical" ? styles.notificationActionBadgeTextCritical : null,
                               ]}
                             >
-                              {item.severity === "critical" ? "Khẩn" : "Cần xử lý"}
+                              {item.severity === "critical" ? strings.notificationsCriticalBadge : strings.notificationsActionBadge}
                             </Text>
                           </View>
                         </View>
                       ) : null}
                     </View>
                     <Text style={styles.notificationCardDate}>
-                      {new Intl.DateTimeFormat("vi-VN", {
+                      {new Intl.DateTimeFormat(locale === "en" ? "en-US" : "vi-VN", {
                         day: "2-digit",
                         month: "2-digit",
                         hour: "2-digit",
@@ -735,8 +831,8 @@ export function AdminHeaderActions({
                 <View style={styles.notificationsEmpty}>
                   <Text style={styles.notificationsEmptyText}>
                     {notificationTab === "action"
-                      ? "Hiện không có mục nào cần xử lý."
-                      : "Chưa có sự kiện nào gần đây."}
+                      ? strings.notificationsActionEmpty
+                      : strings.notificationsFeedEmpty}
                   </Text>
                 </View>
               )}
@@ -748,8 +844,8 @@ export function AdminHeaderActions({
   );
 }
 
-export function formatDateTime(value: string) {
-  return new Date(value).toLocaleString("vi-VN", {
+export function formatDateTime(value: string, locale: Locale = "vi") {
+  return new Date(value).toLocaleString(locale === "en" ? "en-US" : "vi-VN", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
@@ -1446,6 +1542,165 @@ export const styles = StyleSheet.create({
   ticketTotal: {
     color: "#2b241f",
     fontWeight: "700",
+  },
+});
+
+const detailStateStyles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#FCFAF8",
+  },
+  topChrome: {
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerCenter: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#A0928A",
+    fontWeight: "500",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#1F1A17",
+    letterSpacing: -0.4,
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  headerActionGhost: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+    backgroundColor: "#F3EDE7",
+  },
+  body: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 4,
+    paddingBottom: ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE,
+    gap: 16,
+  },
+  heroCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+    padding: 16,
+  },
+  avatarGhost: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: "#F3EDE7",
+  },
+  heroCopy: {
+    flex: 1,
+    gap: 10,
+  },
+  linePrimary: {
+    width: "58%",
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: "#F3EDE7",
+  },
+  lineSecondary: {
+    width: "36%",
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#F9F6F2",
+  },
+  chipRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  chipGhost: {
+    width: 110,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#F9F6F2",
+  },
+  chipGhostShort: {
+    width: 84,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#F9F6F2",
+  },
+  sectionCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+    padding: 16,
+    gap: 12,
+  },
+  sectionTitleGhost: {
+    width: "44%",
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#F3EDE7",
+  },
+  sectionTitleGhostShort: {
+    width: "32%",
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#F3EDE7",
+  },
+  fieldGhost: {
+    width: "100%",
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#F9F6F2",
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+  },
+  pillRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  pillGhost: {
+    width: 112,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F9F6F2",
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+  },
+  pillGhostShort: {
+    width: 88,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F9F6F2",
+    borderWidth: 1,
+    borderColor: "#E8DDD6",
+  },
+  ctaGhost: {
+    height: 56,
+    borderRadius: 20,
+    backgroundColor: "#E8DDD6",
+    marginTop: 4,
   },
 });
 

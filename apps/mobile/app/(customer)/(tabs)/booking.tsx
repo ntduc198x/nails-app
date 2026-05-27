@@ -1,25 +1,36 @@
 import Feather from "@expo/vector-icons/Feather";
+import { formatDateTimeLabel, translate } from "@nails/shared";
 import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CustomerScreen, CustomerTopActions, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
 import { QUICK_CONTACTS_CARD } from "@/src/features/customer/data";
 import { premiumTheme } from "@/src/design/premium-theme";
-import { useCustomerStrings } from "@/src/features/customer/strings";
+import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
 import { useGuestBooking } from "@/src/hooks/use-guest-booking";
 import { readCustomerProfileCache } from "@/src/lib/customer-profile-cache";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
 const { colors, radius, spacing } = premiumTheme;
 
+function getLocalizedContactActionLabel(actionLabel: string, locale: "vi" | "en") {
+  if (locale !== "en") return actionLabel;
+  if (actionLabel === translate("vi", "customer", "bookingContactActionCall")) return translate(locale, "customer", "bookingContactActionCall");
+  if (actionLabel === translate("vi", "customer", "bookingContactActionView")) return translate(locale, "customer", "bookingContactActionView");
+  if (actionLabel === translate("vi", "customer", "bookingContactActionChat")) return translate(locale, "customer", "bookingContactActionChat");
+  return actionLabel;
+}
+
 export default function BookingScreen() {
   const params = useLocalSearchParams<{ service?: string; offerId?: string; offerClaimId?: string; offerCode?: string; offerTitle?: string }>();
   const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
   const { user } = useSession();
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
-    useGuestBooking();
+    useGuestBooking(locale);
   const {
     upcomingItems: upcomingBookings,
     isRefreshing: timelineBackgroundRefreshing,
@@ -141,13 +152,24 @@ export default function BookingScreen() {
 
     const nextOfferNote = [
       values.note.trim(),
-      `Ưu đãi áp dụng: ${params.offerCode}${params.offerTitle && typeof params.offerTitle === "string" ? ` - ${params.offerTitle}` : ""}`,
+      `${strings.bookingAppliedOfferLabel}: ${params.offerCode}${params.offerTitle && typeof params.offerTitle === "string" ? ` - ${params.offerTitle}` : ""}`,
     ]
       .filter(Boolean)
       .join("\n");
 
     updateValue("note", nextOfferNote);
-  }, [params.offerClaimId, params.offerCode, params.offerId, params.offerTitle, updateValue, values.appliedOfferClaimId, values.appliedOfferCode, values.appliedOfferId, values.note]);
+  }, [
+    params.offerClaimId,
+    params.offerCode,
+    params.offerId,
+    params.offerTitle,
+    strings.bookingAppliedOfferLabel,
+    updateValue,
+    values.appliedOfferClaimId,
+    values.appliedOfferCode,
+    values.appliedOfferId,
+    values.note,
+  ]);
 
   return (
     <CustomerScreen
@@ -166,16 +188,14 @@ export default function BookingScreen() {
 
       <View style={styles.headerBlock}>
         <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
-        <Text style={styles.pageTitle}>Đặt lịch</Text>
-        <Text style={styles.pageSubtitle}>
-          Chọn mẫu nail, thời gian và thông tin liên hệ để salon giữ lịch chính xác hơn.
-        </Text>
+        <Text style={styles.pageTitle}>{strings.bookingTitle}</Text>
+        <Text style={styles.pageSubtitle}>{strings.bookingSubtitle}</Text>
       </View>
 
       <SurfaceCard style={styles.formCard}>
         <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>Thông tin yêu cầu</Text>
-          <Text style={styles.sectionSubtitle}>Điền nhanh để salon giữ chỗ chính xác hơn.</Text>
+          <Text style={styles.sectionTitle}>{strings.bookingInfoTitle}</Text>
+          <Text style={styles.sectionSubtitle}>{strings.bookingInfoSubtitle}</Text>
         </View>
 
         {params.offerCode && typeof params.offerCode === "string" ? (
@@ -184,16 +204,16 @@ export default function BookingScreen() {
               <Feather color={colors.accentWarm} name="tag" size={16} />
             </View>
             <View style={styles.offerBadgeCopy}>
-              <Text style={styles.offerBadgeLabel}>Mã ưu đãi đang áp dụng</Text>
+              <Text style={styles.offerBadgeLabel}>{strings.bookingAppliedOfferLabel}</Text>
               <Text style={styles.offerBadgeCode}>{params.offerCode}</Text>
               {params.offerTitle && typeof params.offerTitle === "string" ? <Text style={styles.offerBadgeHint}>{params.offerTitle}</Text> : null}
             </View>
           </View>
         ) : null}
 
-        <FieldBlock label="Mẫu nail" error={fieldErrors.requestedService}>
+        <FieldBlock label={strings.bookingServiceLabel} error={fieldErrors.requestedService}>
           <TextInput
-            placeholder="Luxury Gel, French Chic..."
+            placeholder={strings.bookingServicePlaceholderDetailed}
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={values.requestedService}
@@ -201,7 +221,7 @@ export default function BookingScreen() {
           />
         </FieldBlock>
 
-        <FieldBlock label="Ngày hẹn" error={fieldErrors.selectedDate}>
+        <FieldBlock label={strings.bookingDateLabel} error={fieldErrors.selectedDate}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
             {dateOptions.map((option) => (
               <Pill
@@ -214,7 +234,7 @@ export default function BookingScreen() {
           </ScrollView>
         </FieldBlock>
 
-        <FieldBlock label="Khung giờ" error={fieldErrors.selectedTime}>
+        <FieldBlock label={strings.bookingTimeLabel} error={fieldErrors.selectedTime}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
             {timeSlots.map((slot) => (
               <Pill
@@ -227,9 +247,9 @@ export default function BookingScreen() {
           </ScrollView>
         </FieldBlock>
 
-        <FieldBlock label="Tên khách hàng" error={fieldErrors.customerName}>
+        <FieldBlock label={strings.bookingCustomerNameLabel} error={fieldErrors.customerName}>
           <TextInput
-            placeholder="Nguyễn Khánh Ly"
+            placeholder={strings.bookingCustomerNamePlaceholderDetailed}
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={values.customerName}
@@ -237,10 +257,10 @@ export default function BookingScreen() {
           />
         </FieldBlock>
 
-        <FieldBlock label="Số điện thoại" error={fieldErrors.customerPhone}>
+        <FieldBlock label={strings.bookingCustomerPhoneLabel} error={fieldErrors.customerPhone}>
           <TextInput
             keyboardType="phone-pad"
-            placeholder="0916 080 398"
+            placeholder={strings.bookingCustomerPhonePlaceholder}
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={values.customerPhone}
@@ -248,9 +268,9 @@ export default function BookingScreen() {
           />
         </FieldBlock>
 
-        <FieldBlock label="Kỹ thuật viên ưu tiên">
+        <FieldBlock label={strings.bookingPreferredStaffLabel}>
           <TextInput
-            placeholder="Ví dụ: Bùi Thị Tuyết"
+            placeholder={strings.bookingPreferredStaffPlaceholder}
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             value={values.preferredStaff}
@@ -258,12 +278,12 @@ export default function BookingScreen() {
           />
         </FieldBlock>
 
-        <FieldBlock label="Ghi chú">
+        <FieldBlock label={strings.bookingNoteLabel}>
           <TextInput
             multiline
             numberOfLines={4}
             scrollEnabled={false}
-            placeholder="Màu sắc, nail art, lưu ý đặc biệt..."
+            placeholder={strings.bookingNotePlaceholderDetailed}
             placeholderTextColor={colors.textMuted}
             style={[styles.input, styles.noteInput]}
             textAlignVertical="top"
@@ -275,12 +295,12 @@ export default function BookingScreen() {
         {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
         {successResult ? (
           <SurfaceCard style={styles.successCard}>
-            <Text style={styles.successTitle}>Đã gửi yêu cầu thành công</Text>
-            <Text style={styles.successText}>{successResult.successMessage ?? "Tiệm đã nhận yêu cầu của bạn."}</Text>
+            <Text style={styles.successTitle}>{strings.bookingSuccessTitle}</Text>
+            <Text style={styles.successText}>{successResult.successMessage ?? strings.bookingSuccessBody}</Text>
           </SurfaceCard>
         ) : null}
 
-        <PrimaryButton label={isSubmitting ? "Đang gửi..." : "Gửi yêu cầu"} onPress={() => void submit()} />
+        <PrimaryButton label={isSubmitting ? strings.bookingSubmitting : strings.bookingSubmit} onPress={() => void submit()} />
       </SurfaceCard>
 
       <SurfaceCard style={styles.utilityCard}>
@@ -289,8 +309,8 @@ export default function BookingScreen() {
             <Feather color={colors.accentWarm} name="headphones" size={22} />
           </View>
           <View style={styles.utilityHeaderCopy}>
-            <Text style={styles.sectionTitle}>Liên hệ nhanh</Text>
-            <Text style={styles.sectionSubtitle}>Khi bạn cần tư vấn mẫu hoặc giữ chỗ gấp.</Text>
+            <Text style={styles.sectionTitle}>{strings.bookingContactTitle}</Text>
+            <Text style={styles.sectionSubtitle}>{strings.bookingContactSubtitle}</Text>
           </View>
         </View>
 
@@ -312,7 +332,7 @@ export default function BookingScreen() {
 
               <View style={styles.trailingPill}>
                 <Feather color={colors.accentWarm} name={item.actionIcon} size={17} />
-                <Text style={styles.contactAction}>{item.actionLabel}</Text>
+                <Text style={styles.contactAction}>{getLocalizedContactActionLabel(item.actionLabel, locale)}</Text>
               </View>
             </Pressable>
           ))}
@@ -326,7 +346,7 @@ export default function BookingScreen() {
           </View>
           <View style={styles.utilityHeaderCopy}>
             <Text style={styles.sectionTitle}>{strings.upcomingBookingsTitle}</Text>
-            <Text style={styles.sectionSubtitle}>Chỉ các lịch sắp tới và chưa hoàn thành mới hiển thị ở đây. Các lịch cũ hoặc đã hoàn tất sẽ nằm trong Lịch sử hẹn.</Text>
+            <Text style={styles.sectionSubtitle}>{strings.bookingTimelineSubtitle}</Text>
           </View>
         </View>
 
@@ -348,13 +368,7 @@ export default function BookingScreen() {
                   <View style={styles.bookingMetaRow}>
                     <Feather color={colors.textSoft} name="calendar" size={15} />
                     <Text style={styles.bookingMeta}>
-                      {new Date(item.requestedStartAt).toLocaleString("vi-VN", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
+                      {formatDateTimeLabel(item.requestedStartAt, locale)}
                     </Text>
                   </View>
 
@@ -368,7 +382,7 @@ export default function BookingScreen() {
 
                 <View style={styles.trailingPill}>
                   <Feather color={colors.accentWarm} name="clock" size={16} />
-                  <Text style={styles.contactAction}>{item.status}</Text>
+                  <Text style={styles.contactAction}>{getCustomerStatusLabel(locale, item.status)}</Text>
                 </View>
               </View>
             ))

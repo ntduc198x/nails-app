@@ -14,6 +14,7 @@ import {
   type ExploreStorefront,
   type ExploreTeamMember,
 } from "./customer-explore";
+import type { LocalizedTextValue } from "./localization";
 import type { SharedSupabaseClient } from "./org";
 
 type CustomerAccountContext = {
@@ -41,6 +42,7 @@ type FavoriteServiceRow = {
   image_url?: string | null;
   base_price?: number | null;
   duration_min?: number | null;
+  translations?: LocalizedTextValue | null;
 };
 
 type TicketHistoryItemRow = {
@@ -133,6 +135,7 @@ export type CustomerFavoriteService = {
   imageUrl: string | null;
   priceLabel: string | null;
   durationLabel: string | null;
+  translations: LocalizedTextValue | null;
 };
 
 export type CustomerMembershipSummary = {
@@ -510,6 +513,7 @@ function normalizeContentPosts(rows: Array<Record<string, unknown>>): CustomerCo
     publishedAt: typeof row.published_at === "string" ? row.published_at : null,
     priority: Number(row.priority ?? index),
     metadata: asRecord(row.metadata),
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   }));
 }
 
@@ -539,6 +543,7 @@ function normalizeOffers(rows: OfferRow[]): CustomerMembershipOffer[] {
     startsAt: typeof row.starts_at === "string" ? row.starts_at : null,
     endsAt: typeof row.ends_at === "string" ? row.ends_at : null,
     metadata: asRecord(row.offer_metadata),
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
     claimId: null,
     claimStatus: "AVAILABLE",
     claimedAt: null,
@@ -647,6 +652,7 @@ function normalizeStorefront(row?: StorefrontRow | null): ExploreStorefront | nu
     messengerUrl: typeof row.messenger_url === "string" ? row.messenger_url : null,
     instagramUrl: typeof row.instagram_url === "string" ? row.instagram_url : null,
     highlights: Array.isArray(row.highlights) ? row.highlights.filter((item): item is string => typeof item === "string") : [],
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   };
 }
 
@@ -659,6 +665,7 @@ function normalizeProducts(rows: ProductRow[]): ExploreProduct[] {
     imageUrl: typeof row.image_url === "string" ? row.image_url : null,
     productType: typeof row.product_type === "string" ? row.product_type : null,
     isFeatured: Boolean(row.is_featured),
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   }));
 }
 
@@ -669,6 +676,7 @@ function normalizeTeam(rows: TeamRow[]): ExploreTeamMember[] {
     roleLabel: typeof row.role_label === "string" ? row.role_label : null,
     avatarUrl: typeof row.avatar_url === "string" ? row.avatar_url : null,
     bio: typeof row.bio === "string" ? row.bio : null,
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   }));
 }
 
@@ -680,6 +688,7 @@ function normalizeGallery(rows: GalleryRow[]): ExploreGalleryItem[] {
       title: typeof row.title === "string" ? row.title : null,
       imageUrl: String(row.image_url),
       kind: typeof row.kind === "string" ? row.kind : null,
+      translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
     }));
 }
 
@@ -798,7 +807,7 @@ export async function listCustomerHomeFeedForContext(
     client
       .from("services")
       .select(
-        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+        "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
       )
       .eq("org_id", context.orgId)
       .eq("active", true)
@@ -809,7 +818,7 @@ export async function listCustomerHomeFeedForContext(
       .limit(6),
     client
       .from("customer_content_posts")
-      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata")
+      .select("id,title,summary,body,cover_image_url,content_type,source_platform,published_at,priority,metadata,translations")
       .eq("org_id", context.orgId)
       .eq("status", "published")
       .order("priority", { ascending: true })
@@ -817,7 +826,7 @@ export async function listCustomerHomeFeedForContext(
       .limit(4),
     client
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
       .eq("org_id", context.orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
@@ -852,7 +861,7 @@ export async function listCustomerExploreForContext(
   const nowMs = Date.now();
 
   const storefrontSelect =
-    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,branch_id,updated_at";
+    "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,branch_id,updated_at,translations";
 
   const loadStorefront = async (branchId?: string | null) => {
     const query = client
@@ -889,7 +898,7 @@ export async function listCustomerExploreForContext(
         client
           .from("services")
           .select(
-            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at",
+            "id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,lookbook_category,lookbook_badge,lookbook_tone,duration_label,display_order_home,display_order_explore,created_at,translations",
           )
           .eq("org_id", context.orgId)
           .eq("active", true)
@@ -900,7 +909,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_products")
-          .select("id,name,subtitle,price_label,image_url,product_type,is_featured")
+          .select("id,name,subtitle,price_label,image_url,product_type,is_featured,translations")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
@@ -908,7 +917,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_team_members")
-          .select("id,display_name,role_label,avatar_url,bio")
+          .select("id,display_name,role_label,avatar_url,bio,translations")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_visible", true)
@@ -916,7 +925,7 @@ export async function listCustomerExploreForContext(
           .limit(8),
         client
           .from("storefront_gallery")
-          .select("id,title,image_url,kind")
+          .select("id,title,image_url,kind,translations")
           .eq("org_id", context.orgId)
           .eq("storefront_id", storefrontId)
           .eq("is_active", true)
@@ -924,7 +933,7 @@ export async function listCustomerExploreForContext(
           .limit(12),
         client
           .from("marketing_offers")
-          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata")
+          .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
           .eq("org_id", context.orgId)
           .eq("is_active", true)
           .order("starts_at", { ascending: false })
@@ -1023,7 +1032,7 @@ export async function listCustomerMembershipSummary(
       .order("visit_threshold", { ascending: true }),
     client
       .from("marketing_offers")
-      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata")
+      .select("id,title,description,image_url,badge,starts_at,ends_at,offer_metadata,translations")
       .eq("org_id", context.orgId)
       .eq("is_active", true)
       .order("starts_at", { ascending: false })
@@ -1164,7 +1173,7 @@ export async function listCustomerFavoriteServices(
 
   const { data, error } = await client
     .from("services")
-    .select("id,name,short_description,image_url,base_price,duration_min")
+    .select("id,name,short_description,image_url,base_price,duration_min,translations")
     .in("id", favoriteIds);
 
   if (error) {
@@ -1177,11 +1186,12 @@ export async function listCustomerFavoriteServices(
     .filter((row): row is FavoriteServiceRow => Boolean(row))
     .map((row) => ({
       id: typeof row.id === "string" ? row.id : "",
-      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Dịch vụ yêu thích",
+      name: typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Favorite service",
       summary: typeof row.short_description === "string" && row.short_description.trim() ? row.short_description.trim() : null,
       imageUrl: typeof row.image_url === "string" && row.image_url.trim() ? row.image_url.trim() : null,
       priceLabel: typeof row.base_price === "number" ? formatLookbookPrice(row.base_price) : null,
-      durationLabel: typeof row.duration_min === "number" ? `${row.duration_min} phút` : null,
+      durationLabel: null,
+      translations: row.translations ?? null,
     }));
 }
 

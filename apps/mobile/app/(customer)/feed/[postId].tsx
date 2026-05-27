@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 
@@ -16,6 +17,7 @@ function getParam(
 }
 
 export default function CustomerFeedDetailScreen() {
+  const strings = useCustomerStrings();
   const params = useLocalSearchParams();
   const title = getParam(params, "title");
   const summary = getParam(params, "summary");
@@ -25,7 +27,7 @@ export default function CustomerFeedDetailScreen() {
   const sourcePlatform = getParam(params, "sourcePlatform");
 
   return (
-    <CustomerScreen hideHeader title={title || "Chi tiết feed"} contentContainerStyle={styles.content}>
+    <CustomerScreen hideHeader title={title || strings.feedDetailTitle} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <Pressable
           style={styles.backButton}
@@ -39,7 +41,7 @@ export default function CustomerFeedDetailScreen() {
         >
           <Feather color={colors.text} name="chevron-left" size={22} />
         </Pressable>
-        <Text numberOfLines={1} style={styles.headerTitle}>{title || "Chi tiết feed"}</Text>
+        <Text numberOfLines={1} style={styles.headerTitle}>{title || strings.feedDetailTitle}</Text>
         <CustomerTopActions />
       </View>
 
@@ -47,7 +49,7 @@ export default function CustomerFeedDetailScreen() {
         {coverImageUrl ? (
           <SurfaceCard style={styles.heroCard}>
             <CustomerCachedImage
-              alt={title || "Feed image"}
+              alt={title || strings.feedImageAlt}
               source={{ uri: coverImagePreviewUrl || coverImageUrl }}
               intent="preview"
               resizeMode="cover"
@@ -60,7 +62,7 @@ export default function CustomerFeedDetailScreen() {
           {sourcePlatform ? <Text style={styles.platformTag}>{sourcePlatform}</Text> : null}
           {title ? <Text style={styles.title}>{title}</Text> : null}
           {summary ? <Text style={styles.summary}>{summary}</Text> : null}
-          <Text style={styles.bodyText}>{body || summary || "Nội dung đang được cập nhật."}</Text>
+          <Text style={styles.bodyText}>{body || summary || strings.feedDetailUpdating}</Text>
         </SurfaceCard>
       </ScrollView>
     </CustomerScreen>

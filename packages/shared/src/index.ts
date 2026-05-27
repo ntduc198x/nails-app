@@ -21,3 +21,5 @@ export * from "./customer-personalization";
 export * from "./admin-content";
 export * from "./auto-schedule";
 export * from "./shifts";
+export * from "./i18n";
+export * from "./localization";

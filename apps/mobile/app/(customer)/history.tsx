@@ -1,20 +1,17 @@
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import type { CustomerHistoryItem } from "@nails/shared";
+import { formatDateTimeLabel, type CustomerHistoryItem } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { CustomerScreen, SegmentedTabs, StatusTag, SurfaceCard } from "@/src/features/customer/ui";
+import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerHistory } from "@/src/hooks/use-customer-history";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const { colors, spacing } = premiumTheme;
 
-const FILTERS = [
-  { key: "all", label: "Tất cả" },
-  { key: "recent", label: "Gần đây" },
-] as const;
-
-type FilterKey = (typeof FILTERS)[number]["key"];
+type FilterKey = "all" | "recent";
 
 function getStatusTone(item: CustomerHistoryItem): "success" | "warning" | "danger" | "default" {
   switch (item.status) {
@@ -35,24 +32,18 @@ function getStatusTone(item: CustomerHistoryItem): "success" | "warning" | "dang
   }
 }
 
-function formatOccurredAt(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return "--/--/----";
-  }
-
-  return date.toLocaleString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 export default function HistoryScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
   const { historyItems, isHydrated, isLoading, refresh } = useCustomerHistory();
+  const filters = useMemo(
+    () => [
+      { key: "all" as const, label: strings.all },
+      { key: "recent" as const, label: strings.recent },
+    ],
+    [strings],
+  );
 
   const items = useMemo(() => {
     if (activeFilter === "recent") {
@@ -62,8 +53,8 @@ export default function HistoryScreen() {
   }, [activeFilter, historyItems]);
 
   return (
-    <CustomerScreen title="Lịch sử đặt lịch" onRefresh={() => void refresh()} refreshing={isLoading}>
-      <SegmentedTabs activeKey={activeFilter} items={FILTERS} onChange={setActiveFilter} />
+    <CustomerScreen title={strings.historyTitle} onRefresh={() => void refresh()} refreshing={isLoading}>
+      <SegmentedTabs activeKey={activeFilter} items={filters} onChange={setActiveFilter} />
 
       <View style={styles.list}>
         {items.map((item) => (
@@ -81,17 +72,17 @@ export default function HistoryScreen() {
 
               <View style={styles.row}>
                 <View style={styles.copy}>
-                  <Text style={styles.time}>{formatOccurredAt(item.occurredAt)}</Text>
+                  <Text style={styles.time}>{formatDateTimeLabel(item.occurredAt, locale)}</Text>
                   <Text style={styles.staff}>{item.serviceName}</Text>
                   <Text style={styles.service}>
-                    {item.source === "appointment" ? "Lịch hẹn" : "Yêu cầu đặt lịch"}
+                    {item.source === "appointment" ? strings.historyAppointment : strings.historyBookingRequest}
                     {item.preferredStaff ? ` · ${item.preferredStaff}` : ""}
                     {item.servicePriceLabel ? ` · ${item.servicePriceLabel}` : ""}
                     {item.serviceSummary ? ` · ${item.serviceSummary}` : ""}
                   </Text>
                 </View>
                 <View style={styles.aside}>
-                  <StatusTag label={item.statusLabel} tone={getStatusTone(item)} />
+                  <StatusTag label={getCustomerStatusLabel(locale, item.status)} tone={getStatusTone(item)} />
                 </View>
               </View>
             </SurfaceCard>
@@ -100,8 +91,8 @@ export default function HistoryScreen() {
 
         {isHydrated && !items.length ? (
           <SurfaceCard>
-            <Text style={styles.emptyTitle}>Chưa có lịch sử hẹn</Text>
-            <Text style={styles.emptyText}>Lịch sử sẽ hiển thị các lịch hẹn và yêu cầu đặt lịch của khách theo thời gian.</Text>
+            <Text style={styles.emptyTitle}>{strings.historyEmptyTitle}</Text>
+            <Text style={styles.emptyText}>{strings.historyEmptyBody}</Text>
           </SurfaceCard>
         ) : null}
       </View>

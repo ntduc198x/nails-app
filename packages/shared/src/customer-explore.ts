@@ -1,4 +1,5 @@
 import type { LookbookItem, MarketingOfferCard } from "./customer-feed";
+import type { LocalizedTextValue } from "./localization";
 
 export type ExploreStorefront = {
   id: string;
@@ -17,6 +18,7 @@ export type ExploreStorefront = {
   messengerUrl: string | null;
   instagramUrl: string | null;
   highlights: string[];
+  translations: LocalizedTextValue | null;
 };
 
 export type ExploreStat = {
@@ -34,6 +36,7 @@ export type ExploreProduct = {
   imageUrl: string | null;
   productType: string | null;
   isFeatured: boolean;
+  translations: LocalizedTextValue | null;
 };
 
 export type ExploreTeamMember = {
@@ -42,6 +45,7 @@ export type ExploreTeamMember = {
   roleLabel: string | null;
   avatarUrl: string | null;
   bio: string | null;
+  translations: LocalizedTextValue | null;
 };
 
 export type ExploreGalleryItem = {
@@ -49,6 +53,7 @@ export type ExploreGalleryItem = {
   title: string | null;
   imageUrl: string;
   kind: string | null;
+  translations: LocalizedTextValue | null;
 };
 
 export type ExploreMapCard = {

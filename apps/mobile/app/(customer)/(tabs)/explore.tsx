@@ -17,11 +17,21 @@ import type { ExploreGalleryItem, ExploreProduct, ExploreTeamMember, LookbookIte
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
 import { CATEGORY_ITEMS, matchesCategory } from "@/src/features/customer/data";
+import {
+  localizeGalleryItem,
+  localizeLookbookItem,
+  localizeOfferCard,
+  localizeOpeningHours,
+  localizeProduct,
+  localizeStorefront,
+  localizeTeamMember,
+} from "@/src/features/customer/localize";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerExplore } from "@/src/hooks/use-customer-explore";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const { colors, radius, shadow, spacing } = premiumTheme;
 
@@ -31,8 +41,26 @@ const SERVICE_CARD_WIDTH = 182;
 const SERVICE_CARD_GAP = 14;
 const SERVICE_AUTO_SCROLL_INTERVAL = 4000;
 
+function getLocalizedCategoryLabel(key: CategoryKey, strings: ReturnType<typeof useCustomerStrings>) {
+  switch (key) {
+    case "all":
+      return strings.all;
+    case "don-gian":
+      return strings.exploreCategoryMinimal;
+    case "sang-trong":
+      return strings.exploreCategoryLuxury;
+    case "ca-tinh":
+      return strings.exploreCategoryEdgy;
+    case "noi-bat":
+      return strings.exploreCategoryStandout;
+    default:
+      return strings.all;
+  }
+}
+
 export default function ExploreScreen() {
   const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -55,14 +83,33 @@ export default function ExploreScreen() {
   } = useCustomerExplore();
   const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
+  const localizedFeaturedServices = useMemo(
+    () => featuredServices.map((service) => localizeLookbookItem(locale, service)),
+    [featuredServices, locale],
+  );
+
   const filteredServices = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
-    return featuredServices.filter((service) => {
+    return localizedFeaturedServices.filter((service) => {
       const haystack = `${service.title} ${service.blurb} ${service.tone} ${service.badge}`.toLowerCase();
       return (!query || haystack.includes(query)) && matchesCategory(service, activeCategory);
     });
-  }, [activeCategory, featuredServices, searchQuery]);
+  }, [activeCategory, localizedFeaturedServices, searchQuery]);
+
+  const localizedCategories = useMemo(
+    () =>
+      CATEGORY_ITEMS.map((item) => ({
+        ...item,
+        label: getLocalizedCategoryLabel(item.key, strings),
+      })),
+    [strings],
+  );
+  const localizedStorefront = useMemo(() => localizeStorefront(locale, storefront), [locale, storefront]);
+  const localizedProducts = useMemo(() => products.map((item) => localizeProduct(locale, item)), [locale, products]);
+  const localizedTeam = useMemo(() => team.map((member) => localizeTeamMember(locale, member)), [locale, team]);
+  const localizedGallery = useMemo(() => gallery.map((item) => localizeGalleryItem(locale, item)), [locale, gallery]);
+  const localizedOffers = useMemo(() => offers.map((offer) => localizeOfferCard(locale, offer)), [locale, offers]);
 
   useEffect(() => {
     filteredServicesLengthRef.current = filteredServices.length;
@@ -126,12 +173,14 @@ export default function ExploreScreen() {
     if (!favoriteError) return;
 
     if (favoriteError.includes("PROFILE_NOT_FOUND") || favoriteError.includes("PHONE_NOT_SET")) {
-      const actionLabel = favoriteError.includes("PROFILE_NOT_FOUND") ? "Cập nhật hồ sơ" : "Cập nhật số điện thoại";
+      const actionLabel = favoriteError.includes("PROFILE_NOT_FOUND")
+        ? strings.exploreUpdateProfile
+        : strings.exploreUpdatePhone;
       Alert.alert(
-        "Cần bổ sung thông tin",
-        favoriteError.split(":")[1] || "Vui lòng cập nhật hồ sơ để lưu yêu thích.",
+        strings.exploreFavoriteNeedsInfoTitle,
+        favoriteError.split(":")[1] || strings.exploreFavoriteNeedsInfoBody,
         [
-          { text: "Hủy", style: "cancel" },
+          { text: strings.cancel, style: "cancel" },
           { text: actionLabel, onPress: () => router.navigate("/(customer)/(tabs)/account") },
         ],
       );
@@ -144,7 +193,17 @@ export default function ExploreScreen() {
     }
 
     Alert.alert(strings.favoriteSaveFailedTitle, favoriteError);
-  }, [favoriteError, strings.favoriteSaveBlockedBody, strings.favoriteSaveBlockedTitle, strings.favoriteSaveFailedTitle]);
+  }, [
+    favoriteError,
+    strings.cancel,
+    strings.exploreFavoriteNeedsInfoBody,
+    strings.exploreFavoriteNeedsInfoTitle,
+    strings.exploreUpdatePhone,
+    strings.exploreUpdateProfile,
+    strings.favoriteSaveBlockedBody,
+    strings.favoriteSaveBlockedTitle,
+    strings.favoriteSaveFailedTitle,
+  ]);
 
   async function openMap() {
     if (map?.mapUrl) {
@@ -154,7 +213,7 @@ export default function ExploreScreen() {
 
   return (
     <CustomerScreen
-      title="Khám phá"
+      title={strings.exploreTitle}
       hideHeader
       keyboardAware
       keyboardVerticalOffset={12}
@@ -167,29 +226,29 @@ export default function ExploreScreen() {
         <CustomerTopActions />
       </View>
 
-      {storefront ? (
+      {localizedStorefront ? (
         <View style={styles.storeHero}>
-          {storefront.coverImageUrl ? (
-            <CustomerCachedImage alt={storefront.name} source={{ uri: storefront.coverImageUrl }} intent="hero" style={styles.storeImage} />
+          {localizedStorefront.coverImageUrl ? (
+            <CustomerCachedImage alt={localizedStorefront.name} source={{ uri: localizedStorefront.coverImageUrl }} intent="hero" style={styles.storeImage} />
           ) : null}
 
           <View style={styles.storeCopy}>
-            <Text style={styles.storeName}>{storefront.name}</Text>
-            {storefront.category ? <Text style={styles.storeCategory}>{storefront.category}</Text> : null}
-            {storefront.description ? <Text style={styles.storeDescription}>{storefront.description}</Text> : null}
+            <Text style={styles.storeName}>{localizedStorefront.name}</Text>
+            {localizedStorefront.category ? <Text style={styles.storeCategory}>{localizedStorefront.category}</Text> : null}
+            {localizedStorefront.description ? <Text style={styles.storeDescription}>{localizedStorefront.description}</Text> : null}
 
-            {(storefront.rating || storefront.reviewsLabel) ? (
+            {(localizedStorefront.rating || localizedStorefront.reviewsLabel) ? (
               <View style={styles.ratingRow}>
                 <Feather color="#d7a24c" name="star" size={15} />
                 <Text style={styles.ratingText}>
-                  {storefront.rating ? storefront.rating.toFixed(1) : "4.9"}
-                  {storefront.reviewsLabel ? ` (${storefront.reviewsLabel})` : ""}
+                  {localizedStorefront.rating ? localizedStorefront.rating.toFixed(1) : "4.9"}
+                  {localizedStorefront.reviewsLabel ? ` (${localizedStorefront.reviewsLabel})` : ""}
                 </Text>
               </View>
             ) : null}
 
             <View style={styles.highlightRow}>
-              {storefront.highlights.map((item) => (
+              {localizedStorefront.highlights.map((item) => (
                 <View key={item} style={styles.highlightItem}>
                   <Feather color={colors.textSoft} name="shield" size={13} />
                   <Text style={styles.highlightText}>{item}</Text>
@@ -203,7 +262,7 @@ export default function ExploreScreen() {
       <View style={styles.searchBar}>
         <Feather color="#8f8174" name="search" size={16} />
         <TextInput
-          placeholder="Tìm mẫu lookbook..."
+          placeholder={strings.exploreSearchPlaceholder}
           placeholderTextColor="#b7aa9d"
           style={styles.searchInput}
           value={searchQuery}
@@ -212,7 +271,7 @@ export default function ExploreScreen() {
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        {CATEGORY_ITEMS.map((item) => {
+        {localizedCategories.map((item) => {
           const active = item.key === activeCategory;
 
           return (
@@ -223,23 +282,23 @@ export default function ExploreScreen() {
         })}
       </ScrollView>
 
-      <SectionHeader title="Dịch vụ nổi bật" actionLabel="Đặt lịch" />
+      <SectionHeader title={strings.exploreFeaturedServices} actionLabel={strings.exploreBookAction} />
 
       {isLoading && filteredServices.length === 0 ? (
         <SurfaceCard style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Đang tải Explore…</Text>
-          <Text style={styles.stateDescription}>Storefront, lookbook và đội ngũ đang được đồng bộ từ hệ thống.</Text>
+          <Text style={styles.stateTitle}>{strings.exploreLoadingTitle}</Text>
+          <Text style={styles.stateDescription}>{strings.exploreLoadingBody}</Text>
         </SurfaceCard>
       ) : null}
 
       {!isLoading && filteredServices.length === 0 ? (
         <SurfaceCard style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Chưa có dịch vụ phù hợp</Text>
+          <Text style={styles.stateTitle}>{strings.exploreEmptyTitle}</Text>
           <Text style={styles.stateDescription}>
-            {lastError ? `Hiện chưa tải được dữ liệu Explore. ${lastError}` : "Hãy đổi bộ lọc hoặc kéo xuống để làm mới."}
+            {lastError ? lastError : strings.exploreEmptyBody}
           </Text>
           <Pressable style={styles.retryButton} onPress={() => void refresh()}>
-            <Text style={styles.retryButtonText}>Thử lại</Text>
+            <Text style={styles.retryButtonText}>{strings.retry}</Text>
           </Pressable>
         </SurfaceCard>
       ) : null}
@@ -277,54 +336,54 @@ export default function ExploreScreen() {
         </>
       ) : null}
 
-      <SectionHeader title="Sản phẩm & phụ kiện" actionLabel="Xem thêm" />
+      <SectionHeader title={strings.exploreProducts} actionLabel={strings.exploreViewMore} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
-        {products.map((item) => (
-          <ProductCard key={item.id} item={item} />
+        {localizedProducts.map((item) => (
+          <ProductCard key={item.id} item={item} strings={strings} />
         ))}
       </ScrollView>
 
-      <SectionHeader title="Đội ngũ nhân viên" actionLabel={`${team.length} người`} />
+      <SectionHeader title={strings.exploreTeam} actionLabel={`${team.length}`} />
       <View style={styles.teamRow}>
-        {team.map((member) => (
+        {localizedTeam.map((member) => (
           <TeamCard key={member.id} member={member} />
         ))}
       </View>
 
-      <SectionHeader title="Không gian cửa hàng" actionLabel={`${gallery.length} ảnh`} />
+      <SectionHeader title={strings.exploreGallery} actionLabel={`${localizedGallery.length}`} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
-        {gallery.map((item) => (
-          <GalleryCard key={item.id} item={item} />
+        {localizedGallery.map((item) => (
+          <GalleryCard key={item.id} item={item} strings={strings} />
         ))}
       </ScrollView>
 
-      {offers.length ? (
+      {localizedOffers.length ? (
         <>
-          <SectionHeader title="Ưu đãi đang có" actionLabel="Mở thẻ" />
+          <SectionHeader title={strings.exploreOffers} actionLabel={strings.exploreOpenMembership} />
           <View style={styles.offerList}>
-            {offers.map((offer) => (
+            {localizedOffers.map((offer) => (
               <OfferCard key={offer.id} offer={offer} />
             ))}
           </View>
         </>
       ) : null}
 
-      <SectionHeader title="Địa chỉ cửa hàng" />
+      <SectionHeader title={strings.exploreMap} />
       <SurfaceCard style={styles.mapCard}>
-        {map?.imageUrl ? <CustomerCachedImage alt="Bản đồ cửa hàng" source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
+        {map?.imageUrl ? <CustomerCachedImage alt={strings.exploreMapAlt} source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
         <View style={styles.mapCopy}>
           {map?.addressLine ? <Text style={styles.mapAddress}>{map.addressLine}</Text> : null}
           {map?.openingHours ? (
             <View style={styles.mapMetaRow}>
               <Feather color={colors.textSoft} name="clock" size={14} />
-              <Text style={styles.mapMetaText}>{map.openingHours}</Text>
+              <Text style={styles.mapMetaText}>{localizeOpeningHours(locale, map.openingHours) ?? map.openingHours}</Text>
             </View>
           ) : null}
         </View>
         {map?.mapUrl ? (
           <Pressable style={styles.directionButton} onPress={() => void openMap()}>
             <Feather color={colors.accent} name="navigation" size={15} />
-            <Text style={styles.directionButtonText}>Chỉ đường</Text>
+            <Text style={styles.directionButtonText}>{strings.exploreDirections}</Text>
           </Pressable>
         ) : null}
       </SurfaceCard>
@@ -415,16 +474,18 @@ const MemoExploreServiceCard = memo(
     previous.service.price === next.service.price,
 );
 
-function ProductCard({ item }: { item: ExploreProduct }) {
+function ProductCard({ item, strings }: { item: ExploreProduct; strings: ReturnType<typeof useCustomerStrings> }) {
   return (
     <SurfaceCard style={styles.productCard}>
       {item.imageUrl ? <CustomerCachedImage alt={item.name} source={{ uri: item.imageUrl }} style={styles.productImage} /> : null}
       <Text numberOfLines={2} style={styles.productTitle}>{item.name}</Text>
       {item.subtitle ? <Text style={styles.productSubLabel}>{item.subtitle}</Text> : null}
       <View style={styles.productFooter}>
-        <Text style={styles.productPrice}>{item.priceLabel ?? "Liên hệ"}</Text>
+        <Text style={styles.productPrice}>{item.priceLabel ?? strings.exploreContactPrice}</Text>
         <View style={styles.productTag}>
-          <Text style={styles.productTagText}>{item.isFeatured ? "Featured" : item.productType ?? "Item"}</Text>
+          <Text style={styles.productTagText}>
+            {item.isFeatured ? strings.exploreFeaturedTag : item.productType ?? strings.exploreItemTag}
+          </Text>
         </View>
       </View>
     </SurfaceCard>
@@ -441,10 +502,10 @@ function TeamCard({ member }: { member: ExploreTeamMember }) {
   );
 }
 
-function GalleryCard({ item }: { item: ExploreGalleryItem }) {
+function GalleryCard({ item, strings }: { item: ExploreGalleryItem; strings: ReturnType<typeof useCustomerStrings> }) {
   return (
     <View style={styles.galleryCard}>
-      <CustomerCachedImage alt={item.title ?? "Gallery"} source={{ uri: item.imageUrl }} style={styles.galleryImage} />
+      <CustomerCachedImage alt={item.title ?? strings.exploreGalleryFallback} source={{ uri: item.imageUrl }} style={styles.galleryImage} />
       {item.title ? <Text style={styles.galleryTitle}>{item.title}</Text> : null}
     </View>
   );

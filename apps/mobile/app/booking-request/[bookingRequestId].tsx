@@ -1,11 +1,16 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { listBookingRequestsForMobile, type MobileBookingRequestSummary } from "@nails/shared";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
-import { addMinutesToIso, AdminBottomNavDock, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
+import { addMinutesToIso, AdminBottomNavDock, AdminDetailLoadingScreen, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
+import { useAdminStrings } from "@/src/features/admin/strings";
+import { mobileSupabase } from "@/src/lib/supabase";
+import { AdminPreferencesProvider } from "@/src/providers/admin-preferences-provider";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 const palette = {
   bg: "#FCFAF8",
@@ -107,12 +112,12 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
-function formatDisplayDate(isoValue: string) {
+function formatDisplayDate(isoValue: string, locale: "vi" | "en") {
   const date = new Date(isoValue);
   const dd = String(date.getDate()).padStart(2, "0");
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const yyyy = String(date.getFullYear());
-  const weekday = date.toLocaleDateString("vi-VN", { weekday: "short" });
+  const weekday = date.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN", { weekday: "short" });
   return `${dd}/${mm}/${yyyy} (${weekday})`;
 }
 
@@ -136,6 +141,8 @@ function BookingRequestEditor({
   user,
   convertBookingRequest,
 }: BookingRequestDetailProps) {
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const [scheduledDateInput, setScheduledDateInput] = useState(() => toLocalDateInput(booking.requestedStartAt));
   const [scheduledTimeInput, setScheduledTimeInput] = useState(() => toLocalTimeInput(booking.requestedStartAt));
   const [selectedStaffUserId, setSelectedStaffUserId] = useState("");
@@ -195,7 +202,7 @@ function BookingRequestEditor({
             <View style={styles.customerNameRow}>
               <Text style={styles.customerName}>{booking.customerName}</Text>
               <View style={styles.statusBadge}>
-                <Text style={styles.statusBadgeText}>Mới</Text>
+                <Text style={styles.statusBadgeText}>{strings.bookingRequestStatusNewBadge}</Text>
               </View>
             </View>
           </View>
@@ -204,18 +211,18 @@ function BookingRequestEditor({
         <View style={styles.infoPillsRow}>
           <View style={styles.infoPill}>
             <Feather name="phone" size={12} color={palette.textSecondary} />
-            <Text style={styles.infoPillText}>{booking.customerPhone ?? "Chưa có"}</Text>
+            <Text style={styles.infoPillText}>{booking.customerPhone ?? strings.bookingRequestMissingPhone}</Text>
           </View>
           <View style={styles.infoPill}>
             <Feather name="tag" size={12} color={palette.textSecondary} />
-            <Text style={styles.infoPillText}>{booking.requestedService ?? "Chưa chọn"}</Text>
+            <Text style={styles.infoPillText}>{booking.requestedService ?? strings.bookingRequestNoServiceSelected}</Text>
           </View>
         </View>
 
         <View style={styles.datetimeRow}>
           <Feather name="calendar" size={14} color={palette.textSecondary} />
           <Text style={styles.datetimeText}>
-            {formatDisplayTime(booking.requestedStartAt)} • {formatDisplayDate(booking.requestedStartAt)}
+            {formatDisplayTime(booking.requestedStartAt)} • {formatDisplayDate(booking.requestedStartAt, locale)}
           </Text>
         </View>
 
@@ -236,14 +243,14 @@ function BookingRequestEditor({
             <Feather name="calendar" size={16} color={palette.primary} />
           </View>
           <View>
-            <Text style={styles.cardTitle}>Ngày giờ mong muốn</Text>
-            <Text style={styles.cardSubtitle}>{formatDisplayTime(booking.requestedStartAt)} • {formatDisplayDate(booking.requestedStartAt)}</Text>
+            <Text style={styles.cardTitle}>{strings.bookingRequestDesiredDateTimeTitle}</Text>
+            <Text style={styles.cardSubtitle}>{formatDisplayTime(booking.requestedStartAt)} • {formatDisplayDate(booking.requestedStartAt, locale)}</Text>
           </View>
         </View>
 
         <View style={styles.datetimeInputs}>
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Ngày</Text>
+            <Text style={styles.inputLabel}>{strings.bookingRequestDateLabel}</Text>
             <Pressable
               style={styles.inputWrapper}
               onPress={() => {
@@ -262,7 +269,7 @@ function BookingRequestEditor({
             </Pressable>
           </View>
           <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Giờ</Text>
+            <Text style={styles.inputLabel}>{strings.bookingRequestTimeLabel}</Text>
             <Pressable
               style={styles.inputWrapper}
               onPress={() => {
@@ -280,7 +287,7 @@ function BookingRequestEditor({
 
         <View style={styles.offsetRow}>
           {[
-            { offset: 0, label: "Giữ giờ" },
+            { offset: 0, label: strings.bookingRequestKeepTime },
             { offset: 30, label: "+30p" },
             { offset: 60, label: "+60p" },
             { offset: 90, label: "+90p" },
@@ -314,10 +321,10 @@ function BookingRequestEditor({
       <Modal visible={showDatePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn ngày</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Ngày</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerDay}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
                     <Pressable
@@ -331,7 +338,7 @@ function BookingRequestEditor({
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Tháng</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMonth}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
                     <Pressable
@@ -345,7 +352,7 @@ function BookingRequestEditor({
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Năm</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerYear}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
                     <Pressable
@@ -366,7 +373,7 @@ function BookingRequestEditor({
               setScheduledDateInput(toLocalDateInput(date.toISOString()));
               setShowDatePicker(false);
             }}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -376,10 +383,10 @@ function BookingRequestEditor({
       <Modal visible={showTimePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>Chọn giờ</Text>
+            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
             <View style={styles.pickerRow}>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Giờ</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerHour}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
                     <Pressable
@@ -393,7 +400,7 @@ function BookingRequestEditor({
                 </ScrollView>
               </View>
               <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>Phút</Text>
+                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMinute}</Text>
                 <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
                   {[0, 15, 30, 45].map((minute) => (
                     <Pressable
@@ -412,7 +419,7 @@ function BookingRequestEditor({
               setScheduledTimeInput(time);
               setShowTimePicker(false);
             }}>
-              <Text style={styles.pickerConfirmText}>Xác nhận</Text>
+              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
             </Pressable>
           </Pressable>
         </Pressable>
@@ -424,7 +431,7 @@ function BookingRequestEditor({
           <View style={styles.cardHeaderIcon}>
             <Feather name="user" size={16} color={palette.primary} />
           </View>
-          <Text style={styles.cardTitle}>Chọn thợ</Text>
+          <Text style={styles.cardTitle}>{strings.manageSchedulingDetailStaffTitle}</Text>
         </View>
 
         <View style={styles.pillsRow}>
@@ -454,7 +461,7 @@ function BookingRequestEditor({
           <View style={styles.cardHeaderIcon}>
             <Feather name="grid" size={16} color={palette.primary} />
           </View>
-          <Text style={styles.cardTitle}>Chọn tài nguyên</Text>
+          <Text style={styles.cardTitle}>{strings.manageSchedulingDetailResourceTitle}</Text>
         </View>
 
         <View style={styles.resourceGrid}>
@@ -478,7 +485,6 @@ function BookingRequestEditor({
         </View>
       </View>
 
-      {/* Primary Button - Chốt lịch */}
       <Pressable
         style={[
           styles.primaryButton,
@@ -489,11 +495,10 @@ function BookingRequestEditor({
       >
         <Feather name="calendar" size={18} color="#FFFFFF" />
         <Text style={styles.primaryButtonText}>
-          {busyTargetId === booking.id ? "Đang xử lý..." : "Chốt lịch"}
+          {busyTargetId === booking.id ? strings.bookingRequestProcessing : strings.bookingRequestConfirmBooking}
         </Text>
       </Pressable>
 
-      {/* Danger Button - Khách hủy booking */}
       {bookingCancelConfirmId === booking.id ? (
         <Pressable
           style={styles.dangerButton}
@@ -501,19 +506,20 @@ function BookingRequestEditor({
           onPress={() => void handleCancelBooking()}
         >
           <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>Xác nhận khách hủy booking</Text>
+          <Text style={styles.dangerButtonText}>{strings.bookingRequestCustomerCancelledConfirm}</Text>
         </Pressable>
       ) : (
         <Pressable style={styles.dangerButton} onPress={() => setBookingCancelConfirmId(booking.id)}>
           <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>Khách hủy booking</Text>
+          <Text style={styles.dangerButtonText}>{strings.bookingRequestCustomerCancelled}</Text>
         </Pressable>
       )}
     </View>
   );
 }
 
-export default function BookingRequestDetailScreen() {
+function BookingRequestDetailScreenContent() {
+  const strings = useAdminStrings();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ bookingRequestId?: string }>();
@@ -529,18 +535,94 @@ export default function BookingRequestDetailScreen() {
     user,
     busyTargetId,
     error,
+    loading,
     mutating,
+    observerScope,
   } = useAdminOperations();
+  const [directBooking, setDirectBooking] = useState<MobileBookingRequestSummary | null>(null);
+  const [directLoading, setDirectLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateMissingBooking = async () => {
+      if (!bookingRequestId || loading) {
+        if (!cancelled) {
+          setDirectBooking(null);
+          setDirectLoading(false);
+        }
+        return;
+      }
+
+      const cachedMatch = bookingRequests.find((item) => item.id === bookingRequestId) ?? null;
+      if (cachedMatch) {
+        if (!cancelled) {
+          setDirectBooking(cachedMatch);
+          setDirectLoading(false);
+        }
+        return;
+      }
+
+      if (!mobileSupabase) {
+        if (!cancelled) {
+          setDirectBooking(null);
+          setDirectLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setDirectLoading(true);
+      }
+
+      try {
+        const rows = await listBookingRequestsForMobile(mobileSupabase, { observerScope });
+        if (cancelled) return;
+        setDirectBooking(rows.find((item) => item.id === bookingRequestId) ?? null);
+      } catch {
+        if (!cancelled) {
+          setDirectBooking(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setDirectLoading(false);
+        }
+      }
+    };
+
+    void hydrateMissingBooking();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingRequestId, bookingRequests, loading, observerScope]);
 
   const booking = useMemo(
-    () => bookingRequests.find((item) => item.id === bookingRequestId) ?? null,
-    [bookingRequestId, bookingRequests],
+    () => bookingRequests.find((item) => item.id === bookingRequestId) ?? directBooking ?? null,
+    [bookingRequestId, bookingRequests, directBooking],
   );
 
   const newBookingCount = useMemo(
     () => bookingRequests.filter((item) => item.status === "NEW").length,
     [bookingRequests],
   );
+
+  const showLoadingState = loading || directLoading;
+
+  if (showLoadingState) {
+    return (
+      <AdminDetailLoadingScreen
+        current="booking"
+        role={role}
+        subtitle={strings.bookingRequestDesiredDateTimeTitle}
+        title={strings.manageShiftsLoading}
+        onBack={() => router.back()}
+        onNavigate={(target) => {
+          void router.replace(getAdminNavHref(target, role));
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -550,7 +632,7 @@ export default function BookingRequestDetailScreen() {
             <Feather name="chevron-left" size={24} color={palette.textPrimary} />
           </Pressable>
           <Text style={styles.headerTitle} numberOfLines={1}>
-            {booking?.customerName ?? "Chi tiết booking"}
+            {booking?.customerName ?? strings.bookingRequestDetailFallbackTitle}
           </Text>
           <View style={styles.headerActions}>
             <Pressable style={styles.headerButton}>
@@ -578,7 +660,7 @@ export default function BookingRequestDetailScreen() {
       >
         {!booking ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyText}>Không tìm thấy booking</Text>
+            <Text style={styles.emptyText}>{strings.bookingRequestEmpty}</Text>
           </View>
         ) : (
           <BookingRequestEditor
@@ -608,6 +690,14 @@ export default function BookingRequestDetailScreen() {
         }}
       />
     </View>
+  );
+}
+
+export default function BookingRequestDetailScreen() {
+  return (
+    <AdminPreferencesProvider>
+      <BookingRequestDetailScreenContent />
+    </AdminPreferencesProvider>
   );
 }
 

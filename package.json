@@ -29,6 +29,9 @@
     "mobile:ios": "npm run ios --workspace @nails/mobile",
     "mobile:lint": "npm run lint --workspace @nails/mobile",
     "mobile:typecheck": "npm run typecheck --workspace @nails/mobile",
+    "i18n:audit": "node scripts/audit-i18n.mjs",
+    "i18n:audit:customer-mobile": "node scripts/audit-i18n.mjs --customer-mobile",
+    "i18n:audit:admin-mobile": "node scripts/audit-i18n.mjs --admin-mobile",
     "services:seed:priceboard": "node scripts/seed-services-from-priceboard.mjs"
   },
   "overrides": {

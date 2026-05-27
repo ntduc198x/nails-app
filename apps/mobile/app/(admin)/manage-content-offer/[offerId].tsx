@@ -15,6 +15,8 @@ import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { hydrateCachedValue, isCacheFresh, markAdminContentRefresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -32,14 +34,6 @@ const OFFER_DETAIL_CACHE_PREFIX = "admin-offer-detail:";
 const DETAIL_FRESH_MS = 2 * 60 * 1000;
 const DETAIL_MAX_STALE_MS = 5 * 60 * 1000;
 const OFFER_PACKAGE_TIERS = ["REGULAR", "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND"] as const;
-const OFFER_TIER_BADGES: Record<(typeof OFFER_PACKAGE_TIERS)[number], string> = {
-  REGULAR: "Hạng thường",
-  BRONZE: "Hạng đồng",
-  SILVER: "Hạng bạc",
-  GOLD: "Hạng vàng",
-  PLATINUM: "Hạng bạch kim",
-  DIAMOND: "Hạng kim cương",
-};
 
 type OfferDateField = "startsAt" | "endsAt";
 
@@ -70,7 +64,7 @@ function emptyOfferForm(packageTier: (typeof OFFER_PACKAGE_TIERS)[number] = "REG
     title: "",
     description: "",
     imageUrl: "",
-    badge: OFFER_TIER_BADGES[packageTier],
+    badge: "",
     startsAt: "",
     endsAt: "",
     isActive: true,
@@ -84,25 +78,30 @@ function stringifyMetadata(metadata: Record<string, unknown>) {
   return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
 }
 
-function getOfferTierBadge(packageTier: (typeof OFFER_PACKAGE_TIERS)[number]) {
-  return OFFER_TIER_BADGES[packageTier];
+function getOfferTierBadge(strings: ReturnType<typeof useAdminStrings>, packageTier: (typeof OFFER_PACKAGE_TIERS)[number]) {
+  if (packageTier === "BRONZE") return strings.offerTierBronze;
+  if (packageTier === "SILVER") return strings.offerTierSilver;
+  if (packageTier === "GOLD") return strings.offerTierGold;
+  if (packageTier === "PLATINUM") return strings.offerTierPlatinum;
+  if (packageTier === "DIAMOND") return strings.offerTierDiamond;
+  return strings.offerTierRegular;
 }
 
-function buildTierLinkedFormPatch(packageTier: (typeof OFFER_PACKAGE_TIERS)[number]) {
+function buildTierLinkedFormPatch(strings: ReturnType<typeof useAdminStrings>, packageTier: (typeof OFFER_PACKAGE_TIERS)[number]) {
   return {
     packageTier,
-    badge: getOfferTierBadge(packageTier),
+    badge: getOfferTierBadge(strings, packageTier),
   };
 }
 
-function formatOfferDateLabel(value: string) {
+function formatOfferDateLabel(value: string, locale: "vi" | "en") {
   if (!value) return "";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return value;
   }
 
-  return parsed.toLocaleDateString("vi-VN", {
+  return parsed.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -153,7 +152,7 @@ function buildOfferForm(offer: MobileAdminOffer): OfferFormState {
     title: offer.title,
     description: offer.description,
     imageUrl: offer.imageUrl ?? "",
-    badge: getOfferTierBadge(packageTier),
+    badge: "",
     startsAt: offer.startsAt ?? "",
     endsAt: offer.endsAt ?? "",
     isActive: offer.isActive,
@@ -178,7 +177,7 @@ function toOfferInput(form: OfferFormState): MobileAdminOfferInput {
     title: form.title.trim(),
     description: form.description.trim(),
     imageUrl: form.imageUrl.trim() || null,
-    badge: getOfferTierBadge(form.packageTier),
+    badge: form.badge,
     startsAt: form.startsAt.trim() || null,
     endsAt: form.endsAt.trim() || null,
     isActive: form.isActive,
@@ -204,11 +203,16 @@ function DetailFieldLabel({
 export default function AdminManageContentOfferDetailScreen() {
   const params = useLocalSearchParams<{ offerId?: string; tier?: string }>();
   const router = useRouter();
+  const { locale } = useAdminPreferences();
+  const strings = useAdminStrings();
   const offerId = typeof params.offerId === "string" ? params.offerId : "new";
   const isCreate = offerId === "new";
   const initialTier = normalizePackageTier(typeof params.tier === "string" ? params.tier : null);
 
-  const [form, setForm] = useState<OfferFormState>(() => emptyOfferForm(initialTier));
+  const [form, setForm] = useState<OfferFormState>(() => {
+    const next = emptyOfferForm(initialTier);
+    return { ...next, ...buildTierLinkedFormPatch(strings, initialTier) };
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -264,7 +268,7 @@ export default function AdminManageContentOfferDetailScreen() {
   const loadOffer = useCallback(async () => {
     const client = mobileSupabase;
     if (!client) {
-      setLastError("Thiếu cấu hình Database mobile.");
+      setLastError(strings.offerDetailMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -274,14 +278,18 @@ export default function AdminManageContentOfferDetailScreen() {
 
     try {
       if (isCreate) {
-        setForm(emptyOfferForm(initialTier));
+        const next = emptyOfferForm(initialTier);
+        setForm({ ...next, ...buildTierLinkedFormPatch(strings, initialTier) });
         return;
       }
 
       const cacheKey = `${OFFER_DETAIL_CACHE_PREFIX}${offerId}`;
       const cached = await hydrateCachedValue<MobileAdminOffer>(cacheKey);
       if (cached && isCacheFresh(cacheKey, DETAIL_MAX_STALE_MS)) {
-        setForm(buildOfferForm(cached.value));
+        setForm({
+          ...buildOfferForm(cached.value),
+          ...buildTierLinkedFormPatch(strings, normalizePackageTier(String(cached.value.metadata.packageTier ?? ""))),
+        });
         setIsLoading(false);
         if (isCacheFresh(cacheKey, DETAIL_FRESH_MS)) {
           return;
@@ -289,15 +297,18 @@ export default function AdminManageContentOfferDetailScreen() {
       }
 
       const offer = await getAdminOfferForMobile(client, offerId);
-      if (!offer) throw new Error("Không tìm thấy ưu đãi cần chỉnh sửa.");
-      setForm(buildOfferForm(offer));
+      if (!offer) throw new Error(strings.offerDetailNotFound);
+      setForm({
+        ...buildOfferForm(offer),
+        ...buildTierLinkedFormPatch(strings, normalizePackageTier(String(offer.metadata.packageTier ?? ""))),
+      });
       await writeCachedValue(cacheKey, offer);
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Không tải được ưu đãi.");
+      setLastError(error instanceof Error ? error.message : strings.offerDetailLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, [initialTier, isCreate, offerId]);
+  }, [initialTier, isCreate, offerId, strings]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -311,7 +322,7 @@ export default function AdminManageContentOfferDetailScreen() {
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện ảnh để tải ảnh.");
+      Alert.alert(strings.offerDetailPermissionTitle, strings.offerDetailPermissionBody);
       return;
     }
 
@@ -327,10 +338,10 @@ export default function AdminManageContentOfferDetailScreen() {
       const uploaded = await uploadPickedAdminContentImage(result.assets[0], {
         folder: "offers",
         baseName: form.title || "offer",
-      });
+      }, locale);
       setForm((current) => ({ ...current, imageUrl: uploaded.publicUrl }));
     } catch (error) {
-      Alert.alert("Không tải được ảnh", error instanceof Error ? error.message : "Thử lại sau.");
+      Alert.alert(strings.offerDetailImageFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
     }
   }
 
@@ -338,7 +349,7 @@ export default function AdminManageContentOfferDetailScreen() {
     const client = mobileSupabase;
     if (!client) return;
     if (!form.title.trim() || !form.description.trim()) {
-      Alert.alert("Thiếu dữ liệu", "Cần nhập tiêu đề và mô tả ưu đãi.");
+      Alert.alert(strings.offerDetailMissingDataTitle, strings.offerDetailMissingDataBody);
       return;
     }
 
@@ -355,7 +366,7 @@ export default function AdminManageContentOfferDetailScreen() {
       await markAdminContentRefresh("offer-saved");
       closeDetail();
     } catch (error) {
-      Alert.alert("Không lưu được ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");
+      Alert.alert(strings.offerDetailSaveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
     } finally {
       setIsSaving(false);
     }
@@ -365,10 +376,10 @@ export default function AdminManageContentOfferDetailScreen() {
     const client = mobileSupabase;
     if (!client || !form.id) return;
 
-    Alert.alert("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng. Tiếp tục?", [
-      { text: "Hủy", style: "cancel" },
+    Alert.alert(strings.offerDetailArchiveTitle, strings.offerDetailArchiveBody, [
+      { text: strings.settingsCancelButton, style: "cancel" },
       {
-        text: "Ẩn ưu đãi",
+        text: strings.offerDetailArchiveConfirm,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -378,7 +389,7 @@ export default function AdminManageContentOfferDetailScreen() {
               await markAdminContentRefresh("offer-archived");
               closeDetail();
             } catch (error) {
-              Alert.alert("Không ẩn được ưu đãi", error instanceof Error ? error.message : "Thử lại sau.");
+              Alert.alert(strings.offerDetailArchiveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
             } finally {
               setIsSaving(false);
             }
@@ -390,8 +401,8 @@ export default function AdminManageContentOfferDetailScreen() {
 
   return (
     <ManageScreenShell
-      title={isCreate ? "Thêm ưu đãi" : "Chi tiết ưu đãi"}
-      subtitle="Chỉnh sửa dữ liệu hiển thị cho Home, Explore và Thẻ thành viên."
+      title={isCreate ? strings.offerDetailCreateTitle : strings.offerDetailEditTitle}
+      subtitle={strings.offerDetailSubtitle}
       currentKey="content"
       group="setup"
       backHref="/manage-content"
@@ -402,27 +413,27 @@ export default function AdminManageContentOfferDetailScreen() {
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải ưu đãi...</Text>
+            <Text style={styles.stateText}>{strings.offerDetailLoading}</Text>
           </View>
         ) : lastError ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{lastError}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadOffer()}>
-              <Text style={styles.secondaryButtonText}>Tải lại</Text>
+              <Text style={styles.secondaryButtonText}>{strings.exploreServicesRetry}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.formColumn}>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="tag">Tiêu đề</DetailFieldLabel>
-              <AdminKeyboardTextInput placeholder="Add-on mini cho thành viên" placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
+              <DetailFieldLabel icon="tag">{strings.offerDetailTitleLabel}</DetailFieldLabel>
+              <AdminKeyboardTextInput placeholder={strings.offerDetailTitlePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="file-text">Mô tả</DetailFieldLabel>
-              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Mô tả ngắn gọn cho khách hàng" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.description} onChangeText={(value) => setForm((current) => ({ ...current, description: value }))} />
+              <DetailFieldLabel icon="file-text">{strings.offerDetailDescriptionLabel}</DetailFieldLabel>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.offerDetailDescriptionPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.description} onChangeText={(value) => setForm((current) => ({ ...current, description: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="image">Ảnh ưu đãi (URL)</DetailFieldLabel>
+              <DetailFieldLabel icon="image">{strings.offerDetailImageLabel}</DetailFieldLabel>
               {form.imageUrl ? <CachedAppImage source={{ uri: form.imageUrl }} style={styles.previewImage} alt={form.title || "offer"} /> : null}
               <View style={styles.urlComposerRow}>
                 <View style={[styles.inputShell, styles.urlInputShell]}>
@@ -430,59 +441,59 @@ export default function AdminManageContentOfferDetailScreen() {
                 </View>
                 <Pressable style={styles.uploadButton} onPress={() => void pickAndUploadImage()}>
                   <Feather color={palette.accent} name="upload" size={18} />
-                  <Text style={styles.secondaryButtonText}>Tải ảnh</Text>
+                  <Text style={styles.secondaryButtonText}>{strings.offerDetailUploadButton}</Text>
                 </Pressable>
               </View>
             </View>
             <View style={styles.splitRow}>
               <View style={[styles.fieldBlock, styles.splitItem]}>
-                <DetailFieldLabel icon="star">Badge</DetailFieldLabel>
+                <DetailFieldLabel icon="star">{strings.offerDetailBadgeLabel}</DetailFieldLabel>
                 <View style={styles.readOnlyValueShell}>
                   <Text style={styles.readOnlyValueText}>{form.badge}</Text>
                 </View>
               </View>
               <View style={[styles.fieldBlock, styles.splitItem]}>
-                <DetailFieldLabel icon="power">Trạng thái</DetailFieldLabel>
+                <DetailFieldLabel icon="power">{strings.offerDetailStatusLabel}</DetailFieldLabel>
                 <View style={styles.segmentedStatusRow}>
                   <Pressable style={[styles.statusSegment, form.isActive ? styles.statusSegmentActive : null]} onPress={() => setForm((current) => ({ ...current, isActive: true }))}>
-                    <Text style={[styles.statusSegmentText, form.isActive ? styles.statusSegmentTextActive : null]}>Active</Text>
+                    <Text style={[styles.statusSegmentText, form.isActive ? styles.statusSegmentTextActive : null]}>{strings.offerDetailStatusActive}</Text>
                   </Pressable>
                   <Pressable style={[styles.statusSegment, !form.isActive ? styles.statusSegmentActive : null]} onPress={() => setForm((current) => ({ ...current, isActive: false }))}>
-                    <Text style={[styles.statusSegmentText, !form.isActive ? styles.statusSegmentTextActive : null]}>Non active</Text>
+                    <Text style={[styles.statusSegmentText, !form.isActive ? styles.statusSegmentTextActive : null]}>{strings.offerDetailStatusInactive}</Text>
                   </Pressable>
                 </View>
               </View>
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="calendar">Ngày hiệu lực</DetailFieldLabel>
+              <DetailFieldLabel icon="calendar">{strings.offerDetailDateLabel}</DetailFieldLabel>
               <View style={styles.splitRow}>
                 <Pressable style={[styles.inputShell, styles.splitItem]} onPress={() => openDatePicker("startsAt")}>
                   <Text style={[styles.dateFieldText, !form.startsAt ? styles.dateFieldPlaceholder : null]}>
-                    {form.startsAt ? formatOfferDateLabel(form.startsAt) : "Từ ngày"}
+                    {form.startsAt ? formatOfferDateLabel(form.startsAt, locale) : strings.offerDetailDateStart}
                   </Text>
                   <Feather color={palette.accent} name="calendar" size={18} />
                 </Pressable>
                 <Pressable style={[styles.inputShell, styles.splitItem]} onPress={() => openDatePicker("endsAt")}>
                   <Text style={[styles.dateFieldText, !form.endsAt ? styles.dateFieldPlaceholder : null]}>
-                    {form.endsAt ? formatOfferDateLabel(form.endsAt) : "Đến ngày"}
+                    {form.endsAt ? formatOfferDateLabel(form.endsAt, locale) : strings.offerDetailDateEnd}
                   </Text>
                   <Feather color={palette.accent} name="calendar" size={18} />
                 </Pressable>
               </View>
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="award">Gói ưu đãi theo hạng</DetailFieldLabel>
+              <DetailFieldLabel icon="award">{strings.offerDetailPackageLabel}</DetailFieldLabel>
               <View style={styles.chipRow}>
                 {OFFER_PACKAGE_TIERS.map((tier) => (
-                  <Pressable key={tier} style={[styles.chip, form.packageTier === tier ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, ...buildTierLinkedFormPatch(tier) }))}>
+                  <Pressable key={tier} style={[styles.chip, form.packageTier === tier ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, ...buildTierLinkedFormPatch(strings, tier) }))}>
                     <Text style={[styles.chipText, form.packageTier === tier ? styles.chipTextActive : null]}>{tier}</Text>
                   </Pressable>
                 ))}
               </View>
-              <Text style={styles.fieldHint}>Badge sẽ tự đồng bộ theo gói ưu đãi đã chọn.</Text>
+              <Text style={styles.fieldHint}>{strings.offerDetailPackageHint}</Text>
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="list">Thứ tự hiển thị trong gói</DetailFieldLabel>
+              <DetailFieldLabel icon="list">{strings.offerDetailPackageOrderLabel}</DetailFieldLabel>
               <View style={styles.inputShell}>
                 <AdminKeyboardTextInput keyboardType="number-pad" placeholder="0" placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput]} value={form.packageOrder} onChangeText={(value) => setForm((current) => ({ ...current, packageOrder: value }))} />
                 <Feather color={palette.sub} name="chevrons-up" size={18} />
@@ -491,12 +502,12 @@ export default function AdminManageContentOfferDetailScreen() {
             <View style={styles.actionRow}>
               <Pressable style={[styles.primaryButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleSave()}>
                 <Feather color="#FFFFFF" name="save" size={18} />
-                <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu ưu đãi"}</Text>
+                <Text style={styles.primaryButtonText}>{isSaving ? strings.settingsSavingButton : strings.offerDetailSaveButton}</Text>
               </Pressable>
               {canArchive ? (
                 <Pressable style={[styles.archiveButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleArchive()}>
                   <Feather color={palette.danger} name="trash-2" size={18} />
-                  <Text style={styles.archiveButtonText}>Xóa ưu đãi</Text>
+                  <Text style={styles.archiveButtonText}>{strings.offerDetailDeleteButton}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -508,7 +519,7 @@ export default function AdminManageContentOfferDetailScreen() {
           <View style={styles.datePickerModal}>
             <View style={styles.datePickerHeader}>
               <Text style={styles.datePickerTitle}>
-                {activeDateField === "startsAt" ? "Chọn ngày bắt đầu" : "Chọn ngày kết thúc"}
+                {activeDateField === "startsAt" ? strings.offerDetailDatePickerStart : strings.offerDetailDatePickerEnd}
               </Text>
               <Pressable onPress={closeDatePicker} style={styles.datePickerCloseButton}>
                 <Feather color={palette.text} name="x" size={18} />
@@ -523,10 +534,10 @@ export default function AdminManageContentOfferDetailScreen() {
             {Platform.OS === "ios" ? (
               <View style={styles.datePickerActions}>
                 <Pressable onPress={closeDatePicker} style={styles.datePickerGhostButton}>
-                  <Text style={styles.datePickerGhostLabel}>Hủy</Text>
+                  <Text style={styles.datePickerGhostLabel}>{strings.settingsCancelButton}</Text>
                 </Pressable>
                 <Pressable onPress={applyDateDraft} style={styles.datePickerPrimaryButton}>
-                  <Text style={styles.datePickerPrimaryLabel}>Chọn ngày</Text>
+                  <Text style={styles.datePickerPrimaryLabel}>{strings.offerDetailDatePickerConfirm}</Text>
                 </Pressable>
               </View>
             ) : null}

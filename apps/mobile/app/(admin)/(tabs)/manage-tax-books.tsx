@@ -10,9 +10,11 @@ import {
   View,
 } from "react-native";
 import { buildTaxBookForMobile, type MobileTaxBookRow, type TaxBookType } from "@nails/shared";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 const palette = {
   border: "#EADFD3",
@@ -26,10 +28,6 @@ const palette = {
   warningSoft: "#FFF7EF",
   mutedSoft: "#F8F4EF",
 };
-
-const BOOK_OPTIONS: Array<{ label: string; value: TaxBookType }> = [
-  { label: "Mẫu S1a-HKD", value: "S1A_HKD" },
-];
 
 function formatVnd(amount: number) {
   return new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 0 }).format(amount || 0);
@@ -46,6 +44,10 @@ function shiftDate(base: Date, days: number) {
   const next = new Date(base);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function formatDateByLocale(value: Date, locale: "vi" | "en") {
+  return value.toLocaleDateString(locale === "en" ? "en-US" : "vi-VN");
 }
 
 function getWeekRange() {
@@ -84,6 +86,8 @@ function QuickInfo({ accent = false, label, value }: { accent?: boolean; label: 
 }
 
 export default function AdminManageTaxBooksScreen() {
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "ACCOUNTANT"]);
   const observer = useAdminObserverScope();
   const today = new Date();
@@ -95,21 +99,18 @@ export default function AdminManageTaxBooksScreen() {
   const address = "";
   const taxCode = "";
   const businessLocation = "";
-  const unit = "đồng";
+  const unit = strings.manageTaxBooksUnit;
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
 
   const total = useMemo(() => rows.reduce((sum, row) => sum + row.amount, 0), [rows]);
-  const selectedBookLabel = useMemo(
-    () => BOOK_OPTIONS.find((option) => option.value === bookType)?.label ?? "Mẫu S1a-HKD",
-    [bookType],
-  );
+  const selectedBookLabel = useMemo(() => (bookType === "S1A_HKD" ? strings.manageTaxBooksTemplateLabel : strings.manageTaxBooksTemplateLabel), [bookType, strings.manageTaxBooksTemplateLabel]);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(strings.manageTaxBooksMissingSupabase);
       setLoading(false);
       return;
     }
@@ -127,11 +128,11 @@ export default function AdminManageTaxBooksScreen() {
       );
       setRows(data);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được sổ thuế.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTaxBooksLoadFailed);
     } finally {
       setLoading(false);
     }
-  }, [bookType, fromDate, observer.observerScope, rows.length, toDate]);
+  }, [bookType, fromDate, observer.observerScope, rows.length, strings.manageTaxBooksLoadFailed, strings.manageTaxBooksMissingSupabase, toDate]);
 
   useEffect(() => {
     if (!observer.isReady) return;
@@ -150,17 +151,17 @@ export default function AdminManageTaxBooksScreen() {
   async function exportTaxBook(kind: "excel" | "pdf") {
     const lines = [
       `${selectedBookLabel}`,
-      `Hộ, cá nhân kinh doanh: ${ownerName || "................"}`,
-      `Địa chỉ: ${address || "................"}`,
-      `Mã số thuế: ${taxCode || "................"}`,
-      `Địa điểm kinh doanh: ${businessLocation || "................"}`,
-      `Kỳ kê khai: ${fromDate} đến ${toDate}`,
-      `Đơn vị tính: ${unit}`,
+      `${strings.manageTaxBooksExportOwnerPrefix}: ${ownerName || "................"}`,
+      `${strings.manageTaxBooksExportAddressPrefix}: ${address || "................"}`,
+      `${strings.manageTaxBooksExportTaxCodePrefix}: ${taxCode || "................"}`,
+      `${strings.manageTaxBooksExportBusinessLocationPrefix}: ${businessLocation || "................"}`,
+      `${strings.manageTaxBooksExportPeriodLabel}: ${fromDate} ${strings.manageTaxBooksExportToConnector} ${toDate}`,
+      `${strings.manageTaxBooksExportUnitLabel}: ${unit}`,
       "",
-      "Ngày tháng | Diễn giải | Số tiền",
-      ...rows.map((row) => `${new Date(row.date).toLocaleDateString("vi-VN")} | ${row.description} | ${formatVnd(row.amount)}đ`),
+      strings.manageTaxBooksExportHeader,
+      ...rows.map((row) => `${formatDateByLocale(new Date(row.date), locale)} | ${row.description} | ${formatVnd(row.amount)}${unit === "VND" ? " " : ""}${unit}`),
       "",
-      `Tổng cộng: ${formatVnd(total)}đ`,
+      `${strings.manageTaxBooksExportTotalLabel}: ${formatVnd(total)}${unit === "VND" ? " " : ""}${unit}`,
     ];
 
     try {
@@ -170,7 +171,7 @@ export default function AdminManageTaxBooksScreen() {
         message: lines.join("\n"),
       });
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không thể xuất file sổ thuế.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageTaxBooksExportFailed);
     } finally {
       setExporting(false);
     }
@@ -182,8 +183,8 @@ export default function AdminManageTaxBooksScreen() {
 
   return (
     <ManageScreenShell
-      title="Sổ thuế"
-      subtitle="Mẫu S1a-HKD, kỳ kê khai và xuất file phục vụ in hoặc nộp thuế."
+      title={strings.manageTaxBooksTitle}
+      subtitle={strings.manageTaxBooksFullSubtitle}
       currentKey="tax-books"
       group="insights"
       showBackButton={false}
@@ -194,17 +195,17 @@ export default function AdminManageTaxBooksScreen() {
 
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Điều hướng nhanh</Text>
+          <Text style={styles.sectionTitle}>{strings.manageTaxBooksQuickNavTitle}</Text>
           <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{rows.length} dòng</Text>
+            <Text style={styles.countPillText}>{rows.length} {strings.manageTaxBooksRowCountUnit}</Text>
           </View>
         </View>
 
         <View style={styles.quickGrid}>
-          <QuickInfo label="Mẫu" value="S1a-KKD" />
-          <QuickInfo label="Từ ngày" value={fromDate} />
-          <QuickInfo label="Đến ngày" value={toDate} />
-          <QuickInfo accent label="Tổng" value={`${formatVnd(total)}đ`} />
+          <QuickInfo label={strings.manageTaxBooksQuickTemplate} value={selectedBookLabel} />
+          <QuickInfo label={strings.manageTaxBooksQuickFrom} value={fromDate} />
+          <QuickInfo label={strings.manageTaxBooksQuickTo} value={toDate} />
+          <QuickInfo accent label={strings.manageTaxBooksQuickTotal} value={`${formatVnd(total)}${unit === "VND" ? " " : ""}${unit}`} />
         </View>
       </View>
 
@@ -213,16 +214,16 @@ export default function AdminManageTaxBooksScreen() {
           <View style={styles.noticeIcon}>
             <Feather name="alert-circle" size={16} color={palette.warning} />
           </View>
-          <Text style={styles.noticeBody}>Trang này chỉ dùng cho mẫu S1a-HKD và xuất file để in hoặc nộp thuế.</Text>
+          <Text style={styles.noticeBody}>{strings.manageTaxBooksNoticeOnlyTemplate}</Text>
         </View>
       </View>
 
       <View style={styles.infoCard}>
         <Pressable style={styles.infoHeader} onPress={() => setInfoOpen((current) => !current)}>
-          <View style={styles.infoCopy}>
-            <Text style={styles.infoTitle}>Thông tin kỳ kê khai</Text>
+            <View style={styles.infoCopy}>
+            <Text style={styles.infoTitle}>{strings.manageTaxBooksPeriodInfoTitle}</Text>
             <Text style={styles.infoSubtitle}>
-              {new Date(`${fromDate}T00:00:00`).toLocaleDateString("vi-VN")} - {new Date(`${toDate}T00:00:00`).toLocaleDateString("vi-VN")} • MST: {taxCode || "Mã số thuế"} • Đơn vị: {unit}
+              {formatDateByLocale(new Date(`${fromDate}T00:00:00`), locale)} - {formatDateByLocale(new Date(`${toDate}T00:00:00`), locale)} • {strings.manageTaxBooksTaxCodeShort}: {taxCode || strings.manageTaxBooksTaxCodeFallback} • {strings.manageTaxBooksUnitShort}: {unit}
             </Text>
           </View>
           <Feather name={infoOpen ? "chevron-up" : "chevron-down"} size={18} color={palette.text} />
@@ -232,37 +233,37 @@ export default function AdminManageTaxBooksScreen() {
           <View style={styles.infoPanel}>
             <View style={styles.quickActionRow}>
               <Pressable style={styles.quickActionChip} onPress={() => applyQuickRange("week")}>
-                <Text style={styles.quickActionChipText}>Chọn nhanh tuần</Text>
+                <Text style={styles.quickActionChipText}>{strings.manageTaxBooksQuickWeek}</Text>
               </Pressable>
               <Pressable style={styles.quickActionChip} onPress={() => applyQuickRange("month")}>
-                <Text style={styles.quickActionChipText}>Chọn nhanh tháng</Text>
+                <Text style={styles.quickActionChipText}>{strings.manageTaxBooksQuickMonth}</Text>
               </Pressable>
             </View>
             <View style={styles.inlinePair}>
               <View style={styles.inlineField}>
-                <Text style={styles.inlineLabel}>Từ ngày</Text>
+                <Text style={styles.inlineLabel}>{strings.manageTaxBooksInlineFrom}</Text>
                 <Text style={styles.inlineValue}>{fromDate}</Text>
               </View>
               <View style={styles.inlineField}>
-                <Text style={styles.inlineLabel}>Đến ngày</Text>
+                <Text style={styles.inlineLabel}>{strings.manageTaxBooksInlineTo}</Text>
                 <Text style={styles.inlineValue}>{toDate}</Text>
               </View>
             </View>
             <View style={styles.inlineField}>
-              <Text style={styles.inlineLabel}>Hộ KD</Text>
-              <Text style={styles.inlineValue}>{ownerName || "Tên hộ kinh doanh"}</Text>
+              <Text style={styles.inlineLabel}>{strings.manageTaxBooksInlineOwner}</Text>
+              <Text style={styles.inlineValue}>{ownerName || strings.manageTaxBooksBusinessOwnerFallback}</Text>
             </View>
             <View style={styles.inlineField}>
-              <Text style={styles.inlineLabel}>MST</Text>
-              <Text style={styles.inlineValue}>{taxCode || "Mã số thuế"}</Text>
+              <Text style={styles.inlineLabel}>{strings.manageTaxBooksTaxCodeShort}</Text>
+              <Text style={styles.inlineValue}>{taxCode || strings.manageTaxBooksTaxCodeFallback}</Text>
             </View>
             <View style={styles.inlineField}>
-              <Text style={styles.inlineLabel}>Địa chỉ</Text>
-              <Text style={styles.inlineValue}>{address || "Địa chỉ"}</Text>
+              <Text style={styles.inlineLabel}>{strings.manageTaxBooksInlineAddress}</Text>
+              <Text style={styles.inlineValue}>{address || strings.manageTaxBooksAddressFallback}</Text>
             </View>
             <View style={styles.inlineField}>
-              <Text style={styles.inlineLabel}>Địa điểm</Text>
-              <Text style={styles.inlineValue}>{businessLocation || "Địa điểm kinh doanh"}</Text>
+              <Text style={styles.inlineLabel}>{strings.manageTaxBooksInlineLocation}</Text>
+              <Text style={styles.inlineValue}>{businessLocation || strings.manageTaxBooksBusinessLocationFallback}</Text>
             </View>
           </View>
         ) : null}
@@ -272,11 +273,11 @@ export default function AdminManageTaxBooksScreen() {
         <View style={styles.exportRow}>
           <Pressable style={styles.exportButton} onPress={() => void exportTaxBook("excel")} disabled={loading || exporting}>
             <Feather name="file-text" size={15} color="#1F9D55" />
-            <Text style={styles.exportButtonText}>Xuất Excel</Text>
+            <Text style={styles.exportButtonText}>{strings.manageTaxBooksExportExcel}</Text>
           </Pressable>
           <Pressable style={styles.exportButton} onPress={() => void exportTaxBook("pdf")} disabled={loading || exporting}>
             <Feather name="file" size={15} color="#D14343" />
-            <Text style={styles.exportButtonText}>Xuất PDF</Text>
+            <Text style={styles.exportButtonText}>{strings.manageTaxBooksExportPdf}</Text>
           </Pressable>
         </View>
 
@@ -288,41 +289,41 @@ export default function AdminManageTaxBooksScreen() {
         ) : null}
 
         <View style={styles.printSheet}>
-          <Text style={styles.sheetStrong}>HỘ, CÁ NHÂN KINH DOANH: {ownerName || "................"}</Text>
-          <Text style={styles.sheetLine}>Địa chỉ: {address || "................"}</Text>
-          <Text style={styles.sheetLine}>Mã số thuế: {taxCode || "................"}</Text>
-          <Text style={styles.sheetStrong}>Mẫu số S1a-HKD</Text>
-          <Text style={styles.sheetNote}>(Kèm theo Thông tư số 152/2025/TT-BTC)</Text>
+          <Text style={styles.sheetStrong}>{strings.manageTaxBooksSheetOwnerTitle}: {ownerName || "................"}</Text>
+          <Text style={styles.sheetLine}>{strings.manageTaxBooksExportAddressPrefix}: {address || "................"}</Text>
+          <Text style={styles.sheetLine}>{strings.manageTaxBooksExportTaxCodePrefix}: {taxCode || "................"}</Text>
+          <Text style={styles.sheetStrong}>{strings.manageTaxBooksSheetTemplateTitle}</Text>
+          <Text style={styles.sheetNote}>{strings.manageTaxBooksSheetCircularNote}</Text>
 
-          <Text style={styles.sheetHeading}>SỔ DOANH THU BÁN HÀNG HÓA, DỊCH VỤ</Text>
-          <Text style={styles.sheetLine}>Địa điểm kinh doanh: {businessLocation || "................"}</Text>
-          <Text style={styles.sheetLine}>Kỳ kê khai: {fromDate} đến {toDate}</Text>
-          <Text style={styles.sheetLine}>Đơn vị tính: {unit}</Text>
+          <Text style={styles.sheetHeading}>{strings.manageTaxBooksSheetHeading}</Text>
+          <Text style={styles.sheetLine}>{strings.manageTaxBooksExportBusinessLocationPrefix}: {businessLocation || "................"}</Text>
+          <Text style={styles.sheetLine}>{strings.manageTaxBooksExportPeriodLabel}: {fromDate} {strings.manageTaxBooksExportToConnector} {toDate}</Text>
+          <Text style={styles.sheetLine}>{strings.manageTaxBooksExportUnitLabel}: {unit}</Text>
 
           {loading ? (
             <View style={styles.loadingState}>
               <ActivityIndicator size="small" color={palette.accent} />
-              <Text style={styles.loadingText}>Đang tải dữ liệu sổ thuế...</Text>
+              <Text style={styles.loadingText}>{strings.manageTaxBooksLoading}</Text>
             </View>
           ) : (
             <View style={styles.tableCard}>
               <View style={styles.tableHeaderRow}>
-                <Text style={[styles.tableHeaderCell, styles.dateColumn]}>Ngày tháng</Text>
-                <Text style={[styles.tableHeaderCell, styles.descriptionColumn]}>Diễn giải</Text>
-                <Text style={[styles.tableHeaderCell, styles.amountColumn]}>Số tiền</Text>
+                <Text style={[styles.tableHeaderCell, styles.dateColumn]}>{strings.manageTaxBooksTableDate}</Text>
+                <Text style={[styles.tableHeaderCell, styles.descriptionColumn]}>{strings.manageTaxBooksTableDescription}</Text>
+                <Text style={[styles.tableHeaderCell, styles.amountColumn]}>{strings.manageTaxBooksTableAmount}</Text>
               </View>
               <ScrollView style={styles.tableBody} nestedScrollEnabled>
                 {rows.length ? (
                   rows.map((row, index) => (
                     <View key={`${row.date}-${index}`} style={styles.tableRow}>
-                      <Text style={[styles.tableCell, styles.dateColumn]}>{new Date(row.date).toLocaleDateString("vi-VN")}</Text>
+                      <Text style={[styles.tableCell, styles.dateColumn]}>{formatDateByLocale(new Date(row.date), locale)}</Text>
                       <Text style={[styles.tableCell, styles.descriptionColumn]}>{row.description}</Text>
-                      <Text style={[styles.tableCell, styles.amountColumn]}>{formatVnd(row.amount)}đ</Text>
+                      <Text style={[styles.tableCell, styles.amountColumn]}>{formatVnd(row.amount)}{unit === "VND" ? " " : ""}{unit}</Text>
                     </View>
                   ))
                 ) : (
                   <View style={styles.emptyTable}>
-                    <Text style={styles.emptyTableText}>Không có dữ liệu trong khoảng thời gian đã chọn.</Text>
+                    <Text style={styles.emptyTableText}>{strings.manageTaxBooksEmptyRange}</Text>
                   </View>
                 )}
               </ScrollView>

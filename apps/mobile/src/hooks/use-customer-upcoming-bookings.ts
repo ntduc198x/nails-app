@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { listCustomerUpcomingBookings, type CustomerUpcomingBookingItem } from "@nails/shared";
+import { listCustomerUpcomingBookings, translate, type CustomerUpcomingBookingItem } from "@nails/shared";
 import { hydrateCachedValue, peekCachedValue, writeCachedValue } from "@/src/lib/customer-feed-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 
 export function useCustomerUpcomingBookings(limit = 8) {
+  const { locale } = useCustomerPreferences();
   const { isHydrated, user } = useSession();
   const cacheKey = useMemo(() => (user?.id ? `customer-upcoming-bookings:${user.id}:${limit}` : `customer-upcoming-bookings:guest:${limit}`), [limit, user?.id]);
   const initialCached = useMemo(() => peekCachedValue<CustomerUpcomingBookingItem[]>(cacheKey), [cacheKey]);
@@ -38,13 +40,15 @@ export function useCustomerUpcomingBookings(limit = 8) {
         setItems(nextItems);
       } catch (error) {
         setItems([]);
-        setLastError(error instanceof Error ? error.message : "Khong tai duoc lich da giu");
+        setLastError(
+          error instanceof Error ? error.message : translate(locale, "errors", "customerUpcomingBookingsLoadFailed"),
+        );
       } finally {
         setIsLoading(false);
         setIsRefreshing(false);
       }
     },
-    [cacheKey, isHydrated, limit, user],
+    [cacheKey, isHydrated, limit, locale, user],
   );
 
   useEffect(() => {

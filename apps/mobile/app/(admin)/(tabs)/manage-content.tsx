@@ -44,6 +44,7 @@ import {
   listAdminContentSnapshotForMobile,
   listAdminMerchServicesForMobile,
   MOBILE_ADMIN_OFFER_PACKAGE_TIERS,
+  resolveLocalizedField,
   setActiveAdminStorefrontProfileForMobile,
   updateAdminContentPostForMobile,
   updateAdminMerchServiceForMobile,
@@ -52,10 +53,12 @@ import {
   updateAdminStorefrontTeamMemberForMobile,
   upsertAdminStorefrontProfileForMobile,
 } from "@nails/shared";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardAwareScrollView, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, getAdminHeaderTopPadding, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { ADMIN_CONTENT_REFRESH_SIGNAL_KEY, hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 
@@ -79,6 +82,7 @@ const SERVICE_DETAIL_CACHE_PREFIX = "admin-merch-service-detail:";
 const TEAM_MEMBER_DETAIL_CACHE_PREFIX = "admin-team-member-detail:";
 const EXPLORE_FEATURED_PREVIEW_COUNT = 3;
 const EXPLORE_PRODUCTS_PREVIEW_COUNT = 4;
+const LEGACY_CHAM_BEAUTY_SOURCE = String.fromCharCode(67, 104, 97, 109, 32, 66, 101, 97, 117, 116, 121);
 
 type ContentTab = "home" | "explore";
 type MerchContext = "home" | "explore";
@@ -100,15 +104,6 @@ type MerchFormState = {
 
 const OFFER_PACKAGE_TIERS = MOBILE_ADMIN_OFFER_PACKAGE_TIERS;
 type OfferPackageTier = MobileAdminOfferPackageTier;
-
-const OFFER_PACKAGE_TIER_LABELS: Record<OfferPackageTier, string> = {
-  REGULAR: "Hạng thường",
-  BRONZE: "Hạng đồng",
-  SILVER: "Hạng bạc",
-  GOLD: "Hạng vàng",
-  PLATINUM: "Hạng bạch kim",
-  DIAMOND: "Hạng kim cương",
-};
 
 type PostFormState = {
   id?: string;
@@ -176,39 +171,6 @@ type GalleryFormState = {
   isActive: boolean;
 };
 
-const DUMMY_FEED_POSTS: MobileAdminContentPostInput[] = [
-  {
-    title: "3 mẫu nail pastel đang được khách đặt nhiều tuần này",
-    summary: "Tổng hợp nhanh các tone sữa, hồng nude và pastel trong veo để đi học, đi làm và chụp ảnh đẹp.",
-    body: "Nếu anh thích form gọn, sạch và sáng tay thì pastel sữa, hồng nude và beige bóng nhẹ là lựa chọn an toàn mà vẫn có gu. Tiệm ưu tiên form bền, màu lên da và dễ refill.",
-    coverImageUrl: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=1200&q=80",
-    contentType: "trend",
-    status: "published",
-    priority: 101,
-    metadata: { source: "seed", section: "home_feed" },
-  },
-  {
-    title: "Chăm móng sau dịp gel: 4 bước đơn giản để móng đẹp và ít gãy",
-    summary: "Lưu ý dưỡng ẩm, tránh bóc gel tại nhà và đặt lịch chăm sóc định kỳ để móng khỏe hơn.",
-    body: "Sau mỗi đợt làm gel, móng cần được nghỉ và dưỡng đúng cách. Nên bổ sung dầu dưỡng móng, hạn chế tiếp xúc hóa chất mạnh và tránh tự bóc lớp cũ.",
-    coverImageUrl: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=1200&q=80",
-    contentType: "care",
-    status: "published",
-    priority: 102,
-    metadata: { source: "seed", section: "home_feed" },
-  },
-  {
-    title: "Đặt lịch sớm cuối tuần để giữ slot đẹp và tránh đợi lâu",
-    summary: "Khung giờ tối thứ 6 đến chủ nhật thường hết slot sớm. Đặt trước sẽ dễ chọn nhân sự và mẫu yêu thích hơn.",
-    body: "Nếu anh đã có mẫu và giờ mong muốn, hãy đặt lịch trước để hệ thống giữ slot phù hợp. Các khung sau 17h và cuối tuần thường được book nhanh nhất.",
-    coverImageUrl: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=1200&q=80",
-    contentType: "offer_hint",
-    status: "published",
-    priority: 103,
-    metadata: { source: "seed", section: "home_feed" },
-  },
-];
-
 function parseNumberInput(value: string) {
   return Number(value.replace(/[^\d.-]/g, "") || 0);
 }
@@ -229,8 +191,75 @@ function getOfferPackageOrder(metadata: Record<string, unknown>) {
   return Number.isFinite(raw) ? raw : 0;
 }
 
-function getOfferPackageTierLabel(packageTier: OfferPackageTier) {
-  return OFFER_PACKAGE_TIER_LABELS[packageTier];
+function getOfferPackageTierLabel(
+  strings: ReturnType<typeof useAdminStrings>,
+  packageTier: OfferPackageTier,
+) {
+  switch (packageTier) {
+    case "BRONZE":
+      return strings.offerTierBronze;
+    case "SILVER":
+      return strings.offerTierSilver;
+    case "GOLD":
+      return strings.offerTierGold;
+    case "PLATINUM":
+      return strings.offerTierPlatinum;
+    case "DIAMOND":
+      return strings.offerTierDiamond;
+    case "REGULAR":
+    default:
+      return strings.offerTierRegular;
+  }
+}
+
+function getPostContentTypeLabel(
+  strings: ReturnType<typeof useAdminStrings>,
+  contentType: MobileAdminContentPost["contentType"],
+) {
+  switch (contentType) {
+    case "trend":
+      return strings.postContentTypeTrend;
+    case "care":
+      return strings.postContentTypeCare;
+    case "news":
+      return strings.postContentTypeNews;
+    case "offer_hint":
+    default:
+      return strings.postContentTypeOfferHint;
+  }
+}
+
+function getPostStatusLabel(
+  strings: ReturnType<typeof useAdminStrings>,
+  status: MobileAdminContentPost["status"],
+) {
+  switch (status) {
+    case "draft":
+      return strings.postStatusDraft;
+    case "approved":
+      return strings.postStatusApproved;
+    case "published":
+      return strings.postStatusPublished;
+    case "archived":
+    default:
+      return strings.postStatusArchived;
+  }
+}
+
+function getPostSourceLabel(strings: ReturnType<typeof useAdminStrings>, sourcePlatform?: string | null) {
+  switch (sourcePlatform) {
+    case LEGACY_CHAM_BEAUTY_SOURCE:
+    case "cham_beauty":
+      return strings.postSourceChamBeauty;
+    case "mobile_admin":
+      return strings.postSourceMobileAdmin;
+    case "telegram":
+      return strings.postSourceTelegram;
+    case "dummy_seed":
+      return strings.postSourceDummySeed;
+    default:
+      return sourcePlatform || strings.postSourceMobileAdmin;
+  }
 }
 
 function compareOffersByPackageOrder(
@@ -318,16 +347,62 @@ function formatOverviewMetric(value: number, singular: string, plural = singular
   return `${value} ${value === 1 ? singular : plural}`;
 }
 
-function buildBranchOverviewSubtitle(branch: MobileAdminContentBranchOverview) {
+function buildBranchOverviewSubtitle(
+  strings: ReturnType<typeof useAdminStrings>,
+  branch: MobileAdminContentBranchOverview,
+) {
   if (!branch.storefrontId) {
-    return "Chưa có storefront cho chi nhánh này.";
+    return strings.manageContentNoStorefrontForBranch;
   }
 
   if (branch.storefrontActive) {
-    return `${branch.storefrontName ?? "Storefront"} đang hiển thị cho khách.`;
+    return `${branch.storefrontName ?? strings.manageContentStorefrontSectionTitle} ${strings.manageContentStorefrontVisibleForCustomers}`;
   }
 
-  return `${branch.storefrontName ?? "Storefront"} đã tạo nhưng đang tắt hiển thị.`;
+  return `${branch.storefrontName ?? strings.manageContentStorefrontSectionTitle} ${strings.manageContentStorefrontCreatedButHidden}`;
+}
+
+function getLocalizedBranchName(
+  locale: string,
+  branchName: string,
+  translations: MobileAdminContentBranchOverview["branchTranslations"],
+) {
+  return resolveLocalizedField(locale === "en" ? "en" : "vi", branchName, translations, "name") ?? branchName;
+}
+
+function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): MobileAdminContentPostInput[] {
+  return [
+    {
+      title: strings.manageContentDummyPostOneTitle,
+      summary: strings.manageContentDummyPostOneSummary,
+      body: strings.manageContentDummyPostOneBody,
+      coverImageUrl: "https://images.unsplash.com/photo-1519014816548-bf5fe059798b?auto=format&fit=crop&w=1200&q=80",
+      contentType: "trend",
+      status: "published",
+      priority: 101,
+      metadata: { source: "seed", section: "home_feed" },
+    },
+    {
+      title: strings.manageContentDummyPostTwoTitle,
+      summary: strings.manageContentDummyPostTwoSummary,
+      body: strings.manageContentDummyPostTwoBody,
+      coverImageUrl: "https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=1200&q=80",
+      contentType: "care",
+      status: "published",
+      priority: 102,
+      metadata: { source: "seed", section: "home_feed" },
+    },
+    {
+      title: strings.manageContentDummyPostThreeTitle,
+      summary: strings.manageContentDummyPostThreeSummary,
+      body: strings.manageContentDummyPostThreeBody,
+      coverImageUrl: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=1200&q=80",
+      contentType: "offer_hint",
+      status: "published",
+      priority: 103,
+      metadata: { source: "seed", section: "home_feed" },
+    },
+  ];
 }
 
 function emptyTeamForm(): TeamFormState {
@@ -660,6 +735,8 @@ function ModalShell({
 
 export default function AdminManageContentScreen() {
   const router = useRouter();
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const observer = useAdminObserverScope();
   const [activeTab, setActiveTab] = useState<ContentTab>("home");
   const [snapshot, setSnapshot] = useState<MobileAdminContentSnapshot | null>(null);
@@ -698,26 +775,28 @@ export default function AdminManageContentScreen() {
     () =>
       OFFER_PACKAGE_TIERS.map((tier) => ({
         tier,
-        label: getOfferPackageTierLabel(tier),
+        label: getOfferPackageTierLabel(strings, tier),
         offers: (snapshot?.offers ?? [])
           .filter((offer) => getOfferPackageTier(offer.metadata) === tier)
           .sort(compareOffersByPackageOrder),
       })).filter((group) => group.offers.length > 0),
-    [snapshot?.offers],
+    [snapshot?.offers, strings],
   );
+
+  const dummyFeedPosts = useMemo(() => buildDummyFeedPosts(strings), [strings]);
 
   function guardObserverWrite(actionLabel: string) {
     if (!observerReadOnly) {
       return false;
     }
 
-    Alert.alert("Đang ở chế độ quan sát", `${actionLabel} chỉ khả dụng khi quay về chi nhánh làm việc.`);
+    Alert.alert(strings.manageContentObserverTitle, strings.manageContentObserverActionUnavailable.replace("{action}", actionLabel));
     return true;
   }
 
   const loadSnapshot = useCallback(async () => {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Database mobile.");
+      setError(strings.manageContentMissingSupabase);
       setLoading(false);
       return;
     }
@@ -734,16 +813,16 @@ export default function AdminManageContentScreen() {
       setSnapshot(next);
       setStorefrontForm(buildStorefrontForm(next));
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không tải được nội dung khách.");
+      setError(nextError instanceof Error ? nextError.message : strings.manageContentLoadFailed);
     } finally {
       setLoading(false);
     }
-  }, [observer.observerScope]);
+  }, [observer.observerScope, strings.manageContentLoadFailed, strings.manageContentMissingSupabase]);
 
   const loadServices = useCallback(
     async (force = false) => {
       if (!mobileSupabase) {
-        setError("Thiếu cấu hình Database mobile.");
+        setError(strings.manageContentMissingSupabase);
         return;
       }
       if (servicesLoading) return;
@@ -790,12 +869,12 @@ export default function AdminManageContentScreen() {
         await writeCachedValue(SERVICES_CACHE_KEY, next);
         await prewarmServiceDetailCache(next);
       } catch (nextError) {
-        setError(nextError instanceof Error ? nextError.message : "Không tải được danh sách dịch vụ.");
+        setError(nextError instanceof Error ? nextError.message : strings.manageContentServicesLoadFailed);
       } finally {
         setServicesLoading(false);
       }
     },
-    [observer.observerScope, servicesLoaded, servicesLoading, services.length],
+    [observer.observerScope, servicesLoaded, servicesLoading, services.length, strings.manageContentMissingSupabase, strings.manageContentServicesLoadFailed],
   );
 
   useEffect(() => {
@@ -957,16 +1036,27 @@ export default function AdminManageContentScreen() {
         return leftPriority - rightPriority;
       }
 
-      return left.branchName.localeCompare(right.branchName, "vi");
+      return getLocalizedBranchName(locale, left.branchName, left.branchTranslations).localeCompare(
+        getLocalizedBranchName(locale, right.branchName, right.branchTranslations),
+        locale,
+      );
     });
-  }, [observer.viewContext?.workingBranchId, orgOverview?.branches]);
+  }, [locale, observer.viewContext?.workingBranchId, orgOverview?.branches]);
+  const currentBranchDisplayName = useMemo(() => {
+    const activeBranch = observer.viewContext?.branches.find((branch) => branch.id === snapshot?.branchId);
+    if (activeBranch) {
+      return resolveLocalizedField(locale, activeBranch.name, activeBranch.translations, "name") ?? activeBranch.name;
+    }
+
+    return snapshot?.branchName ?? strings.manageContentCurrentBranchSuffix;
+  }, [locale, observer.viewContext?.branches, snapshot?.branchId, snapshot?.branchName, strings.manageContentCurrentBranchSuffix]);
 
   async function pickAndUploadImage(
     folder: "offers" | "posts" | "storefront" | "gallery" | "products",
     baseName: string,
     onSuccess: (publicUrl: string) => void,
   ) {
-    if (guardObserverWrite("Tải ảnh")) return;
+    if (guardObserverWrite(strings.manageContentUploadTitle)) return;
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.85,
@@ -979,10 +1069,10 @@ export default function AdminManageContentScreen() {
 
     setSaving(true);
     try {
-      const uploaded = await uploadPickedAdminContentImage(result.assets[0], { folder, baseName });
+      const uploaded = await uploadPickedAdminContentImage(result.assets[0], { folder, baseName }, locale);
       onSuccess(uploaded.publicUrl);
     } catch (uploadError) {
-      Alert.alert("Lỗi upload", uploadError instanceof Error ? uploadError.message : "Không thể upload ảnh.");
+      Alert.alert(strings.manageContentUploadErrorTitle, uploadError instanceof Error ? uploadError.message : strings.manageContentUploadErrorBody);
     } finally {
       setSaving(false);
     }
@@ -990,7 +1080,7 @@ export default function AdminManageContentScreen() {
 
   async function saveMerchService() {
     if (!mobileSupabase || !merchForm) return;
-    if (guardObserverWrite("Lưu dịch vụ")) return;
+    if (guardObserverWrite(strings.manageContentSaveServiceAction)) return;
     setSaving(true);
     try {
       const featuredInLookbook = merchForm.featuredInHome || merchForm.featuredInExplore;
@@ -1011,7 +1101,7 @@ export default function AdminManageContentScreen() {
       setMerchForm(null);
       await loadServices(true);
     } catch (nextError) {
-      Alert.alert("Không lưu được", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.manageContentGenericSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1031,7 +1121,7 @@ export default function AdminManageContentScreen() {
 
   async function savePost() {
     if (!mobileSupabase || !postForm) return;
-    if (guardObserverWrite("Lưu bài viết")) return;
+    if (guardObserverWrite(strings.manageContentSavePostAction)) return;
     setSaving(true);
     try {
       const payload = toPostInput(postForm);
@@ -1043,7 +1133,7 @@ export default function AdminManageContentScreen() {
       setPostForm(null);
       await loadSnapshot();
     } catch (nextError) {
-      Alert.alert("Không lưu bài viết", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.postDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1051,23 +1141,23 @@ export default function AdminManageContentScreen() {
 
   async function seedDummyPosts() {
     if (!mobileSupabase) return;
-    if (guardObserverWrite("Tạo dữ liệu mẫu")) return;
+    if (guardObserverWrite(strings.manageContentSeedAction)) return;
     const client = mobileSupabase;
     setSaving(true);
     try {
       const existingTitles = new Set((snapshot?.posts ?? []).map((post) => post.title.trim().toLowerCase()));
-      const missingPosts = DUMMY_FEED_POSTS.filter((post) => !existingTitles.has(post.title.trim().toLowerCase()));
+      const missingPosts = dummyFeedPosts.filter((post) => !existingTitles.has(post.title.trim().toLowerCase()));
 
       if (!missingPosts.length) {
-        Alert.alert("Đã có dữ liệu mẫu", "Các bài mẫu cho feed đã tồn tại sẵn trong hệ thống.");
+        Alert.alert(strings.manageContentSeedExistsTitle, strings.manageContentSeedExistsBody);
         return;
       }
 
       await Promise.all(missingPosts.map((post) => createAdminContentPostForMobile(client, post)));
       await loadSnapshot();
-      Alert.alert("Đã tạo dữ liệu mẫu", `Đã thêm ${missingPosts.length} bài feed vào Home.`);
+      Alert.alert(strings.manageContentSeedCreatedTitle, `${strings.manageContentSeedCreatedBodyPrefix} ${missingPosts.length} ${strings.manageContentSeedCreatedBodySuffix}`);
     } catch (nextError) {
-      Alert.alert("Không tạo được dữ liệu mẫu", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.manageContentSeedFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1075,7 +1165,7 @@ export default function AdminManageContentScreen() {
 
   async function saveStorefront() {
     if (!mobileSupabase) return;
-    if (guardObserverWrite("Lưu hồ sơ cửa tiệm")) return;
+    if (guardObserverWrite(strings.manageContentSaveStorefrontAction)) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontProfileInput & { id?: string | null } = {
@@ -1099,9 +1189,9 @@ export default function AdminManageContentScreen() {
       };
       await upsertAdminStorefrontProfileForMobile(mobileSupabase, payload);
       await loadSnapshot();
-      Alert.alert("Đã lưu", "Tiệm của chi nhánh này đã được cập nhật.");
+      Alert.alert(strings.manageContentStorefrontSavedTitle, strings.manageContentStorefrontSavedBody);
     } catch (nextError) {
-      Alert.alert("Không lưu tiệm", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.manageContentStorefrontSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1117,15 +1207,15 @@ export default function AdminManageContentScreen() {
 
   function confirmDeleteStorefront() {
     return confirmTask(
-      "Xóa storefront",
-      "Storefront, sản phẩm, gallery và nhân sự gắn với tiệm này sẽ bị xóa khỏi chi nhánh.",
+      strings.manageContentDeleteStorefrontTitle,
+      strings.manageContentDeleteStorefrontBody,
       deleteStorefront,
     );
   }
 
   async function saveTeamMember() {
     if (!mobileSupabase || !teamForm || !snapshot?.storefront?.id) return;
-    if (guardObserverWrite("Lưu nhân sự")) return;
+    if (guardObserverWrite(strings.manageContentSaveTeamAction)) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontTeamMemberInput = {
@@ -1144,7 +1234,7 @@ export default function AdminManageContentScreen() {
       setTeamForm(null);
       await loadSnapshot();
     } catch (nextError) {
-      Alert.alert("Không lưu nhân sự", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.teamMemberDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1152,7 +1242,7 @@ export default function AdminManageContentScreen() {
 
   async function saveProduct() {
     if (!mobileSupabase || !productForm || !snapshot?.storefront?.id) return;
-    if (guardObserverWrite("Lưu sản phẩm")) return;
+    if (guardObserverWrite(strings.manageContentSaveProductAction)) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontProductInput = {
@@ -1173,7 +1263,7 @@ export default function AdminManageContentScreen() {
       setProductForm(null);
       await loadSnapshot();
     } catch (nextError) {
-      Alert.alert("Không lưu sản phẩm", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.manageContentGenericSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1181,7 +1271,7 @@ export default function AdminManageContentScreen() {
 
   async function saveGalleryItem() {
     if (!mobileSupabase || !galleryForm || !snapshot?.storefront?.id) return;
-    if (guardObserverWrite("Lưu gallery")) return;
+    if (guardObserverWrite(strings.manageContentSaveGalleryAction)) return;
     setSaving(true);
     try {
       const payload: MobileAdminStorefrontGalleryItemInput = {
@@ -1199,7 +1289,7 @@ export default function AdminManageContentScreen() {
       setGalleryForm(null);
       await loadSnapshot();
     } catch (nextError) {
-      Alert.alert("Không lưu gallery", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+      Alert.alert(strings.manageContentGenericSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
     } finally {
       setSaving(false);
     }
@@ -1208,9 +1298,9 @@ export default function AdminManageContentScreen() {
   async function confirmTask(title: string, message: string, task: () => Promise<void>) {
     if (guardObserverWrite(title)) return;
     Alert.alert(title, message, [
-      { text: "Hủy", style: "cancel" },
+      { text: strings.manageContentCancel, style: "cancel" },
       {
-        text: "Xác nhận",
+        text: strings.manageContentConfirm,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -1219,7 +1309,7 @@ export default function AdminManageContentScreen() {
               await task();
               await loadSnapshot();
             } catch (nextError) {
-              Alert.alert("Không thực hiện được", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+              Alert.alert(strings.manageContentCannotPerformTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
             } finally {
               setSaving(false);
             }
@@ -1232,8 +1322,8 @@ export default function AdminManageContentScreen() {
   if (loading && !snapshot) {
     return (
       <ManageScreenShell
-        title="Cửa tiệm"
-        subtitle="Đang tải dữ liệu Home và Explore..."
+        title={strings.manageContentLoadingScreenTitle}
+        subtitle={strings.manageContentLoadingScreenSubtitle}
         currentKey="content"
         group="setup"
         activeTab="booking"
@@ -1241,11 +1331,11 @@ export default function AdminManageContentScreen() {
         showBottomDock={true}
         showBackButton={false}
         observerReadOnly={observerReadOnly}
-        observerReadOnlyMessage="Đang quan sát nội dung theo scope đã chọn. Các thao tác chỉnh sửa storefront, ưu đãi và bài viết chỉ mở ở chi nhánh làm việc."
+        observerReadOnlyMessage={strings.manageContentObserverMessage}
       >
         <View style={styles.stateCard}>
           <ActivityIndicator color={palette.accent} />
-          <Text style={styles.stateTitle}>Đang đồng bộ nội dung hiển thị cho khách hàng...</Text>
+          <Text style={styles.stateTitle}>{strings.manageContentLoadingStateBody}</Text>
         </View>
       </ManageScreenShell>
     );
@@ -1253,8 +1343,8 @@ export default function AdminManageContentScreen() {
 
   return (
     <ManageScreenShell
-      title="Cửa tiệm"
-      subtitle="Quản lý nội dung Home và Explore"
+      title={strings.manageContentScreenTitle}
+      subtitle={strings.manageContentScreenSubtitle}
       currentKey="content"
       group="setup"
       activeTab="booking"
@@ -1264,24 +1354,24 @@ export default function AdminManageContentScreen() {
       onRefresh={() => void Promise.all([loadSnapshot(), loadServices(true)])}
       refreshing={loading || servicesLoading}
       observerReadOnly={observerReadOnly}
-      observerReadOnlyMessage="Đang quan sát nội dung theo scope đã chọn. Các thao tác chỉnh sửa storefront, ưu đãi và bài viết chỉ mở ở chi nhánh làm việc."
+      observerReadOnlyMessage={strings.manageContentObserverMessage}
     >
       <View style={styles.heroRow}>
-        <Chip active={activeTab === "home"} icon="home" label="Home" onPress={() => setActiveTab("home")} />
-        <Chip active={activeTab === "explore"} icon="compass" label="Explore" onPress={() => setActiveTab("explore")} />
+        <Chip active={activeTab === "home"} icon="home" label={strings.manageContentHomeTab} onPress={() => setActiveTab("home")} />
+        <Chip active={activeTab === "explore"} icon="compass" label={strings.manageContentExploreTab} onPress={() => setActiveTab("explore")} />
       </View>
 
       {servicesLoading ? (
         <View style={styles.inlineNotice}>
           <ActivityIndicator size="small" color={palette.accent} />
-          <Text style={styles.inlineNoticeText}>Đang tải danh sách dịch vụ...</Text>
+          <Text style={styles.inlineNoticeText}>{strings.manageContentLoadingServices}</Text>
         </View>
       ) : null}
 
       {saving ? (
         <View style={styles.inlineNotice}>
           <ActivityIndicator size="small" color={palette.accent} />
-          <Text style={styles.inlineNoticeText}>Đang lưu dữ liệu...</Text>
+          <Text style={styles.inlineNoticeText}>{strings.manageContentSavingState}</Text>
         </View>
       ) : null}
 
@@ -1295,16 +1385,16 @@ export default function AdminManageContentScreen() {
       {activeTab === "home" ? (
         <>
           <SectionCard
-            title="Lookbook Home"
+            title={strings.manageContentLookbookTitle}
             titleBadge={`${homeServices.length}/${lookbookServices.length}`}
-            subtitle="Chỉ hiển thị dịch vụ có metadata lookbook."
-            actionLabel={homeServicesExpanded ? "Thu gọn ˄" : "Mở rộng ˅"}
+            subtitle={strings.manageContentLookbookSubtitle}
+            actionLabel={homeServicesExpanded ? strings.manageContentCollapseChevron : strings.manageContentExpandChevron}
             onActionPress={() => setHomeServicesExpanded((current) => !current)}
           >
             {homeServicesExpanded ? (
               <>
-            <Text style={styles.helperText}>Dịch vụ thường sẽ không nằm ở khu này.</Text>
-            <SearchInput placeholder="Tìm dịch vụ lookbook cho Home..." value={homeServiceQuery} onChangeText={setHomeServiceQuery} />
+            <Text style={styles.helperText}>{strings.manageContentFeaturedServicesSubtitle}</Text>
+            <SearchInput placeholder={strings.manageContentLookbookSearchPlaceholder} value={homeServiceQuery} onChangeText={setHomeServiceQuery} />
             <View style={styles.listColumn}>
               {homeLookbookServices.map((service) => (
                 <Pressable
@@ -1325,7 +1415,7 @@ export default function AdminManageContentScreen() {
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>{service.name}</Text>
                     <Text style={styles.rowSubtitle}>
-                      Home · {service.featuredInHome ? "Bật" : "Tắt"} · thứ tự {service.displayOrderHome} · {service.lookbookBadge || service.lookbookCategory || "Lookbook"}
+                      {`${strings.manageContentHomeTab} · ${service.featuredInHome ? strings.manageContentStatusOn : strings.manageContentStatusOff} · ${strings.manageContentOfferOrderPrefix} ${service.displayOrderHome} · ${service.lookbookBadge || service.lookbookCategory || strings.manageContentLookbookFallback}`}
                     </Text>
                   </View>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
@@ -1337,10 +1427,10 @@ export default function AdminManageContentScreen() {
           </SectionCard>
 
           <SectionCard
-            title="Ưu đãi"
+            title={strings.manageContentOffersTitle}
             titleBadge={String(snapshot?.offers.length ?? 0)}
-            subtitle="Ưu đãi dùng chung cho Home và Explore."
-            actionLabel="Thêm ưu đãi"
+            subtitle={strings.manageContentOffersSubtitle}
+            actionLabel={strings.manageContentAddOffer}
             onActionPress={() => void router.push("/(admin)/manage-content-offer/new" as never)}
           >
             <View style={styles.listColumn}>
@@ -1349,7 +1439,7 @@ export default function AdminManageContentScreen() {
                   <View style={styles.offerTierHeader}>
                     <View style={styles.offerTierCopy}>
                       <Text style={styles.offerTierTitle}>{group.label}</Text>
-                      <Text style={styles.offerTierSubtitle}>{group.offers.length} ưu đãi · sắp theo thứ tự trong hạng</Text>
+                      <Text style={styles.offerTierSubtitle}>{`${group.offers.length} ${strings.manageContentOfferTierCountSuffix}`}</Text>
                     </View>
                     <Pressable
                       style={styles.offerTierAction}
@@ -1361,7 +1451,7 @@ export default function AdminManageContentScreen() {
                       }
                     >
                       <Feather name="plus" size={14} color={palette.accent} />
-                      <Text style={styles.offerTierActionText}>Thêm</Text>
+                      <Text style={styles.offerTierActionText}>{strings.manageContentAddShort}</Text>
                     </Pressable>
                   </View>
 
@@ -1372,10 +1462,10 @@ export default function AdminManageContentScreen() {
                         <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-offer/${offer.id}` as never)}>
                           <Text style={styles.rowTitle}>{offer.title}</Text>
                           <Text style={styles.rowSubtitle}>
-                            {offer.isActive ? "Đang bật" : "Đang tắt"} · {offer.badge || group.label} · thứ tự {offer.packageOrder}
+                            {`${offer.isActive ? strings.manageContentOfferActive : strings.manageContentOfferInactive} · ${offer.badge || group.label} · ${strings.manageContentOfferOrderPrefix} ${offer.packageOrder}`}
                           </Text>
                         </Pressable>
-                        <Pressable style={styles.iconButton} onPress={() => void confirmTask("Ẩn ưu đãi", "Ưu đãi này sẽ được tắt cho khách hàng.", async () => {
+                        <Pressable style={styles.iconButton} onPress={() => void confirmTask(strings.manageContentArchiveOfferTitle, strings.manageContentArchiveOfferBody, async () => {
                           if (!mobileSupabase) return;
                           await archiveAdminOfferForMobile(mobileSupabase, offer.id);
                         })}>
@@ -1386,21 +1476,21 @@ export default function AdminManageContentScreen() {
                   </View>
                 </View>
               )) : (
-                <Text style={styles.emptyText}>Chưa có ưu đãi nào để hiển thị.</Text>
+                <Text style={styles.emptyText}>{strings.manageContentNoOffers}</Text>
               )}
             </View>
           </SectionCard>
 
           <SectionCard
-            title="Bài feed"
+            title={strings.manageContentFeedTitle}
             titleBadge={String(snapshot?.posts.length ?? 0)}
-            subtitle="Tạo, sửa và xuất bản bài hiển thị ở Home."
-            actionLabel="Thêm bài"
+            subtitle={strings.manageContentFeedSubtitle}
+            actionLabel={strings.manageContentAddPost}
             onActionPress={() => void router.push("/(admin)/manage-content-post/new" as never)}
           >
             <View style={styles.inlineButtons}>
               <Pressable style={styles.secondaryButton} onPress={() => void seedDummyPosts()}>
-                <Text style={styles.secondaryButtonText}>Tạo 3 bài mẫu</Text>
+                <Text style={styles.secondaryButtonText}>{strings.manageContentSeedPostsButton}</Text>
               </Pressable>
             </View>
             <View style={styles.listColumn}>
@@ -1409,9 +1499,9 @@ export default function AdminManageContentScreen() {
                   <ItemThumbnail uri={post.coverImageUrl} label={post.title} />
                   <Pressable style={styles.rowCopy} onPress={() => void router.push(`/(admin)/manage-content-post/${post.id}` as never)}>
                     <Text style={styles.rowTitle}>{post.title}</Text>
-                    <Text style={styles.rowSubtitle}>{post.status} · {post.contentType} · nguồn {post.sourcePlatform}</Text>
+                    <Text style={styles.rowSubtitle}>{`${post.status} · ${post.contentType} · ${strings.manageContentSourcePrefix} ${post.sourcePlatform}`}</Text>
                   </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Ẩn bài viết", "Bài này sẽ được gỡ khỏi Home.", async () => {
+                  <Pressable style={styles.iconButton} onPress={() => void confirmTask(strings.manageContentArchivePostTitle, strings.manageContentArchivePostBody, async () => {
                     if (!mobileSupabase) return;
                     await archiveAdminContentPostForMobile(mobileSupabase, post.id);
                   })}>
@@ -1427,14 +1517,14 @@ export default function AdminManageContentScreen() {
           {isOrgOverview ? (
             <>
               <SectionCard
-                title="Tổng quan storefront"
+                title={strings.manageContentOrgOverviewTitle}
                 titleBadge={String(orgOverview?.totalBranches ?? 0)}
-                subtitle="Org mode chỉ quan sát. Mỗi card cho biết mức hoàn thiện storefront và nội dung của từng chi nhánh."
+                subtitle={strings.manageContentOrgOverviewSubtitle}
               >
                 <View style={styles.inlineNotice}>
                   <Feather name="eye" size={16} color={palette.accent} />
                   <Text style={styles.inlineNoticeText}>
-                    Đổi observer sang một chi nhánh cụ thể nếu cần sửa storefront, sản phẩm, gallery hoặc nhân sự của chi nhánh đó.
+                    {strings.manageContentOrgOverviewNotice}
                   </Text>
                 </View>
 
@@ -1445,11 +1535,11 @@ export default function AdminManageContentScreen() {
                     </View>
                     <View style={styles.exploreSummaryCopy}>
                       <View style={styles.exploreSummaryTitleRow}>
-                        <Text style={styles.exploreSummaryTitle}>Chi nhánh có storefront</Text>
+                        <Text style={styles.exploreSummaryTitle}>{strings.manageContentBranchesWithStorefront}</Text>
                         <CountBadge value={`${orgOverview?.activeStorefrontCount ?? 0}/${orgOverview?.totalBranches ?? 0}`} />
                       </View>
                       <Text style={styles.exploreSummarySubtitle}>
-                        {formatOverviewMetric(orgOverview?.storefrontCount ?? 0, "storefront", "storefront")} đã được tạo, trong đó {formatOverviewMetric(orgOverview?.activeStorefrontCount ?? 0, "chi nhánh", "chi nhánh")} đang bật hiển thị.
+                        {`${formatOverviewMetric(orgOverview?.storefrontCount ?? 0, strings.manageContentStorefrontUnit)} ${strings.manageContentOrgOverviewStorefrontSummaryPrefix} ${formatOverviewMetric(orgOverview?.activeStorefrontCount ?? 0, strings.manageContentBranchUnit)} ${strings.manageContentStorefrontShowing.toLowerCase()}.`}
                       </Text>
                     </View>
                   </View>
@@ -1460,11 +1550,11 @@ export default function AdminManageContentScreen() {
                     </View>
                     <View style={styles.exploreSummaryCopy}>
                       <View style={styles.exploreSummaryTitleRow}>
-                        <Text style={styles.exploreSummaryTitle}>Dịch vụ branch-scoped</Text>
+                        <Text style={styles.exploreSummaryTitle}>{strings.manageContentServicesScoped}</Text>
                         <CountBadge value={String(orgOverview?.serviceCount ?? 0)} />
                       </View>
                       <Text style={styles.exploreSummarySubtitle}>
-                        {formatOverviewMetric(orgOverview?.featuredServiceCount ?? 0, "dịch vụ nổi bật", "dịch vụ nổi bật")} và {formatOverviewMetric(orgOverview?.sharedServiceCount ?? 0, "dịch vụ dùng chung", "dịch vụ dùng chung")} đang áp dụng toàn org.
+                        {`${formatOverviewMetric(orgOverview?.featuredServiceCount ?? 0, strings.manageContentFeaturedServiceUnit)} ${strings.manageContentAndConnector} ${formatOverviewMetric(orgOverview?.sharedServiceCount ?? 0, strings.manageContentSharedServiceUnit)} ${strings.manageContentOrgOverviewServicesSummarySuffix}`}
                       </Text>
                     </View>
                   </View>
@@ -1475,11 +1565,11 @@ export default function AdminManageContentScreen() {
                     </View>
                     <View style={styles.exploreSummaryCopy}>
                       <View style={styles.exploreSummaryTitleRow}>
-                        <Text style={styles.exploreSummaryTitle}>Sản phẩm & gallery</Text>
+                        <Text style={styles.exploreSummaryTitle}>{strings.manageContentProductsAndGallery}</Text>
                         <CountBadge value={String(orgOverview?.productCount ?? 0)} />
                       </View>
                       <Text style={styles.exploreSummarySubtitle}>
-                        {formatOverviewMetric(orgOverview?.featuredProductCount ?? 0, "sản phẩm nổi bật", "sản phẩm nổi bật")} và {formatOverviewMetric(orgOverview?.galleryCount ?? 0, "ảnh gallery", "ảnh gallery")} đang phân bổ theo từng chi nhánh.
+                        {`${formatOverviewMetric(orgOverview?.featuredProductCount ?? 0, strings.manageContentFeaturedProductUnit)} ${strings.manageContentAndConnector} ${formatOverviewMetric(orgOverview?.galleryCount ?? 0, strings.manageContentGalleryUnit)} ${strings.manageContentOrgOverviewProductsSummarySuffix}`}
                       </Text>
                     </View>
                   </View>
@@ -1490,11 +1580,11 @@ export default function AdminManageContentScreen() {
                     </View>
                     <View style={styles.exploreSummaryCopy}>
                       <View style={styles.exploreSummaryTitleRow}>
-                        <Text style={styles.exploreSummaryTitle}>Nhân sự hiển thị</Text>
+                        <Text style={styles.exploreSummaryTitle}>{strings.manageContentVisibleTeam}</Text>
                         <CountBadge value={String(orgOverview?.visibleTeamCount ?? 0)} />
                       </View>
                       <Text style={styles.exploreSummarySubtitle}>
-                        Toàn org hiện có {formatOverviewMetric(orgOverview?.visibleTeamCount ?? 0, "nhân sự hiển thị", "nhân sự hiển thị")}, cùng {formatOverviewMetric(orgOverview?.offerCount ?? 0, "ưu đãi", "ưu đãi")} và {formatOverviewMetric(orgOverview?.postCount ?? 0, "bài feed", "bài feed")} dùng chung.
+                        {`${strings.manageContentOrgOverviewSharedSummaryPrefix} ${formatOverviewMetric(orgOverview?.visibleTeamCount ?? 0, strings.manageContentVisibleTeam.toLowerCase())}, ${strings.manageContentOrgOverviewSharedSummaryMiddle} ${formatOverviewMetric(orgOverview?.offerCount ?? 0, strings.manageContentOfferUnit)} ${strings.manageContentAndConnector} ${formatOverviewMetric(orgOverview?.postCount ?? 0, strings.manageContentPostUnit)} ${strings.manageContentOrgOverviewSharedSummarySuffix}`}
                       </Text>
                     </View>
                   </View>
@@ -1502,9 +1592,9 @@ export default function AdminManageContentScreen() {
               </SectionCard>
 
               <SectionCard
-                title="Theo từng chi nhánh"
+                title={strings.manageContentPerBranchTitle}
                 titleBadge={String(overviewBranches.length)}
-                subtitle="Card nào còn trống storefront hoặc thiếu nội dung thì nên đổi scope sang chi nhánh đó để hoàn thiện."
+                subtitle={strings.manageContentPerBranchSubtitle}
               >
                 <View style={styles.listColumn}>
                   {overviewBranches.map((branch) => {
@@ -1517,32 +1607,32 @@ export default function AdminManageContentScreen() {
                           </View>
                           <View style={styles.branchCopy}>
                             <Text style={styles.branchTitle}>
-                              {branch.branchName}
-                              {isWorkingBranch ? " · Chi nhánh chính" : ""}
+                              {getLocalizedBranchName(locale, branch.branchName, branch.branchTranslations)}
+                              {isWorkingBranch ? ` ${strings.manageContentMainBranchSuffix}` : ""}
                             </Text>
-                            <Text style={styles.branchSubtitle}>{buildBranchOverviewSubtitle(branch)}</Text>
+                            <Text style={styles.branchSubtitle}>{buildBranchOverviewSubtitle(strings, branch)}</Text>
                           </View>
                         </View>
                         <View style={styles.branchMetricsRow}>
                           <View style={styles.branchMetricPill}>
                             <Text style={styles.branchMetricValue}>{branch.serviceCount}</Text>
-                            <Text style={styles.branchMetricLabel}>Dịch vụ</Text>
+                            <Text style={styles.branchMetricLabel}>{strings.manageContentMetricsServices}</Text>
                           </View>
                           <View style={styles.branchMetricPill}>
                             <Text style={styles.branchMetricValue}>{branch.productCount}</Text>
-                            <Text style={styles.branchMetricLabel}>Sản phẩm</Text>
+                            <Text style={styles.branchMetricLabel}>{strings.manageContentMetricsProducts}</Text>
                           </View>
                           <View style={styles.branchMetricPill}>
                             <Text style={styles.branchMetricValue}>{branch.galleryCount}</Text>
-                            <Text style={styles.branchMetricLabel}>Gallery</Text>
+                            <Text style={styles.branchMetricLabel}>{strings.manageContentMetricsGallery}</Text>
                           </View>
                           <View style={styles.branchMetricPill}>
                             <Text style={styles.branchMetricValue}>{branch.visibleTeamCount}</Text>
-                            <Text style={styles.branchMetricLabel}>Nhân sự</Text>
+                            <Text style={styles.branchMetricLabel}>{strings.manageContentMetricsTeam}</Text>
                           </View>
                         </View>
                         <Text style={styles.helperText}>
-                          {formatOverviewMetric(branch.featuredServiceCount, "dịch vụ nổi bật", "dịch vụ nổi bật")} và {formatOverviewMetric(branch.featuredProductCount, "sản phẩm nổi bật", "sản phẩm nổi bật")} đang được bật cho chi nhánh này.
+                          {`${formatOverviewMetric(branch.featuredServiceCount, strings.manageContentFeaturedServiceUnit)} ${strings.manageContentAndConnector} ${formatOverviewMetric(branch.featuredProductCount, strings.manageContentFeaturedProductUnit)} ${strings.manageContentPerBranchSummarySuffix}`}
                         </Text>
                       </View>
                     );
@@ -1552,7 +1642,7 @@ export default function AdminManageContentScreen() {
             </>
           ) : (
             <>
-              <SectionCard title="Hồ sơ tiệm" subtitle={`Đang chỉnh cho ${snapshot?.branchName ?? "hiện tại"}.`} actionLabel={snapshot?.storefront?.isActive ? "Đang hiển thị" : "Bật hiển thị"} onActionPress={snapshot?.storefront ? () => {
+              <SectionCard title={strings.manageContentStorefrontSectionTitle} subtitle={`${strings.manageContentEditingForPrefix} ${currentBranchDisplayName}.`} actionLabel={snapshot?.storefront?.isActive ? strings.manageContentStorefrontShowing : strings.manageContentStorefrontEnableDisplay} onActionPress={snapshot?.storefront ? () => {
             if (!mobileSupabase) return;
             void (async () => {
               setSaving(true);
@@ -1560,7 +1650,7 @@ export default function AdminManageContentScreen() {
                 await setActiveAdminStorefrontProfileForMobile(mobileSupabase, snapshot.storefront!.id);
                 await loadSnapshot();
               } catch (nextError) {
-                Alert.alert("Không kích hoạt được", nextError instanceof Error ? nextError.message : "Thử lại sau.");
+                Alert.alert(strings.manageContentStorefrontActivateFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
               } finally {
                 setSaving(false);
               }
@@ -1571,7 +1661,7 @@ export default function AdminManageContentScreen() {
                 <View style={styles.storefrontInfoCell}>
                   <View style={styles.storefrontLabelRow}>
                     <Feather name="shopping-bag" size={18} color={palette.accent} />
-                    <Text style={styles.storefrontInfoLabel}>Tài khoản</Text>
+                    <Text style={styles.storefrontInfoLabel}>{strings.manageContentAccountLabel}</Text>
                   </View>
                   <Text style={styles.storefrontInfoValue}>{storefrontForm.slug || "cham-beauty"}</Text>
                 </View>
@@ -1579,18 +1669,18 @@ export default function AdminManageContentScreen() {
                 <View style={styles.storefrontInfoCell}>
                   <View style={styles.storefrontLabelRow}>
                     <Feather name="tag" size={18} color={palette.accent} />
-                    <Text style={styles.storefrontInfoLabel}>Tên hiển thị</Text>
+                    <Text style={styles.storefrontInfoLabel}>{strings.manageContentDisplayNameLabel}</Text>
                   </View>
-                  <Text style={styles.storefrontInfoValue}>{storefrontForm.name || "CHẤM BEAUTY"}</Text>
+                  <Text style={styles.storefrontInfoValue}>{storefrontForm.name || strings.manageContentDefaultStorefrontName}</Text>
                 </View>
               </View>
               <Pressable style={styles.storefrontWideRow} onPress={() => setStorefrontEditorOpen(true)}>
                 <View style={styles.storefrontLabelRow}>
                   <Feather name="file-text" size={18} color={palette.accent} />
-                  <Text style={styles.storefrontInfoLabel}>Mô tả</Text>
+                  <Text style={styles.storefrontInfoLabel}>{strings.manageContentDescriptionLabel}</Text>
                 </View>
                 <View style={styles.storefrontWideContent}>
-                  <Text numberOfLines={2} style={styles.storefrontWideValue}>{storefrontForm.description || "Chấm Beauty mang đến vẻ đẹp tinh tế, giúp bạn tự tin tỏa sáng trong mọi khoảnh khắc."}</Text>
+                  <Text numberOfLines={2} style={styles.storefrontWideValue}>{storefrontForm.description || strings.manageContentDefaultStorefrontDescription}</Text>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
                 </View>
               </Pressable>
@@ -1598,7 +1688,7 @@ export default function AdminManageContentScreen() {
                 <View style={styles.storefrontInfoCell}>
                   <View style={styles.storefrontLabelRow}>
                     <Feather name="link" size={18} color={palette.accent} />
-                    <Text style={styles.storefrontInfoLabel}>Link ảnh bìa</Text>
+                    <Text style={styles.storefrontInfoLabel}>{strings.manageContentCoverLinkLabel}</Text>
                   </View>
                   <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.coverImageUrl || "i.ibb.co/..."}</Text>
                 </View>
@@ -1606,7 +1696,7 @@ export default function AdminManageContentScreen() {
                 <View style={styles.storefrontInfoCell}>
                   <View style={styles.storefrontLabelRow}>
                     <Feather name="link" size={18} color={palette.accent} />
-                    <Text style={styles.storefrontInfoLabel}>Link logo</Text>
+                    <Text style={styles.storefrontInfoLabel}>{strings.manageContentLogoLinkLabel}</Text>
                   </View>
                   <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.logoImageUrl || "i.ibb.co/..."}</Text>
                 </View>
@@ -1614,38 +1704,38 @@ export default function AdminManageContentScreen() {
             </View>
 
             <View style={styles.storefrontActionRow}>
-              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải ảnh bìa</Text></Pressable>
-              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>Tải logo</Text></Pressable>
+              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>{strings.manageContentUploadCover}</Text></Pressable>
+              <Pressable style={styles.storefrontGhostButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Feather name="upload-cloud" size={18} color={palette.accent} /><Text style={styles.storefrontGhostText}>{strings.manageContentUploadLogo}</Text></Pressable>
               {snapshot?.storefront?.id ? (
                 <Pressable
                   style={[styles.storefrontGhostButton, styles.storefrontDangerButton]}
                   onPress={() => void confirmDeleteStorefront()}
                 >
                   <Feather name="trash-2" size={18} color={palette.danger} />
-                  <Text style={[styles.storefrontGhostText, styles.storefrontDangerText]}>Xóa</Text>
+                  <Text style={[styles.storefrontGhostText, styles.storefrontDangerText]}>{strings.manageContentDeleteShort}</Text>
                 </Pressable>
               ) : null}
-              <Pressable style={styles.storefrontSaveButton} onPress={() => setStorefrontEditorOpen(true)}><Text style={styles.storefrontSaveText}>Sửa hồ sơ tiệm</Text></Pressable>
+              <Pressable style={styles.storefrontSaveButton} onPress={() => setStorefrontEditorOpen(true)}><Text style={styles.storefrontSaveText}>{strings.manageContentEditStorefront}</Text></Pressable>
             </View>
 
             <View style={styles.storefrontPreviewRow}>
               <View style={styles.storefrontPreviewCard}>
-                <Text style={styles.previewLabel}>Ảnh bìa hiện tại</Text>
+                <Text style={styles.previewLabel}>{strings.manageContentCurrentCover}</Text>
                 {storefrontForm.coverImageUrl ? <CachedAppImage source={{ uri: storefrontForm.coverImageUrl }} style={styles.storefrontCoverPreview} alt="cover" /> : null}
               </View>
               <View style={styles.storefrontPreviewCard}>
-                <Text style={styles.previewLabel}>Logo hiện tại</Text>
+                <Text style={styles.previewLabel}>{strings.manageContentCurrentLogo}</Text>
                 {storefrontForm.logoImageUrl ? <CachedAppImage source={{ uri: storefrontForm.logoImageUrl }} style={styles.storefrontLogoPreview} alt="logo" /> : null}
               </View>
             </View>
 
             <View style={styles.storefrontFactsCard}>
               {[
-                { icon: "star", label: "Đánh giá", value: storefrontForm.rating || "4.9" },
-                { icon: "message-circle", label: "Số đánh giá", value: storefrontForm.reviewsLabel || "128 đánh giá" },
-                { icon: "map-pin", label: "Địa chỉ", value: storefrontForm.addressLine || "Chưa có địa chỉ" },
-                { icon: "link", label: "Google Maps", value: storefrontForm.mapUrl || "Chưa có link map" },
-                { icon: "clock", label: "Giờ mở cửa", value: storefrontForm.openingHours || "Chưa có thông tin" },
+                { icon: "star", label: strings.manageContentRatingLabel, value: storefrontForm.rating || strings.manageContentDefaultRating },
+                { icon: "message-circle", label: strings.manageContentReviewsLabel, value: storefrontForm.reviewsLabel || strings.manageContentDefaultReviews },
+                { icon: "map-pin", label: strings.manageContentAddressLabel, value: storefrontForm.addressLine || strings.manageContentMissingAddress },
+                { icon: "link", label: strings.manageContentGoogleMapsLabel, value: storefrontForm.mapUrl || strings.manageContentMissingMap },
+                { icon: "clock", label: strings.manageContentOpeningHoursLabel, value: storefrontForm.openingHours || strings.manageContentMissingOpeningHours },
               ].map((item, index, source) => (
                 <View key={item.label} style={[styles.storefrontFactRow, index < source.length - 1 ? styles.storefrontFactBorder : null]}>
                   <View style={styles.storefrontFactCopy}>
@@ -1661,7 +1751,7 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title="Dịch vụ nổi bật" titleBadge={String(exploreServices.length)} subtitle="Hiển thị dịch vụ có metadata lookbook" actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? "Thu gọn" : "Mở rộng") : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
+          <SectionCard title={strings.manageContentFeaturedServicesTitle} titleBadge={String(exploreServices.length)} subtitle={strings.manageContentFeaturedServicesSubtitle} actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? strings.manageContentCollapse : strings.manageContentExpand) : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
             <View style={styles.exploreFeatureShell}>
               {visibleExploreFeaturedServices.map((service, index) => (
                 <Pressable key={service.id} style={[styles.exploreFeatureRow, index < visibleExploreFeaturedServices.length - 1 ? styles.exploreFeatureBorder : null]} onPress={() => {
@@ -1671,30 +1761,30 @@ export default function AdminManageContentScreen() {
                   <ItemThumbnail uri={service.imageUrl} label={service.name} />
                   <View style={styles.rowCopy}>
                     <Text style={styles.rowTitle}>{service.name}</Text>
-                    <Text numberOfLines={2} style={styles.rowSubtitle}>Explore · Thứ tự {service.displayOrderExplore} · {service.lookbookBadge || "Lookbook"}</Text>
+                    <Text numberOfLines={2} style={styles.rowSubtitle}>{`${strings.manageContentExploreTab} · ${strings.manageContentOfferOrderPrefix} ${service.displayOrderExplore} · ${service.lookbookBadge || strings.manageContentLookbookFallback}`}</Text>
                   </View>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
                 </Pressable>
               ))}
               {!exploreFeaturedExpanded && exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (
                 <Pressable style={styles.exploreFooterAction} onPress={() => setExploreFeaturedExpanded(true)}>
-                  <Text style={styles.exploreFooterActionText}>Xem tất cả ({exploreServices.length})</Text>
+                  <Text style={styles.exploreFooterActionText}>{`${strings.manageContentViewAllPrefix} (${exploreServices.length})`}</Text>
                   <Feather name="chevron-right" size={18} color={palette.accent} />
                 </Pressable>
               ) : null}
             </View>
           </SectionCard>
 
-          <SectionCard title="Sản phẩm & phụ kiện" titleBadge={String(snapshot?.products.length ?? 0)} subtitle="Quản lý ảnh trong landing feed" actionLabel="Thêm ảnh" onActionPress={() => setProductForm(emptyProductForm())}>
+          <SectionCard title={strings.manageContentProductsTitle} titleBadge={String(snapshot?.products.length ?? 0)} subtitle={strings.manageContentProductsSubtitle} actionLabel={strings.manageContentAddImage} onActionPress={() => setProductForm(emptyProductForm())}>
             <View style={styles.listColumn}>
               {visibleProducts.map((product) => (
                 <View key={product.id} style={styles.rowCard}>
                   <ItemThumbnail uri={product.imageUrl} label={product.name} />
                   <Pressable style={styles.rowCopy} onPress={() => setProductForm(buildProductForm(product))}>
                     <Text style={styles.rowTitle}>{product.name}</Text>
-                    <Text numberOfLines={2} style={styles.rowSubtitle}>{product.productType || "Không có loại"} · {product.priceLabel || "Không có giá"} · {product.isActive ? "Đang hiển thị" : "Đang ẩn"}</Text>
+                    <Text numberOfLines={2} style={styles.rowSubtitle}>{`${product.productType || strings.manageContentNoProductType} · ${product.priceLabel || strings.manageContentNoPrice} · ${product.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow}`}</Text>
                   </Pressable>
-                  <Pressable style={styles.iconButton} onPress={() => void confirmTask("Xóa sản phẩm", "Sản phẩm này sẽ bị gỡ khỏi tiệm.", async () => {
+                  <Pressable style={styles.iconButton} onPress={() => void confirmTask(strings.manageContentDeleteProductTitle, strings.manageContentDeleteProductBody, async () => {
                     if (!mobileSupabase) return;
                     await deleteAdminStorefrontProductForMobile(mobileSupabase, product.id);
                   })}>
@@ -1704,14 +1794,14 @@ export default function AdminManageContentScreen() {
               ))}
               {(snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT ? (
                 <Pressable style={styles.exploreFooterAction} onPress={() => setProductsExpanded((current) => !current)}>
-                  <Text style={styles.exploreFooterActionText}>{productsExpanded ? "Thu gọn" : `Xem tất cả (${snapshot?.products.length ?? 0})`}</Text>
+                  <Text style={styles.exploreFooterActionText}>{productsExpanded ? strings.manageContentCollapse : `${strings.manageContentViewAllPrefix} (${snapshot?.products.length ?? 0})`}</Text>
                   <Feather name={productsExpanded ? "chevron-up" : "chevron-right"} size={18} color={palette.accent} />
                 </Pressable>
               ) : null}
             </View>
           </SectionCard>
 
-          <SectionCard title="Thư viện ảnh" titleBadge={String(snapshot?.gallery.length ?? 0)} actionLabel="Thêm ảnh" onActionPress={() => setGalleryForm(emptyGalleryForm())}>
+          <SectionCard title={strings.manageContentGalleryTitle} titleBadge={String(snapshot?.gallery.length ?? 0)} actionLabel={strings.manageContentAddImage} onActionPress={() => setGalleryForm(emptyGalleryForm())}>
             <View style={styles.galleryStrip}>
               {(snapshot?.gallery ?? []).slice(0, 6).map((item) => (
                 <Pressable key={item.id} style={styles.galleryThumbWrap} onPress={() => setGalleryForm(buildGalleryForm(item))}>
@@ -1728,11 +1818,10 @@ export default function AdminManageContentScreen() {
               </View>
               <View style={styles.exploreSummaryCopy}>
                 <View style={styles.exploreSummaryTitleRow}>
-                  <Text style={styles.exploreSummaryTitle}>Dịch vụ thường</Text>
+                  <Text style={styles.exploreSummaryTitle}>{strings.manageContentRegularServicesCardTitle}</Text>
                   <CountBadge value={String(exploreRegularServices.length)} />
                 </View>
-                <Text style={styles.exploreSummaryTitle}>Dự phòng</Text>
-                <Text style={styles.exploreSummarySubtitle}>Dùng khi sản phẩm & phụ kiện chưa có dữ liệu.</Text>
+                <Text style={styles.exploreSummarySubtitle}>{strings.manageContentRegularServicesCardSubtitle}</Text>
               </View>
               <Feather name="chevron-right" size={20} color="#A7988A" />
             </Pressable>
@@ -1743,11 +1832,10 @@ export default function AdminManageContentScreen() {
               </View>
               <View style={styles.exploreSummaryCopy}>
                 <View style={styles.exploreSummaryTitleRow}>
-                  <Text style={styles.exploreSummaryTitle}>Nhân sự</Text>
+                  <Text style={styles.exploreSummaryTitle}>{strings.manageContentTeamTitle}</Text>
                   <CountBadge value={String(snapshot?.team.length ?? 0)} />
                 </View>
-                <Text style={styles.exploreSummaryTitle}>tiệm</Text>
-                <Text style={styles.exploreSummarySubtitle}>Quản lý thông tin nhân sự của tiệm.</Text>
+                <Text style={styles.exploreSummarySubtitle}>{strings.manageContentTeamCardSubtitle}</Text>
               </View>
               <Feather name="chevron-right" size={20} color="#A7988A" />
             </Pressable>
@@ -1757,48 +1845,48 @@ export default function AdminManageContentScreen() {
         </>
       )}
 
-      <ModalShell title="Sửa hồ sơ tiệm" visible={storefrontEditorOpen} onClose={() => setStorefrontEditorOpen(false)}>
+      <ModalShell title={strings.manageContentStorefrontEditorTitle} visible={storefrontEditorOpen} onClose={() => setStorefrontEditorOpen(false)}>
         <View style={styles.formColumn}>
-          <ModalFormHeader icon="home" title="Sửa hồ sơ tiệm" subtitle="Cập nhật thông tin hiển thị của cửa tiệm trên landing và explore." />
-          <ModalInputField icon="at-sign" label="Slug hiển thị" placeholder="cham-beauty" value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
-          <ModalInputField icon="home" label="Tên tiệm" placeholder="CHẠM BEAUTY" value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
-          <ModalInputField icon="grid" label="Nhóm tiệm" placeholder="Nail studio" value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
-          <ModalTextAreaField icon="file-text" label="Mô tả" placeholder="Mô tả ngắn về cửa tiệm" value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
-          <ModalInputField icon="image" label="URL ảnh bìa" placeholder="https://..." value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
-          <ModalInputField icon="aperture" label="URL logo" placeholder="https://..." value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
+          <ModalFormHeader icon="home" title={strings.manageContentStorefrontEditorTitle} subtitle={strings.manageContentStorefrontEditorSubtitle} />
+          <ModalInputField icon="at-sign" label={strings.manageContentStorefrontSlugPlaceholder} placeholder={strings.manageContentDefaultStorefrontSlug} value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
+          <ModalInputField icon="home" label={strings.manageContentStorefrontNamePlaceholder} placeholder={strings.manageContentStorefrontNameDefault} value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
+          <ModalInputField icon="grid" label={strings.manageContentStorefrontCategoryLabel} placeholder={strings.manageContentStorefrontCategoryPlaceholder} value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
+          <ModalTextAreaField icon="file-text" label={strings.manageContentDescriptionLabel} placeholder={strings.manageContentStorefrontDescriptionPlaceholder} value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
+          <ModalInputField icon="image" label={strings.manageContentStorefrontCoverUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
+          <ModalInputField icon="aperture" label={strings.manageContentStorefrontLogoUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
           <View style={styles.inlineButtons}>
-            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text></Pressable>
-            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>Tải logo</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-cover", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>{strings.manageContentUploadCover}</Text></Pressable>
+            <Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", storefrontForm.name || "storefront-logo", (publicUrl) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: publicUrl })))}><Text style={styles.secondaryButtonText}>{strings.manageContentUploadLogo}</Text></Pressable>
           </View>
-          <ImagePreview uri={storefrontForm.coverImageUrl} label="Ảnh bìa hiện tại" />
-          <ImagePreview uri={storefrontForm.logoImageUrl} label="Logo hiện tại" />
-          <ModalInputField icon="star" label="Điểm đánh giá" placeholder="4.9" value={storefrontForm.rating} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, rating: value }))} keyboardType="decimal-pad" />
-          <ModalInputField icon="message-circle" label="Nhãn đánh giá" placeholder="128 đánh giá" value={storefrontForm.reviewsLabel} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabel: value }))} />
-          <ModalInputField icon="map-pin" label="Địa chỉ hiển thị" placeholder="38A Bài Xương Trạch..." value={storefrontForm.addressLine} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLine: value }))} />
-          <ModalInputField icon="navigation" label="URL bản đồ" placeholder="https://maps..." value={storefrontForm.mapUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, mapUrl: value }))} />
-          <ModalInputField icon="clock" label="Giờ mở cửa" placeholder="09:00 - 21:00" value={storefrontForm.openingHours} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHours: value }))} />
-          <ModalInputField icon="phone" label="Số điện thoại" placeholder="09xxxxxxxx" value={storefrontForm.phone} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, phone: value }))} />
-          <ModalInputField icon="message-square" label="URL Messenger" placeholder="https://m.me/..." value={storefrontForm.messengerUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: value }))} />
-          <ModalInputField icon="instagram" label="URL Instagram" placeholder="https://instagram.com/..." value={storefrontForm.instagramUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: value }))} />
-          <ModalTextAreaField icon="award" label="Điểm nổi bật" placeholder="Mỗi dòng 1 ý nổi bật" value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
+          <ImagePreview uri={storefrontForm.coverImageUrl} label={strings.manageContentStorefrontCurrentCoverLabel} />
+          <ImagePreview uri={storefrontForm.logoImageUrl} label={strings.manageContentStorefrontCurrentLogoLabel} />
+          <ModalInputField icon="star" label={strings.manageContentStorefrontRatingLabel} placeholder={strings.manageContentDefaultRating} value={storefrontForm.rating} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, rating: value }))} keyboardType="decimal-pad" />
+          <ModalInputField icon="message-circle" label={strings.manageContentStorefrontReviewsTextLabel} placeholder={strings.manageContentDefaultReviews} value={storefrontForm.reviewsLabel} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, reviewsLabel: value }))} />
+          <ModalInputField icon="map-pin" label={strings.manageContentAddressLabel} placeholder={strings.manageContentStorefrontAddressPlaceholder} value={storefrontForm.addressLine} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, addressLine: value }))} />
+          <ModalInputField icon="navigation" label={strings.manageContentStorefrontMapUrlLabel} placeholder="https://maps..." value={storefrontForm.mapUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, mapUrl: value }))} />
+          <ModalInputField icon="clock" label={strings.manageContentStorefrontHoursLabel} placeholder="09:00 - 21:00" value={storefrontForm.openingHours} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, openingHours: value }))} />
+          <ModalInputField icon="phone" label={strings.manageContentStorefrontPhoneLabel} placeholder="09xxxxxxxx" value={storefrontForm.phone} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, phone: value }))} />
+          <ModalInputField icon="message-square" label={strings.manageContentStorefrontMessengerUrlLabel} placeholder="https://m.me/..." value={storefrontForm.messengerUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, messengerUrl: value }))} />
+          <ModalInputField icon="instagram" label={strings.manageContentStorefrontInstagramUrlLabel} placeholder="https://instagram.com/..." value={storefrontForm.instagramUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, instagramUrl: value }))} />
+          <ModalTextAreaField icon="award" label={strings.manageContentStorefrontHighlightsLabel} placeholder={strings.manageContentStorefrontHighlightsPlaceholder} value={storefrontForm.highlightsText} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, highlightsText: value }))} />
           <View style={styles.inlineButtons}>
-            <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
+            <Chip active={storefrontForm.isActive} label={storefrontForm.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow} onPress={() => setStorefrontForm((prev) => ({ ...prev, isActive: !prev.isActive }))} />
             {snapshot?.storefront?.id ? (
               <Pressable
                 style={[styles.secondaryButton, styles.modalDeleteButton]}
                 onPress={() => void confirmDeleteStorefront()}
               >
-                <Text style={[styles.secondaryButtonText, styles.modalDeleteButtonText]}>Xóa storefront</Text>
+                <Text style={[styles.secondaryButtonText, styles.modalDeleteButtonText]}>{strings.manageContentStorefrontDeleteButton}</Text>
               </Pressable>
             ) : null}
-            <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>Lưu hồ sơ tiệm</Text></Pressable>
+            <Pressable style={styles.primaryButton} onPress={() => void saveStorefront()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveStorefrontButton}</Text></Pressable>
           </View>
         </View>
       </ModalShell>
 
-      <ModalShell title="Dịch vụ thường dự phòng" visible={exploreRegularEditorOpen} onClose={() => setExploreRegularEditorOpen(false)}>
+      <ModalShell title={strings.manageContentRegularServicesTitle} visible={exploreRegularEditorOpen} onClose={() => setExploreRegularEditorOpen(false)}>
         <View style={styles.formColumn}>
-          <Input placeholder="Tìm dịch vụ thường cho Khám phá..." value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
+          <Input placeholder={strings.manageContentRegularServicesSearchPlaceholder} value={exploreRegularQuery} onChangeText={setExploreRegularQuery} />
           <View style={styles.listColumn}>
             {exploreRegularServices.map((service) => (
               <Pressable
@@ -1813,7 +1901,7 @@ export default function AdminManageContentScreen() {
                 <ItemThumbnail uri={service.imageUrl} label={service.name} />
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{service.name}</Text>
-                  <Text numberOfLines={2} style={styles.rowSubtitle}>{service.priceLabel} · {service.durationLabel || "Chưa có thời lượng"}</Text>
+                  <Text numberOfLines={2} style={styles.rowSubtitle}>{`${service.priceLabel} · ${service.durationLabel || strings.manageContentNoDuration}`}</Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#A7988A" />
               </Pressable>
@@ -1822,7 +1910,7 @@ export default function AdminManageContentScreen() {
         </View>
       </ModalShell>
 
-      <ModalShell title="Nhân sự tiệm" visible={teamListOpen} onClose={() => setTeamListOpen(false)}>
+      <ModalShell title={strings.manageContentTeamTitle} visible={teamListOpen} onClose={() => setTeamListOpen(false)}>
         <View style={styles.formColumn}>
           <Pressable
             style={styles.primaryButton}
@@ -1831,7 +1919,7 @@ export default function AdminManageContentScreen() {
               setTeamForm(emptyTeamForm());
             }}
           >
-            <Text style={styles.primaryButtonText}>Thêm nhân sự</Text>
+            <Text style={styles.primaryButtonText}>{strings.teamListAddButton}</Text>
           </Pressable>
           <View style={styles.listColumn}>
             {(snapshot?.team ?? []).map((member) => (
@@ -1847,29 +1935,29 @@ export default function AdminManageContentScreen() {
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{member.displayName}</Text>
                   <Text numberOfLines={2} style={styles.rowSubtitle}>
-                    {member.roleLabel || "Chưa có chức danh"} · Thứ tự {member.displayOrder} · {member.isVisible ? "Đang hiển thị" : "Đang ẩn"}
+                    {`${member.roleLabel || strings.teamListNoRole} · ${strings.teamListDisplayOrderPrefix} ${member.displayOrder} · ${member.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden}`}
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={18} color="#A7988A" />
               </Pressable>
             ))}
-            {(snapshot?.team.length ?? 0) === 0 ? <Text style={styles.helperText}>Chưa có nhân sự nào. Hãy thêm nhân sự mới cho tiệm.</Text> : null}
+            {(snapshot?.team.length ?? 0) === 0 ? <Text style={styles.helperText}>{strings.manageContentTeamEmptyHelp}</Text> : null}
           </View>
         </View>
       </ModalShell>
 
 
-      <ModalShell title={`Thiết lập hiển thị dịch vụ · ${merchContext === "home" ? "Home" : "Explore"}`} visible={Boolean(merchForm)} onClose={() => setMerchForm(null)}>
+      <ModalShell title={merchContext === "home" ? strings.serviceDetailHomeTitle : strings.serviceDetailExploreTitle} visible={Boolean(merchForm)} onClose={() => setMerchForm(null)}>
         {merchForm ? (
           <View style={styles.formColumn}>
             <View style={styles.detailPanel}>
               <View style={styles.detailHeader}>
-                <Text style={styles.detailEyebrow}>Mẫu dịch vụ</Text>
+                <Text style={styles.detailEyebrow}>{strings.manageContentServiceTemplateEyebrow}</Text>
                 <Text style={styles.detailTitle}>{merchForm.name}</Text>
               </View>
 
               <View style={styles.detailImageCard}>
-                <Text style={styles.previewLabel}>Ảnh hiện tại</Text>
+                <Text style={styles.previewLabel}>{strings.manageContentCurrentServiceImage}</Text>
                 {merchForm.imageUrl ? (
                   <CachedAppImage source={{ uri: merchForm.imageUrl }} style={styles.detailHeroImage} alt={merchForm.name} />
                 ) : (
@@ -1880,9 +1968,9 @@ export default function AdminManageContentScreen() {
               </View>
 
               <View style={styles.detailFieldBlock}>
-                <Text style={styles.detailFieldLabel}>Mô tả dịch vụ</Text>
+                <Text style={styles.detailFieldLabel}>{strings.manageContentServiceDescriptionLabel}</Text>
                 <TextArea
-                  placeholder="Thiết kế đính charm nhỏ gọn, hợp chụp ảnh và đi tiệc."
+                  placeholder={strings.manageContentDefaultServiceDescription}
                   value={merchForm.shortDescription}
                   onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, shortDescription: value } : prev))}
                   style={styles.detailTextarea}
@@ -1892,7 +1980,7 @@ export default function AdminManageContentScreen() {
               <View style={styles.detailFieldBlock}>
                 <View style={styles.detailLabelRow}>
                   <Feather name="link-2" size={18} color={palette.accent} />
-                  <Text style={styles.detailFieldLabel}>Link ảnh (URL)</Text>
+                  <Text style={styles.detailFieldLabel}>{strings.manageContentServiceImageUrlLabel}</Text>
                 </View>
                 <View style={styles.linkInputShell}>
                   <Feather name="link-2" size={18} color={palette.sub} />
@@ -1917,15 +2005,15 @@ export default function AdminManageContentScreen() {
                     }
                   >
                     <Feather name="upload" size={18} color={palette.text} />
-                    <Text style={styles.uploadButtonText}>Tải ảnh khác</Text>
+                    <Text style={styles.uploadButtonText}>{strings.manageContentUploadDifferentImage}</Text>
                   </Pressable>
                 </View>
                 <View style={styles.detailSplitItem}>
-                  <Text style={styles.detailFieldLabel}>Thời gian thực hiện</Text>
+                  <Text style={styles.detailFieldLabel}>{strings.serviceDetailDurationLabel}</Text>
                   <View style={styles.durationShell}>
                     <Feather name="clock" size={18} color={palette.sub} />
                     <Input
-                      placeholder="95 phút"
+                      placeholder={strings.manageContentDefaultServiceDuration}
                       value={merchForm.durationLabel}
                       onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, durationLabel: value } : prev))}
                       style={styles.durationInput}
@@ -1936,12 +2024,12 @@ export default function AdminManageContentScreen() {
               </View>
 
               <View style={styles.detailFieldBlock}>
-                <Text style={styles.detailFieldLabel}>Nổi bật tại</Text>
+                <Text style={styles.detailFieldLabel}>{strings.manageContentServiceFeaturedAtLabel}</Text>
                 <View style={styles.inlineButtons}>
                   <Chip
                     active={merchForm.featuredInHome}
                     icon="home"
-                    label="Home"
+                    label={strings.serviceDetailFeaturedHome}
                     onPress={() =>
                       setMerchForm((prev) =>
                         prev ? syncMerchLookbookState({ ...prev, featuredInHome: !prev.featuredInHome }) : prev,
@@ -1951,7 +2039,7 @@ export default function AdminManageContentScreen() {
                   <Chip
                     active={merchForm.featuredInExplore}
                     icon="compass"
-                    label="Explore"
+                    label={strings.serviceDetailFeaturedExplore}
                     onPress={() =>
                       setMerchForm((prev) =>
                         prev ? syncMerchLookbookState({ ...prev, featuredInExplore: !prev.featuredInExplore }) : prev,
@@ -1964,7 +2052,7 @@ export default function AdminManageContentScreen() {
               <View style={styles.merchNotice}>
                 <Feather name="alert-circle" size={18} color={palette.accent} />
                 <Text style={styles.merchNoticeText}>
-                  Bật Home hoặc Explore sẽ tự đồng bộ dịch vụ này vào lookbook để customer feed không bị rỗng sai logic.
+                  {strings.manageContentServiceVisibilityNotice}
                 </Text>
               </View>
 
@@ -1972,7 +2060,7 @@ export default function AdminManageContentScreen() {
                 <View style={styles.detailSplitItem}>
                   <View style={styles.detailLabelRow}>
                     <Feather name="home" size={18} color={palette.accent} />
-                    <Text style={styles.detailFieldLabel}>Thứ tự tại Home</Text>
+                    <Text style={styles.detailFieldLabel}>{strings.manageContentDisplayOrderHomeLabel}</Text>
                   </View>
                   <Input
                     placeholder="0"
@@ -1984,7 +2072,7 @@ export default function AdminManageContentScreen() {
                 <View style={styles.detailSplitItem}>
                   <View style={styles.detailLabelRow}>
                     <Feather name="compass" size={18} color={palette.accent} />
-                    <Text style={styles.detailFieldLabel}>Thứ tự tại Explore</Text>
+                    <Text style={styles.detailFieldLabel}>{strings.manageContentDisplayOrderExploreLabel}</Text>
                   </View>
                   <Input
                     placeholder="0"
@@ -1996,12 +2084,12 @@ export default function AdminManageContentScreen() {
               </View>
 
               <View style={styles.detailFieldBlock}>
-                <Text style={styles.detailFieldLabel}>Metadata lookbook</Text>
+                <Text style={styles.detailFieldLabel}>{strings.manageContentLookbookMetadataLabel}</Text>
                 <View style={styles.formColumn}>
                   <View style={styles.metadataInputShell}>
                     <Feather name="tag" size={18} color={palette.accent} />
                     <Input
-                      placeholder="Nhóm lookbook"
+                      placeholder={strings.manageContentLookbookCategoryPlaceholder}
                       value={merchForm.lookbookCategory}
                       onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookCategory: value } : prev))}
                       style={styles.metadataInput}
@@ -2010,7 +2098,7 @@ export default function AdminManageContentScreen() {
                   <View style={styles.metadataInputShell}>
                     <Feather name="bookmark" size={18} color={palette.accent} />
                     <Input
-                      placeholder="Nhãn lookbook"
+                      placeholder={strings.manageContentLookbookBadgePlaceholder}
                       value={merchForm.lookbookBadge}
                       onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookBadge: value } : prev))}
                       style={styles.metadataInput}
@@ -2019,7 +2107,7 @@ export default function AdminManageContentScreen() {
                   <View style={styles.metadataInputShell}>
                     <Feather name="star" size={18} color={palette.accent} />
                     <Input
-                      placeholder="Tone lookbook"
+                      placeholder={strings.manageContentLookbookTonePlaceholder}
                       value={merchForm.lookbookTone}
                       onChangeText={(value) => setMerchForm((prev) => (prev ? { ...prev, lookbookTone: value } : prev))}
                       style={styles.metadataInput}
@@ -2030,27 +2118,27 @@ export default function AdminManageContentScreen() {
 
               <Pressable style={styles.detailSaveButton} onPress={() => void saveMerchService()}>
                 <Feather name="save" size={18} color="#FFFFFF" />
-                <Text style={styles.detailSaveButtonText}>Lưu thay đổi</Text>
+                <Text style={styles.detailSaveButtonText}>{strings.serviceDetailSaveButton}</Text>
               </Pressable>
             </View>
           </View>
         ) : null}
       </ModalShell>
 
-      <ModalShell title={postForm?.id ? "Sửa bài feed" : "Thêm bài feed"} visible={Boolean(postForm)} onClose={() => setPostForm(null)}>
-        {postForm ? <View style={styles.formColumn}><ImagePreview uri={postForm.coverImageUrl} label="Ảnh bài viết hiện tại" /><Input placeholder="Tiêu đề" value={postForm.title} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder="Tóm tắt" value={postForm.summary} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, summary: value } : prev))} /><TextArea placeholder="Nội dung" value={postForm.body} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, body: value } : prev))} /><Input placeholder="URL ảnh bìa" value={postForm.coverImageUrl} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("posts", postForm.title || "post", (publicUrl) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text></Pressable><Input placeholder="Độ ưu tiên" keyboardType="number-pad" value={postForm.priority} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, priority: value } : prev))} /><View style={styles.inlineButtons}>{(["trend", "care", "news", "offer_hint"] as const).map((item) => <Chip key={item} active={postForm.contentType === item} label={item} onPress={() => setPostForm((prev) => (prev ? { ...prev, contentType: item } : prev))} />)}</View><View style={styles.inlineButtons}>{(["draft", "approved", "published", "archived"] as const).map((item) => <Chip key={item} active={postForm.status === item} label={item} onPress={() => setPostForm((prev) => (prev ? { ...prev, status: item } : prev))} />)}</View>{postForm.id ? <Text style={styles.rowSubtitle}>Nguồn: {postForm.sourcePlatform || "mobile_admin"} {postForm.sourceMessageId ? `· msg ${postForm.sourceMessageId}` : ""}</Text> : null}<TextArea placeholder='Metadata JSON' value={postForm.metadataText} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void savePost()}><Text style={styles.primaryButtonText}>Lưu bài viết</Text></Pressable></View> : null}
+      <ModalShell title={postForm?.id ? strings.manageContentEditPostTitle : strings.manageContentAddPostTitle} visible={Boolean(postForm)} onClose={() => setPostForm(null)}>
+        {postForm ? <View style={styles.formColumn}><ImagePreview uri={postForm.coverImageUrl} label={strings.manageContentCurrentPostImage} /><Input placeholder={strings.postDetailTitleLabel} value={postForm.title} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, title: value } : prev))} /><TextArea placeholder={strings.postDetailSummaryLabel} value={postForm.summary} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, summary: value } : prev))} /><TextArea placeholder={strings.postDetailBodyLabel} value={postForm.body} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, body: value } : prev))} /><Input placeholder={strings.postDetailImageLabel} value={postForm.coverImageUrl} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("posts", postForm.title || "post", (publicUrl) => setPostForm((prev) => (prev ? { ...prev, coverImageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.postDetailImageUploadButton}</Text></Pressable><Input placeholder={strings.postDetailPriorityLabel} keyboardType="number-pad" value={postForm.priority} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, priority: value } : prev))} /><View style={styles.inlineButtons}>{(["trend", "care", "news", "offer_hint"] as const).map((item) => <Chip key={item} active={postForm.contentType === item} label={getPostContentTypeLabel(strings, item)} onPress={() => setPostForm((prev) => (prev ? { ...prev, contentType: item } : prev))} />)}</View><View style={styles.inlineButtons}>{(["draft", "approved", "published", "archived"] as const).map((item) => <Chip key={item} active={postForm.status === item} label={getPostStatusLabel(strings, item)} onPress={() => setPostForm((prev) => (prev ? { ...prev, status: item } : prev))} />)}</View>{postForm.id ? <Text style={styles.rowSubtitle}>{`${strings.postDetailSourceLabel}: ${getPostSourceLabel(strings, postForm.sourcePlatform)}${postForm.sourceMessageId ? ` (${postForm.sourceMessageId})` : ""}`}</Text> : null}<TextArea placeholder={strings.postDetailMetadataLabel} value={postForm.metadataText} onChangeText={(value) => setPostForm((prev) => (prev ? { ...prev, metadataText: value } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void savePost()}><Text style={styles.primaryButtonText}>{strings.postDetailSaveButton}</Text></Pressable></View> : null}
       </ModalShell>
 
-      <ModalShell title={teamForm?.id ? "Sửa nhân sự" : "Thêm nhân sự"} visible={Boolean(teamForm)} onClose={() => setTeamForm(null)}>
-        {teamForm ? <View style={styles.formColumn}><ImagePreview uri={teamForm.avatarUrl} label="Ảnh đại diện hiện tại" /><Input placeholder="Tên hiển thị" value={teamForm.displayName} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayName: value } : prev))} /><Input placeholder="Chức danh hiển thị" value={teamForm.roleLabel} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, roleLabel: value } : prev))} /><Input placeholder="URL ảnh đại diện" value={teamForm.avatarUrl} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", teamForm.displayName || "team-member", (publicUrl) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh đại diện</Text></Pressable><TextArea placeholder="Giới thiệu ngắn" value={teamForm.bio} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, bio: value } : prev))} /><Input placeholder="Thứ tự hiển thị" keyboardType="number-pad" value={teamForm.displayOrder} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={teamForm.isVisible} label={teamForm.isVisible ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setTeamForm((prev) => (prev ? { ...prev, isVisible: !prev.isVisible } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveTeamMember()}><Text style={styles.primaryButtonText}>Lưu nhân sự</Text></Pressable></View> : null}
+      <ModalShell title={teamForm?.id ? strings.manageContentEditTeamTitle : strings.manageContentAddTeamTitle} visible={Boolean(teamForm)} onClose={() => setTeamForm(null)}>
+        {teamForm ? <View style={styles.formColumn}><ImagePreview uri={teamForm.avatarUrl} label={strings.manageContentCurrentAvatar} /><Input placeholder={strings.teamMemberDetailDisplayNameLabel} value={teamForm.displayName} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayName: value } : prev))} /><Input placeholder={strings.manageContentTeamDisplayRolePlaceholder} value={teamForm.roleLabel} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, roleLabel: value } : prev))} /><Input placeholder={strings.teamMemberDetailAvatarLabel} value={teamForm.avatarUrl} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("storefront", teamForm.displayName || "team-member", (publicUrl) => setTeamForm((prev) => (prev ? { ...prev, avatarUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.manageContentUploadAvatar}</Text></Pressable><TextArea placeholder={strings.teamMemberDetailBioLabel} value={teamForm.bio} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, bio: value } : prev))} /><Input placeholder={strings.teamMemberDetailDisplayOrderLabel} keyboardType="number-pad" value={teamForm.displayOrder} onChangeText={(value) => setTeamForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={teamForm.isVisible} label={teamForm.isVisible ? strings.teamMemberDetailVisible : strings.teamMemberDetailHidden} onPress={() => setTeamForm((prev) => (prev ? { ...prev, isVisible: !prev.isVisible } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveTeamMember()}><Text style={styles.primaryButtonText}>{strings.teamMemberDetailSaveButton}</Text></Pressable></View> : null}
       </ModalShell>
 
-      <ModalShell title={productForm?.id ? "Sửa sản phẩm" : "Thêm sản phẩm"} visible={Boolean(productForm)} onClose={() => setProductForm(null)}>
-        {productForm ? <View style={styles.formColumn}><ModalFormHeader icon="shopping-bag" title={productForm.id ? "Sửa sản phẩm" : "Thêm sản phẩm"} subtitle="Điều chỉnh ảnh, giá, loại và trạng thái hiển thị của sản phẩm." /><ImagePreview uri={productForm.imageUrl} label="Ảnh sản phẩm hiện tại" /><ModalInputField icon="shopping-bag" label="Tên sản phẩm" placeholder="Combo dưỡng móng" value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><ModalInputField icon="align-left" label="Dòng mô tả ngắn" placeholder="Mô tả ngắn cho sản phẩm" value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><ModalInputField icon="tag" label="Nhãn giá" placeholder="299.000đ" value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><ModalInputField icon="image" label="URL ảnh" placeholder="https://..." value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><ModalInputField icon="layers" label="Loại sản phẩm" placeholder="Dưỡng móng / phụ kiện" value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><ModalInputField icon="list" label="Thứ tự hiển thị" placeholder="0" keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? "Đang bật" : "Đang tắt"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? "Nổi bật" : "Thường"} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>Lưu sản phẩm</Text></Pressable></View> : null}
+      <ModalShell title={productForm?.id ? strings.manageContentEditProductTitle : strings.manageContentAddProductTitle} visible={Boolean(productForm)} onClose={() => setProductForm(null)}>
+        {productForm ? <View style={styles.formColumn}><ModalFormHeader icon="shopping-bag" title={productForm.id ? strings.manageContentEditProductTitle : strings.manageContentAddProductTitle} subtitle={strings.manageContentProductEditorSubtitle} /><ImagePreview uri={productForm.imageUrl} label={strings.manageContentCurrentProductImage} /><ModalInputField icon="shopping-bag" label={strings.manageContentProductNameLabel} placeholder={strings.manageContentProductNamePlaceholder} value={productForm.name} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, name: value } : prev))} /><ModalInputField icon="align-left" label={strings.manageContentProductSubtitleLabel} placeholder={strings.manageContentProductSubtitlePlaceholder} value={productForm.subtitle} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, subtitle: value } : prev))} /><ModalInputField icon="tag" label={strings.manageContentProductPriceLabel} placeholder={strings.manageContentProductPricePlaceholder} value={productForm.priceLabel} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, priceLabel: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentProductImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={productForm.imageUrl} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("products", productForm.name || "product", (publicUrl) => setProductForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="layers" label={strings.manageContentProductTypeLabel} placeholder={strings.manageContentProductTypePlaceholder} value={productForm.productType} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, productType: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentProductDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={productForm.displayOrder} onChangeText={(value) => setProductForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><View style={styles.inlineButtons}><Chip active={productForm.isActive} label={productForm.isActive ? strings.manageContentProductActive : strings.manageContentProductInactive} onPress={() => setProductForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Chip active={productForm.isFeatured} label={productForm.isFeatured ? strings.manageContentProductFeatured : strings.manageContentProductRegular} onPress={() => setProductForm((prev) => (prev ? { ...prev, isFeatured: !prev.isFeatured } : prev))} /></View><Pressable style={styles.primaryButton} onPress={() => void saveProduct()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveProductAction}</Text></Pressable></View> : null}
       </ModalShell>
 
-      <ModalShell title={galleryForm?.id ? "Sửa gallery" : "Thêm gallery"} visible={Boolean(galleryForm)} onClose={() => setGalleryForm(null)}>
-        {galleryForm ? <View style={styles.formColumn}><ModalFormHeader icon="image" title={galleryForm.id ? "Sửa gallery" : "Thêm gallery"} subtitle="Cập nhật ảnh, loại ảnh và thứ tự hiển thị của gallery cửa tiệm." /><ImagePreview uri={galleryForm.imageUrl} label="Ảnh gallery hiện tại" /><ModalInputField icon="type" label="Tiêu đề" placeholder="Không gian nail studio" value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><ModalInputField icon="image" label="URL ảnh" placeholder="https://..." value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>Tải ảnh</Text></Pressable><ModalInputField icon="grid" label="Loại ảnh" placeholder="Không gian / tác phẩm / khách" value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><ModalInputField icon="list" label="Thứ tự hiển thị" placeholder="0" keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? "Đang hiển thị" : "Đang ẩn"} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>Lưu ảnh gallery</Text></Pressable></View> : null}
+      <ModalShell title={galleryForm?.id ? strings.manageContentEditGalleryTitle : strings.manageContentAddGalleryTitle} visible={Boolean(galleryForm)} onClose={() => setGalleryForm(null)}>
+        {galleryForm ? <View style={styles.formColumn}><ModalFormHeader icon="image" title={galleryForm.id ? strings.manageContentEditGalleryTitle : strings.manageContentAddGalleryTitle} subtitle={strings.manageContentGalleryEditorSubtitle} /><ImagePreview uri={galleryForm.imageUrl} label={strings.manageContentCurrentGalleryImage} /><ModalInputField icon="type" label={strings.manageContentGalleryTitleLabel} placeholder={strings.manageContentGalleryTitlePlaceholder} value={galleryForm.title} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, title: value } : prev))} /><ModalInputField icon="image" label={strings.manageContentGalleryImageUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={galleryForm.imageUrl} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: value } : prev))} /><Pressable style={styles.secondaryButton} onPress={() => void pickAndUploadImage("gallery", galleryForm.title || "gallery", (publicUrl) => setGalleryForm((prev) => (prev ? { ...prev, imageUrl: publicUrl } : prev)))}><Text style={styles.secondaryButtonText}>{strings.serviceDetailUploadButton}</Text></Pressable><ModalInputField icon="grid" label={strings.manageContentGalleryKindLabel} placeholder={strings.manageContentGalleryKindPlaceholder} value={galleryForm.kind} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, kind: value } : prev))} /><ModalInputField icon="list" label={strings.manageContentGalleryDisplayOrderLabel} placeholder={strings.serviceDetailDisplayOrderPlaceholder} keyboardType="number-pad" value={galleryForm.displayOrder} onChangeText={(value) => setGalleryForm((prev) => (prev ? { ...prev, displayOrder: value } : prev))} /><Chip active={galleryForm.isActive} label={galleryForm.isActive ? strings.manageContentVisibleNow : strings.manageContentHiddenNow} onPress={() => setGalleryForm((prev) => (prev ? { ...prev, isActive: !prev.isActive } : prev))} /><Pressable style={styles.primaryButton} onPress={() => void saveGalleryItem()}><Text style={styles.primaryButtonText}>{strings.manageContentSaveGalleryButton}</Text></Pressable></View> : null}
       </ModalShell>
     </ManageScreenShell>
   );

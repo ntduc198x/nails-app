@@ -795,9 +795,10 @@ export function SearchField({
 }) {
   const styles = useStaticStyles();
   const theme = useCustomerTheme();
+  const strings = useCustomerStrings();
   return (
     <View style={styles.searchField}>
-      <Text style={styles.searchGlyph}>Tim</Text>
+      <Text style={styles.searchGlyph}>{strings.search}</Text>
       <TextInput
         placeholder={placeholder}
         placeholderTextColor={theme.colors.textMuted}
@@ -886,9 +887,10 @@ export function CustomerFloatingButton({
   onPress?: () => void;
 }) {
   const styles = useStaticStyles();
+  const strings = useCustomerStrings();
   return (
     <Pressable style={styles.fab} onPress={onPress}>
-      <Text style={styles.fabText}>{label ?? "Them"}</Text>
+      <Text style={styles.fabText}>{label ?? strings.bookingCta}</Text>
     </Pressable>
   );
 }
@@ -900,9 +902,10 @@ export function CustomerAuxMenuList({
   items: Array<{ label: string; detail: string; onPress: () => void }>;
   onClose?: () => void;
 }) {
+  const strings = useCustomerStrings();
   return (
     <SurfaceCard>
-      <SectionTitle title="Them" subtitle="Mo nhanh cac man phu can thiet" actionLabel={onClose ? "Dong" : undefined} onPress={onClose} />
+      <SectionTitle title={strings.bookingCta} subtitle={strings.settingsTitle} actionLabel={onClose ? strings.imagePreviewClose : undefined} onPress={onClose} />
       {items.map((item) => (
         <InfoRow key={item.label} title={item.label} detail={item.detail} onPress={item.onPress} />
       ))}

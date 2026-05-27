@@ -5,6 +5,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import type { CustomerContentPost, LookbookItem, MarketingOfferCard } from "@nails/shared";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
+import { localizeContentPost, localizeLookbookItem, localizeOfferCard } from "@/src/features/customer/localize";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, PrimaryButton, SectionTitle, SurfaceCard } from "@/src/features/customer/ui";
 import { useCustomerHomeFeed } from "@/src/hooks/use-customer-home-feed";
@@ -12,17 +13,10 @@ import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
 import { getCustomerImageUri } from "@/src/lib/customer-image-url";
 import { premiumTheme } from "@/src/design/premium-theme";
+import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const { colors, radius, shadow } = premiumTheme;
-
-const HOME_FILTERS = [
-  { key: "all", label: "Tất cả", icon: "clock" },
-  { key: "hot", label: "Mẫu hot", icon: "star" },
-  { key: "trend", label: "Xu hướng", icon: "trending-up" },
-  { key: "offers", label: "Ưu đãi", icon: "tag" },
-] as const;
-
-type HomeFilterKey = (typeof HOME_FILTERS)[number]["key"];
+type HomeFilterKey = "all" | "hot" | "trend" | "offers";
 
 function getLookbookTags(item: LookbookItem): HomeFilterKey[] {
   const tags: HomeFilterKey[] = ["hot"];
@@ -43,29 +37,45 @@ function getPostTags(post: CustomerContentPost): HomeFilterKey[] {
 
 export default function CustomerHomeScreen() {
   const strings = useCustomerStrings();
+  const { locale } = useCustomerPreferences();
+  const homeFilters = useMemo(
+    () => [
+      { key: "all" as const, label: strings.all, icon: "clock" as const },
+      { key: "hot" as const, label: strings.homeHotLooks, icon: "star" as const },
+      { key: "trend" as const, label: strings.homeTrends, icon: "trending-up" as const },
+      { key: "offers" as const, label: strings.profileOffers, icon: "tag" as const },
+    ],
+    [strings.all, strings.homeHotLooks, strings.homeTrends, strings.profileOffers],
+  );
   const [activeFilter, setActiveFilter] = useState<HomeFilterKey>("all");
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const { contentPosts, isLoading, isRefreshing, lastError, lookbook, offers, refresh } = useCustomerHomeFeed();
   const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
   const heroImage = lookbook[1]?.image ?? lookbook[0]?.image ?? null;
+  const localizedLookbook = useMemo(() => lookbook.map((item) => localizeLookbookItem(locale, item)), [locale, lookbook]);
+  const localizedContentPosts = useMemo(() => contentPosts.map((post) => localizeContentPost(locale, post)), [contentPosts, locale]);
 
   const visibleLookbook = useMemo(() => {
-    if (activeFilter === "all") return lookbook.slice(0, 6);
-    return lookbook.filter((item) => getLookbookTags(item).includes(activeFilter)).slice(0, 6);
-  }, [activeFilter, lookbook]);
+    if (activeFilter === "all") return localizedLookbook.slice(0, 6);
+    return localizedLookbook.filter((item) => getLookbookTags(item).includes(activeFilter)).slice(0, 6);
+  }, [activeFilter, localizedLookbook]);
 
   const visiblePosts = useMemo(() => {
-    if (activeFilter === "all") return contentPosts.slice(0, 4);
-    return contentPosts.filter((post) => getPostTags(post).includes(activeFilter)).slice(0, 4);
-  }, [activeFilter, contentPosts]);
+    if (activeFilter === "all") return localizedContentPosts.slice(0, 4);
+    return localizedContentPosts.filter((post) => getPostTags(post).includes(activeFilter)).slice(0, 4);
+  }, [activeFilter, localizedContentPosts]);
 
   const visibleOffers = useMemo(() => {
     if (activeFilter === "all" || activeFilter === "offers") return offers.slice(0, 2);
     return [];
   }, [activeFilter, offers]);
+  const localizedVisibleOffers = useMemo(
+    () => visibleOffers.map((offer) => localizeOfferCard(locale, offer)),
+    [locale, visibleOffers],
+  );
 
-  const hasAnyHomeContent = visibleLookbook.length > 0 || visiblePosts.length > 0 || visibleOffers.length > 0;
+  const hasAnyHomeContent = visibleLookbook.length > 0 || visiblePosts.length > 0 || localizedVisibleOffers.length > 0;
 
   useEffect(() => {
     if (!favoriteError) return;
@@ -99,26 +109,24 @@ export default function CustomerHomeScreen() {
           <View style={styles.heroMiniBadge}>
             <Feather color="#b98258" name="briefcase" size={12} />
           </View>
-          <Text style={styles.heroTitle}>Đẹp mỗi ngày, đặt lịch nhanh và xem ngay các mẫu đang nổi bật.</Text>
+          <Text style={styles.heroTitle}>{strings.homeHeroTitle}</Text>
           <Text style={styles.heroSubtitle}>
-            {isLoading
-              ? "Đang cập nhật nội dung mới nhất..."
-              : "Tổng hợp các mẫu đang hot, xu hướng làm đẹp và ưu đãi mới của cửa hàng dành cho khách hàng."}
+            {isLoading ? strings.homeHeroLoading : strings.homeHeroBody}
           </Text>
 
           <View style={styles.heroActions}>
-            <PrimaryButton label="Đặt lịch ngay" onPress={() => router.push("/(customer)/(tabs)/booking")} />
-            <PrimaryButton label="Khám phá" subtle onPress={() => router.push("/(customer)/(tabs)/explore")} />
+            <PrimaryButton label={strings.homeBookNow} onPress={() => router.push("/(customer)/(tabs)/booking")} />
+            <PrimaryButton label={strings.homeExploreNow} subtle onPress={() => router.push("/(customer)/(tabs)/explore")} />
           </View>
         </View>
 
         {heroImage ? (
-          <CustomerCachedImage alt="Hero nail design" source={{ uri: heroImage }} intent="hero" style={styles.heroImage} />
+          <CustomerCachedImage alt={locale === "en" ? "Hero nail design" : "Mau nail noi bat"} source={{ uri: heroImage }} intent="hero" style={styles.heroImage} />
         ) : null}
       </SurfaceCard>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
-        {HOME_FILTERS.map((item) => {
+        {homeFilters.map((item) => {
           const active = item.key === activeFilter;
           return (
             <Pressable
@@ -135,16 +143,16 @@ export default function CustomerHomeScreen() {
 
       {isLoading && !hasAnyHomeContent ? (
         <SurfaceCard style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Dang tai home feed...</Text>
-          <Text style={styles.stateDescription}>Noi dung customer dang duoc dong bo tu he thong.</Text>
+          <Text style={styles.stateTitle}>{strings.homeLoadingTitle}</Text>
+          <Text style={styles.stateDescription}>{strings.homeLoadingBody}</Text>
         </SurfaceCard>
       ) : null}
 
       {!isLoading && !hasAnyHomeContent ? (
         <SurfaceCard style={styles.stateCard}>
-          <Text style={styles.stateTitle}>Chua co du lieu hien thi</Text>
+          <Text style={styles.stateTitle}>{strings.homeEmptyTitle}</Text>
           <Text style={styles.stateDescription}>
-            {lastError ? `Khong tai duoc home feed. ${lastError}` : "Khong tim thay lookbook, bai viet hoac uu dai cho tai khoan nay."}
+            {lastError ? `${lastError}` : strings.homeEmptyBody}
           </Text>
           <Pressable style={styles.retryButton} onPress={() => void refresh()}>
             <Text style={styles.retryButtonText}>{strings.retry}</Text>
@@ -155,8 +163,8 @@ export default function CustomerHomeScreen() {
       <View style={styles.sectionBlock}>
         <SectionTitle
           title={strings.homeHotLooks}
-          subtitle="Lookbook đồng bộ với landing page, ưu tiên mẫu nổi bật và dễ đặt lịch."
-          actionLabel="Xem tất cả"
+          subtitle={strings.homeHotLooksSubtitle}
+          actionLabel={strings.homeViewAll}
           onPress={() => router.push("/(customer)/(tabs)/explore")}
         />
 
@@ -177,8 +185,8 @@ export default function CustomerHomeScreen() {
       <View style={styles.sectionBlock}>
         <SectionTitle
           title={strings.homeTrends}
-          subtitle="Nội dung ngắn gọn từ beauty feed, ưu tiên bài đã publish."
-          actionLabel="Xem thêm"
+          subtitle={strings.homeTrendsSubtitle}
+          actionLabel={strings.homeViewMore}
           onPress={() => router.push("/(customer)/(tabs)/explore")}
         />
 
@@ -189,17 +197,17 @@ export default function CustomerHomeScreen() {
         </View>
       </View>
 
-      {visibleOffers.length ? (
+      {localizedVisibleOffers.length ? (
         <View style={styles.sectionBlock}>
           <SectionTitle
             title={strings.homeMembershipOffers}
-            subtitle="Ưu đãi hiện có được xem và sử dụng trong Thẻ thành viên."
+            subtitle={strings.homeOffersSubtitle}
             actionLabel={strings.homeOpenMembership}
             onPress={() => router.replace("/(customer)/(tabs)/membership")}
           />
 
           <View style={styles.offerList}>
-            {visibleOffers.map((offer) => (
+            {localizedVisibleOffers.map((offer) => (
               <OfferCard key={offer.id} offer={offer} />
             ))}
           </View>

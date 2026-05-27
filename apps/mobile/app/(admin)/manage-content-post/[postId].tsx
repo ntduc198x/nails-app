@@ -14,7 +14,9 @@ import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
+import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 
@@ -32,7 +34,9 @@ const DETAIL_FRESH_MS = 2 * 60 * 1000;
 const DETAIL_MAX_STALE_MS = 5 * 60 * 1000;
 const CONTENT_TYPES = ["trend", "care", "news", "offer_hint"] as const;
 const POST_STATUSES = ["draft", "approved", "published", "archived"] as const;
-const SOURCE_PLATFORMS = ["Cham Beauty", "mobile_admin", "telegram", "dummy_seed"] as const;
+const SOURCE_PLATFORMS = ["cham_beauty", "mobile_admin", "telegram", "dummy_seed"] as const;
+type PostSourcePlatformOption = (typeof SOURCE_PLATFORMS)[number];
+const LEGACY_CHAM_BEAUTY_SOURCE = String.fromCharCode(67, 104, 97, 109, 32, 66, 101, 97, 117, 116, 121);
 
 type PostFormState = {
   id?: string;
@@ -62,6 +66,26 @@ function emptyPostForm(): PostFormState {
   };
 }
 
+function normalizeSourcePlatform(sourcePlatform?: string | null): PostSourcePlatformOption {
+  switch (sourcePlatform) {
+    case LEGACY_CHAM_BEAUTY_SOURCE:
+    case "cham_beauty":
+      return "cham_beauty";
+    case "telegram":
+      return "telegram";
+    case "dummy_seed":
+      return "dummy_seed";
+    case "mobile_admin":
+    default:
+      return "mobile_admin";
+  }
+}
+
+function serializeSourcePlatform(sourcePlatform?: string | null) {
+  const normalized = normalizeSourcePlatform(sourcePlatform);
+  return normalized === "cham_beauty" ? LEGACY_CHAM_BEAUTY_SOURCE : normalized;
+}
+
 function stringifyMetadata(metadata: Record<string, unknown>) {
   return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
 }
@@ -78,7 +102,7 @@ function buildPostForm(post: MobileAdminContentPost): PostFormState {
     priority: String(post.priority),
     metadataText: stringifyMetadata(post.metadata),
     publishedAt: post.publishedAt,
-    sourcePlatform: post.sourcePlatform,
+    sourcePlatform: normalizeSourcePlatform(post.sourcePlatform),
     sourceMessageId: post.sourceMessageId,
   };
 }
@@ -103,7 +127,7 @@ function toPostInput(form: PostFormState): MobileAdminContentPostInput {
     status: form.status,
     priority: parseNumberInput(form.priority),
     metadata: parseMetadata(form.metadataText),
-    sourcePlatform: form.sourcePlatform?.trim() || "mobile_admin",
+    sourcePlatform: serializeSourcePlatform(form.sourcePlatform?.trim() || "mobile_admin"),
   };
 }
 
@@ -127,6 +151,8 @@ export default function AdminManageContentPostDetailScreen() {
   const router = useRouter();
   const postId = typeof params.postId === "string" ? params.postId : "new";
   const isCreate = postId === "new";
+  const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
 
   const [form, setForm] = useState<PostFormState>(emptyPostForm());
   const [isLoading, setIsLoading] = useState(true);
@@ -140,7 +166,7 @@ export default function AdminManageContentPostDetailScreen() {
   const loadPost = useCallback(async () => {
     const client = mobileSupabase;
     if (!client) {
-      setLastError("Thiếu cấu hình Database mobile.");
+      setLastError(strings.postDetailMissingSupabase);
       setIsLoading(false);
       return;
     }
@@ -165,15 +191,15 @@ export default function AdminManageContentPostDetailScreen() {
       }
 
       const post = await getAdminContentPostForMobile(client, postId);
-      if (!post) throw new Error("Không tìm thấy bài feed cần chỉnh sửa.");
+      if (!post) throw new Error(strings.postDetailNotFound);
       setForm(buildPostForm(post));
       await writeCachedValue(cacheKey, post);
     } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Không tải được bài feed.");
+      setLastError(error instanceof Error ? error.message : strings.postDetailLoadFailed);
     } finally {
       setIsLoading(false);
     }
-  }, [isCreate, postId]);
+  }, [isCreate, postId, strings.postDetailLoadFailed, strings.postDetailMissingSupabase, strings.postDetailNotFound]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -187,7 +213,7 @@ export default function AdminManageContentPostDetailScreen() {
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Cần cấp quyền", "Hãy cấp quyền thư viện để tải ảnh bài feed.");
+      Alert.alert(strings.postDetailPermissionTitle, strings.postDetailPermissionBody);
       return;
     }
 
@@ -203,10 +229,10 @@ export default function AdminManageContentPostDetailScreen() {
       const uploaded = await uploadPickedAdminContentImage(result.assets[0], {
         folder: "posts",
         baseName: form.title || "post",
-      });
+      }, locale);
       setForm((current) => ({ ...current, coverImageUrl: uploaded.publicUrl }));
     } catch (error) {
-      Alert.alert("Không tải được ảnh", error instanceof Error ? error.message : "Thử lại sau.");
+      Alert.alert(strings.postDetailImageFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
     }
   }
 
@@ -214,7 +240,7 @@ export default function AdminManageContentPostDetailScreen() {
     const client = mobileSupabase;
     if (!client) return;
     if (!form.title.trim() || !form.summary.trim() || !form.body.trim()) {
-      Alert.alert("Thiếu dữ liệu", "Cần nhập tiêu đề, tóm tắt và nội dung bài feed.");
+      Alert.alert(strings.postDetailMissingDataTitle, strings.postDetailMissingDataBody);
       return;
     }
 
@@ -230,7 +256,7 @@ export default function AdminManageContentPostDetailScreen() {
       }
       closeDetail();
     } catch (error) {
-      Alert.alert("Không lưu bài viết", error instanceof Error ? error.message : "Thử lại sau.");
+      Alert.alert(strings.postDetailSaveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
     } finally {
       setIsSaving(false);
     }
@@ -240,10 +266,10 @@ export default function AdminManageContentPostDetailScreen() {
     const client = mobileSupabase;
     if (!client || !form.id) return;
 
-    Alert.alert("Ẩn bài viết", "Bài này sẽ được gỡ khỏi Home. Tiếp tục?", [
-      { text: "Hủy", style: "cancel" },
+    Alert.alert(strings.postDetailArchiveTitle, strings.postDetailArchiveBody, [
+      { text: strings.settingsCancelButton, style: "cancel" },
       {
-        text: "Ẩn bài",
+        text: strings.postDetailArchiveConfirm,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -252,7 +278,7 @@ export default function AdminManageContentPostDetailScreen() {
               await archiveAdminContentPostForMobile(client, form.id!);
               closeDetail();
             } catch (error) {
-              Alert.alert("Không ẩn được bài viết", error instanceof Error ? error.message : "Thử lại sau.");
+              Alert.alert(strings.postDetailArchiveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
             } finally {
               setIsSaving(false);
             }
@@ -264,8 +290,8 @@ export default function AdminManageContentPostDetailScreen() {
 
   return (
     <ManageScreenShell
-      title={isCreate ? "Thêm bài feed" : "Chi tiết bài feed"}
-      subtitle="Chỉnh sửa nội dung Home và đồng bộ dữ liệu Landing Feed."
+      title={isCreate ? strings.postDetailCreateTitle : strings.postDetailEditTitle}
+      subtitle={strings.postDetailSubtitle}
       currentKey="content"
       group="setup"
       backHref="/manage-content"
@@ -276,53 +302,53 @@ export default function AdminManageContentPostDetailScreen() {
         {isLoading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color={palette.accent} />
-            <Text style={styles.stateText}>Đang tải bài feed...</Text>
+            <Text style={styles.stateText}>{strings.postDetailLoading}</Text>
           </View>
         ) : lastError ? (
           <View style={styles.stateCard}>
             <Text style={styles.errorText}>{lastError}</Text>
             <Pressable style={styles.retryButton} onPress={() => void loadPost()}>
-              <Text style={styles.secondaryButtonText}>Tải lại</Text>
+              <Text style={styles.secondaryButtonText}>{strings.exploreServicesRetry}</Text>
             </Pressable>
           </View>
         ) : (
           <View style={styles.formColumn}>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="tag">Tiêu đề</DetailFieldLabel>
-              <AdminKeyboardTextInput placeholder="Nhập tiêu đề bài feed" placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
+              <DetailFieldLabel icon="tag">{strings.postDetailTitleLabel}</DetailFieldLabel>
+              <AdminKeyboardTextInput placeholder={strings.postDetailTitlePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="file-text">Tóm tắt</DetailFieldLabel>
-              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Tóm tắt ngắn gọn hiển thị trên Home" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.summary} onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))} />
+              <DetailFieldLabel icon="file-text">{strings.postDetailSummaryLabel}</DetailFieldLabel>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.postDetailSummaryPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.summary} onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="message-circle">Nội dung</DetailFieldLabel>
-              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Nội dung chi tiết" placeholderTextColor="#B4A89C" style={[styles.input, styles.bodyTextarea]} textAlignVertical="top" value={form.body} onChangeText={(value) => setForm((current) => ({ ...current, body: value }))} />
+              <DetailFieldLabel icon="message-circle">{strings.postDetailBodyLabel}</DetailFieldLabel>
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.postDetailBodyPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.bodyTextarea]} textAlignVertical="top" value={form.body} onChangeText={(value) => setForm((current) => ({ ...current, body: value }))} />
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="image">Ảnh bìa</DetailFieldLabel>
+              <DetailFieldLabel icon="image">{strings.postDetailImageLabel}</DetailFieldLabel>
               {form.coverImageUrl ? <CachedAppImage source={{ uri: form.coverImageUrl }} style={styles.previewImage} alt={form.title || "post"} /> : null}
               <View style={styles.inputShell}>
                 <Feather color={palette.accent} name="link" size={18} />
-                <AdminKeyboardTextInput placeholder="https://..." placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput]} value={form.coverImageUrl} onChangeText={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))} />
+                <AdminKeyboardTextInput placeholder={strings.postDetailImagePlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput]} value={form.coverImageUrl} onChangeText={(value) => setForm((current) => ({ ...current, coverImageUrl: value }))} />
                 <Feather color={palette.sub} name="copy" size={18} />
               </View>
               <Pressable style={styles.uploadButton} onPress={() => void pickAndUploadImage()}>
                 <Feather color={palette.accent} name="upload" size={18} />
-                <Text style={styles.secondaryButtonText}>Tải ảnh bìa</Text>
+                <Text style={styles.secondaryButtonText}>{strings.postDetailImageUploadButton}</Text>
               </Pressable>
             </View>
             <View style={styles.splitRow}>
               <View style={[styles.fieldBlock, styles.priorityColumn]}>
-                <DetailFieldLabel icon="star">Độ ưu tiên</DetailFieldLabel>
-                <AdminKeyboardTextInput keyboardType="number-pad" placeholder="100" placeholderTextColor="#B4A89C" style={styles.input} value={form.priority} onChangeText={(value) => setForm((current) => ({ ...current, priority: value }))} />
+                <DetailFieldLabel icon="star">{strings.postDetailPriorityLabel}</DetailFieldLabel>
+                <AdminKeyboardTextInput keyboardType="number-pad" placeholder={strings.postDetailPriorityPlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.priority} onChangeText={(value) => setForm((current) => ({ ...current, priority: value }))} />
               </View>
               <View style={[styles.fieldBlock, styles.flexColumn]}>
-                <DetailFieldLabel icon="folder">Loại nội dung</DetailFieldLabel>
+                <DetailFieldLabel icon="folder">{strings.postDetailContentTypeLabel}</DetailFieldLabel>
                 <View style={styles.chipRow}>
                   {CONTENT_TYPES.map((item) => (
                     <Pressable key={item} style={[styles.chip, form.contentType === item ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, contentType: item }))}>
-                      <Text style={[styles.chipText, form.contentType === item ? styles.chipTextActive : null]}>{item}</Text>
+                      <Text style={[styles.chipText, form.contentType === item ? styles.chipTextActive : null]}>{item === "trend" ? strings.postContentTypeTrend : item === "care" ? strings.postContentTypeCare : item === "news" ? strings.postContentTypeNews : strings.postContentTypeOfferHint}</Text>
                     </Pressable>
                   ))}
                 </View>
@@ -330,19 +356,19 @@ export default function AdminManageContentPostDetailScreen() {
             </View>
             <View style={styles.splitRow}>
               <View style={[styles.fieldBlock, styles.flexColumn]}>
-                <DetailFieldLabel icon="flag">Trạng thái</DetailFieldLabel>
+                <DetailFieldLabel icon="flag">{strings.postDetailStatusLabel}</DetailFieldLabel>
                 <View style={styles.chipRow}>
                   {POST_STATUSES.map((item) => (
                     <Pressable key={item} style={[styles.chip, form.status === item ? styles.chipActive : null]} onPress={() => setForm((current) => ({ ...current, status: item }))}>
-                      <Text style={[styles.chipText, form.status === item ? styles.chipTextActive : null]}>{item}</Text>
+                      <Text style={[styles.chipText, form.status === item ? styles.chipTextActive : null]}>{item === "draft" ? strings.postStatusDraft : item === "approved" ? strings.postStatusApproved : item === "published" ? strings.postStatusPublished : strings.postStatusArchived}</Text>
                     </Pressable>
                   ))}
                 </View>
               </View>
               <View style={[styles.fieldBlock, styles.sourceColumn]}>
-                <DetailFieldLabel icon="user">Nguồn</DetailFieldLabel>
+                <DetailFieldLabel icon="user">{strings.postDetailSourceLabel}</DetailFieldLabel>
                 <AdminKeyboardTextInput
-                  placeholder="Nhập nguồn bài feed"
+                  placeholder={strings.postDetailSourcePlaceholder}
                   placeholderTextColor="#B4A89C"
                   style={styles.input}
                   value={form.sourcePlatform || ""}
@@ -352,19 +378,21 @@ export default function AdminManageContentPostDetailScreen() {
                   {SOURCE_PLATFORMS.map((item) => (
                     <Pressable
                       key={item}
-                      style={[styles.sourceChip, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipActive : null]}
+                      style={[styles.sourceChip, normalizeSourcePlatform(form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipActive : null]}
                       onPress={() => setForm((current) => ({ ...current, sourcePlatform: item }))}
                     >
-                      <Text style={[styles.sourceChipText, (form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipTextActive : null]}>{item}</Text>
+                      <Text style={[styles.sourceChipText, normalizeSourcePlatform(form.sourcePlatform || "mobile_admin") === item ? styles.sourceChipTextActive : null]}>
+                        {item === "cham_beauty" ? strings.postSourceChamBeauty : item === "mobile_admin" ? strings.postSourceMobileAdmin : item === "telegram" ? strings.postSourceTelegram : strings.postSourceDummySeed}
+                      </Text>
                     </Pressable>
                   ))}
                 </View>
               </View>
             </View>
             <View style={styles.fieldBlock}>
-              <DetailFieldLabel icon="code">Metadata JSON</DetailFieldLabel>
+              <DetailFieldLabel icon="code">{strings.postDetailMetadataLabel}</DetailFieldLabel>
               <View style={styles.metadataShell}>
-                <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="{ }" placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput, styles.metadataInput]} textAlignVertical="top" value={form.metadataText} onChangeText={(value) => setForm((current) => ({ ...current, metadataText: value }))} />
+                <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.postDetailMetadataPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.embeddedInput, styles.metadataInput]} textAlignVertical="top" value={form.metadataText} onChangeText={(value) => setForm((current) => ({ ...current, metadataText: value }))} />
                 <View style={styles.metadataIconWrap}>
                   <Feather color={palette.sub} name="copy" size={18} />
                 </View>
@@ -373,12 +401,12 @@ export default function AdminManageContentPostDetailScreen() {
             <View style={styles.actionRow}>
               <Pressable style={[styles.primaryButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleSave()}>
                 <Feather color="#FFFFFF" name="save" size={18} />
-                <Text style={styles.primaryButtonText}>{isSaving ? "Đang lưu..." : "Lưu bài viết"}</Text>
+                <Text style={styles.primaryButtonText}>{isSaving ? strings.postDetailSavingButton : strings.postDetailSaveButton}</Text>
               </Pressable>
               {canArchive ? (
                 <Pressable style={[styles.archiveButton, styles.actionButton]} disabled={isSaving} onPress={() => void handleArchive()}>
                   <Feather color={palette.danger} name="trash-2" size={18} />
-                  <Text style={styles.archiveButtonText}>Ẩn bài feed</Text>
+                  <Text style={styles.archiveButtonText}>{strings.postDetailArchiveButton}</Text>
                 </Pressable>
               ) : null}
             </View>

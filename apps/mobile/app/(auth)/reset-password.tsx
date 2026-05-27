@@ -1,7 +1,9 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import * as Linking from "expo-linking";
+import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -18,6 +20,7 @@ import { premiumTheme } from "@/src/design/premium-theme";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const { colors } = premiumTheme;
+const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
 function readAuthParams(url: string) {
   const parsed = new URL(url);
@@ -40,21 +43,36 @@ export default function ResetPasswordScreen() {
   const [isPreparing, setIsPreparing] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState("Đang xác thực link đổi mật khẩu...");
+  const [locale, setLocale] = useState<Locale>("vi");
+  const [message, setMessage] = useState("");
   const [isReady, setIsReady] = useState(false);
+  const t = useMemo(
+    () => (key: TranslationKey<"mobileAuth">, params?: Record<string, string | number>) =>
+      translate(locale, "mobileAuth", key, params),
+    [locale],
+  );
 
   const submitLabel = useMemo(() => {
-    if (isSubmitting) return "Đang cập nhật...";
-    return "Đổi mật khẩu";
-  }, [isSubmitting]);
+    if (isSubmitting) return translate(locale, "customer", "updating");
+    return translate(locale, "customer", "updatePassword");
+  }, [isSubmitting, locale]);
 
   useEffect(() => {
     let mounted = true;
 
+    void (async () => {
+      const storedLocale = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
+      const nextLocale = normalizeLocale(storedLocale);
+      if (mounted) {
+        setLocale(nextLocale);
+        setMessage(translate(nextLocale, "mobileAuth", "resetPreparing"));
+      }
+    })();
+
     async function prepareRecoverySession() {
       if (!mobileSupabase) {
         if (mounted) {
-          setError("Thiếu cấu hình Supabase mobile.");
+          setError(t("mobileSupabaseMissing"));
           setMessage("");
           setIsPreparing(false);
         }
@@ -64,12 +82,12 @@ export default function ResetPasswordScreen() {
       try {
         const initialUrl = await Linking.getInitialURL();
         if (!initialUrl) {
-          throw new Error("Không tìm thấy link đổi mật khẩu hợp lệ.");
+          throw new Error(t("invalidRecoveryLink"));
         }
 
         const params = readAuthParams(initialUrl);
         if (params.error) {
-          throw new Error(params.errorDescription || params.error || "Link đổi mật khẩu không hợp lệ.");
+          throw new Error(params.errorDescription || params.error || t("invalidRecoveryLink"));
         }
 
         if (params.type === "recovery" && params.accessToken && params.refreshToken) {
@@ -91,18 +109,18 @@ export default function ResetPasswordScreen() {
           } = await mobileSupabase.auth.getSession();
 
           if (!session) {
-            throw new Error("Link đổi mật khẩu không hợp lệ hoặc đã hết hạn.");
+            throw new Error(t("invalidRecoveryToken"));
           }
         }
 
         if (mounted) {
           setIsReady(true);
-          setMessage("Nhập mật khẩu mới cho tài khoản của anh.");
+          setMessage(t("resetReady"));
           setError(null);
         }
       } catch (nextError) {
         if (mounted) {
-          setError(nextError instanceof Error ? nextError.message : "Không xác thực được link đổi mật khẩu.");
+          setError(nextError instanceof Error ? nextError.message : t("invalidRecoveryToken"));
           setMessage("");
         }
       } finally {
@@ -117,21 +135,21 @@ export default function ResetPasswordScreen() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [t]);
 
   async function handleSubmit() {
     if (!mobileSupabase) {
-      setError("Thiếu cấu hình Supabase mobile.");
+      setError(t("mobileSupabaseMissing"));
       return;
     }
 
     if (!password || password.length < 6) {
-      setError("Mật khẩu mới phải có ít nhất 6 ký tự.");
+      setError(translate(locale, "customer", "passwordTooShort"));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError("Mật khẩu xác nhận chưa khớp.");
+      setError(translate(locale, "customer", "passwordMismatch"));
       return;
     }
 
@@ -144,16 +162,16 @@ export default function ResetPasswordScreen() {
         throw updateError;
       }
 
-      setMessage("Đổi mật khẩu thành công. Đang quay về đăng nhập...");
+      setMessage(t("resetSuccess"));
       await mobileSupabase.auth.signOut();
-      Alert.alert("Đổi mật khẩu thành công", "Bây giờ anh có thể đăng nhập bằng mật khẩu mới.", [
+      Alert.alert(t("resetSuccessAlertTitle"), t("resetSuccessAlertBody"), [
         {
-          text: "Về đăng nhập",
+          text: t("backToLogin"),
           onPress: () => router.replace("/(auth)/sign-in"),
         },
       ]);
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Không đổi được mật khẩu.");
+      setError(nextError instanceof Error ? nextError.message : translate(locale, "errors", "passwordChangeFailed"));
     } finally {
       setIsSubmitting(false);
     }
@@ -174,13 +192,13 @@ export default function ResetPasswordScreen() {
           <Text style={styles.brandSub}>RESET PASSWORD</Text>
 
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Đặt lại mật khẩu</Text>
+            <Text style={styles.cardTitle}>{t("resetTitle")}</Text>
             {message ? <Text style={styles.helper}>{message}</Text> : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             <InputField
               icon="lock"
-              placeholder="Mật khẩu mới"
+              placeholder={translate(locale, "customer", "newPassword")}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -194,7 +212,7 @@ export default function ResetPasswordScreen() {
 
             <InputField
               icon="shield"
-              placeholder="Nhập lại mật khẩu mới"
+              placeholder={translate(locale, "customer", "confirmNewPassword")}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry={!showConfirmPassword}
@@ -215,7 +233,7 @@ export default function ResetPasswordScreen() {
             </Pressable>
 
             <Pressable onPress={() => router.replace("/(auth)/sign-in")} style={styles.secondaryAction}>
-              <Text style={styles.secondaryActionText}>Quay về đăng nhập</Text>
+              <Text style={styles.secondaryActionText}>{t("backToLogin")}</Text>
             </Pressable>
           </View>
         </ScrollView>

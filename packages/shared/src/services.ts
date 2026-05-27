@@ -1,3 +1,4 @@
+import type { LocalizedTextValue } from "./localization";
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 
@@ -11,7 +12,8 @@ export type MobileAdminService = {
   basePrice: number;
   vatRate: number;
   active: boolean;
-  branchId: string | null;  // Added: branch association
+  branchId: string | null;
+  translations: LocalizedTextValue | null;
 };
 
 export type MobileAdminServiceInput = {
@@ -23,7 +25,8 @@ export type MobileAdminServiceInput = {
   basePrice: number;
   vatPercent: number;
   active?: boolean;
-  branchId?: string | null;  // Added: branch association
+  branchId?: string | null;
+  translations?: LocalizedTextValue | null;
 };
 
 export type MobileAdminServiceListOptions = {
@@ -42,6 +45,7 @@ function normalizeServiceRow(row: Record<string, unknown>): MobileAdminService {
     vatRate: Number(row.vat_rate ?? 0),
     active: row.active !== false,
     branchId: typeof row.branch_id === "string" ? row.branch_id : null,
+    translations: (row.translations as LocalizedTextValue | null | undefined) ?? null,
   };
 }
 
@@ -62,7 +66,7 @@ export async function listAdminServicesForMobile(
 
   let query = client
     .from("services")
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
     .eq("org_id", orgId);
 
   // Filter by branch_id if provided (nullable to include org-wide services)
@@ -87,7 +91,7 @@ export async function listAdminServicesForMobile(
     // Fallback query without new columns
     let fallbackQuery = client
       .from("services")
-      .select("id,name,duration_min,base_price,vat_rate,active,branch_id")
+      .select("id,name,duration_min,base_price,vat_rate,active,branch_id,translations")
       .eq("org_id", orgId);
 
     if (targetBranchId) {
@@ -130,8 +134,9 @@ export async function createAdminServiceForMobile(
       base_price: input.basePrice,
       vat_rate: input.vatPercent / 100,
       active: input.active ?? true,
+      translations: input.translations ?? null,
     })
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
     .single();
 
   if (error) {
@@ -159,10 +164,11 @@ export async function updateAdminServiceForMobile(
       base_price: input.basePrice,
       vat_rate: input.vatPercent / 100,
       active: input.active ?? true,
+      translations: input.translations ?? null,
     })
     .eq("id", input.id)
     .eq("org_id", orgId)
-    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id")
+    .select("id,name,short_description,image_url,featured_in_lookbook,duration_min,base_price,vat_rate,active,branch_id,translations")
     .single();
 
   if (error) {

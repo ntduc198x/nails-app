@@ -2,32 +2,30 @@ import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Feather from "@expo/vector-icons/Feather";
 import { CustomerScreen, SegmentedTabs, SurfaceCard } from "@/src/features/customer/ui";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
 
 const { colors, spacing } = premiumTheme;
-
-const FILTERS = [
-  { key: "service", label: "Dịch vụ" },
-  { key: "staff", label: "Kỹ thuật viên" },
-] as const;
-
-type FilterKey = (typeof FILTERS)[number]["key"];
+type FilterKey = "service" | "staff";
 
 export default function ReviewsScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("service");
+  const strings = useCustomerStrings();
+  const filters = [
+    { key: "service" as const, label: strings.reviewsFilterService },
+    { key: "staff" as const, label: strings.reviewsFilterStaff },
+  ];
 
   return (
-    <CustomerScreen title="Đánh giá của tôi">
-      <SegmentedTabs activeKey={activeFilter} items={FILTERS} onChange={setActiveFilter} />
+    <CustomerScreen title={strings.reviewsTitle}>
+      <SegmentedTabs activeKey={activeFilter} items={filters} onChange={setActiveFilter} />
 
       <SurfaceCard style={styles.emptyCard}>
         <View style={styles.iconWrap}>
           <Feather color={colors.textSoft} name="message-square" size={20} />
         </View>
-        <Text style={styles.title}>Chưa có đánh giá nào được đồng bộ</Text>
-        <Text style={styles.subtitle}>
-          Màn này đã bỏ toàn bộ review mock. Khi hệ thống review thật được nối, dữ liệu sẽ hiển thị theo bộ lọc dịch vụ hoặc kỹ thuật viên.
-        </Text>
+        <Text style={styles.title}>{strings.reviewsEmptyTitle}</Text>
+        <Text style={styles.subtitle}>{strings.reviewsEmptyBody}</Text>
       </SurfaceCard>
     </CustomerScreen>
   );

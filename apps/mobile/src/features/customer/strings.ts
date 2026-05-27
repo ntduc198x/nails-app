@@ -1,162 +1,68 @@
 import { useMemo } from "react";
+import { translations } from "@nails/shared";
 import type { CustomerLocale } from "@/src/providers/customer-preferences-provider";
 import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
 const strings = {
-  vi: {
-    navHome: "Trang chủ",
-    navExplore: "Khám phá",
-    navMembership: "Thành viên",
-    navProfile: "Cá nhân",
-    settings: "Cài đặt",
-    settingsTitle: "Cài đặt",
-    notifications: "Thông báo",
-    notificationsTitle: "Thông báo",
-    darkMode: "Chế độ tối",
-    lightMode: "Chế độ sáng",
-    language: "Ngôn ngữ",
-    cache: "Bộ nhớ đệm",
-    forgotPassword: "Đổi mật khẩu",
-    resetPasswordTitle: "Đã gửi liên kết",
-    resetPasswordBody: "Liên kết đặt lại mật khẩu đã được gửi về email tài khoản.",
-    sound: "Âm thanh",
-    vibration: "Rung",
-    pushNotifications: "Thông báo",
-    notificationSettings: "Cài đặt thông báo",
-    appVersion: "Phiên bản 1.0.0",
-    languageVi: "Tiếng Việt",
-    languageEn: "English",
-    cacheEmpty: "0 KB",
-    cacheClearedTitle: "Đã xóa",
-    cacheClearedBody: "Bộ nhớ đệm ứng dụng đã được xóa.",
-    cacheClearFailedTitle: "Lỗi",
-    cacheClearFailedBody: "Không thể xóa bộ nhớ đệm.",
-    saveFailed: "Không thể lưu cài đặt.",
-    saveSuccess: "Đã lưu thay đổi.",
-    commonError: "Đã xảy ra lỗi. Vui lòng thử lại.",
-    retry: "Thử lại",
-    favoriteSaveBlockedTitle: "Chưa thể lưu yêu thích",
-    favoriteSaveBlockedBody: "Tài khoản khách hàng chưa được liên kết với hồ sơ customer.",
-    favoriteSaveFailedTitle: "Không thể lưu yêu thích",
-    upcomingBookingsTitle: "Lịch sắp tới của bạn",
-    upcomingBookingsSignedOut: "Đăng nhập để xem các lịch sắp tới của bạn.",
-    upcomingBookingsEmpty: "Bạn chưa có lịch sắp tới nào.",
-    profileTitle: "Cá nhân",
-    membershipTitle: "Thẻ thành viên",
-    membershipBenefitsTitle: "Quyền lợi thành viên",
-    membershipBenefitsBody:
-      "Bạn luôn là thành viên của cửa hàng. Khi tích lũy đủ chi tiêu và lượt hẹn chuẩn, bạn sẽ lên hạng để mở thêm quyền lợi và ưu đãi tốt hơn.",
-    membershipHowToUpgrade:
-      "Để nâng hạng, hãy tiếp tục tích lũy chi tiêu và số lượt hẹn chuẩn cho đến khi đạt ngưỡng của hạng tiếp theo.",
-    membershipHowToBoost:
-      "Ưu đãi đang hiển thị là ưu đãi bạn có thể dùng khi đặt lịch hoặc sử dụng dịch vụ. Nếu ưu đãi chưa tự áp dụng trong app, bạn có thể đưa mã hoặc tên ưu đãi cho cửa hàng để được hỗ trợ.",
-    bookingCta: "Đặt lịch",
-    imagePreviewClose: "Đóng ảnh",
-    profileHistory: "Lịch sử hẹn",
-    profileFavorites: "Yêu thích",
-    profileInfo: "Thông tin",
-    profileName: "Họ và tên",
-    profileBirthDate: "Ngày sinh",
-    profilePhone: "Số điện thoại",
-    profileEmail: "Email",
-    profileAddress: "Địa chỉ",
-    profileSave: "Lưu thông tin",
-    profileSaving: "Đang lưu...",
-    homeTitle: "Trang chủ",
-    homeHotLooks: "Mẫu đang hot",
-    homeTrends: "Xu hướng làm đẹp hôm nay",
-    homeMembershipOffers: "Quyền lợi thành viên",
-    homeOpenMembership: "Mở thẻ",
-    exploreTitle: "Khám phá",
-    exploreSearchPlaceholder: "Tìm mẫu lookbook...",
-    exploreFeaturedServices: "Dịch vụ nổi bật",
-    exploreProducts: "Sản phẩm & phụ kiện",
-    exploreTeam: "Đội ngũ nhân viên",
-    exploreGallery: "Không gian cửa hàng",
-    exploreOffers: "Ưu đãi đang có",
-    exploreMap: "Địa chỉ cửa hàng",
-    exploreDirections: "Chỉ đường",
-  },
-  en: {
-    navHome: "Home",
-    navExplore: "Explore",
-    navMembership: "Membership",
-    navProfile: "Profile",
-    settings: "Settings",
-    settingsTitle: "Settings",
-    notifications: "Notifications",
-    notificationsTitle: "Notifications",
-    darkMode: "Dark mode",
-    lightMode: "Light mode",
-    language: "Language",
-    cache: "Cache",
-    forgotPassword: "Change password",
-    resetPasswordTitle: "Link sent",
-    resetPasswordBody: "A password reset link has been sent to your account email.",
-    sound: "Sound",
-    vibration: "Vibration",
-    pushNotifications: "Notifications",
-    notificationSettings: "Notification settings",
-    appVersion: "Version 1.0.0",
-    languageVi: "Vietnamese",
-    languageEn: "English",
-    cacheEmpty: "0 KB",
-    cacheClearedTitle: "Cleared",
-    cacheClearedBody: "App cache has been cleared.",
-    cacheClearFailedTitle: "Error",
-    cacheClearFailedBody: "Unable to clear app cache.",
-    saveFailed: "Unable to save settings.",
-    saveSuccess: "Changes saved.",
-    commonError: "Something went wrong. Please try again.",
-    retry: "Retry",
-    favoriteSaveBlockedTitle: "Unable to save favorite yet",
-    favoriteSaveBlockedBody: "Your customer account is not linked to a customer profile yet.",
-    favoriteSaveFailedTitle: "Unable to save favorite",
-    upcomingBookingsTitle: "Your upcoming appointments",
-    upcomingBookingsSignedOut: "Sign in to view your upcoming appointments.",
-    upcomingBookingsEmpty: "You do not have any upcoming appointments.",
-    profileTitle: "Profile",
-    membershipTitle: "Membership card",
-    membershipBenefitsTitle: "Membership benefits",
-    membershipBenefitsBody:
-      "Your membership unlocks reward points, tier-based offers, and extra perks as your visits and spending grow.",
-    membershipHowToUpgrade:
-      "To level up, keep increasing your spending and visit count until you reach the next tier threshold.",
-    membershipHowToBoost:
-      "To improve your benefits, use active offers, return regularly, and keep your reward balance growing.",
-    bookingCta: "Book now",
-    imagePreviewClose: "Close image",
-    profileHistory: "Appointment history",
-    profileFavorites: "Favorites",
-    profileInfo: "Profile info",
-    profileName: "Full name",
-    profileBirthDate: "Birth date",
-    profilePhone: "Phone number",
-    profileEmail: "Email",
-    profileAddress: "Address",
-    profileSave: "Save profile",
-    profileSaving: "Saving...",
-    homeTitle: "Home",
-    homeHotLooks: "Trending looks",
-    homeTrends: "Beauty trends today",
-    homeMembershipOffers: "Membership perks",
-    homeOpenMembership: "Open card",
-    exploreTitle: "Explore",
-    exploreSearchPlaceholder: "Search lookbook styles...",
-    exploreFeaturedServices: "Featured services",
-    exploreProducts: "Products & accessories",
-    exploreTeam: "Team",
-    exploreGallery: "Store gallery",
-    exploreOffers: "Active offers",
-    exploreMap: "Store address",
-    exploreDirections: "Directions",
-  },
+  vi: translations.vi.customer,
+  en: translations.en.customer,
 } as const;
 
 export type CustomerStringKey = keyof typeof strings.vi;
+export type CustomerStatusCode =
+  | "BOOKED"
+  | "CHECKED_IN"
+  | "IN_SERVICE"
+  | "DONE"
+  | "CANCELLED"
+  | "NO_SHOW"
+  | "NEW"
+  | "CONFIRMED"
+  | "NEEDS_RESCHEDULE"
+  | "CONVERTED"
+  | "EXPIRED_UNCONFIRMED"
+  | "RESERVED"
+  | "REDEEMED"
+  | "EXPIRED";
 
 export function getCustomerString(locale: CustomerLocale, key: CustomerStringKey) {
   return strings[locale][key];
+}
+
+export function getCustomerStatusLabel(locale: CustomerLocale, status: string) {
+  const normalizedStatus = status.toUpperCase() as CustomerStatusCode;
+  switch (normalizedStatus) {
+    case "BOOKED":
+      return strings[locale].statusBooked;
+    case "CHECKED_IN":
+      return strings[locale].statusCheckedIn;
+    case "IN_SERVICE":
+      return strings[locale].statusInService;
+    case "DONE":
+      return strings[locale].statusCompleted;
+    case "CANCELLED":
+      return strings[locale].statusCancelled;
+    case "NO_SHOW":
+      return strings[locale].statusNoShow;
+    case "NEW":
+      return strings[locale].statusNewRequest;
+    case "CONFIRMED":
+      return strings[locale].statusConfirmed;
+    case "NEEDS_RESCHEDULE":
+      return strings[locale].statusNeedsReschedule;
+    case "CONVERTED":
+      return strings[locale].statusConverted;
+    case "EXPIRED_UNCONFIRMED":
+      return strings[locale].statusExpiredUnconfirmed;
+    case "RESERVED":
+      return strings[locale].statusReserved;
+    case "REDEEMED":
+      return strings[locale].statusUsed;
+    case "EXPIRED":
+      return strings[locale].statusExpired;
+    default:
+      return status;
+  }
 }
 
 export function useCustomerStrings() {

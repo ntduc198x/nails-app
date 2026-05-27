@@ -19,7 +19,9 @@ import {
   getAuthenticatedUserSummary,
   isCustomerRole,
   normalizeInviteCode,
+  pickPreferredLocale,
   revokeAppSessionToken,
+  translate,
   validateAppSessionToken,
 } from "@nails/shared";
 import { clearStoredAppSessionToken, getStoredAppSessionToken, setStoredAppSessionToken } from "@/src/lib/app-session";
@@ -364,6 +366,11 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
   }
 
   if (customerAccountError && customerAccountError.code !== "PGRST116") {
+    const fallbackLocale = pickPreferredLocale([
+      typeof authUser.user_metadata?.locale === "string" ? authUser.user_metadata.locale : null,
+      typeof authUser.user_metadata?.language === "string" ? authUser.user_metadata.language : null,
+      authUser.email,
+    ]);
     return {
       id: authUser.id,
       email: customer?.email || profile?.email || authUser.email || "",
@@ -374,12 +381,17 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
         (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
         (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
         authUser.email?.split("@")[0] ||
-        "Khách hàng",
+        translate(fallbackLocale, "customer", "accountFallbackName"),
       role: "USER" as AppRole,
     } satisfies AuthenticatedUserSummary;
   }
 
   if (!resolvedCustomerAccount) {
+    const fallbackLocale = pickPreferredLocale([
+      typeof authUser.user_metadata?.locale === "string" ? authUser.user_metadata.locale : null,
+      typeof authUser.user_metadata?.language === "string" ? authUser.user_metadata.language : null,
+      authUser.email,
+    ]);
     return {
       id: authUser.id,
       email: customer?.email || profile?.email || authUser.email || "",
@@ -390,11 +402,16 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
         (typeof authUser.user_metadata?.display_name === "string" && authUser.user_metadata.display_name.trim()) ||
         (typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()) ||
         authUser.email?.split("@")[0] ||
-        "Khách hàng",
+        translate(fallbackLocale, "customer", "accountFallbackName"),
       role: "USER" as AppRole,
     } satisfies AuthenticatedUserSummary;
   }
 
+  const fallbackLocale = pickPreferredLocale([
+    typeof authUser.user_metadata?.locale === "string" ? authUser.user_metadata.locale : null,
+    typeof authUser.user_metadata?.language === "string" ? authUser.user_metadata.language : null,
+    authUser.email,
+  ]);
   const displayName =
     typeof customer?.full_name === "string" && customer.full_name.trim()
       ? customer.full_name.trim()
@@ -406,7 +423,7 @@ async function getMobileAuthenticatedUserSummary(): Promise<AuthenticatedUserSum
             ? authUser.user_metadata.display_name.trim()
             : typeof authUser.user_metadata?.full_name === "string" && authUser.user_metadata.full_name.trim()
               ? authUser.user_metadata.full_name.trim()
-              : authUser.email?.split("@")[0] ?? "Khách hàng";
+              : authUser.email?.split("@")[0] ?? translate(fallbackLocale, "customer", "accountFallbackName");
 
   return {
     id: authUser.id,

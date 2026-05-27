@@ -1,5 +1,6 @@
 import type { ImagePickerAsset } from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import { translate, type Locale } from "@nails/shared";
 import { mobileEnv } from "@/src/lib/env";
 import { mobileSupabase } from "@/src/lib/supabase";
 
@@ -74,23 +75,24 @@ function sanitizeFileName(name: string) {
 export async function uploadPickedAdminContentImage(
   asset: ImagePickerAsset,
   options: UploadAdminContentImageOptions,
+  locale: Locale = "vi",
 ) {
   if (!mobileSupabase) {
-    throw new Error("Thieu cau hinh Supabase mobile.");
+    throw new Error(translate(locale, "admin", "contentImagesMissingSupabase"));
   }
   if (!mobileEnv.apiBaseUrl) {
-    throw new Error("Thieu API base URL cho mobile upload.");
+    throw new Error(translate(locale, "admin", "contentImagesMissingApiBaseUrl"));
   }
 
   const uri = asset.uri;
   if (!uri) {
-    throw new Error("Khong doc duoc anh da chon.");
+    throw new Error(translate(locale, "admin", "contentImagesUnreadableAsset"));
   }
 
   const { data: sessionData } = await mobileSupabase.auth.getSession();
   const accessToken = sessionData.session?.access_token;
   if (!accessToken) {
-    throw new Error("Chua dang nhap.");
+    throw new Error(translate(locale, "admin", "contentImagesUnauthenticated"));
   }
 
   const safeBase = sanitizeFileName(options.baseName || asset.fileName || "content-image");
@@ -119,7 +121,7 @@ export async function uploadPickedAdminContentImage(
     | null;
 
   if (!response.ok || !payload?.ok || !payload.data) {
-    throw new Error(payload?.error || "Upload ảnh thất bại");
+    throw new Error(payload?.error || translate(locale, "admin", "contentImagesUploadFailed"));
   }
 
   return {

@@ -33,7 +33,7 @@ export default function SettingsScreen() {
   const strings = useCustomerStrings();
   const theme = useCustomerTheme();
   const { user, signOut } = useSession();
-  const { colorScheme, locale } = useCustomerPreferences();
+  const { colorScheme, locale, setLocale } = useCustomerPreferences();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [cacheSize, setCacheSize] = useState("0 KB");
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -100,23 +100,32 @@ export default function SettingsScreen() {
   }
 
   function showUpgradeLaterAlert(featureName: string) {
-    Alert.alert("Tính năng đang nâng cấp", `${featureName} sẽ được nâng cấp ở bản cập nhật sau. Hiện tại ứng dụng đang dùng chế độ sáng và tiếng Việt.`);
+    Alert.alert(strings.themeUpgradeTitle, `${featureName}. ${strings.themeUpgradeBody}`);
   }
 
-  function handleChangeLanguage() {
+  async function handleChangeLanguage(nextLocale: "vi" | "en") {
     setShowLanguageModal(false);
-    showUpgradeLaterAlert("Chuyển ngôn ngữ");
+    if (locale === nextLocale) {
+      return;
+    }
+
+    try {
+      await setLocale(nextLocale);
+      Alert.alert(strings.saveSuccess, strings.languageUpdated);
+    } catch {
+      Alert.alert(strings.cacheClearFailedTitle, strings.saveFailed);
+    }
   }
 
   function handleToggleTheme() {
-    showUpgradeLaterAlert("Chế độ tối");
+    showUpgradeLaterAlert(strings.darkMode);
   }
 
   function handleClearCache() {
-    Alert.alert("Xác nhận xóa cache", "Bạn có chắc muốn xóa toàn bộ cache cục bộ của ứng dụng không?", [
-      { text: "Hủy", style: "cancel" },
+    Alert.alert(strings.clearCacheConfirmTitle, strings.clearCacheConfirmBody, [
+      { text: strings.cancel, style: "cancel" },
       {
-        text: "Xóa cache",
+        text: strings.clearCache,
         style: "destructive",
         onPress: () => {
           void (async () => {
@@ -135,22 +144,22 @@ export default function SettingsScreen() {
 
   async function handleChangePassword() {
     if (!passwordForm.oldPassword.trim()) {
-      Alert.alert(strings.cacheClearFailedTitle, "Vui lòng nhập mật khẩu hiện tại.");
+      Alert.alert(strings.cacheClearFailedTitle, strings.currentPasswordRequired);
       return;
     }
 
     if (!passwordForm.password.trim() || !passwordForm.confirmPassword.trim()) {
-      Alert.alert(strings.cacheClearFailedTitle, "Vui lòng nhập đầy đủ mật khẩu mới và xác nhận mật khẩu.");
+      Alert.alert(strings.cacheClearFailedTitle, strings.passwordFieldsRequired);
       return;
     }
 
     if (passwordForm.password.trim().length < 6) {
-      Alert.alert(strings.cacheClearFailedTitle, "Mật khẩu mới cần có ít nhất 6 ký tự.");
+      Alert.alert(strings.cacheClearFailedTitle, strings.passwordTooShort);
       return;
     }
 
     if (passwordForm.password !== passwordForm.confirmPassword) {
-      Alert.alert(strings.cacheClearFailedTitle, "Xác nhận mật khẩu chưa khớp.");
+      Alert.alert(strings.cacheClearFailedTitle, strings.passwordMismatch);
       return;
     }
 
@@ -177,7 +186,7 @@ export default function SettingsScreen() {
       });
 
       if (signInError) {
-        throw new Error("Mật khẩu hiện tại không đúng.");
+        throw new Error(strings.currentPasswordIncorrect);
       }
 
       const { error } = await mobileSupabase.auth.updateUser({
@@ -189,7 +198,7 @@ export default function SettingsScreen() {
       }
 
       setPasswordForm({ oldPassword: "", password: "", confirmPassword: "" });
-      Alert.alert(strings.saveSuccess, "Mật khẩu đã được cập nhật.");
+      Alert.alert(strings.saveSuccess, strings.passwordUpdated);
     } catch (error) {
       Alert.alert(strings.cacheClearFailedTitle, error instanceof Error ? error.message : strings.commonError);
     } finally {
@@ -267,7 +276,7 @@ export default function SettingsScreen() {
         <ActionRow
           icon="globe"
           label={strings.language}
-          value="Tiếng Việt"
+          value={locale === "en" ? strings.currentLanguageValue : strings.languageVi}
           onPress={() => setShowLanguageModal(true)}
           styles={styles}
           theme={theme}
@@ -287,11 +296,11 @@ export default function SettingsScreen() {
         <View style={styles.passwordBlock}>
           <View style={styles.passwordHeader}>
             <Feather color={theme.colors.textSoft} name="lock" size={18} />
-            <Text style={styles.rowLabel}>Đổi mật khẩu</Text>
+            <Text style={styles.rowLabel}>{strings.passwordChangeTitle}</Text>
           </View>
           <TextInput
             secureTextEntry
-            placeholder="Mật khẩu hiện tại"
+            placeholder={strings.currentPassword}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.passwordInput}
             value={passwordForm.oldPassword}
@@ -299,7 +308,7 @@ export default function SettingsScreen() {
           />
           <TextInput
             secureTextEntry
-            placeholder="Mật khẩu mới"
+            placeholder={strings.newPassword}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.passwordInput}
             value={passwordForm.password}
@@ -307,33 +316,33 @@ export default function SettingsScreen() {
           />
           <TextInput
             secureTextEntry
-            placeholder="Nhập lại mật khẩu mới"
+            placeholder={strings.confirmNewPassword}
             placeholderTextColor={theme.colors.textMuted}
             style={styles.passwordInput}
             value={passwordForm.confirmPassword}
             onChangeText={(value) => setPasswordForm((current) => ({ ...current, confirmPassword: value }))}
           />
           <Pressable style={styles.passwordButton} onPress={() => void handleChangePassword()} disabled={isUpdatingPassword}>
-            <Text style={styles.passwordButtonText}>{isUpdatingPassword ? "Đang cập nhật..." : "Cập nhật mật khẩu"}</Text>
+            <Text style={styles.passwordButtonText}>{isUpdatingPassword ? strings.updating : strings.updatePassword}</Text>
           </Pressable>
         </View>
       </SurfaceCard>
 
       <Pressable style={styles.signOutButton} onPress={() => void signOut()}>
         <Feather color={theme.colors.dangerText} name="log-out" size={18} />
-        <Text style={styles.signOutButtonText}>Đăng xuất</Text>
+        <Text style={styles.signOutButtonText}>{strings.signOut}</Text>
       </Pressable>
 
       <Modal visible={showLanguageModal} transparent animationType="fade" onRequestClose={() => setShowLanguageModal(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowLanguageModal(false)}>
           <Pressable style={styles.modalCard} onPress={(event) => event.stopPropagation()}>
             <Text style={styles.modalTitle}>{strings.language}</Text>
-            <Pressable style={styles.modalOption} onPress={handleChangeLanguage}>
+            <Pressable style={styles.modalOption} onPress={() => void handleChangeLanguage("vi")}>
               <Text style={[styles.modalOptionText, locale === "vi" ? styles.modalOptionTextActive : null]}>
                 {strings.languageVi}
               </Text>
             </Pressable>
-            <Pressable style={styles.modalOption} onPress={handleChangeLanguage}>
+            <Pressable style={styles.modalOption} onPress={() => void handleChangeLanguage("en")}>
               <Text style={[styles.modalOptionText, locale === "en" ? styles.modalOptionTextActive : null]}>
                 {strings.languageEn}
               </Text>

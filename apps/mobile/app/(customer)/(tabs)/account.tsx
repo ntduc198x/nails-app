@@ -4,14 +4,15 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { listCustomerFavoriteServices, type CustomerFavoriteService } from "@nails/shared";
+import { formatDateLabel, formatDateTimeLabel, formatMoneyVnd, listCustomerFavoriteServices, translate, type CustomerFavoriteService } from "@nails/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
 import { FALLBACK_SERVICES } from "@/src/features/customer/data";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
-import { useCustomerStrings } from "@/src/features/customer/strings";
+import { localizeMembershipTier } from "@/src/features/customer/localize";
+import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
@@ -23,7 +24,7 @@ import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache"
 import { upsertAndVerifyCustomerProfile } from "@/src/lib/customer-profile";
 import { readCustomerProfileCache, writeCustomerProfileCache } from "@/src/lib/customer-profile-cache";
 import { useSession } from "@/src/providers/session-provider";
-import { useCustomerTheme } from "@/src/providers/customer-preferences-provider";
+import { useCustomerPreferences, useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 
 type TabKey = "history" | "favorites" | "info";
 
@@ -36,18 +37,14 @@ function parseTabKey(value?: string | string[]): TabKey | null {
   return null;
 }
 
-function formatBirthDateLabel(value: string) {
+function formatBirthDateLabel(value: string, locale: "vi" | "en") {
   if (!value) return "";
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return date.toLocaleDateString("vi-VN", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
+  return formatDateLabel(date, locale) || value;
 }
 
 function parseBirthDateValue(value: string) {
@@ -144,9 +141,15 @@ function getHistoryStatusBadgeStyle(status: string, theme: ReturnType<typeof use
   }
 }
 
+function formatRemainingVisitsLabel(value: number, locale: "vi" | "en") {
+  const formattedValue = value.toLocaleString(locale === "en" ? "en-US" : "vi-VN");
+  return translate(locale, "customer", "membershipRequirementQualifiedVisits", { count: formattedValue });
+}
+
 export default function AccountScreen() {
   const params = useLocalSearchParams<{ tab?: string | string[] }>();
   const theme = useCustomerTheme();
+  const { locale } = useCustomerPreferences();
   const strings = useCustomerStrings();
   const styles = useMemo(() => createStyles(theme), [theme]);
   const TABS = useMemo(
@@ -215,45 +218,62 @@ export default function AccountScreen() {
       return avatarUri.trim();
     }
 
-    const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || "Customer");
+    const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || strings.accountFallbackName);
     return `https://ui-avatars.com/api/?name=${seed}&background=B4937D&color=FFFFFF&size=256`;
-  }, [avatarUri, form.name, user?.email]);
+  }, [avatarUri, form.name, strings.accountFallbackName, user?.email]);
 
   const membershipThemeKey = currentTier?.themeKey || currentTier?.code || "bronze";
   const membershipCardGradient = getTierGradient(membershipThemeKey);
   const membershipIconName = getTierIconName(membershipThemeKey);
+  const localeTag = locale === "en" ? "en-US" : "vi-VN";
+  const currentTierLocalized = localizeMembershipTier(locale, currentTier);
+  const nextTierLocalized = localizeMembershipTier(locale, nextTier);
 
   const membershipBlurb = useMemo(() => {
-    if (!currentTier && nextTier) {
+    if (!currentTierLocalized && nextTierLocalized) {
       const parts: string[] = [];
       if (remainingSpentToNext > 0) {
-        parts.push(`${remainingSpentToNext.toLocaleString("vi-VN")}đ chi tiêu`);
+        parts.push(translate(locale, "customer", "membershipRequirementSpending", { amount: formatMoneyVnd(remainingSpentToNext, locale) }));
       }
       if (remainingVisitsToNext > 0) {
-        parts.push(`${remainingVisitsToNext.toLocaleString("vi-VN")} lượt hẹn chuẩn`);
+        parts.push(formatRemainingVisitsLabel(remainingVisitsToNext, locale));
       }
 
       return parts.length
-        ? `Bạn đang là thành viên thường. Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
-        : `Bạn đang là thành viên thường. Mục tiêu tiếp theo là ${nextTier.name}.`;
+        ? translate(locale, "customer", "membershipHelperStandardTarget", {
+            tierName: nextTierLocalized.name,
+            guidance: translate(locale, "customer", "membershipGuidanceRemainingToTier", {
+              requirements: parts.join(` ${strings.conjunctionOr} `),
+              tierName: nextTierLocalized.name,
+            }),
+          })
+        : translate(locale, "customer", "membershipHelperStandardTarget", {
+            tierName: nextTierLocalized.name,
+            guidance: translate(locale, "customer", "membershipGuidanceNextTarget", { tierName: nextTierLocalized.name }),
+          });
     }
 
-    if (!nextTier) {
-      return `Đang ở hạng ${currentTier?.name ?? "cao nhất"} với ${pointsBalance.toLocaleString("vi-VN")} điểm.`;
+    if (!nextTierLocalized) {
+      return translate(locale, "customer", "membershipNextGuidanceHighest", {
+        points: pointsBalance.toLocaleString(localeTag),
+      });
     }
 
     const parts: string[] = [];
     if (remainingSpentToNext > 0) {
-      parts.push(`${remainingSpentToNext.toLocaleString("vi-VN")}đ chi tiêu`);
+      parts.push(translate(locale, "customer", "membershipRequirementSpending", { amount: formatMoneyVnd(remainingSpentToNext, locale) }));
     }
     if (remainingVisitsToNext > 0) {
-      parts.push(`${remainingVisitsToNext.toLocaleString("vi-VN")} lượt hẹn chuẩn`);
+      parts.push(formatRemainingVisitsLabel(remainingVisitsToNext, locale));
     }
 
     return parts.length
-      ? `Còn ${parts.join(" hoặc ")} để lên ${nextTier.name}.`
-      : `Mục tiêu tiếp theo là ${nextTier.name}.`;
-  }, [currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext]);
+      ? translate(locale, "customer", "membershipGuidanceRemainingToTier", {
+          requirements: parts.join(` ${strings.conjunctionOr} `),
+          tierName: nextTierLocalized.name,
+        })
+      : translate(locale, "customer", "membershipGuidanceNextTarget", { tierName: nextTierLocalized.name });
+  }, [currentTierLocalized, locale, localeTag, nextTierLocalized, pointsBalance, remainingSpentToNext, remainingVisitsToNext, strings.conjunctionOr]);
 
   const summary = useMemo(() => {
     const totalSpent = historyItems.reduce((sum, item) => {
@@ -262,11 +282,11 @@ export default function AccountScreen() {
     }, 0);
 
     return {
-      totalSpent: `${totalSpent.toLocaleString("vi-VN")}đ`,
+      totalSpent: formatMoneyVnd(totalSpent, locale),
       totalVisits: String(eligibleVisitsMinSpend),
       offerWallet: String(offers.length),
     };
-  }, [eligibleVisitsMinSpend, historyItems, offers.length]);
+  }, [eligibleVisitsMinSpend, historyItems, locale, offers.length]);
 
   const loadProfile = useCallback(async (options: { forceRemote?: boolean } = {}) => {
     const cached = user?.id ? await readCustomerProfileCache(user.id) : null;
@@ -507,7 +527,7 @@ export default function AccountScreen() {
 
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert("Chưa có quyền truy cập ảnh", "Vui lòng cho phép truy cập thư viện ảnh để đổi avatar.");
+      Alert.alert(strings.profileAvatarPermissionTitle, strings.profileAvatarPermissionBody);
       return;
     }
 
@@ -552,13 +572,13 @@ export default function AccountScreen() {
           nextAvatarUrl = `data:image/jpeg;base64,${inlineAvatar.base64}`;
         } else {
           const errMsg = uploadError instanceof Error ? uploadError.message : strings.commonError;
-          Alert.alert("Lỗi upload ảnh", `Không thể upload ảnh: ${errMsg}`);
+          Alert.alert(strings.profileAvatarUploadErrorTitle, errMsg);
           throw uploadError;
         }
       }
 
       if (!nextAvatarUrl) {
-        throw new Error("Không thể xử lý ảnh đại diện đã chọn.");
+        throw new Error(strings.profileAvatarProcessingError);
       }
 
       const { error: authError } = await mobileSupabase.auth.updateUser({
@@ -569,7 +589,7 @@ export default function AccountScreen() {
 
       if (authError) {
         const errMsg = authError.message || strings.commonError;
-        Alert.alert("Lỗi cập nhật avatar", `Không thể cập nhật avatar: ${errMsg}`);
+        Alert.alert(strings.profileAvatarUpdateErrorTitle, errMsg);
         throw authError;
       }
 
@@ -586,9 +606,13 @@ export default function AccountScreen() {
         });
       }
 
-      Alert.alert(strings.saveSuccess, "Ảnh đại diện đã được cập nhật.");
+      Alert.alert(strings.saveSuccess, strings.profileAvatarUpdated);
     } catch (error) {
-      if (error instanceof Error && error.message.includes("Lỗi")) {
+      if (
+        error instanceof Error &&
+        (error.message.includes(strings.profileAvatarUploadErrorTitle) ||
+          error.message.includes(strings.profileAvatarUpdateErrorTitle))
+      ) {
         // Already showed alert
       } else {
         Alert.alert(
@@ -619,7 +643,7 @@ export default function AccountScreen() {
 
       <View style={styles.profileHero}>
         <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()} disabled={isUploadingAvatar}>
-          <CustomerCachedImage alt="Ảnh đại diện khách hàng" source={{ uri: displayAvatar }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
+          <CustomerCachedImage alt={strings.accountAvatarAlt} source={{ uri: displayAvatar }} intent="avatar" contentFit="cover" transparent style={styles.avatar} containerStyle={styles.avatarContainer} />
           <View style={styles.cameraBadge}>
             <Feather color={theme.colors.textSoft} name="camera" size={15} />
           </View>
@@ -637,7 +661,7 @@ export default function AccountScreen() {
       >
         <View style={styles.membershipCopy}>
           <Text style={styles.membershipEyebrow}>MEMBERSHIP</Text>
-          <Text style={styles.membershipTitle}>{currentTier?.name || "Thành viên"}</Text>
+          <Text style={styles.membershipTitle}>{currentTierLocalized?.name || strings.profileMemberLabel}</Text>
           <Text style={styles.membershipHint}>{membershipBlurb}</Text>
         </View>
         <View style={styles.membershipAwardWrap}>
@@ -648,11 +672,11 @@ export default function AccountScreen() {
       </LinearGradient>
 
       <SurfaceCard style={styles.metricsCard}>
-        <ProfileMetric styles={styles} icon="credit-card" label="Tổng chi tiêu" value={summary.totalSpent} />
+        <ProfileMetric styles={styles} icon="credit-card" label={strings.profileTotalSpent} value={summary.totalSpent} />
         <View style={styles.metricDivider} />
-        <ProfileMetric styles={styles} icon="calendar" label="Tổng lượt hẹn" value={summary.totalVisits} />
+        <ProfileMetric styles={styles} icon="calendar" label={strings.profileTotalVisits} value={summary.totalVisits} />
         <View style={styles.metricDivider} />
-        <ProfileMetric styles={styles} icon="gift" label="Ưu đãi" value={summary.offerWallet} />
+        <ProfileMetric styles={styles} icon="gift" label={strings.profileOffers} value={summary.offerWallet} />
       </SurfaceCard>
 
       <SurfaceCard style={styles.tabsCard}>
@@ -677,17 +701,11 @@ export default function AccountScreen() {
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{item.serviceName}</Text>
                   <Text style={styles.rowSubtitle}>
-                    {new Date(item.occurredAt).toLocaleString("vi-VN", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatDateTimeLabel(item.occurredAt, locale)}
                   </Text>
                   <View style={styles.rowMetaWrap}>
                     <View style={[styles.historyBadge, { backgroundColor: badgeStyle.backgroundColor, borderColor: badgeStyle.borderColor }]}>
-                      <Text style={[styles.historyBadgeText, { color: badgeStyle.textColor }]}>{item.statusLabel}</Text>
+                      <Text style={[styles.historyBadgeText, { color: badgeStyle.textColor }]}>{getCustomerStatusLabel(locale, item.status)}</Text>
                     </View>
                     {item.servicePriceLabel ? <Text style={styles.rowMeta}>• {item.servicePriceLabel}</Text> : null}
                     {item.preferredStaff ? <Text style={styles.rowMeta}>• {item.preferredStaff}</Text> : null}
@@ -702,8 +720,8 @@ export default function AccountScreen() {
               <View style={styles.emptyIconWrap}>
                 <Feather color="#D8B892" name="calendar" size={22} />
               </View>
-              <Text style={styles.emptyTitle}>Chưa có lịch sử hẹn</Text>
-              <Text style={styles.emptyText}>Lịch sử sẽ tự cập nhật từ lịch hẹn và yêu cầu đặt lịch của khách.</Text>
+              <Text style={styles.emptyTitle}>{strings.historyEmptyTitle}</Text>
+              <Text style={styles.emptyText}>{strings.historyEmptyBody}</Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -732,7 +750,7 @@ export default function AccountScreen() {
                 </Pressable>
                 <View style={styles.rowCopy}>
                   <Text style={styles.rowTitle}>{service.name}</Text>
-                  <Text style={styles.rowSubtitle}>{service.summary ?? "Dịch vụ đã lưu trong mục yêu thích."}</Text>
+                  <Text style={styles.rowSubtitle}>{service.summary ?? strings.profileFavoriteFallback}</Text>
                   <Text style={styles.rowMeta}>{service.priceLabel ?? service.durationLabel ?? ""}</Text>
                 </View>
               </SurfaceCard>
@@ -741,8 +759,12 @@ export default function AccountScreen() {
 
           {!favoriteServices.length ? (
             <SurfaceCard style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Chưa có mẫu yêu thích</Text>
-              <Text style={styles.emptyText}>Lưu các mẫu bạn thích ở màn Khám phá để xem lại nhanh tại đây.</Text>
+              <Text style={styles.emptyTitle}>
+                {strings.favoritesEmptyTitle}
+              </Text>
+              <Text style={styles.emptyText}>
+                {strings.favoritesEmptyBody}
+              </Text>
             </SurfaceCard>
           ) : null}
         </View>
@@ -754,6 +776,7 @@ export default function AccountScreen() {
           <DatePickerField
             styles={styles}
             label={strings.profileBirthDate}
+            locale={locale}
             value={form.birthDate}
             onPress={openBirthDatePicker}
           />
@@ -786,10 +809,10 @@ export default function AccountScreen() {
             {Platform.OS === "ios" ? (
               <View style={styles.datePickerActions}>
                 <Pressable onPress={() => setIsBirthDatePickerOpen(false)} style={styles.datePickerGhostButton}>
-                  <Text style={styles.datePickerGhostLabel}>Hủy</Text>
+                  <Text style={styles.datePickerGhostLabel}>{strings.cancel}</Text>
                 </Pressable>
                 <Pressable onPress={applyBirthDateDraft} style={styles.datePickerPrimaryButton}>
-                  <Text style={styles.datePickerPrimaryLabel}>Chọn ngày</Text>
+                  <Text style={styles.datePickerPrimaryLabel}>{strings.chooseDate}</Text>
                 </Pressable>
               </View>
             ) : null}
@@ -799,7 +822,7 @@ export default function AccountScreen() {
 
       <Pressable disabled={isBusy} onPress={() => void handleSignOut()} style={styles.logoutButton}>
         <Feather color={theme.colors.dangerText} name="log-out" size={18} />
-        <Text style={styles.logoutLabel}>{isBusy ? "Đang đăng xuất..." : "Đăng xuất"}</Text>
+        <Text style={styles.logoutLabel}>{isBusy ? strings.profileLogoutLoading : strings.signOut}</Text>
       </Pressable>
 
       <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
@@ -829,11 +852,13 @@ function ProfileMetric({
 
 function DatePickerField({
   label,
+  locale,
   value,
   onPress,
   styles,
 }: {
   label: string;
+  locale: "vi" | "en";
   value: string;
   onPress: () => void;
   styles: ReturnType<typeof createStyles>;
@@ -843,7 +868,7 @@ function DatePickerField({
       <Text style={styles.fieldLabel}>{label}</Text>
       <Pressable onPress={onPress} style={styles.dateInputButton}>
         <Text style={[styles.dateInputText, !value ? styles.dateInputPlaceholder : null]}>
-          {value ? formatBirthDateLabel(value) : label}
+          {value ? formatBirthDateLabel(value, locale) : label}
         </Text>
         <Feather color="#9c8f84" name="calendar" size={16} />
       </Pressable>

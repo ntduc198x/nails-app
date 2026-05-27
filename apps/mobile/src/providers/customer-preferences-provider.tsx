@@ -1,10 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { Locale } from "@nails/shared";
 import { createPremiumTheme, type PremiumThemeMode } from "@/src/design/premium-theme";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
-export type CustomerLocale = "vi" | "en";
+export type CustomerLocale = Locale;
 
 type CustomerPreferencesContextValue = {
   colorScheme: PremiumThemeMode;

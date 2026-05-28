@@ -3,8 +3,9 @@ import { formatDateTimeLabel, translate } from "@nails/shared";
 import { useCallback, useEffect, useState } from "react";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { CustomerScreen, CustomerTopActions, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
+import { CustomerBrandTopBar, CustomerScreen, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
 import { QUICK_CONTACTS_CARD } from "@/src/features/customer/data";
+import { localizeDynamicServiceText } from "@/src/features/customer/localize";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
@@ -181,10 +182,7 @@ export default function BookingScreen() {
       onRefresh={() => void handleRefresh()}
       refreshing={isPullRefreshing}
     >
-      <View style={styles.topBar}>
-        <View style={styles.topBarSpacer} />
-        <CustomerTopActions />
-      </View>
+      <CustomerBrandTopBar />
 
       <View style={styles.headerBlock}>
         <Text style={styles.eyebrow}>CHAM BEAUTY</Text>
@@ -356,36 +354,45 @@ export default function BookingScreen() {
           ) : !upcomingBookings.length ? (
             <Text style={styles.bookingEmptyText}>{strings.upcomingBookingsEmpty}</Text>
           ) : (
-            upcomingBookings.map((item) => (
-              <View key={item.id} style={styles.bookingRow}>
-                <View style={styles.bookingThumbPlaceholder}>
-                  <Feather color={colors.accentWarm} name="calendar" size={20} />
-                </View>
+            upcomingBookings.map((item) => {
+              const requestedService = localizeDynamicServiceText(
+                locale,
+                item.requestedService,
+                item.requestedServiceTranslations,
+                "name",
+              );
 
-                <View style={styles.bookingCopy}>
-                  <Text style={styles.bookingTitle}>{item.requestedService}</Text>
-
-                  <View style={styles.bookingMetaRow}>
-                    <Feather color={colors.textSoft} name="calendar" size={15} />
-                    <Text style={styles.bookingMeta}>
-                      {formatDateTimeLabel(item.requestedStartAt, locale)}
-                    </Text>
+              return (
+                <View key={item.id} style={styles.bookingRow}>
+                  <View style={styles.bookingThumbPlaceholder}>
+                    <Feather color={colors.accentWarm} name="calendar" size={20} />
                   </View>
 
-                  {item.preferredStaff ? (
-                    <View style={styles.bookingMetaRow}>
-                      <Feather color={colors.textSoft} name="user" size={15} />
-                      <Text style={styles.bookingMeta}>{item.preferredStaff}</Text>
-                    </View>
-                  ) : null}
-                </View>
+                  <View style={styles.bookingCopy}>
+                    <Text style={styles.bookingTitle}>{requestedService}</Text>
 
-                <View style={styles.trailingPill}>
-                  <Feather color={colors.accentWarm} name="clock" size={16} />
-                  <Text style={styles.contactAction}>{getCustomerStatusLabel(locale, item.status)}</Text>
+                    <View style={styles.bookingMetaRow}>
+                      <Feather color={colors.textSoft} name="calendar" size={15} />
+                      <Text style={styles.bookingMeta}>
+                        {formatDateTimeLabel(item.requestedStartAt, locale)}
+                      </Text>
+                    </View>
+
+                    {item.preferredStaff ? (
+                      <View style={styles.bookingMetaRow}>
+                        <Feather color={colors.textSoft} name="user" size={15} />
+                        <Text style={styles.bookingMeta}>{item.preferredStaff}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.trailingPill}>
+                    <Feather color={colors.accentWarm} name="clock" size={16} />
+                    <Text style={styles.contactAction}>{getCustomerStatusLabel(locale, item.status)}</Text>
+                  </View>
                 </View>
-              </View>
-            ))
+              );
+            })
           )}
         </View>
       </SurfaceCard>
@@ -414,15 +421,7 @@ function FieldBlock({
 const styles = StyleSheet.create({
   content: {
     gap: 16,
-    paddingTop: 2,
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  topBarSpacer: {
-    flex: 1,
+    paddingTop: 0,
   },
   headerBlock: {
     gap: 6,

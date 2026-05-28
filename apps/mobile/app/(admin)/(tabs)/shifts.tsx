@@ -1291,7 +1291,7 @@ export default function AdminShiftsScreen() {
                       <View style={styles.personCopy}>
                         <Text style={styles.personName}>{employeeInfo.name}</Text>
                         {employeeInfo.email ? <Text style={styles.personContact}>{employeeInfo.email}</Text> : null}
-                        <Text style={styles.personMeta}>{getRoleLabel(employee.role)}</Text>
+                        <Text style={styles.personMeta}>{getRoleLabel(employee.role, locale)}</Text>
                         <View style={styles.personShiftMetaRow}>
                           <Text style={[styles.personShiftLabel, { color: colors.text }]}>{localizeShiftLabel(assignment.shiftType, assignment.shiftLabel)}</Text>
                           <Text style={styles.personShiftHours}>

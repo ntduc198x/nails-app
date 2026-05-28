@@ -33,6 +33,8 @@ declare
   v_claim public.customer_offer_claims;
   v_offer public.marketing_offers;
   v_offer_code text;
+  v_points_required integer := 0;
+  v_points_balance integer := 0;
   v_recent_duplicate_id uuid;
   v_recent_phone_count integer := 0;
 begin
@@ -154,6 +156,28 @@ begin
 
     if v_customer_id is null then
       raise exception 'OFFER_REQUIRES_LINKED_CUSTOMER';
+    end if;
+
+    v_points_required := greatest(
+      case
+        when coalesce(v_offer.offer_metadata ->> 'pointsRequired', '') ~ '^\d+$'
+          then (v_offer.offer_metadata ->> 'pointsRequired')::integer
+        else 0
+      end,
+      0
+    );
+
+    if v_points_required > 0 then
+      select coalesce(cm.points_balance, 0)
+      into v_points_balance
+      from public.customer_memberships cm
+      where cm.customer_id = v_customer_id
+        and cm.org_id = v_org_id
+      limit 1;
+
+      if coalesce(v_points_balance, 0) < v_points_required then
+        raise exception 'INSUFFICIENT_MEMBERSHIP_POINTS';
+      end if;
     end if;
 
     v_offer_code := coalesce(nullif(trim(p_applied_offer_code), ''), nullif(trim(v_offer.offer_metadata ->> 'code'), ''));

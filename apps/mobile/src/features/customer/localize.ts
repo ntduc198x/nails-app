@@ -18,7 +18,8 @@ import {
   formatLocalizedDurationLabel,
   formatLookbookPrice,
   listMissingLocalizedFields,
-  parseLocalizedTextValue,
+  resolveManualLocalizedArray,
+  resolveManualLocalizedText,
 } from "@nails/shared";
 
 function normalizeVietnamese(value: string) {
@@ -91,58 +92,6 @@ function safeTextForLocale(locale: Locale, value: string | null | undefined, fal
   return text;
 }
 
-function resolveDynamicText(
-  locale: Locale,
-  baseValue: string | null | undefined,
-  translations: LocalizedTextValue | null | undefined,
-  field: string,
-  legacyFallback?: string | null,
-  missingEnglishFallback?: string | null,
-) {
-  const parsed = parseLocalizedTextValue(translations);
-  const direct = parsed?.[locale]?.[field];
-  if (typeof direct === "string" && direct.trim()) {
-    if (locale !== "en" || !containsLikelyVietnameseText(direct)) return direct;
-  }
-
-  if (locale === "en") {
-    return safeEnglishFallback(legacyFallback) ?? missingEnglishFallback ?? null;
-  }
-
-  const defaultLocaleFallback = parsed?.vi?.[field];
-  if (typeof defaultLocaleFallback === "string" && defaultLocaleFallback.trim()) {
-    return defaultLocaleFallback;
-  }
-
-  return legacyFallback ?? baseValue ?? null;
-}
-
-function resolveDynamicStringArray(
-  locale: Locale,
-  baseValue: string[] | null | undefined,
-  translations: LocalizedTextValue | null | undefined,
-  field: string,
-  legacyFallback?: string[] | null,
-  missingEnglishFallback?: string[] | null,
-) {
-  const parsed = parseLocalizedTextValue(translations);
-  const direct = parsed?.[locale]?.[field];
-  if (Array.isArray(direct)) {
-    if (locale !== "en" || !direct.some((item) => typeof item === "string" && containsLikelyVietnameseText(item))) {
-      return direct;
-    }
-  }
-
-  if (locale === "en") {
-    return legacyFallback ?? missingEnglishFallback ?? null;
-  }
-
-  const defaultLocaleFallback = parsed?.vi?.[field];
-  if (Array.isArray(defaultLocaleFallback)) return defaultLocaleFallback;
-
-  return legacyFallback ?? baseValue ?? null;
-}
-
 const EN_FALLBACKS = {
   serviceTitle: "Service",
   serviceDescription: "Service details coming soon.",
@@ -168,6 +117,8 @@ const EN_FALLBACKS = {
   postBody: "Update details coming soon.",
   sourcePlatform: "Update",
 };
+
+const MANUAL_TRANSLATION_PENDING = "Translation pending";
 
 const PERK_DICTIONARY: Record<string, string> = {
   "tich diem doi qua": "Collect points for rewards",
@@ -206,10 +157,6 @@ const STOREFRONT_DESCRIPTION_DICTIONARY: Record<string, string> = {
     "A mobile Explore storefront with lookbook styles, team, products, and store details.",
   "khong gian cua tiem cho mobile explore, gom lookbook, doi ngu, san pham va thong tin cua tiem.":
     "A mobile Explore storefront with lookbook styles, team, products, and store details.",
-};
-
-const STOREFRONT_REVIEWS_DICTIONARY: Record<string, string> = {
-  "128 danh gia": "128 reviews",
 };
 
 const STOREFRONT_ADDRESS_DICTIONARY: Record<string, string> = {
@@ -278,28 +225,6 @@ const PRODUCT_SUBTITLE_DICTIONARY: Record<string, string> = {
   "em tay - chuan form - diu voi mong": "Comfortable grip - clean shaping - gentle on nails",
   "mem da - giu am - huong thanh": "Softens skin - locks in moisture - fresh scent",
   "chuan salon - ben chac - de thao tac": "Salon-grade - sturdy - easy to use",
-};
-
-const LOOKBOOK_NAME_DICTIONARY: Record<string, string> = {
-  "mau clean nude han": "Korean Clean Nude",
-  "mau cat eye khoi": "Smoky Cat Eye",
-  "mau mat meo anh khoi": "Smoky Cat Eye",
-  "mau french chrome": "French Chrome",
-  "mau cherry red gloss": "Cherry Red Gloss",
-  "mau mocha glazed": "Mocha Glazed",
-  "mau charm han sang": "Korean Charm Luxury",
-};
-
-const LOOKBOOK_BLURB_DICTIONARY: Record<string, string> = {
-  "tone nude sua trong treo, hop cong so va di choi hang ngay.": "A sheer milk-nude tone for workdays and everyday outings.",
-  "hieu ung mat meo anh khoi sang tay, noi bat duoi anh den.": "A smoky cat-eye effect that looks polished and stands out under light.",
-  "mau mat meo anh khoi": "A smoky cat-eye effect that looks polished and stands out under light.",
-  "french dau mong ket hop anh chrome toi gian, thanh lich va hien dai.":
-    "Minimal chrome French tips with an elegant, modern finish.",
-  "do cherry bong guong, ton da va cuc hop mua le hoi.": "Glossy cherry red that flatters the skin and fits festive looks.",
-  "sac nau sua phu glaze nhe, sang nhung khong pho.": "Soft milk-brown glaze that feels refined without being loud.",
-  "thiet ke dinh charm nho gon, hop chup anh va di tiec.": "Compact charm details made for photos and evening plans.",
-  "cap nhat tu menu cham beauty": "Updated from the CHAM BEAUTY menu",
 };
 
 const OFFER_TITLE_DICTIONARY: Record<string, string> = {
@@ -451,14 +376,12 @@ export function localizeDynamicServiceText(
   translations: LocalizedTextValue | null | undefined,
   field: "name" | "short_description" = "name",
 ) {
-  const fallback = field === "name" ? EN_FALLBACKS.serviceTitle : EN_FALLBACKS.serviceDescription;
-  const dictionaryFallback =
-    field === "name"
-      ? pickLocalizedText(locale, value, LOOKBOOK_NAME_DICTIONARY)
-      : pickLocalizedText(locale, value, LOOKBOOK_BLURB_DICTIONARY);
-  return (
-    resolveDynamicText(locale, value, translations, field, dictionaryFallback, fallback) ??
-    safeTextForLocale(locale, value, fallback)
+  return resolveManualDynamicText(
+    locale,
+    value,
+    translations,
+    field,
+    field === "name" ? EN_FALLBACKS.serviceTitle : EN_FALLBACKS.serviceDescription,
   );
 }
 
@@ -518,128 +441,56 @@ export function localizeNotificationBody(locale: Locale, body: string) {
   return pickLocalizedText(locale, body, NOTIFICATION_BODY_DICTIONARY) ?? safeTextForLocale(locale, body, EN_FALLBACKS.postBody);
 }
 
-const LOOKBOOK_TONE_DICTIONARY: Record<string, string> = {
-  "nhe nhang": "Soft",
-  "don gian": "Minimal",
-  "sang trong": "Luxury",
-  "ca tinh": "Edgy",
-  "noi bat": "Standout",
-  "cham soc": "Care",
-};
-
-const LOOKBOOK_BADGE_DICTIONARY: Record<string, string> = {
-  hot: "Hot",
-  trend: "Trend",
-  "noi bat": "Featured",
-  lookbook: "Lookbook",
-};
-
-const SOURCE_PLATFORM_DICTIONARY: Record<string, string> = {
-  "moi cap nhat": "Just updated",
-  "hot trend": "Hot trend",
-  "uu dai": "Offers",
-  "cap nhat": "Update",
-};
-
-const POST_TITLE_DICTIONARY: Record<string, string> = {
-  "3 mau nail hop dau tuan": "3 nail looks for the start of the week",
-  "giu mau gel ben hon": "How to keep gel color fresh longer",
-  "uu dai thanh vien trong thang": "Monthly member offers",
-};
-
-const POST_SUMMARY_DICTIONARY: Record<string, string> = {
-  "goi y nhanh cac tone de di lam va di choi": "Quick shade ideas for workdays and casual plans.",
-  "goi y nhanh cac tone de di lam va di choi.": "Quick shade ideas for workdays and casual plans.",
-  "nhung cach cham soc don gian sau khi lam mong": "Simple aftercare tips after your nail appointment.",
-  "nhung cach cham soc don gian sau khi lam mong.": "Simple aftercare tips after your nail appointment.",
-  "kiem tra hang thanh vien de nhan uu dai phu hop": "Check your membership tier for matching offers.",
-  "kiem tra hang thanh vien de nhan uu dai phu hop.": "Check your membership tier for matching offers.",
-};
-
-function localizePostTitle(locale: Locale, title: string | null | undefined) {
-  return pickLocalizedText(locale, title, POST_TITLE_DICTIONARY);
+function resolveManualDynamicText(
+  locale: Locale,
+  baseValue: string | null | undefined,
+  translations: LocalizedTextValue | null | undefined,
+  field: string,
+  placeholder = MANUAL_TRANSLATION_PENDING,
+) {
+  const resolved = resolveManualLocalizedText(locale, baseValue, translations, field);
+  if (locale === "en") {
+    return resolved.missing ? placeholder : resolved.value;
+  }
+  return resolved.value;
 }
 
-function localizePostSummary(locale: Locale, summary: string | null | undefined) {
-  return pickLocalizedText(locale, summary, POST_SUMMARY_DICTIONARY);
-}
-
-function formatEnglishPriceLabel(value: string | null | undefined) {
-  const text = typeof value === "string" ? value.trim() : "";
-  if (!text) return null;
-  if (/contact|price/i.test(text)) return "Contact for price";
-
-  const normalized = text
-    .replace(/\s+/g, " ")
-    .replace(/đ/gi, " VND")
-    .replace(/\bd\b/gi, "VND")
-    .trim();
-
-  if (!/VND/i.test(normalized)) return null;
-
-  return normalized
-    .replace(/\./g, ",")
-    .replace(/\s*VND/i, " VND")
-    .replace(/vnd/g, "VND")
-    .trim();
+function resolveManualDynamicStringArray(
+  locale: Locale,
+  baseValue: string[] | null | undefined,
+  translations: LocalizedTextValue | null | undefined,
+  field: string,
+  placeholder = MANUAL_TRANSLATION_PENDING,
+) {
+  const resolved = resolveManualLocalizedArray(locale, baseValue, translations, field);
+  if (locale === "en") {
+    return resolved.missing || resolved.value.length === 0 ? [placeholder] : resolved.value;
+  }
+  return resolved.value;
 }
 
 export function localizeLookbookItem(locale: Locale, item: LookbookItem) {
-  const title =
-    resolveDynamicText(
+  const title = resolveManualDynamicText(locale, item.title, item.translations, "name", EN_FALLBACKS.serviceTitle) ?? item.title;
+  const blurb = resolveManualDynamicText(locale, item.blurb, item.translations, "short_description", EN_FALLBACKS.serviceDescription) ?? item.blurb;
+  const tone = resolveManualDynamicText(locale, item.tone, item.translations, "lookbook_tone", MANUAL_TRANSLATION_PENDING) ?? item.tone;
+  const badge = resolveManualDynamicText(locale, item.badge, item.translations, "lookbook_badge", MANUAL_TRANSLATION_PENDING) ?? item.badge;
+  const durationLabel =
+    resolveManualDynamicText(
       locale,
-      item.title,
+      item.durationLabel ?? formatLocalizedDurationLabel(locale, item.durationMin),
       item.translations,
-      "name",
-      pickLocalizedText(locale, item.title, LOOKBOOK_NAME_DICTIONARY),
-      EN_FALLBACKS.serviceTitle,
-    ) ??
-    item.title;
-  const blurb =
-    resolveDynamicText(
-      locale,
-      item.blurb,
-      item.translations,
-      "short_description",
-      pickLocalizedText(locale, item.blurb, LOOKBOOK_BLURB_DICTIONARY),
-      EN_FALLBACKS.serviceDescription,
-    ) ?? item.blurb;
-  const tone =
-    resolveDynamicText(
-      locale,
-      item.tone,
-      item.translations,
-      "lookbook_tone",
-      pickLocalizedText(locale, item.tone, LOOKBOOK_TONE_DICTIONARY),
-      EN_FALLBACKS.serviceTitle,
-    ) ?? item.tone;
-  const badge =
-    resolveDynamicText(
-      locale,
-      item.badge,
-      item.translations,
-      "lookbook_badge",
-      pickLocalizedText(locale, item.badge, LOOKBOOK_BADGE_DICTIONARY),
-      null,
-    ) ?? item.badge;
-  const durationLabel = resolveDynamicText(
-    locale,
-    item.durationLabel ?? formatLocalizedDurationLabel(locale, item.durationMin),
-    item.translations,
-    "duration_label",
-  ) ?? formatLocalizedDurationLabel(locale, item.durationMin);
-  const fallbackPrice =
-    item.basePrice != null ? formatLookbookPrice(item.basePrice, locale) : item.price;
+      "duration_label",
+      MANUAL_TRANSLATION_PENDING,
+    ) ?? formatLocalizedDurationLabel(locale, item.durationMin);
+  const fallbackPrice = item.basePrice != null ? formatLookbookPrice(item.basePrice, locale) : item.price;
   const price =
-    resolveDynamicText(
+    resolveManualDynamicText(
       locale,
       fallbackPrice,
       item.translations,
       "price_label",
-      formatEnglishPriceLabel(item.price),
-      locale === "en" ? EN_FALLBACKS.productPrice : null,
-    ) ??
-    fallbackPrice;
+      EN_FALLBACKS.productPrice,
+    ) ?? fallbackPrice;
 
   return {
     ...item,
@@ -667,113 +518,74 @@ export function localizeExploreStat(locale: Locale, stat: ExploreStat): ExploreS
 }
 
 export function localizeContentPost(locale: Locale, post: CustomerContentPost) {
-  const translated = ((post.translations ?? post.metadata?.translations) ?? null) as
-    | { en?: { title?: string; summary?: string; body?: string; sourcePlatform?: string }; vi?: { title?: string; summary?: string; body?: string; sourcePlatform?: string } }
-    | null;
-  const preferred = locale === "en" ? translated?.en : translated?.vi;
+  const translated = ((post.translations ?? post.metadata?.translations) ?? null) as LocalizedTextValue | null;
 
   return {
     ...post,
-    title:
-      resolveDynamicText(
-        locale,
-        post.title,
-        post.translations ?? translated,
-        "title",
-        localizePostTitle(locale, post.title) ?? preferred?.title?.trim() ?? null,
-        EN_FALLBACKS.postTitle,
-      ) ?? safeTextForLocale(locale, post.title, EN_FALLBACKS.postTitle),
-    summary:
-      resolveDynamicText(
-        locale,
-        post.summary,
-        post.translations ?? translated,
-        "summary",
-        localizePostSummary(locale, post.summary) ?? preferred?.summary?.trim() ?? null,
-        EN_FALLBACKS.postSummary,
-      ) ?? safeTextForLocale(locale, post.summary, EN_FALLBACKS.postSummary),
-    body:
-      resolveDynamicText(
-        locale,
-        post.body,
-        post.translations ?? translated,
-        "body",
-        localizePostSummary(locale, post.body) ?? preferred?.body?.trim() ?? null,
-        EN_FALLBACKS.postBody,
-      ) ?? safeTextForLocale(locale, post.body, EN_FALLBACKS.postBody),
+    title: resolveManualDynamicText(locale, post.title, post.translations ?? translated, "title", EN_FALLBACKS.postTitle) ?? post.title,
+    summary: resolveManualDynamicText(locale, post.summary, post.translations ?? translated, "summary", EN_FALLBACKS.postSummary) ?? post.summary,
+    body: resolveManualDynamicText(locale, post.body, post.translations ?? translated, "body", EN_FALLBACKS.postBody) ?? post.body,
     sourcePlatform:
-      resolveDynamicText(
+      resolveManualDynamicText(
         locale,
         post.sourcePlatform,
         post.translations ?? translated,
         "source_platform",
-        preferred?.sourcePlatform?.trim() || pickLocalizedText(locale, post.sourcePlatform, SOURCE_PLATFORM_DICTIONARY),
         EN_FALLBACKS.sourcePlatform,
-      ) ?? safeTextForLocale(locale, post.sourcePlatform, EN_FALLBACKS.sourcePlatform),
+      ) ?? post.sourcePlatform,
   };
 }
 
 export function localizeStorefront(locale: Locale, storefront: ExploreStorefront | null) {
   if (!storefront) return null;
 
-  const localizedHighlights =
-    resolveDynamicStringArray(
-      locale,
-      storefront.highlights,
-      storefront.translations,
-      "highlights",
-      null,
-      [EN_FALLBACKS.highlight],
-    ) ?? storefront.highlights;
+  const localizedHighlights = resolveManualDynamicStringArray(
+    locale,
+    storefront.highlights,
+    storefront.translations,
+    "highlights",
+    EN_FALLBACKS.highlight,
+  );
 
   return {
     ...storefront,
-    name:
-      resolveDynamicText(locale, storefront.name, storefront.translations, "name", safeEnglishFallback(storefront.name), EN_FALLBACKS.storefrontName) ??
-      safeTextForLocale(locale, storefront.name, EN_FALLBACKS.storefrontName),
-    category: resolveDynamicText(
-      locale,
+    name: resolveManualDynamicText(locale, storefront.name, storefront.translations, "name", EN_FALLBACKS.storefrontName) ?? storefront.name,
+    category:
+      resolveManualDynamicText(locale, storefront.category, storefront.translations, "category", EN_FALLBACKS.storefrontCategory) ??
       storefront.category,
-      storefront.translations,
-      "category",
-      localizeStorefrontCategory(locale, storefront.category),
-      EN_FALLBACKS.storefrontCategory,
-    ),
-    description: resolveDynamicText(
-      locale,
-      storefront.description,
-      storefront.translations,
-      "description",
-      localizeStorefrontDescription(locale, storefront.description),
-      EN_FALLBACKS.storefrontDescription,
-    ),
-    reviewsLabel: resolveDynamicText(
-      locale,
-      storefront.reviewsLabel,
-      storefront.translations,
-      "reviews_label",
-      pickLocalizedText(locale, storefront.reviewsLabel, STOREFRONT_REVIEWS_DICTIONARY),
-      EN_FALLBACKS.storefrontReviews,
-    ),
-    addressLine: resolveDynamicText(
-      locale,
-      storefront.addressLine,
-      storefront.translations,
-      "address_line",
-      localizeStorefrontAddress(locale, storefront.addressLine),
-      EN_FALLBACKS.storefrontAddress,
-    ),
-    openingHours: resolveDynamicText(
-      locale,
-      storefront.openingHours,
-      storefront.translations,
-      "opening_hours",
-      localizeOpeningHours(locale, storefront.openingHours),
-      EN_FALLBACKS.openingHours,
-    ),
-    highlights: (localizedHighlights.length ? localizedHighlights : [EN_FALLBACKS.highlight]).map((item) =>
-      localizeStorefrontHighlight(locale, item),
-    ),
+    description:
+      resolveManualDynamicText(
+        locale,
+        storefront.description,
+        storefront.translations,
+        "description",
+        EN_FALLBACKS.storefrontDescription,
+      ) ?? storefront.description,
+    reviewsLabel:
+      resolveManualDynamicText(
+        locale,
+        storefront.reviewsLabel,
+        storefront.translations,
+        "reviews_label",
+        EN_FALLBACKS.storefrontReviews,
+      ) ?? storefront.reviewsLabel,
+    addressLine:
+      resolveManualDynamicText(
+        locale,
+        storefront.addressLine,
+        storefront.translations,
+        "address_line",
+        EN_FALLBACKS.storefrontAddress,
+      ) ?? storefront.addressLine,
+    openingHours:
+      resolveManualDynamicText(
+        locale,
+        storefront.openingHours,
+        storefront.translations,
+        "opening_hours",
+        EN_FALLBACKS.openingHours,
+      ) ?? storefront.openingHours,
+    highlights: localizedHighlights,
   };
 }
 
@@ -781,95 +593,82 @@ export function localizeTeamMember(locale: Locale, member: ExploreTeamMember) {
   return {
     ...member,
     displayName:
-      resolveDynamicText(locale, member.displayName, member.translations, "display_name", null, member.displayName) ??
-      safeTextForLocale(locale, member.displayName, EN_FALLBACKS.teamRole),
-    roleLabel: resolveDynamicText(
-      locale,
+      resolveManualDynamicText(locale, member.displayName, member.translations, "display_name", MANUAL_TRANSLATION_PENDING) ??
+      member.displayName,
+    roleLabel:
+      resolveManualDynamicText(locale, member.roleLabel, member.translations, "role_label", EN_FALLBACKS.teamRole) ??
       member.roleLabel,
-      member.translations,
-      "role_label",
-      localizeRoleLabel(locale, member.roleLabel),
-      EN_FALLBACKS.teamRole,
-    ),
-    bio: resolveDynamicText(locale, member.bio, member.translations, "bio", null, EN_FALLBACKS.teamBio),
+    bio: resolveManualDynamicText(locale, member.bio, member.translations, "bio", EN_FALLBACKS.teamBio) ?? member.bio,
   };
 }
 
 export function localizeGalleryItem(locale: Locale, item: ExploreGalleryItem) {
   return {
     ...item,
-    title: resolveDynamicText(locale, item.title, item.translations, "title", localizeGalleryTitle(locale, item.title), EN_FALLBACKS.galleryTitle),
+    title: resolveManualDynamicText(locale, item.title, item.translations, "title", EN_FALLBACKS.galleryTitle) ?? item.title,
   };
 }
 
 export function localizeProduct(locale: Locale, item: ExploreProduct) {
   return {
     ...item,
-    name:
-      resolveDynamicText(locale, item.name, item.translations, "name", localizeProductName(locale, item.name), EN_FALLBACKS.productName) ??
-      safeTextForLocale(locale, item.name, EN_FALLBACKS.productName),
-    subtitle: resolveDynamicText(
-      locale,
+    name: resolveManualDynamicText(locale, item.name, item.translations, "name", EN_FALLBACKS.productName) ?? item.name,
+    subtitle:
+      resolveManualDynamicText(locale, item.subtitle, item.translations, "subtitle", EN_FALLBACKS.productSubtitle) ??
       item.subtitle,
-      item.translations,
-      "subtitle",
-      localizeProductSubtitle(locale, item.subtitle),
-      EN_FALLBACKS.productSubtitle,
-    ),
-    priceLabel: resolveDynamicText(
-      locale,
+    priceLabel:
+      resolveManualDynamicText(locale, item.priceLabel, item.translations, "price_label", EN_FALLBACKS.productPrice) ??
       item.priceLabel,
-      item.translations,
-      "price_label",
-      formatEnglishPriceLabel(item.priceLabel),
-      EN_FALLBACKS.productPrice,
-    ),
-    productType: resolveDynamicText(
-      locale,
+    productType:
+      resolveManualDynamicText(locale, item.productType, item.translations, "product_type", EN_FALLBACKS.productType) ??
       item.productType,
-      item.translations,
-      "product_type",
-      localizeProductType(locale, item.productType),
-      EN_FALLBACKS.productType,
-    ),
   };
 }
 
 export function localizeOfferCard<T extends MarketingOfferCard>(locale: Locale, offer: T): T {
   return {
     ...offer,
-    title:
-      resolveDynamicText(locale, offer.title, offer.translations, "title", localizeOfferTitle(locale, offer.title), EN_FALLBACKS.offerTitle) ??
-      safeTextForLocale(locale, offer.title, EN_FALLBACKS.offerTitle),
+    title: resolveManualDynamicText(locale, offer.title, offer.translations, "title", EN_FALLBACKS.offerTitle) ?? offer.title,
     description:
-      resolveDynamicText(
+      resolveManualDynamicText(
         locale,
         offer.description,
         offer.translations,
         "description",
-        localizeOfferDescription(locale, offer.description),
         EN_FALLBACKS.offerDescription,
-      ) ?? safeTextForLocale(locale, offer.description, EN_FALLBACKS.offerDescription),
-    badge: resolveDynamicText(locale, offer.badge, offer.translations, "badge", null, EN_FALLBACKS.offerBadge),
+      ) ?? offer.description,
+    badge: resolveManualDynamicText(locale, offer.badge, offer.translations, "badge", EN_FALLBACKS.offerBadge) ?? offer.badge,
   } as T;
 }
 
 export function localizeFavoriteService(locale: Locale, service: CustomerFavoriteService): CustomerFavoriteService {
   return {
     ...service,
-    name:
-      resolveDynamicText(locale, service.name, service.translations, "name", null, EN_FALLBACKS.serviceTitle) ??
-      safeTextForLocale(locale, service.name, EN_FALLBACKS.serviceTitle),
-    summary: resolveDynamicText(locale, service.summary, service.translations, "short_description", null, EN_FALLBACKS.serviceDescription),
-    priceLabel: resolveDynamicText(
-      locale,
-      service.priceLabel,
-      service.translations,
-      "price_label",
-      formatEnglishPriceLabel(service.priceLabel),
-      EN_FALLBACKS.productPrice,
-    ),
-    durationLabel: resolveDynamicText(locale, service.durationLabel, service.translations, "duration_label"),
+    name: resolveManualDynamicText(locale, service.name, service.translations, "name", EN_FALLBACKS.serviceTitle) ?? service.name,
+    summary:
+      resolveManualDynamicText(
+        locale,
+        service.summary,
+        service.translations,
+        "short_description",
+        EN_FALLBACKS.serviceDescription,
+      ) ?? service.summary,
+    priceLabel:
+      resolveManualDynamicText(
+        locale,
+        service.priceLabel,
+        service.translations,
+        "price_label",
+        EN_FALLBACKS.productPrice,
+      ) ?? service.priceLabel,
+    durationLabel:
+      resolveManualDynamicText(
+        locale,
+        service.durationLabel,
+        service.translations,
+        "duration_label",
+        MANUAL_TRANSLATION_PENDING,
+      ) ?? service.durationLabel,
   };
 }
 

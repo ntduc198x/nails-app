@@ -92,6 +92,7 @@ with org_source as (
           'usageHint', 'Báo mã SILVER500 khi muốn đổi 500 điểm sang add-on tại quầy hoặc lúc đặt lịch.',
           'redeemLabel', 'Silver bắt đầu chạm vào cơ chế đổi điểm thật, tạo cảm giác tích lũy có ý nghĩa hơn.',
           'bookingCtaLabel', 'Đặt lịch để dùng điểm',
+          'pointsRequired', 500,
           'packageTier', 'SILVER',
           'packageOrder', 1
         )

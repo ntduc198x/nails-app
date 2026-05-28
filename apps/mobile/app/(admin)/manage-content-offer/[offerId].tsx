@@ -19,15 +19,10 @@ import {
 } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
-import {
-  buildManualAwareTranslationMeta,
-  getTranslationStatusLabel,
-  requestRetranslateAndKick,
-} from "@/src/features/admin/dynamic-translation";
+import { buildManualAwareTranslationMeta } from "@/src/features/admin/dynamic-translation";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
-import { useSession } from "@/src/providers/session-provider";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { hydrateCachedValue, isCacheFresh, markAdminContentRefresh, writeCachedValue } from "@/src/lib/admin-services-cache";
@@ -270,8 +265,6 @@ export default function AdminManageContentOfferDetailScreen() {
   const params = useLocalSearchParams<{ offerId?: string; tier?: string }>();
   const router = useRouter();
   const { locale } = useAdminPreferences();
-  const { role } = useSession();
-  const canApproveTranslation = role === "OWNER";
   const strings = useAdminStrings();
   const offerId = typeof params.offerId === "string" ? params.offerId : "new";
   const isCreate = offerId === "new";
@@ -386,7 +379,6 @@ export default function AdminManageContentOfferDetailScreen() {
   }, [loadOffer]);
 
   const canArchive = useMemo(() => Boolean(form.id), [form.id]);
-  const translationStatus = useMemo(() => getTranslationStatusLabel(form.translationMeta ?? null), [form.translationMeta]);
 
   async function pickAndUploadImage() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -471,22 +463,6 @@ export default function AdminManageContentOfferDetailScreen() {
     ]);
   }
 
-  async function handleRetranslate() {
-    const client = mobileSupabase;
-    if (!client || !form.id) return;
-
-    setIsSaving(true);
-    try {
-      await requestRetranslateAndKick(client, "marketing_offers", form.id, role, false);
-      await markAdminContentRefresh("offer-retranslated");
-      Alert.alert("Approved", "English translation has been queued.");
-    } catch (error) {
-      Alert.alert(strings.offerDetailSaveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
   return (
     <ManageScreenShell
       title={isCreate ? strings.offerDetailCreateTitle : strings.offerDetailEditTitle}
@@ -512,14 +488,6 @@ export default function AdminManageContentOfferDetailScreen() {
           </View>
         ) : (
           <View style={styles.formColumn}>
-            {form.id ? (
-              <View style={styles.translationRow}>
-                <Text style={styles.translationStatus}>EN: {translationStatus}</Text>
-                <Pressable style={styles.retryButton} disabled={isSaving || !canApproveTranslation} onPress={() => void handleRetranslate()}>
-                  <Text style={styles.secondaryButtonText}>Approve EN</Text>
-                </Pressable>
-              </View>
-            ) : null}
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="tag">{strings.offerDetailTitleLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput placeholder={strings.offerDetailTitlePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
@@ -662,8 +630,6 @@ const styles = StyleSheet.create({
   errorText: { color: palette.danger, fontSize: 13, lineHeight: 18, textAlign: "center" },
   retryButton: { alignItems: "center", backgroundColor: "#FFF9F3", borderColor: "#E4D7C8", borderRadius: 14, borderWidth: 1, justifyContent: "center", minHeight: 42, paddingHorizontal: 16 },
   formColumn: { gap: 18 },
-  translationRow: { alignItems: "center", flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  translationStatus: { color: palette.sub, fontSize: 13, fontWeight: "700", textTransform: "capitalize" },
   fieldBlock: { gap: 10 },
   splitRow: { flexDirection: "row", gap: 12 },
   splitItem: { flex: 1 },

@@ -104,6 +104,10 @@ function normalizeBookingErrorMessage(message: string, locale: Locale) {
     return translate(locale, "errors", "bookingOfferRequiresLinkedCustomer");
   }
 
+  if (lower.includes("insufficient_membership_points")) {
+    return translate(locale, "errors", "bookingOfferInsufficientPoints");
+  }
+
   if (lower.includes("customer_name_required")) {
     return translate(locale, "errors", "bookingMissingName");
   }

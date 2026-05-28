@@ -11,9 +11,9 @@ import { uploadPickedAdminContentImage } from "@/src/features/admin/content-imag
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
 import { FALLBACK_SERVICES } from "@/src/features/customer/data";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
-import { localizeMembershipTier } from "@/src/features/customer/localize";
+import { localizeDynamicServiceText, localizeFavoriteService, localizeMembershipTier } from "@/src/features/customer/localize";
 import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
-import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
+import { CustomerBrandTopBar, CustomerScreen, SurfaceCard } from "@/src/features/customer/ui";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
@@ -96,6 +96,62 @@ function getTierIconName(tierKey: string | null | undefined): React.ComponentPro
     case "bronze":
     default:
       return "award";
+  }
+}
+
+function getTierTextPalette(tierKey: string | null | undefined) {
+  switch ((tierKey || "bronze").toLowerCase()) {
+    case "gold":
+      return {
+        primary: "#33210B",
+        secondary: "#4D3415",
+        muted: "#6A4B21",
+        icon: "#6B430F",
+        ring: "rgba(95, 61, 19, 0.22)",
+        border: "rgba(95, 61, 19, 0.18)",
+        shadow: "#9A6A23",
+      } as const;
+    case "silver":
+      return {
+        primary: "#20272F",
+        secondary: "#36414D",
+        muted: "#506072",
+        icon: "#455362",
+        ring: "rgba(54, 65, 77, 0.18)",
+        border: "rgba(54, 65, 77, 0.14)",
+        shadow: "#6B7887",
+      } as const;
+    case "platinum":
+      return {
+        primary: "#202832",
+        secondary: "#394553",
+        muted: "#566577",
+        icon: "#44505F",
+        ring: "rgba(57, 69, 83, 0.18)",
+        border: "rgba(57, 69, 83, 0.14)",
+        shadow: "#7E8995",
+      } as const;
+    case "diamond":
+      return {
+        primary: "#08324D",
+        secondary: "#104664",
+        muted: "#225E80",
+        icon: "#0E5074",
+        ring: "rgba(16, 70, 100, 0.18)",
+        border: "rgba(16, 70, 100, 0.14)",
+        shadow: "#3B8EC1",
+      } as const;
+    case "bronze":
+    default:
+      return {
+        primary: "#FFF9F2",
+        secondary: "#FFF0DE",
+        muted: "#F6D9B9",
+        icon: "#FFF7EF",
+        ring: "rgba(255, 247, 239, 0.16)",
+        border: "rgba(255, 240, 222, 0.14)",
+        shadow: "#8E5931",
+      } as const;
   }
 }
 
@@ -225,9 +281,14 @@ export default function AccountScreen() {
   const membershipThemeKey = currentTier?.themeKey || currentTier?.code || "bronze";
   const membershipCardGradient = getTierGradient(membershipThemeKey);
   const membershipIconName = getTierIconName(membershipThemeKey);
+  const membershipTextPalette = getTierTextPalette(membershipThemeKey);
   const localeTag = locale === "en" ? "en-US" : "vi-VN";
   const currentTierLocalized = localizeMembershipTier(locale, currentTier);
   const nextTierLocalized = localizeMembershipTier(locale, nextTier);
+  const localizedFavoriteServices = useMemo(
+    () => favoriteServices.map((service) => localizeFavoriteService(locale, service)),
+    [favoriteServices, locale],
+  );
 
   const membershipBlurb = useMemo(() => {
     if (!currentTierLocalized && nextTierLocalized) {
@@ -636,10 +697,7 @@ export default function AccountScreen() {
       onRefresh={() => void handleRefresh()}
       refreshing={isRefreshing}
     >
-      <View style={styles.topBar}>
-        <Text style={styles.topBarTitle}>{strings.profileTitle}</Text>
-        <CustomerTopActions />
-      </View>
+      <CustomerBrandTopBar />
 
       <View style={styles.profileHero}>
         <Pressable style={styles.avatarWrap} onPress={() => void handlePickAvatar()} disabled={isUploadingAvatar}>
@@ -657,16 +715,21 @@ export default function AccountScreen() {
         colors={membershipCardGradient}
         end={{ x: 1, y: 1 }}
         start={{ x: 0, y: 0 }}
-        style={styles.membershipCard}
+        style={[styles.membershipCard, { borderColor: membershipTextPalette.border, shadowColor: membershipTextPalette.shadow }]}
       >
         <View style={styles.membershipCopy}>
-          <Text style={styles.membershipEyebrow}>MEMBERSHIP</Text>
-          <Text style={styles.membershipTitle}>{currentTierLocalized?.name || strings.profileMemberLabel}</Text>
-          <Text style={styles.membershipHint}>{membershipBlurb}</Text>
+          <Text style={[styles.membershipEyebrow, { color: membershipTextPalette.muted }]}>MEMBERSHIP</Text>
+          <Text style={[styles.membershipTitle, { color: membershipTextPalette.primary }]}>{currentTierLocalized?.name || strings.profileMemberLabel}</Text>
+          <Text style={[styles.membershipHint, { color: membershipTextPalette.secondary }]}>{membershipBlurb}</Text>
         </View>
         <View style={styles.membershipAwardWrap}>
-          <LinearGradient colors={membershipCardGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.membershipAwardCircle}>
-            <Feather color="#FFF7F0" name={membershipIconName} size={18} />
+          <LinearGradient
+            colors={membershipCardGradient}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[styles.membershipAwardCircle, { borderColor: membershipTextPalette.ring }]}
+          >
+            <Feather color={membershipTextPalette.icon} name={membershipIconName} size={18} />
           </LinearGradient>
         </View>
       </LinearGradient>
@@ -695,11 +758,15 @@ export default function AccountScreen() {
         <View style={styles.cardList}>
           {historyItems.map((item) => {
             const badgeStyle = getHistoryStatusBadgeStyle(item.status, theme);
+            const serviceName = localizeDynamicServiceText(locale, item.serviceName, item.serviceTranslations, "name") ?? item.serviceName;
+            const serviceSummary = item.serviceSummary
+              ? localizeDynamicServiceText(locale, item.serviceSummary, item.serviceTranslations, "short_description")
+              : null;
             return (
               <SurfaceCard key={item.id} style={styles.rowCard}>
-                <CustomerCachedImage alt={item.serviceName} source={{ uri: item.serviceImageUrl ?? displayAvatar }} intent="thumbnail" style={styles.rowImage} />
+                <CustomerCachedImage alt={serviceName} source={{ uri: item.serviceImageUrl ?? displayAvatar }} intent="thumbnail" style={styles.rowImage} />
                 <View style={styles.rowCopy}>
-                  <Text style={styles.rowTitle}>{item.serviceName}</Text>
+                  <Text style={styles.rowTitle}>{serviceName}</Text>
                   <Text style={styles.rowSubtitle}>
                     {formatDateTimeLabel(item.occurredAt, locale)}
                   </Text>
@@ -709,6 +776,7 @@ export default function AccountScreen() {
                     </View>
                     {item.servicePriceLabel ? <Text style={styles.rowMeta}>• {item.servicePriceLabel}</Text> : null}
                     {item.preferredStaff ? <Text style={styles.rowMeta}>• {item.preferredStaff}</Text> : null}
+                    {serviceSummary ? <Text style={styles.rowMeta}>• {serviceSummary}</Text> : null}
                   </View>
                 </View>
               </SurfaceCard>
@@ -729,7 +797,7 @@ export default function AccountScreen() {
 
       {currentTab === "favorites" ? (
         <View style={styles.cardList}>
-          {favoriteServices.map((service) => (
+          {localizedFavoriteServices.map((service) => (
             <Pressable
               key={service.id}
               onPress={() =>
@@ -757,7 +825,7 @@ export default function AccountScreen() {
             </Pressable>
           ))}
 
-          {!favoriteServices.length ? (
+          {!localizedFavoriteServices.length ? (
             <SurfaceCard style={styles.emptyCard}>
               <Text style={styles.emptyTitle}>
                 {strings.favoritesEmptyTitle}
@@ -917,15 +985,12 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
   return StyleSheet.create({
     content: {
       paddingBottom: 148,
-      paddingTop: 8,
+      paddingTop: 0,
     },
     keyboardSafeContent: {
       paddingBottom: 220,
     },
     topBar: {
-      alignItems: "center",
-      flexDirection: "row",
-      justifyContent: "space-between",
       marginBottom: 18,
       minHeight: 40,
     },
@@ -938,6 +1003,8 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     membershipCard: {
       alignItems: "center",
+      borderColor: "rgba(88, 54, 28, 0.16)",
+      borderWidth: 1,
       borderRadius: 24,
       flexDirection: "row",
       justifyContent: "space-between",
@@ -956,21 +1023,22 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       zIndex: 2,
     },
     membershipEyebrow: {
-      color: "#B99773",
+      color: "#4F3624",
       fontSize: 12,
       fontWeight: "800",
       letterSpacing: 1,
       textTransform: "uppercase",
     },
     membershipTitle: {
-      color: "#171311",
+      color: "#16100C",
       fontSize: 18,
       fontWeight: "900",
       lineHeight: 24,
     },
     membershipHint: {
-      color: "#6E5B4C",
+      color: "#4B382C",
       fontSize: 13,
+      fontWeight: "600",
       lineHeight: 19,
       maxWidth: "100%",
     },
@@ -982,6 +1050,7 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     },
     membershipAwardCircle: {
       alignItems: "center",
+      borderWidth: 1,
       borderRadius: 22,
       height: 42,
       justifyContent: "center",
@@ -1315,12 +1384,13 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     logoutButton: {
       alignItems: "center",
       backgroundColor: "#FFFDFB",
-      borderColor: "#F1E7DE",
+      borderColor: theme.colors.dangerText,
       borderRadius: 22,
-      borderWidth: 1,
+      borderWidth: 1.5,
       flexDirection: "row",
       gap: 10,
       justifyContent: "center",
+      marginBottom: 4,
       marginTop: 4,
       minHeight: 56,
       paddingHorizontal: theme.spacing.lg,

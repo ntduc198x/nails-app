@@ -8,14 +8,13 @@ import type { LocalizedTextValue, MobileAdminMerchService, TranslationMetaValue 
 import { listAdminMerchServicesForMobile, updateAdminMerchServiceForMobile } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
-import { buildManualAwareTranslationMeta, getTranslationStatusLabel, requestRetranslateAndKick } from "@/src/features/admin/dynamic-translation";
+import { buildManualAwareTranslationMeta } from "@/src/features/admin/dynamic-translation";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
 import { clearCustomerFeedCache } from "@/src/lib/customer-feed-cache";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
-import { useSession } from "@/src/providers/session-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const palette = {
@@ -114,8 +113,6 @@ export default function AdminManageContentServiceDetailScreen() {
   const backHref = (typeof params.backHref === "string" ? params.backHref : "/(admin)/manage-content") as Href;
   const strings = useAdminStrings();
   const { locale } = useAdminPreferences();
-  const { role } = useSession();
-  const canApproveTranslation = role === "OWNER";
 
   const [form, setForm] = useState<MerchFormState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -214,16 +211,6 @@ export default function AdminManageContentServiceDetailScreen() {
     }
   }
 
-  async function handleRetranslate() {
-    if (!mobileSupabase || !form?.id) return;
-    try {
-      await requestRetranslateAndKick(mobileSupabase, "services", form.id, role, false);
-      Alert.alert("Translation approved", "English content has been queued for translation.");
-    } catch (nextError) {
-      Alert.alert(strings.serviceDetailSaveFailedTitle, nextError instanceof Error ? nextError.message : strings.offerDetailFallbackTryLater);
-    }
-  }
-
   return (
     <ManageScreenShell title={title} subtitle={strings.serviceDetailSubtitle} currentKey="content" group="setup" backHref={backHref} showTabs={false} showBottomDock={false}>
       <View style={styles.sectionCard}>
@@ -241,12 +228,6 @@ export default function AdminManageContentServiceDetailScreen() {
           </View>
         ) : (
           <View style={styles.formColumn}>
-            <View style={styles.translationRow}>
-              <Text style={styles.translationStatus}>{`EN: ${getTranslationStatusLabel(form.translationMeta)}`}</Text>
-              <Pressable style={[styles.secondaryButton, !canApproveTranslation ? styles.secondaryButtonDisabled : null]} disabled={!canApproveTranslation} onPress={() => void handleRetranslate()}>
-                <Text style={styles.secondaryButtonText}>Approve EN</Text>
-              </Pressable>
-            </View>
             <View style={styles.headerBlock}>
               <Text style={styles.eyebrow}>{strings.serviceDetailTemplateLabel}</Text>
               <Text style={styles.serviceName}>{form.name}</Text>
@@ -311,8 +292,6 @@ export default function AdminManageContentServiceDetailScreen() {
 const styles = StyleSheet.create({
   sectionCard: { borderRadius: 24, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, padding: 16, gap: 14 },
   formColumn: { gap: 14 },
-  translationRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  translationStatus: { color: palette.sub, fontSize: 12, fontWeight: "700", textTransform: "capitalize" },
   headerBlock: { gap: 4 },
   eyebrow: { fontSize: 12, lineHeight: 18, color: palette.sub, fontWeight: "600" },
   serviceName: { fontSize: 18, lineHeight: 24, color: palette.text, fontWeight: "800" },
@@ -325,7 +304,6 @@ const styles = StyleSheet.create({
   flexInput: { flex: 1 },
   flexBlock: { flex: 1 },
   secondaryButton: { minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#FFF9F3" },
-  secondaryButtonDisabled: { opacity: 0.45 },
   secondaryButtonText: { color: palette.accent, fontSize: 13, fontWeight: "700" },
   toggleRow: { flexDirection: "row", gap: 10, flexWrap: "wrap" },
   toggleChip: { minHeight: 42, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: "#FFFCF9", alignItems: "center", justifyContent: "center" },

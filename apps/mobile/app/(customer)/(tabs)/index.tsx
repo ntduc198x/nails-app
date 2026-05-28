@@ -4,10 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import type { CustomerContentPost, LookbookItem, MarketingOfferCard } from "@nails/shared";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
-import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
-import { localizeContentPost, localizeLookbookItem, localizeOfferCard } from "@/src/features/customer/localize";
+import {
+  collectHomeFeedLocalizationWarnings,
+  localizeContentPost,
+  localizeLookbookItem,
+  localizeOfferCard,
+} from "@/src/features/customer/localize";
+import { CustomerServiceDetailModal } from "@/src/features/customer/service-detail-modal";
+import { splitCustomerPriceLabel } from "@/src/features/customer/price-label";
 import { useCustomerStrings } from "@/src/features/customer/strings";
-import { CustomerScreen, CustomerTopActions, PrimaryButton, SectionTitle, SurfaceCard } from "@/src/features/customer/ui";
+import { CustomerBrandTopBar, CustomerScreen, PrimaryButton, SectionTitle, SurfaceCard } from "@/src/features/customer/ui";
 import { useCustomerHomeFeed } from "@/src/hooks/use-customer-home-feed";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { prefetchCustomerImagesForIntent } from "@/src/lib/customer-image-cache";
@@ -48,7 +54,7 @@ export default function CustomerHomeScreen() {
     [strings.all, strings.homeHotLooks, strings.homeTrends, strings.profileOffers],
   );
   const [activeFilter, setActiveFilter] = useState<HomeFilterKey>("all");
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<LookbookItem | null>(null);
   const { contentPosts, isLoading, isRefreshing, lastError, lookbook, offers, refresh } = useCustomerHomeFeed();
   const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
@@ -75,6 +81,13 @@ export default function CustomerHomeScreen() {
     [locale, visibleOffers],
   );
 
+  useEffect(() => {
+    if (!__DEV__) return;
+    const warnings = collectHomeFeedLocalizationWarnings(locale, { lookbook, contentPosts, offers });
+    if (!warnings.length) return;
+    console.warn("[customer-i18n][home]", warnings);
+  }, [contentPosts, locale, lookbook, offers]);
+
   const hasAnyHomeContent = visibleLookbook.length > 0 || visiblePosts.length > 0 || localizedVisibleOffers.length > 0;
 
   useEffect(() => {
@@ -96,13 +109,7 @@ export default function CustomerHomeScreen() {
       onRefresh={() => void refresh()}
       refreshing={isRefreshing}
     >
-      <View style={styles.topBar}>
-        <View>
-          <Text style={styles.brand}>CHAM BEAUTY</Text>
-        </View>
-
-        <CustomerTopActions />
-      </View>
+      <CustomerBrandTopBar />
 
       <SurfaceCard style={styles.heroCard}>
         <View style={styles.heroTextColumn}>
@@ -152,7 +159,7 @@ export default function CustomerHomeScreen() {
         <SurfaceCard style={styles.stateCard}>
           <Text style={styles.stateTitle}>{strings.homeEmptyTitle}</Text>
           <Text style={styles.stateDescription}>
-            {lastError ? `${lastError}` : strings.homeEmptyBody}
+            {lastError && locale !== "en" ? `${lastError}` : strings.homeEmptyBody}
           </Text>
           <Pressable style={styles.retryButton} onPress={() => void refresh()}>
             <Text style={styles.retryButtonText}>{strings.retry}</Text>
@@ -175,7 +182,7 @@ export default function CustomerHomeScreen() {
               item={item}
               favorite={isFavorite(item.id)}
               onToggleFavorite={() => void toggleFavorite(item.id)}
-              onPreviewImage={setPreviewImage}
+              onOpenDetail={setSelectedService}
               bookingLabel={strings.bookingCta}
             />
           ))}
@@ -214,7 +221,25 @@ export default function CustomerHomeScreen() {
         </View>
       ) : null}
 
-      <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
+      <CustomerServiceDetailModal
+        bookingLabel={strings.bookingCta}
+        favorite={selectedService ? isFavorite(selectedService.id) : false}
+        onBook={() => {
+          if (!selectedService) return;
+          router.push({
+            pathname: "/(customer)/(tabs)/booking",
+            params: { service: selectedService.title },
+          });
+          setSelectedService(null);
+        }}
+        onClose={() => setSelectedService(null)}
+        onToggleFavorite={() => {
+          if (!selectedService) return;
+          void toggleFavorite(selectedService.id);
+        }}
+        service={selectedService}
+        visible={Boolean(selectedService)}
+      />
     </CustomerScreen>
   );
 }
@@ -223,18 +248,20 @@ function LookbookCard({
   item,
   favorite,
   onToggleFavorite,
-  onPreviewImage,
+  onOpenDetail,
   bookingLabel,
 }: {
   item: LookbookItem;
   favorite: boolean;
   onToggleFavorite: () => void;
-  onPreviewImage: (imageUrl: string) => void;
+  onOpenDetail: (item: LookbookItem) => void;
   bookingLabel: string;
 }) {
+  const priceParts = splitCustomerPriceLabel(item.price);
+
   return (
-    <View style={styles.lookbookCard}>
-      <Pressable onPress={() => onPreviewImage(item.image)}>
+    <Pressable style={styles.lookbookCard} onPress={() => onOpenDetail(item)}>
+      <View>
         <CustomerCachedImage alt={item.title} source={{ uri: item.image }} intent="card" style={styles.lookbookImage} />
         <Pressable
           style={[styles.favoriteButton, favorite ? styles.favoriteButtonActive : null]}
@@ -245,7 +272,7 @@ function LookbookCard({
         >
           <Feather color={favorite ? "#fff7ef" : colors.textSoft} name="heart" size={14} />
         </Pressable>
-      </Pressable>
+      </View>
 
       <View style={styles.lookbookBody}>
         <Text style={styles.lookbookTone}>{item.tone}</Text>
@@ -253,21 +280,27 @@ function LookbookCard({
         <Text numberOfLines={2} style={styles.lookbookBlurb}>{item.blurb}</Text>
 
         <View style={styles.lookbookFooter}>
-          <Text style={styles.lookbookPrice}>{item.price}</Text>
+          <View style={styles.lookbookPriceBlock}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={styles.lookbookPriceAmount}>
+              {priceParts.amount}
+            </Text>
+            {priceParts.unit ? <Text style={styles.lookbookPriceUnit}>{priceParts.unit}</Text> : null}
+          </View>
           <Pressable
             style={styles.bookButton}
-            onPress={() =>
+            onPress={(event) => {
+              event.stopPropagation();
               router.push({
                 pathname: "/(customer)/(tabs)/booking",
                 params: { service: item.title },
-              })
-            }
+              });
+            }}
           >
             <Text style={styles.bookButtonText}>{bookingLabel}</Text>
           </Pressable>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -332,18 +365,7 @@ function OfferCard({ offer }: { offer: MarketingOfferCard }) {
 const styles = StyleSheet.create({
   content: {
     gap: 18,
-    paddingTop: 4,
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  brand: {
-    color: "#b27d58",
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 3,
+    paddingTop: 0,
   },
   heroCard: {
     backgroundColor: "#fdf2e8",
@@ -517,19 +539,33 @@ const styles = StyleSheet.create({
   lookbookFooter: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
+    gap: 6,
   },
-  lookbookPrice: {
+  lookbookPriceBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  lookbookPriceAmount: {
     color: "#3a2d23",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
   },
+  lookbookPriceUnit: {
+    color: "#8c7b6d",
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 11,
+    marginTop: 1,
+    textTransform: "uppercase",
+  },
   bookButton: {
+    alignItems: "center",
     backgroundColor: "#fff7ef",
     borderColor: "#eadccf",
     borderRadius: radius.pill,
     borderWidth: 1,
-    paddingHorizontal: 10,
+    minWidth: 68,
+    paddingHorizontal: 8,
     paddingVertical: 7,
   },
   bookButtonText: {

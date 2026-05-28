@@ -14,6 +14,7 @@ import {
 import {
   createAdminServiceForMobile,
   deleteAdminServiceForMobile,
+  formatLocalizedDurationLabel,
   formatVnd,
   listAdminServicesForMobile,
   type MobileAdminService,
@@ -25,6 +26,7 @@ import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { uploadPickedServiceImage } from "@/src/features/admin/services-data";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 type ServiceFormState = {
   name: string;
@@ -154,6 +156,7 @@ function Badge({
 }
 
 function ServiceRowCard({
+  locale,
   strings,
   editing,
   form,
@@ -166,6 +169,7 @@ function ServiceRowCard({
   onStartEdit,
   saving,
 }: {
+  locale: "vi" | "en";
   strings: ReturnType<typeof useAdminStrings>;
   editing: boolean;
   form: ServiceFormState | null;
@@ -297,10 +301,10 @@ function ServiceRowCard({
             <Text style={styles.metaChipText}>{formatVnd(item.basePrice)}</Text>
           </View>
           <View style={styles.metaChip}>
-            <Text style={styles.metaChipText}>{item.durationMin}p</Text>
+            <Text style={styles.metaChipText}>{formatLocalizedDurationLabel(locale, item.durationMin)}</Text>
           </View>
           <View style={styles.metaChip}>
-            <Text style={styles.metaChipText}>VAT {Math.round(item.vatRate * 100)}%</Text>
+            <Text style={styles.metaChipText}>{`${strings.manageServicesVatPlaceholder.replace("%", "").trim()} ${Math.round(item.vatRate * 100)}%`}</Text>
           </View>
         </View>
       )}
@@ -309,12 +313,14 @@ function ServiceRowCard({
 }
 
 function TrashRowCard({
+  locale,
   strings,
   item,
   onDeleteForever,
   onRestore,
   saving,
 }: {
+  locale: "vi" | "en";
   strings: ReturnType<typeof useAdminStrings>;
   item: MobileAdminService;
   onDeleteForever: () => void;
@@ -335,10 +341,10 @@ function TrashRowCard({
           <Text style={styles.metaChipText}>{formatVnd(item.basePrice)}</Text>
         </View>
         <View style={styles.metaChip}>
-          <Text style={styles.metaChipText}>{item.durationMin}p</Text>
+          <Text style={styles.metaChipText}>{formatLocalizedDurationLabel(locale, item.durationMin)}</Text>
         </View>
         <View style={styles.metaChip}>
-          <Text style={styles.metaChipText}>VAT {Math.round(item.vatRate * 100)}%</Text>
+          <Text style={styles.metaChipText}>{`${strings.manageServicesVatPlaceholder.replace("%", "").trim()} ${Math.round(item.vatRate * 100)}%`}</Text>
         </View>
       </View>
       <View style={styles.trashActions}>
@@ -355,6 +361,7 @@ function TrashRowCard({
 
 export default function AdminManageServicesScreen() {
   const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminService[]>([]);
@@ -373,6 +380,7 @@ export default function AdminManageServicesScreen() {
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const rowsById = useMemo(() => new Map(rows.map((item) => [item.id, item])), [rows]);
 
   const load = useCallback(async (force = false) => {
     if (!mobileSupabase) {
@@ -507,8 +515,9 @@ export default function AdminManageServicesScreen() {
   }
 
   function startEdit(item: MobileAdminService) {
-    setEditingId(item.id);
-    setEditForm(serviceToFormState(item));
+    const rawItem = rowsById.get(item.id) ?? item;
+    setEditingId(rawItem.id);
+    setEditForm(serviceToFormState(rawItem));
   }
 
   async function saveEdit() {
@@ -542,6 +551,7 @@ export default function AdminManageServicesScreen() {
   }
 
   function confirmMoveToTrash(item: MobileAdminService) {
+    const rawItem = rowsById.get(item.id) ?? item;
     Alert.alert(strings.manageServicesMoveToTrashTitle, `${strings.manageServicesMoveToTrashMessagePrefix} "${item.name}" ${strings.manageServicesMoveToTrashMessageSuffix}`, [
       { text: strings.manageServicesCancel, style: "cancel" },
       {
@@ -555,17 +565,17 @@ export default function AdminManageServicesScreen() {
               setSubmitting(true);
               setError(null);
               await updateAdminServiceForMobile(mobileSupabase, {
-                id: item.id,
-                name: item.name,
-                shortDescription: item.shortDescription,
-                imageUrl: item.imageUrl,
-                featuredInLookbook: item.featuredInLookbook,
-                durationMin: item.durationMin,
-                basePrice: item.basePrice,
-                vatPercent: item.vatRate * 100,
+                id: rawItem.id,
+                name: rawItem.name,
+                shortDescription: rawItem.shortDescription,
+                imageUrl: rawItem.imageUrl,
+                featuredInLookbook: rawItem.featuredInLookbook,
+                durationMin: rawItem.durationMin,
+                basePrice: rawItem.basePrice,
+                vatPercent: rawItem.vatRate * 100,
                 active: false,
               });
-              if (editingId === item.id) {
+              if (editingId === rawItem.id) {
                 setEditingId(null);
                 setEditForm(null);
               }
@@ -588,21 +598,22 @@ export default function AdminManageServicesScreen() {
       setError(strings.manageServicesObserverRestoreBlocked);
       return;
     }
+    const rawItem = rowsById.get(item.id) ?? item;
     try {
       setSubmitting(true);
       setError(null);
       await updateAdminServiceForMobile(mobileSupabase, {
-        id: item.id,
-        name: item.name,
-        shortDescription: item.shortDescription,
-        imageUrl: item.imageUrl,
-        featuredInLookbook: item.featuredInLookbook,
-        durationMin: item.durationMin,
-        basePrice: item.basePrice,
-        vatPercent: item.vatRate * 100,
+        id: rawItem.id,
+        name: rawItem.name,
+        shortDescription: rawItem.shortDescription,
+        imageUrl: rawItem.imageUrl,
+        featuredInLookbook: rawItem.featuredInLookbook,
+        durationMin: rawItem.durationMin,
+        basePrice: rawItem.basePrice,
+        vatPercent: rawItem.vatRate * 100,
         active: true,
       });
-      setVisibleSection(item.featuredInLookbook ? "lookbook" : "services");
+      setVisibleSection(rawItem.featuredInLookbook ? "lookbook" : "services");
       await load(true);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : strings.manageServicesRestoreFailed);
@@ -699,7 +710,7 @@ export default function AdminManageServicesScreen() {
             <Input value={createForm.imageUrl} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, imageUrl: value }))} placeholder={strings.manageServicesImageUrlPlaceholder} />
           </View>
           <View style={styles.formVat}>
-            <Input value={createForm.vatInput} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, vatInput: value.replace(/[^\d.]/g, "") }))} keyboardType="decimal-pad" placeholder="VAT %" />
+            <Input value={createForm.vatInput} onChangeText={(value) => setCreateForm((prev) => ({ ...prev, vatInput: value.replace(/[^\d.]/g, "") }))} keyboardType="decimal-pad" placeholder={strings.manageServicesVatPlaceholder} />
           </View>
         </View>
 
@@ -766,7 +777,7 @@ export default function AdminManageServicesScreen() {
         ) : visibleSection === "trash" ? (
           <View style={styles.listStack}>
             {filteredTrash.map((item) => (
-              <TrashRowCard key={item.id} strings={strings} item={item} onDeleteForever={() => confirmDeleteForever(item)} onRestore={() => void restoreFromTrash(item)} saving={submitting} />
+              <TrashRowCard key={item.id} locale={locale} strings={strings} item={item} onDeleteForever={() => confirmDeleteForever(item)} onRestore={() => void restoreFromTrash(item)} saving={submitting} />
             ))}
           </View>
         ) : (
@@ -774,6 +785,7 @@ export default function AdminManageServicesScreen() {
             {(visibleSection === "services" ? filteredServices : filteredLookbook).map((item) => (
               <ServiceRowCard
                 key={item.id}
+                locale={locale}
                 strings={strings}
                 editing={editingId === item.id}
                 form={editingId === item.id ? editForm : null}
@@ -783,7 +795,7 @@ export default function AdminManageServicesScreen() {
                 onMoveToTrash={() => confirmMoveToTrash(item)}
                 onPickImage={() => void pickEditImage()}
                 onSave={() => void saveEdit()}
-                onStartEdit={() => startEdit(item)}
+                onStartEdit={() => startEdit(rowsById.get(item.id) ?? item)}
                 saving={submitting || uploadingEditImage}
               />
             ))}

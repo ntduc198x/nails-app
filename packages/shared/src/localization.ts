@@ -32,6 +32,16 @@ export type TranslationMetaValue = {
   fields?: Record<string, TranslationFieldMeta | undefined>;
 };
 
+export type ManualLocalizedTextResult = {
+  value: string | null;
+  missing: boolean;
+};
+
+export type ManualLocalizedArrayResult = {
+  value: string[];
+  missing: boolean;
+};
+
 export type DynamicTranslationRequestInput = {
   tableName: string;
   recordId: string;
@@ -229,6 +239,55 @@ export function resolveLocalizedField<T extends LocalizedFieldValue>(
   return baseValue;
 }
 
+export function resolveManualLocalizedText(
+  locale: Locale,
+  baseValue: string | null | undefined,
+  translations: unknown,
+  field: string,
+): ManualLocalizedTextResult {
+  const parsed = parseLocalizedTextValue(translations);
+
+  if (locale === "en") {
+    const localized = parsed?.en?.[field];
+    if (typeof localized === "string" && localized.trim()) {
+      return { value: localized, missing: false };
+    }
+    return { value: null, missing: true };
+  }
+
+  const localized = parsed?.[DEFAULT_LOCALE]?.[field];
+  if (typeof localized === "string" && localized.trim()) {
+    return { value: localized, missing: false };
+  }
+
+  const fallback = typeof baseValue === "string" ? baseValue.trim() : "";
+  return { value: fallback || null, missing: false };
+}
+
+export function resolveManualLocalizedArray(
+  locale: Locale,
+  baseValue: string[] | null | undefined,
+  translations: unknown,
+  field: string,
+): ManualLocalizedArrayResult {
+  const parsed = parseLocalizedTextValue(translations);
+
+  if (locale === "en") {
+    const localized = parsed?.en?.[field];
+    if (Array.isArray(localized) && localized.length) {
+      return { value: localized, missing: false };
+    }
+    return { value: [], missing: true };
+  }
+
+  const localized = parsed?.[DEFAULT_LOCALE]?.[field];
+  if (Array.isArray(localized) && localized.length) {
+    return { value: localized, missing: false };
+  }
+
+  return { value: Array.isArray(baseValue) ? baseValue : [], missing: false };
+}
+
 export function formatLocalizedDurationLabel(locale: Locale, minutes: number | null | undefined) {
   if (!Number.isFinite(minutes) || Number(minutes) <= 0) return null;
   const safeMinutes = Math.round(Number(minutes));
@@ -247,17 +306,17 @@ export function buildTranslationFieldMetaRecord(
   previous?: TranslationMetaValue | null,
 ): TranslationMetaValue | null {
   const fields: Record<string, TranslationFieldMeta> = {};
-  let hasAutoField = false;
+  let hasManualField = false;
 
   for (const [field, mode] of Object.entries(fieldModes)) {
     if (!mode) continue;
     const previousField = previous?.fields?.[field];
-    if (mode === "auto") {
-      hasAutoField = true;
+    if (mode === "manual") {
+      hasManualField = true;
     }
     fields[field] = {
       mode,
-      status: mode === "auto" ? "pending" : (previousField?.status ?? "translated"),
+      status: mode === "manual" ? "translated" : (previousField?.status ?? "clean"),
       sourceHash: previousField?.sourceHash ?? null,
       updatedAt: previousField?.updatedAt ?? null,
       error: previousField?.error ?? null,
@@ -274,8 +333,8 @@ export function buildTranslationFieldMetaRecord(
       ...(previous?.targets ?? {}),
       en: {
         ...(previous?.targets?.en ?? {}),
-        status: hasAutoField ? "pending" : (previous?.targets?.en?.status ?? "translated"),
-        approvalStatus: hasAutoField ? "pending_owner" : (previous?.targets?.en?.approvalStatus ?? "idle"),
+        status: hasManualField ? "translated" : (previous?.targets?.en?.status ?? "idle"),
+        approvalStatus: previous?.targets?.en?.approvalStatus ?? "idle",
       },
     },
     fields: {

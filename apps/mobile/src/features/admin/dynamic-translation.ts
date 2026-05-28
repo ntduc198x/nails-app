@@ -1,10 +1,5 @@
 import {
   buildTranslationFieldMetaRecord,
-  kickDynamicTranslationWorker,
-  parseTranslationMetaValue,
-  requestDynamicTranslation,
-  type AppRole,
-  type SharedSupabaseClient,
   type TranslationMetaValue,
 } from "@nails/shared";
 
@@ -26,30 +21,4 @@ export function buildManualAwareTranslationMeta(
   ) as Record<string, "auto" | "manual">;
 
   return buildTranslationFieldMetaRecord(fieldModes, previous ?? null);
-}
-
-export function getTranslationStatusLabel(
-  translationMeta: TranslationMetaValue | null | undefined,
-) {
-  const meta = parseTranslationMetaValue(translationMeta ?? null);
-  return meta?.targets?.en?.status ?? "idle";
-}
-
-export async function requestRetranslateAndKick(
-  client: SharedSupabaseClient,
-  tableName: string,
-  recordId: string,
-  currentRole: AppRole | null | undefined,
-  forceOverwrite = false,
-) {
-  if (currentRole !== "OWNER") {
-    throw new Error("Only OWNER can approve automatic translation.");
-  }
-  await requestDynamicTranslation(client, {
-    tableName,
-    recordId,
-    forceOverwrite,
-    targetLocale: "en",
-  });
-  await kickDynamicTranslationWorker(client);
 }

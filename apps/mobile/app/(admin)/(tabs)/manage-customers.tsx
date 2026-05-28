@@ -529,71 +529,7 @@ export default function AdminManageCustomersScreen() {
           </Pressable>
         </View>
       </View>
-
-      <View style={styles.sectionCard}>
-        <View style={styles.sectionHeader}>
-          <View style={styles.sectionTitleWrap}>
-            <View style={styles.sectionIcon}>
-              <Feather name="git-merge" size={15} color={palette.accent} />
-            </View>
-            <Text style={styles.sectionTitle}>{strings.manageCustomersDuplicateTitle}</Text>
-          </View>
-          <View style={styles.countPill}>
-            <Text style={styles.countPillText}>{`${duplicateCandidates.length} ${strings.manageCustomersGroupSuffix}`}</Text>
-          </View>
-        </View>
-
-        <View style={styles.duplicateSummaryRow}>
-          <View style={styles.duplicateSummaryCard}>
-            <Text style={styles.duplicateSummaryLabel}>{strings.manageCustomersSafeEmail}</Text>
-            <Text style={styles.duplicateSummaryValue}>{safeEmailPreviewCount}</Text>
-          </View>
-          <View style={styles.duplicateSummaryCard}>
-            <Text style={styles.duplicateSummaryLabel}>{strings.manageCustomersSafePhone}</Text>
-            <Text style={styles.duplicateSummaryValue}>{safePhonePreviewCount}</Text>
-          </View>
-        </View>
-
-        {duplicateCandidates.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>{strings.manageCustomersDuplicateEmpty}</Text>
-          </View>
-        ) : (
-          <View style={styles.listStack}>
-            {duplicateCandidates.slice(0, 8).map((candidate, candidateIndex) => (
-              <View
-                key={`${candidate.matchType}:${candidate.matchValue}:${candidate.canonicalCustomerId}:${candidateIndex}`}
-                style={styles.duplicateCard}
-              >
-                <View style={styles.duplicateHeader}>
-                  <Text style={styles.duplicateTitle}>{candidate.matchType} · {candidate.matchValue}</Text>
-                  <Text style={styles.duplicateMeta}>{candidate.duplicateCount} {strings.manageCustomersProfilesUnit}</Text>
-                </View>
-                <Text style={styles.duplicateHint}>{`${strings.manageCustomersCanonicalPrefix}: ${candidate.canonicalCustomerId.slice(0, 8)}…`}</Text>
-                <Text style={styles.duplicateHint}>{`${strings.manageCustomersRulePrefix}: ${candidate.reason}`}</Text>
-                <View style={styles.duplicateActions}>
-                  {candidate.duplicateCustomerIds.slice(0, 3).map((duplicateId, duplicateIndex) => {
-                    const busyKey = `${candidate.canonicalCustomerId}:${duplicateId}`;
-                    const renderKey = `${busyKey}:${duplicateIndex}`;
-                    const busy = mergingPairKey === busyKey;
-                    return (
-                      <Pressable
-                        key={renderKey}
-                        style={[styles.mergeButton, busy ? styles.mergeButtonDisabled : null]}
-                        disabled={busy}
-                        onPress={() => void handleMergeDuplicate(candidate, duplicateId)}
-                      >
-                        {busy ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.mergeButtonText}>{`${strings.manageCustomersMergePrefix} ${duplicateId.slice(0, 8)}…`}</Text>}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-
+      
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <View style={styles.sectionTitleWrap}>

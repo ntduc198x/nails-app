@@ -10,6 +10,7 @@ export type LookbookService = {
   category: string | null;
   tone: string;
   price: string;
+  basePrice?: number | null;
   image: string;
   aspectRatio: number;
   badge?: string | null;

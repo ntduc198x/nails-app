@@ -10,7 +10,7 @@
   type ReactNode,
 } from "react";
 import Feather from "@expo/vector-icons/Feather";
-import { formatVnd, translate, type AppRole, type Locale } from "@nails/shared";
+import { formatVnd, getRoleLabel, translate, type AppRole, type Locale } from "@nails/shared";
 import {
   Dimensions,
   Keyboard,
@@ -47,6 +47,7 @@ export const ADMIN_CONTENT_TOP_GAP = 12;
 export const ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE = 102;
 export const ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE = 220;
 export const ADMIN_KEYBOARD_VISUAL_CLEARANCE = 140;
+export const ADMIN_SURFACE_BG = "#FCFAF8";
 
 const AdminKeyboardFieldFocusContext = createContext<
   ((event: Parameters<NonNullable<ComponentProps<typeof TextInput>["onFocus"]>>[0]) => void) | null
@@ -345,7 +346,7 @@ export function AdminScreen({
               <Text style={styles.eyebrow}>{strings.adminCoreFlows}</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
               <Text style={styles.date}>{translate(locale, "admin", "todayLabel", { date: today })}</Text>
-              <Text style={styles.date}>{translate(locale, "admin", "roleLabel", { role: role ?? "-" })}</Text>
+              <Text style={styles.date}>{translate(locale, "admin", "roleLabel", { role: getRoleLabel(role, locale) })}</Text>
               <Text style={styles.date}>{translate(locale, "admin", "userLabel", { user: userEmail ?? "-" })}</Text>
             </>
           ) : null}
@@ -892,7 +893,7 @@ export { formatVnd };
 export const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f1ea",
+    backgroundColor: ADMIN_SURFACE_BG,
   },
   scrollRegion: {
     flex: 1,

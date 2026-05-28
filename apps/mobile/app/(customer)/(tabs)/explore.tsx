@@ -15,9 +15,9 @@ import {
 } from "react-native";
 import type { ExploreGalleryItem, ExploreProduct, ExploreTeamMember, LookbookItem, MarketingOfferCard } from "@nails/shared";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
-import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
 import { CATEGORY_ITEMS, matchesCategory } from "@/src/features/customer/data";
 import {
+  collectExploreLocalizationWarnings,
   localizeGalleryItem,
   localizeLookbookItem,
   localizeOfferCard,
@@ -26,8 +26,10 @@ import {
   localizeStorefront,
   localizeTeamMember,
 } from "@/src/features/customer/localize";
+import { splitCustomerPriceLabel } from "@/src/features/customer/price-label";
+import { CustomerServiceDetailModal } from "@/src/features/customer/service-detail-modal";
 import { useCustomerStrings } from "@/src/features/customer/strings";
-import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
+import { CustomerBrandTopBar, CustomerScreen, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerExplore } from "@/src/hooks/use-customer-explore";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
@@ -63,7 +65,7 @@ export default function ExploreScreen() {
   const { locale } = useCustomerPreferences();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [selectedService, setSelectedService] = useState<LookbookItem | null>(null);
   const [activeServiceIndex, setActiveServiceIndex] = useState(0);
   const servicesScrollerRef = useRef<ScrollView>(null);
   const filteredServicesLengthRef = useRef(0);
@@ -110,6 +112,22 @@ export default function ExploreScreen() {
   const localizedTeam = useMemo(() => team.map((member) => localizeTeamMember(locale, member)), [locale, team]);
   const localizedGallery = useMemo(() => gallery.map((item) => localizeGalleryItem(locale, item)), [locale, gallery]);
   const localizedOffers = useMemo(() => offers.map((offer) => localizeOfferCard(locale, offer)), [locale, offers]);
+
+  useEffect(() => {
+    if (!__DEV__) return;
+    const warnings = collectExploreLocalizationWarnings(locale, {
+      storefront,
+      stats: [],
+      featuredServices,
+      products,
+      team,
+      gallery,
+      offers,
+      map,
+    });
+    if (!warnings.length) return;
+    console.warn("[customer-i18n][explore]", warnings);
+  }, [featuredServices, gallery, locale, map, offers, products, storefront, team]);
 
   useEffect(() => {
     filteredServicesLengthRef.current = filteredServices.length;
@@ -211,6 +229,15 @@ export default function ExploreScreen() {
     }
   }
 
+  const isInitialLoading =
+    isLoading &&
+    !localizedStorefront &&
+    filteredServices.length === 0 &&
+    localizedProducts.length === 0 &&
+    localizedTeam.length === 0 &&
+    localizedGallery.length === 0 &&
+    localizedOffers.length === 0;
+
   return (
     <CustomerScreen
       title={strings.exploreTitle}
@@ -221,12 +248,11 @@ export default function ExploreScreen() {
       onRefresh={() => void refresh()}
       refreshing={isRefreshing}
     >
-      <View style={styles.topBar}>
-        <View style={styles.topBarSpacer} />
-        <CustomerTopActions />
-      </View>
+      <CustomerBrandTopBar />
 
-      {localizedStorefront ? (
+      {isInitialLoading ? <ExploreLoadingSkeleton strings={strings} /> : null}
+
+      {!isInitialLoading && localizedStorefront ? (
         <View style={styles.storeHero}>
           {localizedStorefront.coverImageUrl ? (
             <CustomerCachedImage alt={localizedStorefront.name} source={{ uri: localizedStorefront.coverImageUrl }} intent="hero" style={styles.storeImage} />
@@ -248,8 +274,8 @@ export default function ExploreScreen() {
             ) : null}
 
             <View style={styles.highlightRow}>
-              {localizedStorefront.highlights.map((item) => (
-                <View key={item} style={styles.highlightItem}>
+              {localizedStorefront.highlights.map((item, index) => (
+                <View key={`${item}-${index}`} style={styles.highlightItem}>
                   <Feather color={colors.textSoft} name="shield" size={13} />
                   <Text style={styles.highlightText}>{item}</Text>
                 </View>
@@ -259,7 +285,7 @@ export default function ExploreScreen() {
         </View>
       ) : null}
 
-      <View style={styles.searchBar}>
+      {!isInitialLoading ? <View style={styles.searchBar}>
         <Feather color="#8f8174" name="search" size={16} />
         <TextInput
           placeholder={strings.exploreSearchPlaceholder}
@@ -268,34 +294,34 @@ export default function ExploreScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
-      </View>
+      </View> : null}
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      {!isInitialLoading ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
         {localizedCategories.map((item) => {
           const active = item.key === activeCategory;
 
           return (
             <Pressable key={item.key} style={[styles.chip, active ? styles.chipActive : null]} onPress={() => setActiveCategory(item.key)}>
-              <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{item.label}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+            <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>{item.label}</Text>
+          </Pressable>
+        );
+      })}
+      </ScrollView> : null}
 
-      <SectionHeader title={strings.exploreFeaturedServices} actionLabel={strings.exploreBookAction} />
+      {!isInitialLoading ? <SectionHeader title={strings.exploreFeaturedServices} actionLabel={strings.exploreBookAction} /> : null}
 
-      {isLoading && filteredServices.length === 0 ? (
+      {!isInitialLoading && isLoading && filteredServices.length === 0 ? (
         <SurfaceCard style={styles.stateCard}>
           <Text style={styles.stateTitle}>{strings.exploreLoadingTitle}</Text>
           <Text style={styles.stateDescription}>{strings.exploreLoadingBody}</Text>
         </SurfaceCard>
       ) : null}
 
-      {!isLoading && filteredServices.length === 0 ? (
+      {!isInitialLoading && !isLoading && filteredServices.length === 0 ? (
         <SurfaceCard style={styles.stateCard}>
           <Text style={styles.stateTitle}>{strings.exploreEmptyTitle}</Text>
           <Text style={styles.stateDescription}>
-            {lastError ? lastError : strings.exploreEmptyBody}
+            {lastError && locale !== "en" ? lastError : strings.exploreEmptyBody}
           </Text>
           <Pressable style={styles.retryButton} onPress={() => void refresh()}>
             <Text style={styles.retryButtonText}>{strings.retry}</Text>
@@ -303,7 +329,7 @@ export default function ExploreScreen() {
         </SurfaceCard>
       ) : null}
 
-      {filteredServices.length ? (
+      {!isInitialLoading && filteredServices.length ? (
         <>
           <ScrollView
             ref={servicesScrollerRef}
@@ -319,7 +345,7 @@ export default function ExploreScreen() {
                 service={service}
                 favorite={isFavorite(service.id)}
                 onToggleFavorite={handleToggleFavorite}
-                onPreviewImage={setPreviewImage}
+                onOpenDetail={setSelectedService}
                 bookingLabel={strings.bookingCta}
               />
             ))}
@@ -336,28 +362,28 @@ export default function ExploreScreen() {
         </>
       ) : null}
 
-      <SectionHeader title={strings.exploreProducts} actionLabel={strings.exploreViewMore} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
+      {!isInitialLoading ? <SectionHeader title={strings.exploreProducts} actionLabel={strings.exploreViewMore} /> : null}
+      {!isInitialLoading ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
         {localizedProducts.map((item) => (
           <ProductCard key={item.id} item={item} strings={strings} />
         ))}
-      </ScrollView>
+      </ScrollView> : null}
 
-      <SectionHeader title={strings.exploreTeam} actionLabel={`${team.length}`} />
-      <View style={styles.teamRow}>
+      {!isInitialLoading ? <SectionHeader title={strings.exploreTeam} actionLabel={`${team.length}`} /> : null}
+      {!isInitialLoading ? <View style={styles.teamRow}>
         {localizedTeam.map((member) => (
           <TeamCard key={member.id} member={member} />
         ))}
-      </View>
+      </View> : null}
 
-      <SectionHeader title={strings.exploreGallery} actionLabel={`${localizedGallery.length}`} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
+      {!isInitialLoading ? <SectionHeader title={strings.exploreGallery} actionLabel={`${localizedGallery.length}`} /> : null}
+      {!isInitialLoading ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
         {localizedGallery.map((item) => (
           <GalleryCard key={item.id} item={item} strings={strings} />
         ))}
-      </ScrollView>
+      </ScrollView> : null}
 
-      {localizedOffers.length ? (
+      {!isInitialLoading && localizedOffers.length ? (
         <>
           <SectionHeader title={strings.exploreOffers} actionLabel={strings.exploreOpenMembership} />
           <View style={styles.offerList}>
@@ -368,15 +394,17 @@ export default function ExploreScreen() {
         </>
       ) : null}
 
-      <SectionHeader title={strings.exploreMap} />
-      <SurfaceCard style={styles.mapCard}>
+      {!isInitialLoading ? <SectionHeader title={strings.exploreMap} /> : null}
+      {!isInitialLoading ? <SurfaceCard style={styles.mapCard}>
         {map?.imageUrl ? <CustomerCachedImage alt={strings.exploreMapAlt} source={{ uri: map.imageUrl }} style={styles.mapImage} /> : null}
         <View style={styles.mapCopy}>
-          {map?.addressLine ? <Text style={styles.mapAddress}>{map.addressLine}</Text> : null}
-          {map?.openingHours ? (
+          {(localizedStorefront?.addressLine ?? (locale === "en" ? null : map?.addressLine)) ? (
+            <Text style={styles.mapAddress}>{localizedStorefront?.addressLine ?? map?.addressLine}</Text>
+          ) : null}
+          {(localizedStorefront?.openingHours ?? (locale === "en" ? null : map?.openingHours)) ? (
             <View style={styles.mapMetaRow}>
               <Feather color={colors.textSoft} name="clock" size={14} />
-              <Text style={styles.mapMetaText}>{localizeOpeningHours(locale, map.openingHours) ?? map.openingHours}</Text>
+              <Text style={styles.mapMetaText}>{localizedStorefront?.openingHours ?? localizeOpeningHours(locale, map?.openingHours) ?? map?.openingHours}</Text>
             </View>
           ) : null}
         </View>
@@ -386,10 +414,97 @@ export default function ExploreScreen() {
             <Text style={styles.directionButtonText}>{strings.exploreDirections}</Text>
           </Pressable>
         ) : null}
-      </SurfaceCard>
+      </SurfaceCard> : null}
 
-      <CustomerImagePreviewModal imageUrl={previewImage} visible={Boolean(previewImage)} onClose={() => setPreviewImage(null)} />
+      <CustomerServiceDetailModal
+        bookingLabel={strings.bookingCta}
+        favorite={selectedService ? isFavorite(selectedService.id) : false}
+        onBook={() => {
+          if (!selectedService) return;
+          router.push({
+            pathname: "/(customer)/(tabs)/booking",
+            params: { service: selectedService.title },
+          });
+          setSelectedService(null);
+        }}
+        onClose={() => setSelectedService(null)}
+        onToggleFavorite={() => {
+          if (!selectedService) return;
+          void handleToggleFavorite(selectedService.id);
+        }}
+        service={selectedService}
+        visible={Boolean(selectedService)}
+      />
     </CustomerScreen>
+  );
+}
+
+function ExploreLoadingSkeleton({ strings }: { strings: ReturnType<typeof useCustomerStrings> }) {
+  return (
+    <View style={styles.loadingContent}>
+      <View style={styles.loadingHero}>
+        <View style={styles.loadingHeroImage} />
+        <View style={styles.loadingHeroCopy}>
+          <View style={[styles.loadingLine, styles.loadingLineTitle]} />
+          <View style={[styles.loadingLine, styles.loadingLineMeta]} />
+          <View style={[styles.loadingLine, styles.loadingLineBody]} />
+          <View style={styles.loadingHighlightRow}>
+            <View style={styles.loadingHighlightChip} />
+            <View style={styles.loadingHighlightChipShort} />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.loadingSearchBar}>
+        <Feather color="#b29f8f" name="search" size={15} />
+        <View style={[styles.loadingLine, styles.loadingSearchLine]} />
+      </View>
+
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        {[0, 1, 2, 3].map((item) => (
+          <View key={item} style={styles.loadingFilterChip} />
+        ))}
+      </ScrollView>
+
+      <SectionHeader title={strings.exploreFeaturedServices} actionLabel={strings.exploreBookAction} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.lookbookRow}>
+        {[0, 1, 2].map((item) => (
+          <SurfaceCard key={item} style={styles.loadingServiceCard}>
+            <View style={styles.loadingServiceImage} />
+            <View style={styles.loadingServiceBody}>
+              <View style={[styles.loadingLine, styles.loadingServiceTitle]} />
+              <View style={[styles.loadingLine, styles.loadingServiceBodyLine]} />
+              <View style={[styles.loadingLine, styles.loadingServiceBodyLineShort]} />
+              <View style={styles.loadingServiceFooter}>
+                <View style={[styles.loadingLine, styles.loadingServicePrice]} />
+                <View style={styles.loadingServiceButton} />
+              </View>
+            </View>
+          </SurfaceCard>
+        ))}
+      </ScrollView>
+
+      <SectionHeader title={strings.exploreProducts} actionLabel={strings.exploreViewMore} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.productRow}>
+        {[0, 1, 2].map((item) => (
+          <SurfaceCard key={item} style={styles.loadingProductCard}>
+            <View style={styles.loadingProductImage} />
+            <View style={[styles.loadingLine, styles.loadingProductTitle]} />
+            <View style={[styles.loadingLine, styles.loadingProductMeta]} />
+          </SurfaceCard>
+        ))}
+      </ScrollView>
+
+      <SectionHeader title={strings.exploreGallery} actionLabel="3" />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryRow}>
+        {[0, 1].map((item) => (
+          <View key={item} style={styles.loadingGalleryCard}>
+            <View style={styles.loadingGalleryImage} />
+            <View style={[styles.loadingLine, styles.loadingGalleryTitle]} />
+          </View>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
@@ -400,7 +515,6 @@ function SectionHeader({ title, actionLabel }: { title: string; actionLabel?: st
       {actionLabel ? (
         <View style={styles.sectionActionWrap}>
           <Text style={styles.sectionAction}>{actionLabel}</Text>
-          <Feather color={colors.textSoft} name="chevron-right" size={16} />
         </View>
       ) : null}
     </View>
@@ -411,18 +525,20 @@ function ExploreServiceCard({
   service,
   favorite,
   onToggleFavorite,
-  onPreviewImage,
+  onOpenDetail,
   bookingLabel,
 }: {
   service: LookbookItem;
   favorite: boolean;
   onToggleFavorite: (serviceId: string) => void;
-  onPreviewImage: (imageUrl: string) => void;
+  onOpenDetail: (service: LookbookItem) => void;
   bookingLabel: string;
 }) {
+  const priceParts = splitCustomerPriceLabel(service.price);
+
   return (
-    <View style={styles.serviceCard}>
-      <Pressable onPress={() => onPreviewImage(service.image)}>
+    <Pressable style={styles.serviceCard} onPress={() => onOpenDetail(service)}>
+      <View>
         <CustomerCachedImage alt={service.title} source={{ uri: service.image }} intent="card" style={styles.serviceImage} />
         <View style={styles.serviceToneBadge}>
           <Text style={styles.serviceToneText}>{service.tone.toUpperCase()}</Text>
@@ -436,13 +552,18 @@ function ExploreServiceCard({
         >
           <Feather color={favorite ? "#fff7ef" : colors.textSoft} name="heart" size={14} />
         </Pressable>
-      </Pressable>
+      </View>
 
       <View style={styles.serviceBody}>
         <Text numberOfLines={1} style={styles.serviceTitle}>{service.title}</Text>
         <Text numberOfLines={2} style={styles.serviceBlurb}>{service.blurb}</Text>
         <View style={styles.serviceMetaRow}>
-          <Text style={styles.servicePrice}>{service.price}</Text>
+          <View style={styles.servicePriceBlock}>
+            <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82} style={styles.servicePriceAmount}>
+              {priceParts.amount}
+            </Text>
+            {priceParts.unit ? <Text style={styles.servicePriceUnit}>{priceParts.unit}</Text> : null}
+          </View>
           <Pressable
             style={styles.bookButton}
             onPress={(event) => {
@@ -457,7 +578,7 @@ function ExploreServiceCard({
           </Pressable>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -530,14 +651,6 @@ const styles = StyleSheet.create({
   content: {
     gap: 14,
     paddingTop: 0,
-  },
-  topBar: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  topBarSpacer: {
-    flex: 1,
   },
   storeHero: {
     flexDirection: "row",
@@ -723,6 +836,149 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  loadingContent: {
+    gap: 18,
+  },
+  loadingHero: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 14,
+  },
+  loadingHeroImage: {
+    backgroundColor: "#efe4d9",
+    borderRadius: 24,
+    height: 112,
+    width: 112,
+  },
+  loadingHeroCopy: {
+    flex: 1,
+    gap: 10,
+    paddingTop: 4,
+  },
+  loadingLine: {
+    backgroundColor: "#f0e4d8",
+    borderRadius: 999,
+    height: 10,
+  },
+  loadingLineTitle: {
+    height: 14,
+    width: "68%",
+  },
+  loadingLineMeta: {
+    width: "42%",
+  },
+  loadingLineBody: {
+    width: "92%",
+  },
+  loadingHighlightRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 2,
+  },
+  loadingHighlightChip: {
+    backgroundColor: "#f1e6db",
+    borderRadius: radius.pill,
+    height: 26,
+    width: 92,
+  },
+  loadingHighlightChipShort: {
+    backgroundColor: "#f1e6db",
+    borderRadius: radius.pill,
+    height: 26,
+    width: 68,
+  },
+  loadingSearchBar: {
+    alignItems: "center",
+    backgroundColor: "#fbf4ec",
+    borderColor: "#e7d9ca",
+    borderRadius: 24,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 50,
+    paddingHorizontal: 15,
+  },
+  loadingSearchLine: {
+    flex: 1,
+    height: 11,
+  },
+  loadingFilterChip: {
+    backgroundColor: "#f2e8de",
+    borderRadius: radius.pill,
+    height: 36,
+    width: 84,
+  },
+  loadingServiceCard: {
+    borderRadius: 24,
+    overflow: "hidden",
+    padding: 0,
+    width: 182,
+  },
+  loadingServiceImage: {
+    backgroundColor: "#efe5da",
+    height: 168,
+    width: "100%",
+  },
+  loadingServiceBody: {
+    gap: 9,
+    padding: 12,
+  },
+  loadingServiceTitle: {
+    height: 13,
+    width: "70%",
+  },
+  loadingServiceBodyLine: {
+    width: "92%",
+  },
+  loadingServiceBodyLineShort: {
+    width: "56%",
+  },
+  loadingServiceFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 2,
+  },
+  loadingServicePrice: {
+    flex: 1,
+    height: 12,
+  },
+  loadingServiceButton: {
+    backgroundColor: "#f3e7dc",
+    borderRadius: radius.pill,
+    height: 34,
+    width: 72,
+  },
+  loadingProductCard: {
+    gap: 10,
+    padding: 10,
+    width: 148,
+  },
+  loadingProductImage: {
+    backgroundColor: "#efe5da",
+    borderRadius: 16,
+    height: 110,
+    width: "100%",
+  },
+  loadingProductTitle: {
+    width: "82%",
+  },
+  loadingProductMeta: {
+    width: "48%",
+  },
+  loadingGalleryCard: {
+    gap: 8,
+    width: 172,
+  },
+  loadingGalleryImage: {
+    backgroundColor: "#efe5da",
+    borderRadius: 18,
+    height: 116,
+    width: 172,
+  },
+  loadingGalleryTitle: {
+    width: "62%",
+  },
   lookbookRow: {
     gap: 14,
     paddingRight: 8,
@@ -811,19 +1067,32 @@ const styles = StyleSheet.create({
   serviceMetaRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
     gap: 8,
   },
-  servicePrice: {
+  servicePriceBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  servicePriceAmount: {
     color: colors.text,
     fontSize: 15,
     fontWeight: "800",
   },
+  servicePriceUnit: {
+    color: colors.textSoft,
+    fontSize: 9,
+    fontWeight: "800",
+    lineHeight: 11,
+    marginTop: 1,
+    textTransform: "uppercase",
+  },
   bookButton: {
+    alignItems: "center",
     backgroundColor: "#fff7ef",
     borderColor: colors.border,
     borderRadius: radius.pill,
     borderWidth: 1,
+    minWidth: 72,
     paddingHorizontal: 11,
     paddingVertical: 8,
   },

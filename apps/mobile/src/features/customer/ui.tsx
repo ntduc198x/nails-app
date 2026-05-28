@@ -48,6 +48,10 @@ type CustomerScreenProps = {
   title: string;
 };
 
+type CustomerBrandTopBarProps = {
+  rightSlot?: ReactNode;
+};
+
 type NavItem = {
   href:
     | "/(customer)/(tabs)"
@@ -120,6 +124,20 @@ function useStaticStyles() {
       paddingHorizontal: 18,
       paddingTop: spacing.sm,
     },
+    brandTopBar: {
+      alignItems: "center",
+      flexDirection: "row",
+      justifyContent: "space-between",
+      minHeight: 44,
+      width: "100%",
+    },
+    brandTopBarText: {
+      color: colors.accentWarm,
+      flexShrink: 1,
+      fontSize: 12,
+      fontWeight: "800",
+      letterSpacing: 3,
+    },
     headerCopy: {
       flex: 1,
       gap: 4,
@@ -140,11 +158,16 @@ function useStaticStyles() {
       alignItems: "center",
       flexDirection: "row",
       gap: spacing.sm,
+      justifyContent: "flex-end",
+      minHeight: 38,
+      minWidth: 84,
     },
     topActions: {
       alignItems: "center",
       flexDirection: "row",
       gap: 8,
+      justifyContent: "flex-end",
+      minWidth: 84,
     },
     topIconButton: {
       alignItems: "center",
@@ -634,6 +657,17 @@ export function CustomerTopActions() {
       >
         <Feather color={theme.colors.text} name="settings" size={18} />
       </Pressable>
+    </View>
+  );
+}
+
+export function CustomerBrandTopBar({ rightSlot }: CustomerBrandTopBarProps) {
+  const styles = useStaticStyles();
+
+  return (
+    <View style={styles.brandTopBar}>
+      <Text style={styles.brandTopBarText}>CHAM BEAUTY</Text>
+      <View style={styles.headerSlot}>{rightSlot ?? <CustomerTopActions />}</View>
     </View>
   );
 }

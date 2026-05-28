@@ -52,6 +52,7 @@ export async function writeOptimisticBookingIntoCustomerHistoryCache(
     serviceImageUrl: null,
     servicePriceLabel: null,
     serviceSummary: null,
+    serviceTranslations: null,
     occurredAt: draft.requestedStartAt,
     status: "NEW",
     statusLabel: "Pending confirmation",

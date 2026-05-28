@@ -3,7 +3,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import type { MobileAdminContentPost, MobileAdminContentPostInput } from "@nails/shared";
+import type { LocalizedTextValue, MobileAdminContentPost, MobileAdminContentPostInput, TranslationMetaValue } from "@nails/shared";
 import {
   archiveAdminContentPostForMobile,
   createAdminContentPostForMobile,
@@ -12,10 +12,12 @@ import {
 } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
+import { buildManualAwareTranslationMeta } from "@/src/features/admin/dynamic-translation";
 import { ManageScreenShell } from "@/src/features/admin/manage-ui";
 import { dismissToHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminKeyboardTextInput } from "@/src/features/admin/ui";
+import { clearCustomerFeedCache } from "@/src/lib/customer-feed-cache";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { hydrateCachedValue, isCacheFresh, writeCachedValue } from "@/src/lib/admin-services-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -41,8 +43,11 @@ const LEGACY_CHAM_BEAUTY_SOURCE = String.fromCharCode(67, 104, 97, 109, 32, 66, 
 type PostFormState = {
   id?: string;
   title: string;
+  titleEn: string;
   summary: string;
+  summaryEn: string;
   body: string;
+  bodyEn: string;
   coverImageUrl: string;
   contentType: MobileAdminContentPost["contentType"];
   status: MobileAdminContentPost["status"];
@@ -50,19 +55,26 @@ type PostFormState = {
   metadataText: string;
   publishedAt?: string | null;
   sourcePlatform?: string;
+  sourcePlatformEn: string;
   sourceMessageId?: string | null;
+  translationMeta?: TranslationMetaValue | null;
 };
 
 function emptyPostForm(): PostFormState {
   return {
     title: "",
+    titleEn: "",
     summary: "",
+    summaryEn: "",
     body: "",
+    bodyEn: "",
     coverImageUrl: "",
     contentType: "trend",
     status: "published",
     priority: "100",
     metadataText: "",
+    sourcePlatformEn: "",
+    translationMeta: null,
   };
 }
 
@@ -90,12 +102,20 @@ function stringifyMetadata(metadata: Record<string, unknown>) {
   return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
 }
 
+function getLocalizedText(translations: LocalizedTextValue | null | undefined, locale: "vi" | "en", field: string) {
+  const value = translations?.[locale]?.[field];
+  return typeof value === "string" ? value : "";
+}
+
 function buildPostForm(post: MobileAdminContentPost): PostFormState {
   return {
     id: post.id,
     title: post.title,
+    titleEn: getLocalizedText(post.translations, "en", "title"),
     summary: post.summary,
+    summaryEn: getLocalizedText(post.translations, "en", "summary"),
     body: post.body,
+    bodyEn: getLocalizedText(post.translations, "en", "body"),
     coverImageUrl: post.coverImageUrl ?? "",
     contentType: post.contentType,
     status: post.status,
@@ -103,7 +123,9 @@ function buildPostForm(post: MobileAdminContentPost): PostFormState {
     metadataText: stringifyMetadata(post.metadata),
     publishedAt: post.publishedAt,
     sourcePlatform: normalizeSourcePlatform(post.sourcePlatform),
+    sourcePlatformEn: getLocalizedText(post.translations, "en", "source_platform"),
     sourceMessageId: post.sourceMessageId,
+    translationMeta: post.translationMeta ?? null,
   };
 }
 
@@ -117,6 +139,30 @@ function parseNumberInput(value: string) {
   return Number(value.replace(/[^\d.-]/g, "") || 0);
 }
 
+function putTextField(target: Record<string, string>, field: string, value: string | null | undefined) {
+  const trimmed = value?.trim();
+  if (trimmed) {
+    target[field] = trimmed;
+  }
+}
+
+function buildPostTranslations(form: PostFormState): LocalizedTextValue {
+  const vi: Record<string, string> = {};
+  const en: Record<string, string> = {};
+
+  putTextField(vi, "title", form.title);
+  putTextField(vi, "summary", form.summary);
+  putTextField(vi, "body", form.body);
+  putTextField(vi, "source_platform", form.sourcePlatform);
+
+  putTextField(en, "title", form.titleEn);
+  putTextField(en, "summary", form.summaryEn);
+  putTextField(en, "body", form.bodyEn);
+  putTextField(en, "source_platform", form.sourcePlatformEn);
+
+  return { vi, en };
+}
+
 function toPostInput(form: PostFormState): MobileAdminContentPostInput {
   return {
     title: form.title.trim(),
@@ -128,6 +174,13 @@ function toPostInput(form: PostFormState): MobileAdminContentPostInput {
     priority: parseNumberInput(form.priority),
     metadata: parseMetadata(form.metadataText),
     sourcePlatform: serializeSourcePlatform(form.sourcePlatform?.trim() || "mobile_admin"),
+    translations: buildPostTranslations(form),
+    translationMeta: buildManualAwareTranslationMeta(form.translationMeta ?? null, {
+      title: form.titleEn,
+      summary: form.summaryEn,
+      body: form.bodyEn,
+      source_platform: form.sourcePlatformEn,
+    }),
   };
 }
 
@@ -250,10 +303,13 @@ export default function AdminManageContentPostDetailScreen() {
       if (form.id) {
         const next = await updateAdminContentPostForMobile(client, form.id, payload, form.publishedAt ?? null);
         await writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${form.id}`, next);
+        setForm((current) => ({ ...current, translationMeta: next.translationMeta ?? current.translationMeta ?? null }));
       } else {
         const next = await createAdminContentPostForMobile(client, payload);
         await writeCachedValue(`${POST_DETAIL_CACHE_PREFIX}${next.id}`, next);
+        setForm((current) => ({ ...current, id: next.id, translationMeta: next.translationMeta ?? current.translationMeta ?? null }));
       }
+      await clearCustomerFeedCache();
       closeDetail();
     } catch (error) {
       Alert.alert(strings.postDetailSaveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
@@ -276,6 +332,7 @@ export default function AdminManageContentPostDetailScreen() {
             setIsSaving(true);
             try {
               await archiveAdminContentPostForMobile(client, form.id!);
+              await clearCustomerFeedCache();
               closeDetail();
             } catch (error) {
               Alert.alert(strings.postDetailArchiveFailedTitle, error instanceof Error ? error.message : strings.offerDetailFallbackTryLater);
@@ -316,14 +373,17 @@ export default function AdminManageContentPostDetailScreen() {
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="tag">{strings.postDetailTitleLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput placeholder={strings.postDetailTitlePlaceholder} placeholderTextColor="#B4A89C" style={styles.input} value={form.title} onChangeText={(value) => setForm((current) => ({ ...current, title: value }))} />
+              <AdminKeyboardTextInput placeholder="Post title (EN)" placeholderTextColor="#B4A89C" style={styles.input} value={form.titleEn} onChangeText={(value) => setForm((current) => ({ ...current, titleEn: value }))} />
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="file-text">{strings.postDetailSummaryLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.postDetailSummaryPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.summary} onChangeText={(value) => setForm((current) => ({ ...current, summary: value }))} />
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Post summary (EN)" placeholderTextColor="#B4A89C" style={[styles.input, styles.textarea]} textAlignVertical="top" value={form.summaryEn} onChangeText={(value) => setForm((current) => ({ ...current, summaryEn: value }))} />
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="message-circle">{strings.postDetailBodyLabel}</DetailFieldLabel>
               <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder={strings.postDetailBodyPlaceholder} placeholderTextColor="#B4A89C" style={[styles.input, styles.bodyTextarea]} textAlignVertical="top" value={form.body} onChangeText={(value) => setForm((current) => ({ ...current, body: value }))} />
+              <AdminKeyboardTextInput multiline scrollEnabled={false} placeholder="Post body (EN)" placeholderTextColor="#B4A89C" style={[styles.input, styles.bodyTextarea]} textAlignVertical="top" value={form.bodyEn} onChangeText={(value) => setForm((current) => ({ ...current, bodyEn: value }))} />
             </View>
             <View style={styles.fieldBlock}>
               <DetailFieldLabel icon="image">{strings.postDetailImageLabel}</DetailFieldLabel>
@@ -373,6 +433,13 @@ export default function AdminManageContentPostDetailScreen() {
                   style={styles.input}
                   value={form.sourcePlatform || ""}
                   onChangeText={(value) => setForm((current) => ({ ...current, sourcePlatform: value }))}
+                />
+                <AdminKeyboardTextInput
+                  placeholder="Source label (EN)"
+                  placeholderTextColor="#B4A89C"
+                  style={styles.input}
+                  value={form.sourcePlatformEn}
+                  onChangeText={(value) => setForm((current) => ({ ...current, sourcePlatformEn: value }))}
                 />
                 <View style={styles.sourceChipRow}>
                   {SOURCE_PLATFORMS.map((item) => (

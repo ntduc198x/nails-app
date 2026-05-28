@@ -9,11 +9,11 @@ import { MANAGE_SCREEN_ITEMS, canViewManageScreenItem, type ManageScreenItem, ty
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { dismissToHref, getAdminNavHref, isOwnerRole, type AdminNavTarget } from "@/src/features/admin/navigation";
 import { AdminObserverScopeSwitcher } from "@/src/features/admin/observer-scope-switcher";
-import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useKeyboardVisible } from "@/src/features/admin/ui";
+import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, ADMIN_SURFACE_BG, useKeyboardVisible } from "@/src/features/admin/ui";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
-  bg: "#FCFAF8",
+  bg: ADMIN_SURFACE_BG,
   card: "#FFFFFF",
   border: "#EADFD3",
   text: "#2F241D",

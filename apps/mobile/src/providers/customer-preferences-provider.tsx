@@ -29,6 +29,15 @@ async function readStoredPreference<T extends string>(key: string, fallbackValue
   }
 }
 
+async function readStoredLocalePreference(): Promise<CustomerLocale | null> {
+  try {
+    const value = await AsyncStorage.getItem(STORAGE_LOCALE_KEY);
+    return value === "vi" || value === "en" ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 async function writeStoredPreference(key: string, value: string) {
   try {
     await AsyncStorage.setItem(key, value);
@@ -142,13 +151,13 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
     const boot = async () => {
       const [storedTheme, storedLocale] = await Promise.all([
         readStoredPreference<PremiumThemeMode>(STORAGE_THEME_KEY, "light"),
-        readStoredPreference<CustomerLocale>(STORAGE_LOCALE_KEY, "vi"),
+        readStoredLocalePreference(),
       ]);
 
       if (cancelled) return;
 
       setColorSchemeState(storedTheme);
-      setLocaleState(storedLocale);
+      setLocaleState(storedLocale ?? "vi");
 
       if (mobileSupabase && user?.id) {
         const accountRes = await mobileSupabase
@@ -174,8 +183,14 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
 
             if (!prefsRes.error && (prefsRes.data?.language === "vi" || prefsRes.data?.language === "en")) {
               const nextLocale = prefsRes.data.language;
-              setLocaleState(nextLocale);
-              void writeStoredPreference(STORAGE_LOCALE_KEY, nextLocale);
+              if (storedLocale) {
+                if (storedLocale !== nextLocale) {
+                  void persistRemotePreferences({ locale: storedLocale });
+                }
+              } else {
+                setLocaleState(nextLocale);
+                void writeStoredPreference(STORAGE_LOCALE_KEY, nextLocale);
+              }
             }
           }
         }
@@ -191,7 +206,7 @@ export function CustomerPreferencesProvider({ children }: { children: ReactNode 
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [persistRemotePreferences, user?.id]);
 
   const value = useMemo<CustomerPreferencesContextValue>(
     () => ({

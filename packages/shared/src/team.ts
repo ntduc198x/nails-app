@@ -111,7 +111,7 @@ async function requireOwner(client: SharedSupabaseClient) {
 
   const currentRole = await getOrCreateRole(client, currentUser.id);
   if (currentRole !== "OWNER" && currentRole !== "PARTNER") {
-    throw new Error("Chỉ BOSS hoac Chủ tiệm mới có quyền quản lý nhân sự.");
+    throw new Error("Chỉ chủ sở hữu hoặc chủ tiệm mới có quyền quản lý nhân sự.");
   }
 
   return currentUser.id;

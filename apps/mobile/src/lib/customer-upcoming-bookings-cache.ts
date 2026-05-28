@@ -43,6 +43,7 @@ export async function writeOptimisticBookingIntoUpcomingBookingsCache(
   const optimisticItem: CustomerUpcomingBookingItem = {
     id: draft.bookingRequestId,
     requestedService: draft.requestedService.trim() || "Booking request",
+    requestedServiceTranslations: null,
     preferredStaff: draft.preferredStaff?.trim() || null,
     requestedStartAt: draft.requestedStartAt,
     requestedEndAt: draft.requestedEndAt ?? null,

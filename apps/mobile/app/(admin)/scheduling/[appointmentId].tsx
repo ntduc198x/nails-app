@@ -18,6 +18,7 @@ import { AdminBottomNavDock, AdminDetailLoadingScreen, AdminKeyboardAwareScrollV
 import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
@@ -499,6 +500,7 @@ function AppointmentEditor({
 export default function AdminAppointmentDetailScreen() {
   const router = useRouter();
   const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const params = useLocalSearchParams<{ appointmentId?: string }>();
   const appointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
   const keyboardVisible = useKeyboardVisible();
@@ -530,7 +532,7 @@ export default function AdminAppointmentDetailScreen() {
       const [nextAppointment, nextStaffOptions, nextResourceOptions, bookingRequests] = await Promise.all([
         getAppointmentForMobile(mobileSupabase, appointmentId, { observerScope: observer.observerScope }),
         listStaffOptions().catch(() => []),
-        listResourceOptions().catch(() => []),
+        listResourceOptions(locale).catch(() => []),
         listBookingRequestsForMobile(mobileSupabase, { observerScope: observer.observerScope }).catch(() => []),
       ]);
 
@@ -543,7 +545,7 @@ export default function AdminAppointmentDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [appointmentId, observer.isReady, observer.observerScope, strings.manageSchedulingDetailNotFound]);
+  }, [appointmentId, locale, observer.isReady, observer.observerScope, strings.manageSchedulingDetailNotFound]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {

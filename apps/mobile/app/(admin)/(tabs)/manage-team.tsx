@@ -39,6 +39,7 @@ import {
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
 
 const roleOptions: AppRole[] = ["MANAGER", "RECEPTION", "ACCOUNTANT", "TECH"];
@@ -187,6 +188,7 @@ function RoleChip({
 
 export default function AdminManageTeamScreen() {
   const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const { role: currentRole } = useSession();
   const observer = useAdminObserverScope();
@@ -533,7 +535,7 @@ export default function AdminManageTeamScreen() {
             <RoleChip
               key={role}
               active={inviteRole === role}
-              label={getRoleLabel(role)}
+              label={getRoleLabel(role, locale)}
               onPress={() => setInviteRole(role as InviteCodeRole)}
             />
           ))}
@@ -546,9 +548,9 @@ export default function AdminManageTeamScreen() {
 
         {latestInvite ? (
           <View style={styles.inviteInfoCard}>
-            <Text style={styles.inviteCodeLabel}>{getRoleLabel(latestInvite.allowedRole)}</Text>
+            <Text style={styles.inviteCodeLabel}>{getRoleLabel(latestInvite.allowedRole, locale)}</Text>
             <Text style={styles.inviteCodeValue}>{latestInvite.code}</Text>
-            <Text style={styles.inviteMeta}>{strings.manageTeamInviteExpiresPrefix}: {new Date(latestInvite.expiresAt).toLocaleString("vi-VN")}</Text>
+            <Text style={styles.inviteMeta}>{strings.manageTeamInviteExpiresPrefix}: {new Date(latestInvite.expiresAt).toLocaleString(locale === "en" ? "en-US" : "vi-VN")}</Text>
             <Pressable style={styles.revokeButton} onPress={() => void revokeInvite(latestInvite.id)}>
               <Text style={styles.revokeButtonText}>{strings.manageTeamRevokeLatestInvite}</Text>
             </Pressable>
@@ -633,7 +635,7 @@ export default function AdminManageTeamScreen() {
                         <Text style={styles.memberEmail}>{member.email || member.userId}</Text>
                         <View style={styles.memberMetaRow}>
                           <View style={styles.roleBadge}>
-                            <Text style={styles.roleBadgeText}>{getRoleLabel(member.role)}</Text>
+                            <Text style={styles.roleBadgeText}>{getRoleLabel(member.role, locale)}</Text>
                           </View>
                         </View>
                       </View>
@@ -662,7 +664,7 @@ export default function AdminManageTeamScreen() {
                           <RoleChip
                             key={`${member.id}-${role}`}
                             active={roleDraft === role}
-                            label={getRoleLabel(role)}
+                            label={getRoleLabel(role, locale)}
                             onPress={() => setRoleDrafts((prev) => ({ ...prev, [member.id]: role }))}
                           />
                         ))}

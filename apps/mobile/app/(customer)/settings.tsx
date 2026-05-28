@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { router } from "expo-router";
 import { CustomerScreen, CustomerTopActions, SurfaceCard } from "@/src/features/customer/ui";
-import { useCustomerStrings } from "@/src/features/customer/strings";
+import { getCustomerString, useCustomerStrings } from "@/src/features/customer/strings";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useCustomerPreferences, useCustomerTheme } from "@/src/providers/customer-preferences-provider";
 import {
@@ -111,7 +111,7 @@ export default function SettingsScreen() {
 
     try {
       await setLocale(nextLocale);
-      Alert.alert(strings.saveSuccess, strings.languageUpdated);
+      Alert.alert(getCustomerString(nextLocale, "saveSuccess"), getCustomerString(nextLocale, "languageUpdated"));
     } catch {
       Alert.alert(strings.cacheClearFailedTitle, strings.saveFailed);
     }
@@ -519,9 +519,9 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
     signOutButton: {
       alignItems: "center",
       backgroundColor: "#FFFDFB",
-      borderColor: "#F1E7DE",
+      borderColor: theme.colors.dangerText,
       borderRadius: 22,
-      borderWidth: 1,
+      borderWidth: 1.5,
       flexDirection: "row",
       gap: 10,
       justifyContent: "center",

@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import {
   createResourceForMobile,
+  localizeAdminResource,
   listResourcesForMobile,
   type MobileAdminResource,
   type MobileAdminResourceType,
@@ -20,6 +21,7 @@ import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/fea
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminKeyboardFieldFocus } from "@/src/features/admin/ui";
 import { mobileSupabase } from "@/src/lib/supabase";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 const palette = {
   border: "#EADFD3",
@@ -233,6 +235,7 @@ function ResourceRowCard({
 
 export default function AdminManageResourcesScreen() {
   const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER"]);
   const observer = useAdminObserverScope();
   const [rows, setRows] = useState<MobileAdminResource[]>([]);
@@ -288,6 +291,14 @@ export default function AdminManageResourcesScreen() {
   }, [load, observer.isReady]);
 
   const totalCount = rows.length;
+  const localizedRows = useMemo(
+    () => rows.map((item) => localizeAdminResource(locale, item)),
+    [locale, rows],
+  );
+  const rowsById = useMemo(
+    () => new Map(rows.map((item) => [item.id, item])),
+    [rows],
+  );
   const activeCount = useMemo(() => rows.filter((item) => item.active).length, [rows]);
   const availableChairCount = useMemo(
     () => rows.filter((item) => item.type === "CHAIR" && item.active).length,
@@ -296,12 +307,12 @@ export default function AdminManageResourcesScreen() {
 
   const filteredRows = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return rows.filter((item) => {
+    return localizedRows.filter((item) => {
       const matchesKeyword = !keyword || `${item.name} ${item.type}`.toLowerCase().includes(keyword);
       const matchesType = filterType === "ALL" || item.type === filterType;
       return matchesKeyword && matchesType;
     });
-  }, [filterType, rows, search]);
+  }, [filterType, localizedRows, search]);
 
   async function submitCreate() {
     if (!mobileSupabase || submitting) return;
@@ -504,7 +515,10 @@ export default function AdminManageResourcesScreen() {
                 onChangeActive={setEditActive}
                 onChangeName={setEditName}
                 onChangeType={setEditType}
-                onEdit={() => startEdit(item)}
+                onEdit={() => {
+                  const source = rowsById.get(item.id) ?? item;
+                  startEdit(source);
+                }}
                 onSave={() => void saveEdit()}
                 saving={submitting}
               />

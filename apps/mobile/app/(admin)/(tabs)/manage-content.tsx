@@ -32,6 +32,7 @@ import type {
   MobileAdminStorefrontTeamMember,
   MobileAdminStorefrontTeamMemberInput,
   LocalizedTextValue,
+  ObserverScopeInput,
 } from "@nails/shared";
 import {
   archiveAdminContentPostForMobile,
@@ -77,7 +78,6 @@ const palette = {
   mutedSoft: "#F7F3EE",
 };
 
-const SERVICES_CACHE_KEY = "admin-services";
 const SERVICES_FRESH_MS = 2 * 60 * 1000;
 const SERVICES_MAX_STALE_MS = 10 * 60 * 1000;
 const OFFER_DETAIL_CACHE_PREFIX = "admin-offer-detail:";
@@ -450,6 +450,12 @@ function getLocalizedBranchName(
   translations: MobileAdminContentBranchOverview["branchTranslations"],
 ) {
   return localizeAdminBranchName(locale === "en" ? "en" : "vi", branchName, translations) ?? branchName;
+}
+
+function getServicesCacheKey(scope: ObserverScopeInput) {
+  return scope.mode === "branch" && scope.branchId
+    ? `admin-services:branch:${scope.branchId}`
+    : "admin-services:org";
 }
 
 function buildDummyFeedPosts(strings: ReturnType<typeof useAdminStrings>): MobileAdminContentPostInput[] {
@@ -884,6 +890,7 @@ export default function AdminManageContentScreen() {
   const [services, setServices] = useState<MobileAdminMerchService[]>([]);
   const [servicesLoading, setServicesLoading] = useState(false);
   const [servicesLoaded, setServicesLoaded] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [homeServiceQuery, setHomeServiceQuery] = useState("");
@@ -910,6 +917,7 @@ export default function AdminManageContentScreen() {
     observer.viewContext?.observerScope.mode === "org" ||
     (observer.viewContext?.observerScope.mode === "branch"
       && observer.viewContext.observerScope.branchId !== observer.viewContext.workingBranchId);
+  const servicesCacheKey = useMemo(() => getServicesCacheKey(observer.observerScope), [observer.observerScope]);
   const isOrgOverview = snapshot?.viewMode === "org";
   const orgOverview = snapshot?.orgOverview ?? null;
   const groupedOffers = useMemo(
@@ -973,30 +981,27 @@ export default function AdminManageContentScreen() {
       if (servicesLoading) return;
       
       // Check cache first if not forcing reload
-      if (!force && servicesLoaded) {
-        const cacheAge = Date.now() - (services.length > 0 ? Date.now() : Number.POSITIVE_INFINITY);
-        if (cacheAge <= SERVICES_FRESH_MS) {
-          return;
-        }
+      if (!force && servicesLoaded && isCacheFresh(servicesCacheKey, SERVICES_FRESH_MS)) {
+        return;
       }
 
       setServicesLoading(true);
       try {
         // Try to load from cache first
         if (!force) {
-          const cached = await hydrateCachedValue<MobileAdminMerchService[]>(SERVICES_CACHE_KEY);
-          if (cached && isCacheFresh(SERVICES_CACHE_KEY, SERVICES_MAX_STALE_MS)) {
+          const cached = await hydrateCachedValue<MobileAdminMerchService[]>(servicesCacheKey);
+          if (cached && isCacheFresh(servicesCacheKey, SERVICES_MAX_STALE_MS)) {
             setServices(cached.value);
             setServicesLoaded(true);
             
             // If cache is stale but still usable, refresh in background
-            if (!isCacheFresh(SERVICES_CACHE_KEY, SERVICES_FRESH_MS)) {
+            if (!isCacheFresh(servicesCacheKey, SERVICES_FRESH_MS)) {
               // Background refresh
               listAdminMerchServicesForMobile(mobileSupabase, { observerScope: observer.observerScope })
                 .then((next) => {
                   setServices(next);
                   setServicesLoaded(true);
-                  void writeCachedValue(SERVICES_CACHE_KEY, next);
+                  void writeCachedValue(servicesCacheKey, next);
                   void prewarmServiceDetailCache(next);
                 })
                 .catch(() => {
@@ -1011,7 +1016,7 @@ export default function AdminManageContentScreen() {
         const next = await listAdminMerchServicesForMobile(mobileSupabase, { observerScope: observer.observerScope });
         setServices(next);
         setServicesLoaded(true);
-        await writeCachedValue(SERVICES_CACHE_KEY, next);
+        await writeCachedValue(servicesCacheKey, next);
         await prewarmServiceDetailCache(next);
       } catch (nextError) {
         setError(nextError instanceof Error ? nextError.message : strings.manageContentServicesLoadFailed);
@@ -1019,25 +1024,23 @@ export default function AdminManageContentScreen() {
         setServicesLoading(false);
       }
     },
-    [observer.observerScope, servicesLoaded, servicesLoading, services.length, strings.manageContentMissingSupabase, strings.manageContentServicesLoadFailed],
+    [observer.observerScope, servicesCacheKey, servicesLoaded, servicesLoading, strings.manageContentMissingSupabase, strings.manageContentServicesLoadFailed],
   );
 
   useEffect(() => {
     if (!observer.isReady) return;
-    const timeoutId = setTimeout(() => {
-      void (async () => {
-        await loadSnapshot();
-      })();
-    }, 0);
-    return () => clearTimeout(timeoutId);
+    const frameId = requestAnimationFrame(() => {
+      void loadSnapshot();
+    });
+    return () => cancelAnimationFrame(frameId);
   }, [loadSnapshot, observer.isReady]);
 
   useEffect(() => {
     if (!snapshot) return;
-    const timeoutId = setTimeout(() => {
+    const frameId = requestAnimationFrame(() => {
       void loadServices();
-    }, 0);
-    return () => clearTimeout(timeoutId);
+    });
+    return () => cancelAnimationFrame(frameId);
   }, [loadServices, snapshot]);
 
   useEffect(() => {
@@ -1073,6 +1076,15 @@ export default function AdminManageContentScreen() {
       };
     }, [loadSnapshot, observer.isReady]),
   );
+
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([loadSnapshot(), loadServices(true)]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadServices, loadSnapshot]);
 
   const localizedServices = useMemo(
     () => services.map((service) => localizeAdminMerchService(locale, service)),
@@ -1637,8 +1649,8 @@ export default function AdminManageContentScreen() {
       showTabs={false}
       showBottomDock={true}
       showBackButton={false}
-      onRefresh={() => void Promise.all([loadSnapshot(), loadServices(true)])}
-      refreshing={loading || servicesLoading}
+      onRefresh={() => void handleRefresh()}
+      refreshing={isRefreshing}
       observerReadOnly={observerReadOnly}
       observerReadOnlyMessage={strings.manageContentObserverMessage}
     >

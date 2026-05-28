@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { formatDateTimeLabel, type CustomerHistoryItem } from "@nails/shared";
 import { CachedAppImage } from "@/src/components/cached-app-image";
+import { localizeDynamicServiceText } from "@/src/features/customer/localize";
 import { CustomerScreen, SegmentedTabs, StatusTag, SurfaceCard } from "@/src/features/customer/ui";
 import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
@@ -57,28 +58,34 @@ export default function HistoryScreen() {
       <SegmentedTabs activeKey={activeFilter} items={filters} onChange={setActiveFilter} />
 
       <View style={styles.list}>
-        {items.map((item) => (
+        {items.map((item) => {
+          const serviceName = localizeDynamicServiceText(locale, item.serviceName, item.serviceTranslations, "name") ?? item.serviceName;
+          const serviceSummary = item.serviceSummary
+            ? localizeDynamicServiceText(locale, item.serviceSummary, item.serviceTranslations, "short_description")
+            : null;
+
+          return (
           <Pressable
             key={item.id}
             onPress={() =>
               router.push({
                 pathname: "/(customer)/(tabs)/booking",
-                params: { service: item.serviceName },
+                params: { service: serviceName },
               })
             }
           >
             <SurfaceCard style={styles.card}>
-              {item.serviceImageUrl ? <CachedAppImage alt={item.serviceName} source={{ uri: item.serviceImageUrl }} style={styles.image} /> : null}
+              {item.serviceImageUrl ? <CachedAppImage alt={serviceName} source={{ uri: item.serviceImageUrl }} style={styles.image} /> : null}
 
               <View style={styles.row}>
                 <View style={styles.copy}>
                   <Text style={styles.time}>{formatDateTimeLabel(item.occurredAt, locale)}</Text>
-                  <Text style={styles.staff}>{item.serviceName}</Text>
+                  <Text style={styles.staff}>{serviceName}</Text>
                   <Text style={styles.service}>
                     {item.source === "appointment" ? strings.historyAppointment : strings.historyBookingRequest}
                     {item.preferredStaff ? ` · ${item.preferredStaff}` : ""}
                     {item.servicePriceLabel ? ` · ${item.servicePriceLabel}` : ""}
-                    {item.serviceSummary ? ` · ${item.serviceSummary}` : ""}
+                    {serviceSummary ? ` · ${serviceSummary}` : ""}
                   </Text>
                 </View>
                 <View style={styles.aside}>
@@ -87,7 +94,8 @@ export default function HistoryScreen() {
               </View>
             </SurfaceCard>
           </Pressable>
-        ))}
+          );
+        })}
 
         {isHydrated && !items.length ? (
           <SurfaceCard>

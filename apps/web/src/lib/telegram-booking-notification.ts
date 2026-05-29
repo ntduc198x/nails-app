@@ -10,6 +10,7 @@ const bookingAlertMediaUrl =
   process.env.BOOKING_TELEGRAM_ALERT_MEDIA_URL?.trim() ||
   "";
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
+const STALE_NOTIFICATION_CLAIM_MINUTES = Number(process.env.BOOKING_NOTIFICATION_CLAIM_TTL_MINUTES ?? "2");
 
 function getSupabase() {
   if (!supabaseUrl || !supabaseServiceRoleKey) {
@@ -187,8 +188,11 @@ export async function processTelegramBookingNotification(body: unknown) {
   const supabase = getSupabase();
   const bookingId = String(record.id);
   const claimedAt = new Date().toISOString();
+  const staleClaimThreshold = new Date(
+    Date.now() - STALE_NOTIFICATION_CLAIM_MINUTES * 60 * 1000,
+  ).toISOString();
 
-  const claimRes = await supabase
+  let claimRes = await supabase
     .from("booking_requests")
     .update({ notified_at: claimedAt })
     .eq("id", bookingId)
@@ -197,6 +201,18 @@ export async function processTelegramBookingNotification(body: unknown) {
     .is("notified_at", null)
     .select("id")
     .maybeSingle();
+
+  if (!claimRes.error && !claimRes.data) {
+    claimRes = await supabase
+      .from("booking_requests")
+      .update({ notified_at: claimedAt })
+      .eq("id", bookingId)
+      .in("status", ["NEW", "NEEDS_RESCHEDULE"])
+      .is("telegram_message_id", null)
+      .lt("notified_at", staleClaimThreshold)
+      .select("id")
+      .maybeSingle();
+  }
 
   if (claimRes.error) {
     throw claimRes.error;

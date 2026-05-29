@@ -1,4 +1,4 @@
-import { after, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicBookingInputSchema } from "@nails/shared";
 import { processTelegramBookingNotification } from "@/lib/telegram-booking-notification";
@@ -86,13 +86,13 @@ export async function POST(req: Request) {
       : "NEW";
 
     if (createdBookingId) {
-      after(() => {
-        void processTelegramBookingNotification({
+      try {
+        await processTelegramBookingNotification({
           record: { id: createdBookingId },
-        }).catch((error) => {
-          console.error("booking-request telegram notify failed", error);
         });
-      });
+      } catch (error) {
+        console.error("booking-request telegram notify failed", error);
+      }
 
       return NextResponse.json({
         ok: true,

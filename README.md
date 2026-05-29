@@ -1,207 +1,206 @@
 # Nails App Monorepo
 
-Monorepo cho he thong dat lich va van hanh salon, gom web app, mobile app, shared domain layer, va bo SQL cho Supabase.
+Monorepo cho hệ thống đặt lịch và vận hành salon nail. Repo này gom ứng dụng web, ứng dụng mobile, lớp domain dùng chung và toàn bộ phần SQL/Supabase cần để chạy nghiệp vụ.
 
-## Muc luc
+## Mục lục
 
-- [Tong quan](#tong-quan)
-- [Tech stack](#tech-stack)
-- [Cau truc repo](#cau-truc-repo)
-- [Prerequisites](#prerequisites)
-- [Getting started](#getting-started)
-- [Bien moi truong](#bien-moi-truong)
-- [Lenh chinh](#lenh-chinh)
-- [Phat trien web](#phat-trien-web)
-- [Phat trien mobile](#phat-trien-mobile)
-- [Supabase va SQL](#supabase-va-sql)
-- [Kiem tra truoc khi merge](#kiem-tra-truoc-khi-merge)
-- [Tai lieu bo sung](#tai-lieu-bo-sung)
-- [Troubleshooting](#troubleshooting)
+- [Tổng quan](#tổng-quan)
+- [Kiến trúc nhanh](#kiến-trúc-nhanh)
+- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
+- [Cấu trúc thư mục](#cấu-trúc-thư-mục)
+- [Yêu cầu môi trường](#yêu-cầu-môi-trường)
+- [Bắt đầu nhanh](#bắt-đầu-nhanh)
+- [Biến môi trường](#biến-môi-trường)
+- [Lệnh thường dùng](#lệnh-thường-dùng)
+- [Phát triển web](#phát-triển-web)
+- [Phát triển mobile](#phát-triển-mobile)
+- [Supabase và SQL](#supabase-và-sql)
+- [Quy ước làm việc](#quy-ước-làm-việc)
+- [Kiểm tra trước khi merge](#kiểm-tra-trước-khi-merge)
+- [Tài liệu bổ sung](#tài-liệu-bổ-sung)
+- [Xử lý sự cố](#xử-lý-sự-cố)
 
-## Tong quan
+## Tổng quan
 
-Repo nay duoc to chuc theo npm workspaces:
+Repo được tổ chức theo `npm workspaces` và chia thành các phần chính:
 
-- `apps/web`: Next.js web app, chua landing, customer flow, admin flow, API routes, Telegram hooks.
-- `apps/mobile`: Expo / React Native app, dung Expo Router, test duoc bang Expo Go SDK 54.
-- `packages/shared`: contracts, types, validation, helper dung chung giua web, mobile, va scripts.
-- `supabase`: migrations, patches, bootstrap SQL, deploy SQL, seeds, Edge Functions.
-- `docs`: ghi chu kien truc, SOP, va huong dan van hanh.
+- `apps/web`: ứng dụng Next.js cho landing page, luồng khách hàng, luồng quản trị, API routes và tích hợp Telegram.
+- `apps/mobile`: ứng dụng Expo / React Native cho khách hàng và quản trị viên, dùng Expo Router.
+- `packages/shared`: contract, kiểu dữ liệu, validation, helper nghiệp vụ dùng chung giữa web, mobile và script.
+- `supabase`: migrations, patches, seeds, Edge Functions và các file SQL vận hành.
+- `docs`: ghi chú kiến trúc, SOP và tài liệu triển khai nội bộ.
 
-Muc tieu cua README nay la giup:
+README này phục vụ ba mục tiêu:
 
-1. Clone repo va chay local nhanh.
-2. Hieu workspace nao dung cho viec gi.
-3. Khong vo tinh pha vo env, Expo, hoac schema Supabase.
+1. Giúp một lập trình viên mới clone repo và chạy local nhanh.
+2. Giúp hiểu ranh giới giữa web, mobile, shared và Supabase.
+3. Giảm rủi ro khi sửa env, flow mobile hoặc schema cơ sở dữ liệu.
 
-## Tech stack
+## Kiến trúc nhanh
 
-- **Package manager**: npm workspaces
+Luồng tổng quát của hệ thống:
+
+1. Web và mobile cùng dùng Supabase cho dữ liệu, xác thực và một phần RPC.
+2. Các kiểu dữ liệu và hàm domain nằm ở `packages/shared` để tránh lệch logic giữa hai nền tảng.
+3. Web có các API routes để xử lý các việc cần server-side như session, Telegram và các route nội bộ.
+4. Mobile gọi web API cho một số tác vụ cần side effect phía server; khi cần vẫn có nhánh fallback qua Supabase RPC.
+5. Toàn bộ thay đổi schema phải đi qua `supabase/migrations` để có thể theo dõi và tái áp dụng.
+
+## Công nghệ sử dụng
+
+- **Quản lý package**: npm workspaces
 - **Web**: Next.js 16, React 19, TypeScript
 - **Mobile**: Expo SDK 54, React Native 0.81, Expo Router 6
-- **Shared layer**: TypeScript package workspace
-- **Database/Auth/Storage**: Supabase
+- **Lớp dùng chung**: TypeScript workspace package
+- **Cơ sở dữ liệu / Auth / Storage**: Supabase
 - **Validation**: Zod
 - **Linting**: ESLint
-- **Build orchestration**: script wrappers trong `scripts/`
+- **Script điều phối**: các script Node.js trong `scripts/`
 
-## Cau truc repo
+## Cấu trúc thư mục
 
 ```text
 .
 |- apps/
-|  |- web/                  # Next.js app
-|  |  |- src/app/           # routes, API routes
-|  |  |- src/components/    # UI components
-|  |  |- src/lib/           # data, auth, helpers
+|  |- web/
+|  |  |- src/app/                # Routes và API routes của Next.js
+|  |  |- src/components/         # UI components
+|  |  |- src/lib/                # Auth, data layer, helper nghiệp vụ
 |  |
-|  |- mobile/               # Expo app
-|     |- app/               # Expo Router screens
-|     |- src/               # shared mobile logic
-|     |- android/           # tracked native Android project
+|  |- mobile/
+|     |- app/                    # Màn hình theo Expo Router
+|     |- src/                    # Logic dùng lại trong mobile
+|     |- android/                # Native Android project đang được track
 |
 |- packages/
 |  |- shared/
-|     |- src/               # contracts, helpers, shared types
+|     |- src/                    # Contract, helper, validation, shared types
 |
-|- scripts/                 # repo-level helper scripts
-|- supabase/                # SQL, patches, seeds, Edge Functions
-|- docs/                    # architecture + operations notes
-|- package.json             # workspace root
-|- .env.local               # local env source for scripts and apps
+|- scripts/                      # Script cấp repo
+|- supabase/                     # Migrations, patches, seeds, functions
+|- docs/                         # Tài liệu kiến trúc và vận hành
+|- package.json                  # Root workspace
+|- README.md
 ```
 
-## Prerequisites
+## Yêu cầu môi trường
 
-Can it nhat:
+Tối thiểu:
 
-- Node.js 20+
-- npm 10+
+- Node.js 20 trở lên
+- npm 10 trở lên
 - Git
 
-Cho mobile Android:
+Để phát triển mobile Android:
 
 - Android Studio
 - Android SDK
 - `ANDROID_HOME`
 - `ANDROID_SDK_ROOT`
-- `%ANDROID_SDK_ROOT%\platform-tools` trong `PATH`
+- `platform-tools` đã có trong `PATH`
 
-Cho Supabase remote:
+Để làm việc với Supabase từ xa:
 
-- Supabase project
+- Một project Supabase đang hoạt động
 - `SUPABASE_SERVICE_ROLE_KEY`
-- neu chay `supabase db push --linked`, can them `SUPABASE_DB_PASSWORD`
+- Nếu dùng lệnh đẩy schema kiểu `supabase db push --linked`, thường sẽ cần thêm `SUPABASE_DB_PASSWORD`
 
-## Getting started
+## Bắt đầu nhanh
 
 ### 1. Clone repo
 
 ```bash
-git clone <your-repo-url>
+git clone <repo-url>
 cd nails-app
 ```
 
-### 2. Cai dependency
+### 2. Cài dependency
 
 ```bash
 npm install
 ```
 
-### 3. Tao va dien env
+### 3. Tạo file môi trường
 
-Repo nay su dung root `.env.local` lam nguon env chinh cho web va cac scripts mobile.
+Repo này dùng file `.env.local` ở root làm nguồn env chính cho web và các script mobile.
 
-Neu chua co file:
+Nếu có file mẫu:
 
 ```bash
 copy .env.local.example .env.local
 ```
 
-Neu repo khong co file example, tao thu cong `.env.local` va dien cac bien toi thieu o phan [Bien moi truong](#bien-moi-truong).
+Nếu chưa có file mẫu, hãy tạo `.env.local` thủ công và điền các biến tối thiểu ở phần [Biến môi trường](#biến-môi-trường).
 
-### 4. Chay web
+### 4. Chạy web local
 
 ```bash
 npm run dev
 ```
 
-Mac dinh web workspace chay qua:
+Lệnh này thực chất chạy workspace web:
 
 ```bash
 npm run dev --workspace @nails/web
 ```
 
-### 5. Chay mobile
-
-Kiem tra env mobile truoc:
+### 5. Kiểm tra env mobile
 
 ```bash
 npm run mobile:env
 ```
 
-Chay Expo theo LAN:
+Script này đọc `.env.local`, kiểm tra các biến quan trọng và đồng bộ env cần thiết cho workspace mobile.
+
+### 6. Chạy mobile
+
+Qua LAN:
 
 ```bash
 npm run mobile:go:lan
 ```
 
-Neu can tunnel:
+Qua tunnel:
 
 ```bash
 npm run mobile:go
 ```
 
-Neu dang dung flow Cloudflare:
+Qua Cloudflare:
 
 ```bash
 npm run mobile:go:cloudflare
 ```
 
-## Bien moi truong
+## Biến môi trường
 
-### Web va shared scripts
+### Nhóm web và script dùng chung
 
-Toi thieu:
-
-| Variable | Bat buoc | Mo ta |
+| Biến | Bắt buộc | Mô tả |
 | --- | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | Yes | URL project Supabase |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Public anon key cho web client |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes cho server routes / scripts | Service role key cho API routes va scripts |
-| `NEXT_PUBLIC_APP_URL` | Nen co | Public base URL cua web app |
+| `NEXT_PUBLIC_SUPABASE_URL` | Có | URL của project Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Có | Anon key cho web client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Có cho route server và script | Service role key để chạy tác vụ đặc quyền |
+| `NEXT_PUBLIC_APP_URL` | Nên có | URL public của web app |
 
-Web runtime dung cac bien nay truc tiep trong:
+### Nhóm env public cho mobile
 
-- `apps/web/src/lib/supabase.ts`
-- `apps/web/src/app/api/app-session/route.ts`
-- `apps/web/src/app/api/app-session/validate/route.ts`
+Mobile dùng các biến `EXPO_PUBLIC_*` làm hợp đồng chính:
 
-### Mobile public env
-
-Mobile doc `EXPO_PUBLIC_*` la hop dong chinh:
-
-| Variable | Bat buoc | Mo ta |
+| Biến | Bắt buộc | Mô tả |
 | --- | --- | --- |
-| `EXPO_PUBLIC_SUPABASE_URL` | Yes | Supabase URL cho mobile |
-| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anon key cho mobile |
-| `EXPO_PUBLIC_API_BASE_URL` | Yes | Base URL de mobile goi Next API |
-| `EXPO_PUBLIC_PASSWORD_RESET_URL` | Yes | URL reset password |
-| `EXPO_PUBLIC_WEB_API_BASE_URL` | Optional | Override URL web API |
-| `EXPO_PUBLIC_BOOKING_API_BASE_URL` | Optional | Fallback cho booking API |
-| `EXPO_PUBLIC_DEFAULT_ORG_ID` | Optional | Default org hint |
-| `EXPO_PUBLIC_DEFAULT_BRANCH_ID` | Optional | Default branch hint |
+| `EXPO_PUBLIC_SUPABASE_URL` | Có | URL Supabase cho mobile |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Có | Anon key cho mobile |
+| `EXPO_PUBLIC_API_BASE_URL` | Có | Base URL để mobile gọi web API |
+| `EXPO_PUBLIC_PASSWORD_RESET_URL` | Có | URL reset mật khẩu |
+| `EXPO_PUBLIC_WEB_API_BASE_URL` | Không bắt buộc | Override riêng cho web API |
+| `EXPO_PUBLIC_BOOKING_API_BASE_URL` | Không bắt buộc | Override riêng cho booking API |
+| `EXPO_PUBLIC_DEFAULT_ORG_ID` | Không bắt buộc | Gợi ý org mặc định |
+| `EXPO_PUBLIC_DEFAULT_BRANCH_ID` | Không bắt buộc | Gợi ý chi nhánh mặc định |
 
-Mobile script `npm run mobile:env` se:
+### Nhóm Telegram
 
-- doc root `.env.local`
-- map mot so bien `NEXT_PUBLIC_*` cu sang `EXPO_PUBLIC_*`
-- sync file env local cho workspace mobile
-- fail som neu thieu cac key quan trong
-
-### Telegram va route secrets
-
-Neu dung Telegram bot flows tren web, can them mot hoac nhieu bien sau:
+Nếu dùng Telegram bot hoặc route nội bộ liên quan thông báo booking:
 
 - `TELEGRAM_BOT_TOKEN`
 - `TELEGRAM_BOOKING_CHAT_ID`
@@ -210,252 +209,229 @@ Neu dung Telegram bot flows tren web, can them mot hoac nhieu bien sau:
 - `TELEGRAM_BOOKING_ALERT_MEDIA_URL`
 - `TELEGRAM_STATE_DIR`
 
-## Lenh chinh
+## Lệnh thường dùng
 
-### Root commands
+### Lệnh ở root
 
-| Command | Mo ta |
+| Lệnh | Mô tả |
 | --- | --- |
-| `npm install` | Cai dependency cho toan monorepo |
-| `npm run dev` | Chay web app |
+| `npm install` | Cài dependency cho toàn bộ monorepo |
+| `npm run dev` | Chạy web app local |
 | `npm run build` | Build web app |
-| `npm run start` | Start web production build |
-| `npm run lint` | Lint web + mobile |
-| `npm run typecheck` | Typecheck web + mobile |
-| `npm run services:seed:priceboard` | Cap nhat seed dich vu tu bang gia mau |
+| `npm run start` | Chạy web build production |
+| `npm run lint` | Lint cả web và mobile |
+| `npm run typecheck` | Typecheck cả web và mobile |
+| `npm run services:seed:priceboard` | Cập nhật seed dịch vụ từ bảng giá mẫu |
 
-### Web commands
+### Lệnh cho web
 
-| Command | Mo ta |
+| Lệnh | Mô tả |
 | --- | --- |
-| `npm run web:dev` | Chay Next.js web app |
+| `npm run web:dev` | Chạy Next.js web app |
 | `npm run web:build` | Build workspace web |
-| `npm run web:start` | Start build web |
+| `npm run web:start` | Chạy web build |
 | `npm run web:lint` | Lint workspace web |
 | `npm run web:typecheck` | Typecheck workspace web |
 
-### Mobile commands
+### Lệnh cho mobile
 
-| Command | Mo ta |
+| Lệnh | Mô tả |
 | --- | --- |
-| `npm run mobile:start` | Chay Expo start |
+| `npm run mobile:start` | Chạy Expo start |
 | `npm run mobile:go:lan` | Expo Go qua LAN |
 | `npm run mobile:go` | Expo Go qua tunnel |
-| `npm run mobile:go:cloudflare` | Mobile dev flow qua Cloudflare |
-| `npm run mobile:android` | Run Android lane |
-| `npm run mobile:prebuild` | Prebuild Android khong install |
-| `npm run mobile:config` | In Expo config JSON |
-| `npm run mobile:doctor` | Chay `expo-doctor` |
-| `npm run mobile:env` | Validate va sync env cho mobile |
-| `npm run mobile:ios` | Run iOS lane neu moi truong ho tro |
+| `npm run mobile:go:cloudflare` | Luồng dev mobile qua Cloudflare |
+| `npm run mobile:android` | Chạy Android |
+| `npm run mobile:prebuild` | Prebuild Android không cài dependency native |
+| `npm run mobile:config` | In Expo config dạng JSON |
+| `npm run mobile:doctor` | Chạy `expo-doctor` |
+| `npm run mobile:env` | Kiểm tra và đồng bộ env cho mobile |
+| `npm run mobile:ios` | Chạy iOS nếu môi trường hỗ trợ |
 | `npm run mobile:lint` | Lint mobile |
 | `npm run mobile:typecheck` | Typecheck mobile |
 
-## Phat trien web
+### Lệnh hỗ trợ i18n
 
-Web source chinh nam o:
+| Lệnh | Mô tả |
+| --- | --- |
+| `npm run i18n:audit` | Audit chuỗi dịch toàn repo |
+| `npm run i18n:audit:customer-mobile` | Audit phần customer mobile |
+| `npm run i18n:audit:admin-mobile` | Audit phần admin mobile |
+
+## Phát triển web
+
+Nguồn chính của web nằm ở:
 
 - `apps/web/src/app`
 - `apps/web/src/components`
 - `apps/web/src/lib`
 
-Nhung khu vuc dang quan trong:
+Những khu vực cần lưu ý:
 
-- `src/app/api/*`: API routes cho booking, app session, Telegram, uploads
-- `src/lib/supabase.ts`: Supabase clients
-- `src/lib/route-secrets.ts`: webhook / internal route guard
-- `src/lib/public-app-url.ts`: public base URL resolution
+- `src/app/api/*`: API routes cho booking, session, Telegram, upload
+- `src/lib/supabase.ts`: khởi tạo Supabase client
+- `src/lib/route-secrets.ts`: kiểm tra secret cho route nội bộ
+- `src/lib/public-app-url.ts`: suy ra public base URL
 
-Khi sua web:
+Khi sửa web:
 
-1. Chay `npm run web:lint`
-2. Chay `npm run web:typecheck`
-3. Neu sua API route co lien quan auth, kiem tra ca mobile flow neu endpoint duoc mobile goi
+1. Chạy `npm run web:lint`
+2. Chạy `npm run web:typecheck`
+3. Nếu sửa API route mà mobile đang gọi, kiểm tra lại flow mobile tương ứng
 
-## Phat trien mobile
+## Phát triển mobile
 
-Mobile app dung:
+Mobile app hiện dùng:
 
-- Expo SDK `54`
+- Expo SDK 54
 - Expo Router
-- tracked native Android project trong `apps/mobile/android`
+- Tracked native Android project trong `apps/mobile/android`
 
-### Luu y quan trong cho Expo Go
+### Lưu ý về Expo Go
 
-- Repo nay da duoc keo ve Expo SDK 54 de tuong thich voi Expo Go tren dien thoai.
-- `expo-doctor` da duoc clean. Check `appConfigFieldsNotSyncedCheck` dang bi disable co chu dich trong `apps/mobile/package.json`, vi repo co `android/` duoc track song song voi app config.
-- Neu muon bat lai check do:
+- Repo đã được kéo về Expo SDK 54 để tương thích với Expo Go hiện tại.
+- `expo-doctor` đang tắt check `appConfigFieldsNotSyncedCheck` có chủ đích vì repo vẫn track thư mục `android/`.
+
+Trong `apps/mobile/package.json` hiện có:
 
 ```json
 {
   "expo": {
     "doctor": {
       "appConfigFieldsNotSyncedCheck": {
-        "enabled": true
+        "enabled": false
       }
     }
   }
 }
 ```
 
-### Auth tren mobile
+### Lưu ý về booking mobile
 
-Tinh trang hien tai:
+- Mobile ưu tiên gọi web API cho booking để giữ các side effect phía server như Telegram.
+- Khi web API chậm hoặc timeout, mobile có thể fallback sang Supabase RPC.
+- Vì vậy mọi thay đổi liên quan tạo booking công khai cần được kiểm tra ở cả hai nhánh: web API và RPC.
 
-- Google sign-in con hoat dong
-- Apple sign-in da bi go bo khoi UI, provider flow, config va dependency
+### Lưu ý về xác thực
 
-### Badge thong bao
+- Google sign-in còn hoạt động.
+- Apple sign-in đã bị gỡ khỏi UI, flow provider và dependency liên quan.
 
-Admin notification badge tren mobile da duoc tinh theo tong:
+## Supabase và SQL
 
-- action notifications dang mo
-- unread feed events
+Thư mục `supabase/` được chia thành:
 
-Nen khi tab "Dong su kien" co item moi, badge ben ngoai se tang dung.
+- `supabase/migrations`: thay đổi schema bền vững, cần giữ để deploy và đồng bộ môi trường
+- `supabase/patches`: script vá hoặc hỗ trợ chuyển tiếp cho một bối cảnh cụ thể
+- `supabase/seeds`: dữ liệu seed
+- `supabase/functions`: Edge Functions
 
-## Supabase va SQL
+Nguyên tắc làm việc:
 
-Thu muc `supabase/` duoc chia thanh:
+1. Mọi thay đổi schema lâu dài phải thêm file mới trong `supabase/migrations`.
+2. Không sửa trực tiếp lịch sử migration cũ trừ khi bạn chủ động làm sạch toàn bộ môi trường.
+3. Patch một lần hoặc script cứu dữ liệu nên để riêng trong `supabase/patches`.
+4. Khi thay đổi hàm RPC quan trọng, cần ghi rõ migration nào đã được thêm trong PR hoặc commit.
 
-- `bootstrap.sql`: one-shot setup cho project moi
-- `deploy.sql`: deploy core schema theo huong legacy
-- `migrations/`: migration co thu tu
-- `patches/`: SQL patch chia theo nhom
-- `seeds/`: seed va backfill
-- `functions/`: Edge Functions
+## Quy ước làm việc
 
-### Workflow de xuat
+### Quy ước code
 
-Cho project moi:
+- Dùng TypeScript cho web, mobile và shared layer.
+- Giữ module nhỏ, một nhiệm vụ rõ ràng.
+- Tên file theo `kebab-case`.
+- Component React theo `PascalCase`.
+- Hook theo dạng `use-*`.
 
-1. Mo SQL Editor trong Supabase.
-2. Chay `supabase/bootstrap.sql`.
-3. Tao auth user dau tien.
-4. User dau tien se duoc bind vao org/branch mac dinh va nhan role `OWNER`.
+### Quy ước commit
 
-Cho project dang ton tai:
+Lịch sử gần đây đang dùng các dạng như:
 
-1. Uu tien tao file moi trong `supabase/migrations/`.
-2. Chi dat SQL sua nong / runtime vao `supabase/patches/`.
-3. Neu da link CLI voi project:
+- `Fix ...`
+- `Add ...`
+- `Refactor ...`
+- `chore: ...`
 
-```bash
-npx supabase db push --linked
-```
+Khi commit, nên mô tả ngắn gọn, mệnh lệnh, phạm vi rõ ràng.
 
-4. Neu can chay verify script:
+### Quy ước pull request
 
-```bash
-npx supabase db query --linked --file supabase/patches/<file>.sql
-```
+PR nên có:
 
-### File quan trong hien tai
+- Tóm tắt thay đổi
+- Phạm vi ảnh hưởng: `apps/web`, `apps/mobile`, `packages/shared`, `supabase`, ...
+- Lệnh kiểm tra đã chạy
+- Ảnh chụp màn hình nếu có thay đổi UI
 
-- `supabase/bootstrap.sql`
-- `supabase/deploy.sql`
-- `supabase/migrations/20260526203000_harden_admin_notification_and_org_policies.sql`
-- `supabase/patches/20260526_verify_harden_admin_notification_and_org_policies.sql`
+## Kiểm tra trước khi merge
 
-## Kiem tra truoc khi merge
-
-Repo hien chua co bo test root rieng, nen toi thieu phai chay:
+Hiện chưa có test suite tổng hợp ở root. Tối thiểu trước khi merge:
 
 ```bash
 npm run lint
 npm run typecheck
 ```
 
-Neu vua sua mobile lane:
+Nếu chỉ sửa một phần nhỏ, có thể chạy theo workspace:
 
 ```bash
-npm run mobile:doctor
+npm run web:typecheck
+npm run mobile:typecheck
 ```
 
-Neu sua env mobile:
+Nếu sửa dữ liệu hoặc schema:
 
-```bash
-npm run mobile:env
-```
+- ghi rõ file migration hoặc patch đã thêm
+- mô tả cách kiểm tra thủ công
+- nếu thay đổi liên quan booking, xác nhận lại cả web và mobile
 
-Neu sua SQL:
+## Tài liệu bổ sung
 
-- ghi ro migration hoac patch nao da doi
-- ghi ro da apply remote chua
-- neu apply that, note them verify step trong PR hoac commit context
+Hãy đọc thêm:
 
-## Tai lieu bo sung
+- `docs/` cho kiến trúc và SOP
+- `supabase/migrations/` để hiểu lịch sử thay đổi schema
+- `packages/shared/src/` để nắm contract nghiệp vụ chung
 
-- [docs/README.md](./docs/README.md): chi muc tai lieu
-- [docs/architecture/repository-summary.md](./docs/architecture/repository-summary.md): tong quan kien truc repo
-- [docs/operations/sop.md](./docs/operations/sop.md): SOP van hanh, release, backup, troubleshooting
-- [docs/operations/expo-dev-operations.md](./docs/operations/expo-dev-operations.md): huong dan Expo / Cloudflare dev flow
-- [supabase/README.md](./supabase/README.md): chi tiet bo SQL va patch layout
+## Xử lý sự cố
 
-## Troubleshooting
+### `npm install` lỗi hoặc xung đột dependency
 
-### 1. Mobile khong doc duoc API tren dien thoai that
+- Kiểm tra Node.js đang dùng có đúng phiên bản mới hay không
+- Xóa `node_modules` và cài lại nếu cần
 
-Nguyen nhan thuong gap:
+### Mobile không chạy được
 
-- `EXPO_PUBLIC_API_BASE_URL` dang tro vao `localhost`
+Kiểm tra lần lượt:
 
-Kiem tra:
+1. `npm run mobile:env`
+2. `npm run mobile:doctor`
+3. Android SDK và `platform-tools` đã có trong `PATH`
+4. URL web API trong env có truy cập được từ điện thoại hoặc emulator
 
-```bash
-npm run mobile:env
-```
+### Mobile booking tạo được lịch nhưng thiếu side effect
 
-Neu can test tren may that, dung:
+Kiểm tra:
 
-- LAN IP cua may dev
-- tunnel
-- Cloudflare flow
+1. `EXPO_PUBLIC_API_BASE_URL` hoặc `EXPO_PUBLIC_WEB_API_BASE_URL`
+2. Web deployment đã chứa bản vá mới nhất chưa
+3. Các biến Telegram trên web runtime có đủ chưa
+4. Migration RPC mới nhất đã được áp dụng trên Supabase chưa
 
-### 2. Web boot len loi Supabase env
+### Web route báo lỗi env
 
-Neu thay loi kieu:
+Thường là thiếu một trong các biến:
 
-```text
-Missing Supabase env: NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY
-```
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 
-Hay bo sung lai `.env.local` o root.
+### Lệch dữ liệu giữa web và mobile
 
-### 3. `expo-doctor` bao warning non-CNG
+Đây thường là dấu hiệu của một trong ba vấn đề:
 
-Repo nay co `apps/mobile/android` duoc track. Warning do da duoc tat bang config doctor trong `apps/mobile/package.json`. Day la lua chon co chu dich, khong phai loi dependency.
+1. Logic bị tách khác nhau giữa web và mobile thay vì đi qua `packages/shared`
+2. Mobile đang đi fallback RPC nhưng web đang đi route server
+3. Migration mới chưa được áp dụng ở môi trường deploy
 
-### 4. `supabase db push --linked` doi password
-
-Export password truoc:
-
-```bash
-set SUPABASE_DB_PASSWORD=your-password
-```
-
-hoac tren PowerShell:
-
-```powershell
-$env:SUPABASE_DB_PASSWORD="your-password"
-```
-
-### 5. Typecheck pass o workspace, nhung app van loi runtime
-
-Hay kiem tra them:
-
-- env da map dung chua
-- mobile co sync env local chua
-- route secret co du key chua
-- migration da apply remote chua
-
-## Ghi chu cho contributor
-
-- Uu tien TypeScript cho app va shared code.
-- Ten file theo kebab-case.
-- Component React dung PascalCase.
-- Hook dat theo `use-*`.
-- SQL ben vung dat trong `supabase/migrations`.
-- SQL sua nong dat trong `supabase/patches`.
-
-Neu can cap nhat README nay, dung thong tin that cua repo. Khong ghi duong dan tuyet doi may local vao file.
+Khi debug, hãy xác định rõ request hiện đang đi theo nhánh nào trước khi sửa.

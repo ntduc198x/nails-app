@@ -1,8 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicBookingInputSchema } from "@nails/shared";
-import { assertPublicBookingRequestAllowed } from "@/lib/public-booking-guard";
-import { createServiceRoleClient } from "@/lib/supabase";
 import { processTelegramBookingNotification } from "@/lib/telegram-booking-notification";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,14 +12,6 @@ function getSupabase() {
   }
 
   return createClient(supabaseUrl, supabaseAnonKey);
-}
-
-function getServiceSupabase() {
-  try {
-    return createServiceRoleClient();
-  } catch {
-    return null;
-  }
 }
 
 function mapBookingRequestError(error: { message?: string } | null | undefined) {
@@ -65,17 +55,6 @@ export async function POST(req: Request) {
     }
 
     const payload = parsed.data;
-    const serviceClient = getServiceSupabase();
-    const guardResult = await assertPublicBookingRequestAllowed({
-      client: serviceClient,
-      customerPhone: payload.customerPhone,
-      requestedStartAt: payload.requestedStartAt,
-    });
-
-    if (!guardResult.allowed) {
-      return NextResponse.json({ ok: false, error: guardResult.error }, { status: guardResult.status });
-    }
-
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc("create_booking_request_public", {
       p_branch_id: payload.branchId ?? null,

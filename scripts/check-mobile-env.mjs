@@ -12,6 +12,11 @@ const requiredKeys = [
   "EXPO_PUBLIC_PASSWORD_RESET_URL",
 ];
 
+const optionalBookingKeys = [
+  "EXPO_PUBLIC_WEB_API_BASE_URL",
+  "EXPO_PUBLIC_BOOKING_API_BASE_URL",
+];
+
 const legacyKeys = [
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
@@ -36,6 +41,9 @@ console.log(`Mobile env contract check (${path.relative(rootDir, envFile)})`);
 for (const key of requiredKeys) {
   console.log(`${readValue(key) ? "OK " : "MISS"} ${key}`);
 }
+for (const key of optionalBookingKeys) {
+  console.log(`${readValue(key) ? "OK " : "SKIP"} ${key}`);
+}
 
 if (missingKeys.length > 0) {
   console.error("");
@@ -51,6 +59,9 @@ if (missingKeys.length > 0) {
 
 console.log("");
 console.log(`Synced mobile env file: ${path.relative(rootDir, targetPath)}`);
+if (readValue("EXPO_PUBLIC_BOOKING_API_BASE_URL")) {
+  console.log(`Booking API override: ${readValue("EXPO_PUBLIC_BOOKING_API_BASE_URL")}`);
+}
 if (readValue("EXPO_PUBLIC_API_BASE_URL").includes("localhost")) {
   console.warn("WARN EXPO_PUBLIC_API_BASE_URL points to localhost. Real devices and most Android emulators will not reach your Next API on that host.");
   console.warn("WARN Use a LAN IP or reachable host if the mobile app must call /api/customer/* endpoints directly.");

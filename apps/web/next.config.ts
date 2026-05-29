@@ -14,6 +14,7 @@ function getSupabaseHostname() {
 const supabaseHostname = getSupabaseHostname();
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["*.trycloudflare.com"],
   transpilePackages: ["@nails/shared"],
   images: {
     remotePatterns: [

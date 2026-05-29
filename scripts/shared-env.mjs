@@ -78,6 +78,10 @@ export function getDerivedMobilePublicEnv(sourceEnv = process.env) {
     EXPO_PUBLIC_PASSWORD_RESET_URL:
       mergedEnv.EXPO_PUBLIC_PASSWORD_RESET_URL ||
       (mergedEnv.NEXT_PUBLIC_APP_URL ? `${mergedEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/reset-password` : ""),
+    EXPO_PUBLIC_WEB_API_BASE_URL:
+      mergedEnv.EXPO_PUBLIC_WEB_API_BASE_URL || "",
+    EXPO_PUBLIC_BOOKING_API_BASE_URL:
+      mergedEnv.EXPO_PUBLIC_BOOKING_API_BASE_URL || "",
   };
 }
 

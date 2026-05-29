@@ -49,6 +49,7 @@ const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
 });
 
 const MOBILE_BOOKING_API_TIMEOUT_MS = 1_500;
+const MOBILE_BOOKING_NOTIFY_TIMEOUT_MS = 10_000;
 
 function getDateLabel(date: Date, index: number, locale: Locale) {
   if (index === 0) return translate(locale, "customer", "today");
@@ -206,6 +207,20 @@ function isSameCalendarDay(left: Date, right: Date) {
 
 function formatBookingDateTime(value: string, locale: Locale) {
   return formatDateTimeLabel(value, locale) || value;
+}
+
+async function notifyTelegramAfterMobileFallback(input: {
+  payload: PublicBookingInput;
+  bookingApiBaseUrl: string;
+}) {
+  try {
+    await createPublicBookingRequest(input.payload, {
+      baseUrl: input.bookingApiBaseUrl,
+      timeoutMs: MOBILE_BOOKING_NOTIFY_TIMEOUT_MS,
+    });
+  } catch {
+    // Best-effort notify path. The booking is already created via RPC fallback.
+  }
 }
 
 export function useGuestBooking(locale: Locale) {
@@ -414,6 +429,14 @@ export function useGuestBooking(locale: Locale) {
           }
 
           result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
+          if (result.bookingRequestId) {
+            setTimeout(() => {
+              void notifyTelegramAfterMobileFallback({
+                payload: parsed.data,
+                bookingApiBaseUrl,
+              });
+            }, 0);
+          }
         }
       } else if (mobileSupabase) {
         result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);

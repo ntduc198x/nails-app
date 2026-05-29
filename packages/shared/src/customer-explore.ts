@@ -4,6 +4,7 @@ import type { LocalizedTextValue, TranslationMetaValue } from "./localization";
 
 export type ExploreStorefront = {
   id: string;
+  branchId: string | null;
   slug: string;
   name: string;
   category: string | null;

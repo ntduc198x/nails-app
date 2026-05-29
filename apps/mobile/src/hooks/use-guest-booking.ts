@@ -3,6 +3,8 @@ import {
   createPublicBookingRequest,
   createPublicBookingRequestForMobile,
   formatDateTimeLabel,
+  getCustomerScopedContext,
+  getCustomerScopedContextForGuest,
   publicBookingInputSchema,
   translate,
   type Locale,
@@ -123,6 +125,21 @@ function normalizeBookingErrorMessage(message: string, locale: Locale) {
   return normalized || translate(locale, "errors", "bookingRequestFailed");
 }
 
+function shouldFallbackToBookingApi(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.startsWith("typeerror: network request failed") ||
+    normalized.includes("network request failed") ||
+    normalized.includes("failed to fetch") ||
+    normalized.includes("fetch failed") ||
+    normalized.includes("load failed") ||
+    normalized.includes("connection") ||
+    normalized.includes("timeout")
+  );
+}
+
 function inferFieldErrors(message: string): GuestBookingFieldErrors {
   const lower = message.toLowerCase();
   if (lower.includes("ten")) return { customerName: message };
@@ -238,6 +255,19 @@ export function useGuestBooking(locale: Locale) {
       }
 
       const requestedStartAtIso = toIsoDateTime(values.selectedDate, values.selectedTime);
+      let bookingBranchId: string | undefined;
+
+      if (mobileSupabase) {
+        const scope = await getCustomerScopedContext(mobileSupabase);
+        bookingBranchId = scope?.branchId ?? undefined;
+      }
+
+      if (!bookingBranchId && mobileEnv.defaultOrgId) {
+        bookingBranchId = getCustomerScopedContextForGuest(
+          mobileEnv.defaultOrgId,
+          mobileEnv.defaultBranchId || null,
+        ).branchId ?? undefined;
+      }
 
       if (mobileSupabase && user?.id) {
         const accountResult = await mobileSupabase
@@ -317,6 +347,7 @@ export function useGuestBooking(locale: Locale) {
       }
 
       const payload: PublicBookingInput = {
+        branchId: bookingBranchId,
         customerName: values.customerName,
         customerPhone: values.customerPhone,
         requestedService: values.requestedService || undefined,
@@ -346,8 +377,8 @@ export function useGuestBooking(locale: Locale) {
         return;
       }
 
-      const bookingApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
       let result;
+      const bookingApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
 
       if (bookingApiBaseUrl) {
         try {
@@ -355,27 +386,19 @@ export function useGuestBooking(locale: Locale) {
             baseUrl: bookingApiBaseUrl,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const shouldFallbackToRpc = Boolean(mobileSupabase) && (
-            message.startsWith("BOOKING_API_NON_JSON") ||
-            message.includes("Failed to fetch") ||
-            message.includes("Network request failed")
-          );
-
-          if (shouldFallbackToRpc && mobileSupabase) {
-            result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
-          } else {
+          if (!mobileSupabase || !shouldFallbackToBookingApi(error)) {
             throw error;
           }
+
+          result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
         }
       } else if (mobileSupabase) {
         result = await createPublicBookingRequestForMobile(mobileSupabase, parsed.data);
       } else {
-        result = await createPublicBookingRequest(parsed.data);
+        throw new Error(translate(locale, "errors", "bookingConnectionMissing"));
       }
 
       setSuccessResult(result);
-      setIsSubmitting(false);
 
       void (async () => {
         if (user?.id && result.bookingRequestId) {
@@ -432,8 +455,9 @@ export function useGuestBooking(locale: Locale) {
       const friendlyMessage = normalizeBookingErrorMessage(rawMessage, locale);
       setFieldErrors(inferFieldErrors(friendlyMessage));
       setSubmitError(friendlyMessage);
-      setIsSubmitting(false);
       return;
+    } finally {
+      setIsSubmitting(false);
     }
   }
 

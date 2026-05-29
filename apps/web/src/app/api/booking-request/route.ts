@@ -52,7 +52,7 @@ async function notifyTelegramBookingRequest(req: Request, bookingRequestId: stri
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${internalSecret}`,
+        "x-telegram-internal-secret": internalSecret,
       },
       body: JSON.stringify({
         record: { id: bookingRequestId },
@@ -128,6 +128,7 @@ export async function POST(req: Request) {
 
     const supabase = getSupabase();
     const { data, error } = await supabase.rpc("create_booking_request_public", {
+      p_branch_id: payload.branchId ?? null,
       p_customer_name: payload.customerName,
       p_customer_phone: payload.customerPhone,
       p_requested_service: payload.requestedService ?? null,
@@ -153,12 +154,20 @@ export async function POST(req: Request) {
         : "";
 
     if (createdBookingId) {
-      const telegramNotification = await notifyTelegramBookingRequest(req, createdBookingId);
+      void notifyTelegramBookingRequest(req, createdBookingId).catch(() => {});
 
       return NextResponse.json({
         ok: true,
         message: "Đã gửi yêu cầu thành công",
-        telegramNotification,
+        data: {
+          booking_request_id: createdBookingId,
+          id: createdBookingId,
+          status: "NEW",
+        },
+        bookingRequest: {
+          id: createdBookingId,
+          status: "NEW",
+        },
       });
     }
 

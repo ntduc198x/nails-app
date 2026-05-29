@@ -78,6 +78,7 @@ function normalizeStorefront(row?: Record<string, unknown> | null): ExploreStore
 
   return {
     id: String(row.id),
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
     slug: String(row.slug),
     name: String(row.name),
     category: typeof row.category === "string" ? row.category : null,
@@ -193,7 +194,7 @@ export async function getCustomerExplorePayload(): Promise<CustomerExplorePayloa
   const storefrontResult = await supabase
     .from("storefront_profile")
     .select(
-      "id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,translations,translation_meta",
+      "id,branch_id,slug,name,category,description,cover_image_url,logo_image_url,rating,reviews_label,address_line,map_url,opening_hours,phone,messenger_url,instagram_url,highlights,translations,translation_meta",
     )
     .eq("is_active", true)
     .order("updated_at", { ascending: false })

@@ -207,7 +207,7 @@ Neu dung Telegram bot flows tren web, can them mot hoac nhieu bien sau:
 - `TELEGRAM_BOOKING_CHAT_ID`
 - `TELEGRAM_WEBHOOK_SECRET`
 - `TELEGRAM_INTERNAL_ROUTE_SECRET`
-- `BOOKING_TELEGRAM_ALERT_MEDIA_URL`
+- `TELEGRAM_BOOKING_ALERT_MEDIA_URL`
 - `TELEGRAM_STATE_DIR`
 
 ## Lenh chinh

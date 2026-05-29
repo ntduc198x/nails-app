@@ -225,6 +225,75 @@ async function getCustomerAccountContext(client: SharedSupabaseClient): Promise<
   };
 }
 
+function isMissingOrgPrimaryBranchColumnError(error: { code?: string; message?: string } | null | undefined) {
+  const message = error?.message ?? "";
+  return error?.code === "42703" || message.includes("primary_branch_id");
+}
+
+async function getOrgPrimaryBranchId(client: SharedSupabaseClient, orgId: string): Promise<string | null> {
+  const primaryBranchResult = await client
+    .from("orgs")
+    .select("primary_branch_id")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  if (primaryBranchResult.error && !isMissingOrgPrimaryBranchColumnError(primaryBranchResult.error)) {
+    throw primaryBranchResult.error;
+  }
+
+  const configuredPrimaryBranchId =
+    !primaryBranchResult.error && typeof primaryBranchResult.data?.primary_branch_id === "string"
+      ? primaryBranchResult.data.primary_branch_id
+      : null;
+
+  if (configuredPrimaryBranchId) {
+    return configuredPrimaryBranchId;
+  }
+
+  const fallbackBranchResult = await client
+    .from("branches")
+    .select("id")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fallbackBranchResult.error) {
+    throw fallbackBranchResult.error;
+  }
+
+  return typeof fallbackBranchResult.data?.id === "string" ? fallbackBranchResult.data.id : null;
+}
+
+async function resolveCustomerScopeBranchId(
+  client: SharedSupabaseClient,
+  orgId: string,
+  customerId: string | null,
+): Promise<string | null> {
+  if (customerId) {
+    const customerBranchResult = await client
+      .from("customer_branches")
+      .select("branch_id,last_seen_at,updated_at,created_at")
+      .eq("org_id", orgId)
+      .eq("customer_id", customerId)
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (customerBranchResult.error) {
+      throw customerBranchResult.error;
+    }
+
+    if (typeof customerBranchResult.data?.branch_id === "string") {
+      return customerBranchResult.data.branch_id;
+    }
+  }
+
+  return getOrgPrimaryBranchId(client, orgId);
+}
+
 async function ensureCustomerAccountContext(client: SharedSupabaseClient): Promise<CustomerAccountContext | null> {
   const current = await getCustomerAccountContext(client);
   if (current) {
@@ -471,9 +540,11 @@ export async function getCustomerScopedContextForUser(
     return null;
   }
 
+  const branchId = await resolveCustomerScopeBranchId(client, orgId, customerId);
+
   return {
     orgId,
-    branchId: null,
+    branchId,
     customerId,
     userId,
   };
@@ -673,6 +744,7 @@ function normalizeStorefront(row?: StorefrontRow | null): ExploreStorefront | nu
 
   return {
     id: String(row.id),
+    branchId: typeof row.branch_id === "string" ? row.branch_id : null,
     slug: String(row.slug),
     name: getViString(row, "name", row.name) ?? String(row.name),
     category: getViString(row, "category", row.category),

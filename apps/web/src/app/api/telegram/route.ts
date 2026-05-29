@@ -6,7 +6,10 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
 const telegramChatId = process.env.TELEGRAM_BOOKING_CHAT_ID;
-const bookingAlertMediaUrl = process.env.BOOKING_TELEGRAM_ALERT_MEDIA_URL?.trim() || "";
+const bookingAlertMediaUrl =
+  process.env.TELEGRAM_BOOKING_ALERT_MEDIA_URL?.trim() ||
+  process.env.BOOKING_TELEGRAM_ALERT_MEDIA_URL?.trim() ||
+  "";
 const NEARBY_WARNING_MINUTES = Number(process.env.BOOKING_NEARBY_WARNING_MINUTES ?? "30");
 
 function getSupabase() {

@@ -48,6 +48,8 @@ const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
   return `${String(hour).padStart(2, "0")}:${minute}`;
 });
 
+const MOBILE_BOOKING_API_TIMEOUT_MS = 1_500;
+
 function getDateLabel(date: Date, index: number, locale: Locale) {
   if (index === 0) return translate(locale, "customer", "today");
   if (index === 1) return translate(locale, "customer", "tomorrow");
@@ -130,6 +132,8 @@ function shouldFallbackToBookingApi(error: unknown) {
   const normalized = message.toLowerCase();
 
   return (
+    normalized.includes("booking_api_timeout") ||
+    normalized.includes("aborterror") ||
     normalized.startsWith("typeerror: network request failed") ||
     normalized.includes("network request failed") ||
     normalized.includes("failed to fetch") ||
@@ -384,6 +388,7 @@ export function useGuestBooking(locale: Locale) {
         try {
           result = await createPublicBookingRequest(parsed.data, {
             baseUrl: bookingApiBaseUrl,
+            timeoutMs: MOBILE_BOOKING_API_TIMEOUT_MS,
           });
         } catch (error) {
           if (!mobileSupabase || !shouldFallbackToBookingApi(error)) {

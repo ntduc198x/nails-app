@@ -109,6 +109,7 @@ export async function createPublicBookingRequest<
   options?: {
     baseUrl?: string;
     fetcher?: typeof fetch;
+    timeoutMs?: number;
   },
 ) {
   const payload = publicBookingInputSchema.parse(input);
@@ -116,12 +117,30 @@ export async function createPublicBookingRequest<
   const endpoint = options?.baseUrl
     ? new URL("/api/booking-request", options.baseUrl).toString()
     : "/api/booking-request";
+  const timeoutMs = options?.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort("BOOKING_API_TIMEOUT"), timeoutMs);
 
-  const res = await fetcher(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  let res: Response;
+  try {
+    res = await fetcher(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      (error instanceof Error && error.name === "AbortError") ||
+      error === "BOOKING_API_TIMEOUT"
+    ) {
+      throw new Error("BOOKING_API_TIMEOUT");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const rawText = await res.text();
   let json: BookingRequestApiResponse<TData, TBookingRequest> | null = null;

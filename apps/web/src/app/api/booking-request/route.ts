@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { publicBookingInputSchema } from "@nails/shared";
 import { assertPublicBookingRequestAllowed } from "@/lib/public-booking-guard";
 import { createServiceRoleClient } from "@/lib/supabase";
+import { processTelegramBookingNotification } from "@/lib/telegram-booking-notification";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -20,57 +21,6 @@ function getServiceSupabase() {
     return createServiceRoleClient();
   } catch {
     return null;
-  }
-}
-
-function resolveInternalBaseUrl(req: Request) {
-  const requestUrl = new URL(req.url);
-  const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-
-  if (forwardedHost) {
-    return `${forwardedProto || requestUrl.protocol.replace(":", "")}://${forwardedHost}`;
-  }
-
-  return requestUrl.origin;
-}
-
-async function notifyTelegramBookingRequest(req: Request, bookingRequestId: string) {
-  const internalSecret = process.env.TELEGRAM_INTERNAL_ROUTE_SECRET;
-  if (!internalSecret) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "missing_internal_secret",
-    };
-  }
-
-  const notifyUrl = new URL("/api/telegram", resolveInternalBaseUrl(req)).toString();
-
-  try {
-    const response = await fetch(notifyUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-telegram-internal-secret": internalSecret,
-      },
-      body: JSON.stringify({
-        record: { id: bookingRequestId },
-      }),
-    });
-
-    const payload = await response.json().catch(() => null);
-
-    return {
-      ok: response.ok && payload?.ok === true,
-      status: response.status,
-      payload,
-    };
-  } catch {
-    return {
-      ok: false,
-      error: "telegram_notify_failed",
-    };
   }
 }
 
@@ -154,7 +104,13 @@ export async function POST(req: Request) {
         : "";
 
     if (createdBookingId) {
-      void notifyTelegramBookingRequest(req, createdBookingId).catch(() => {});
+      after(() => {
+        void processTelegramBookingNotification({
+          record: { id: createdBookingId },
+        }).catch((error) => {
+          console.error("booking-request telegram notify failed", error);
+        });
+      });
 
       return NextResponse.json({
         ok: true,

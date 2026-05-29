@@ -220,7 +220,7 @@ export default function AccountScreen() {
   const { isBusy, signOut, user } = useSession();
   const { favoriteIds, refresh: refreshFavorites, isHydrated: favoritesHydrated } = useCustomerFavorites({ autoRefreshOnMount: false });
   const { historyItems, isHydrated: historyHydrated, isLoading: historyLoading, refresh: refreshTimeline, syncFromCache: syncTimelineFromCache } =
-    useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
+    useCustomerBookingTimeline({ historyLimit: 24, upcomingLimit: 6 });
   const { currentTier, nextTier, pointsBalance, remainingSpentToNext, remainingVisitsToNext, eligibleVisitsMinSpend, offers } = useCustomerMembership({ autoRefreshOnMount: false });
   const { refresh: refreshLookbook, services, syncFromCache: syncLookbookFromCache } = useLookbookServices(FALLBACK_SERVICES, { autoRefreshOnMount: false });
   const [manualTab, setManualTab] = useState<TabKey | null>(null);

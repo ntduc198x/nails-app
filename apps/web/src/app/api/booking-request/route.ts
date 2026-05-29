@@ -102,6 +102,9 @@ export async function POST(req: Request) {
       : typeof data === "object" && data
         ? String((data as { booking_request_id?: string; id?: string }).booking_request_id ?? (data as { id?: string }).id ?? "")
         : "";
+    const createdBookingStatus = typeof data === "object" && data && typeof (data as { status?: string }).status === "string"
+      ? (data as { status: string }).status
+      : "NEW";
 
     if (createdBookingId) {
       after(() => {
@@ -118,11 +121,11 @@ export async function POST(req: Request) {
         data: {
           booking_request_id: createdBookingId,
           id: createdBookingId,
-          status: "NEW",
+          status: createdBookingStatus,
         },
         bookingRequest: {
           id: createdBookingId,
-          status: "NEW",
+          status: createdBookingStatus,
         },
       });
     }

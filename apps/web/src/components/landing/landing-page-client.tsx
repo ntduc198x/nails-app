@@ -642,6 +642,7 @@ export function LandingPageClient({ initialExplore, initialHomeFeed }: LandingPa
       }
 
       await createPublicBookingRequest({
+        branchId: storefront?.branchId ?? undefined,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         requestedService: selectedService || undefined,

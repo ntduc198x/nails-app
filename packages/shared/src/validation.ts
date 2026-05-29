@@ -3,6 +3,7 @@ import { DEFAULT_LOCALE, type Locale, translate } from "./i18n";
 
 export function createPublicBookingInputSchema(locale: Locale = DEFAULT_LOCALE) {
   return z.object({
+    branchId: z.string().uuid().optional(),
     customerName: z.string().trim().min(1, translate(locale, "errors", "bookingMissingName")),
     customerPhone: z.string().trim().min(1, translate(locale, "errors", "bookingMissingPhone")),
     requestedService: z.string().trim().optional(),

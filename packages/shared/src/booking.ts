@@ -109,6 +109,7 @@ export async function createPublicBookingRequest<
   options?: {
     baseUrl?: string;
     fetcher?: typeof fetch;
+    timeoutMs?: number;
   },
 ) {
   const payload = publicBookingInputSchema.parse(input);
@@ -116,12 +117,30 @@ export async function createPublicBookingRequest<
   const endpoint = options?.baseUrl
     ? new URL("/api/booking-request", options.baseUrl).toString()
     : "/api/booking-request";
+  const timeoutMs = options?.timeoutMs ?? 10_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort("BOOKING_API_TIMEOUT"), timeoutMs);
 
-  const res = await fetcher(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  let res: Response;
+  try {
+    res = await fetcher(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (
+      (error instanceof Error && error.name === "AbortError") ||
+      error === "BOOKING_API_TIMEOUT"
+    ) {
+      throw new Error("BOOKING_API_TIMEOUT");
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   const rawText = await res.text();
   let json: BookingRequestApiResponse<TData, TBookingRequest> | null = null;
@@ -152,6 +171,7 @@ export async function createPublicBookingRequestForMobile(
 ) {
   const payload = publicBookingInputSchema.parse(input);
   const { data, error } = await client.rpc("create_booking_request_public", {
+    p_branch_id: payload.branchId ?? null,
     p_customer_name: payload.customerName,
     p_customer_phone: payload.customerPhone,
     p_requested_service: payload.requestedService ?? null,
@@ -178,9 +198,15 @@ export async function createPublicBookingRequestForMobile(
       ? String((data as { booking_request_id?: string; id?: string }).booking_request_id ?? (data as { id?: string }).id ?? "")
       : "";
 
+  const bookingRequestStatus = typeof data === "object" && data && typeof (data as { status?: string }).status === "string"
+    ? (data as { status: string }).status
+    : bookingRequestId
+      ? "NEW"
+      : null;
+
   return {
     bookingRequestId: bookingRequestId || null,
-    bookingRequestStatus: bookingRequestId ? "NEW" : null,
+    bookingRequestStatus,
     data: null,
     telegramNotification: null,
     successMessage: bookingRequestId ? "Đã gửi yêu cầu thành công" : null,

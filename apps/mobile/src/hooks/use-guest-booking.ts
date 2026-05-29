@@ -124,6 +124,18 @@ function normalizeBookingErrorMessage(message: string, locale: Locale) {
     return translate(locale, "errors", "bookingMissingStartAt");
   }
 
+  if (lower.includes("booking_request_duplicate_cooldown")) {
+    return locale === "en"
+      ? "A similar booking request was just sent. Please check your schedule and try again in a few minutes."
+      : "Yêu cầu đặt lịch tương tự vừa được gửi. Vui lòng kiểm tra lại và thử lại sau ít phút.";
+  }
+
+  if (lower.includes("booking_request_rate_limited")) {
+    return locale === "en"
+      ? "Too many booking requests were sent too quickly. Please wait a moment and try again."
+      : "Bạn đang gửi yêu cầu quá nhanh. Vui lòng chờ một chút rồi thử lại.";
+  }
+
   return normalized || translate(locale, "errors", "bookingRequestFailed");
 }
 
@@ -215,6 +227,7 @@ export function useGuestBooking(locale: Locale) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successResult, setSuccessResult] = useState<PublicBookingSubmissionResult | null>(null);
+  const submitLockRef = useMemo(() => ({ current: false }), []);
 
   function updateValue<Key extends keyof GuestBookingFormValues>(key: Key, value: GuestBookingFormValues[Key]) {
     setValues((current) => ({ ...current, [key]: value }));
@@ -241,11 +254,16 @@ export function useGuestBooking(locale: Locale) {
   }
 
   async function submit() {
+    if (submitLockRef.current) {
+      return;
+    }
+
     if (!mobileSupabase && !mobileEnv.apiBaseUrl) {
       setSubmitError(translate(locale, "errors", "bookingConnectionMissing"));
       return;
     }
 
+    submitLockRef.current = true;
     setIsSubmitting(true);
     setFieldErrors({});
     setSubmitError(null);
@@ -463,6 +481,7 @@ export function useGuestBooking(locale: Locale) {
       return;
     } finally {
       setIsSubmitting(false);
+      submitLockRef.current = false;
     }
   }
 

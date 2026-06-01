@@ -273,114 +273,24 @@ async function findOrCreateCustomerForMobile(
     throw new Error(translate(DEFAULT_LOCALE, "errors", "customerNameRequired"));
   }
 
-  const findExistingByBranchScope = async () => {
-    if (!branchId) {
-      return null;
-    }
+  const response = await client.rpc("upsert_customer_by_identity", {
+    p_org_id: orgId,
+    p_full_name: normalizedName,
+    p_phone: normalizedPhone,
+    p_source: "admin_mobile_scheduling",
+    p_care_note: null,
+    p_branch_id: branchId,
+  });
 
-    if (normalizedPhone) {
-      const byPhone = await client
-        .from("customers")
-        .select("id,phone,customer_branches!inner(branch_id)")
-        .eq("org_id", orgId)
-        .eq("customer_branches.branch_id", branchId)
-        .eq("phone", normalizedPhone)
-        .limit(1)
-        .maybeSingle();
-
-      if (byPhone.error) {
-        throw byPhone.error;
-      }
-
-      if (byPhone.data?.id) {
-        return {
-          id: String(byPhone.data.id),
-          phone: typeof byPhone.data.phone === "string" ? byPhone.data.phone : null,
-        };
-      }
-    }
-
-    for (const field of ["full_name", "name"] as const) {
-      const byName = await client
-        .from("customers")
-        .select("id,phone,customer_branches!inner(branch_id)")
-        .eq("org_id", orgId)
-        .eq("customer_branches.branch_id", branchId)
-        .eq(field, normalizedName)
-        .limit(1)
-        .maybeSingle();
-
-      if (byName.error) {
-        throw byName.error;
-      }
-
-      if (byName.data?.id) {
-        return {
-          id: String(byName.data.id),
-          phone: typeof byName.data.phone === "string" ? byName.data.phone : null,
-        };
-      }
-    }
-
-    return null;
-  };
-
-  const existingInBranch = await findExistingByBranchScope();
-  if (existingInBranch?.id) {
-    if (normalizedPhone && !existingInBranch.phone) {
-      const updateRes = await client
-        .from("customers")
-        .update({ phone: normalizedPhone })
-        .eq("id", existingInBranch.id)
-        .eq("org_id", orgId);
-
-      if (updateRes.error) {
-        throw updateRes.error;
-      }
-    }
-
-    return existingInBranch.id;
+  if (response.error) {
+    throw response.error;
   }
 
-  const created = await client
-    .from("customers")
-    .insert({
-      org_id: orgId,
-      name: normalizedName,
-      phone: normalizedPhone,
-    })
-    .select("id")
-    .single();
-
-  if (created.error) {
-    throw created.error;
+  if (!response.data) {
+    throw new Error("CUSTOMER_UPSERT_FAILED");
   }
 
-  return String(created.data.id);
-}
-
-async function ensureCustomerBranchLinkForMobile(
-  client: SharedSupabaseClient,
-  input: { customerId: string; orgId: string; branchId: string | null },
-) {
-  if (!input.branchId) {
-    return;
-  }
-
-  const upsert = await client.from("customer_branches").upsert(
-    {
-      customer_id: input.customerId,
-      org_id: input.orgId,
-      branch_id: input.branchId,
-    },
-    {
-      onConflict: "customer_id,branch_id",
-    },
-  );
-
-  if (upsert.error) {
-    throw upsert.error;
-  }
+  return String(response.data);
 }
 
 export async function saveAppointmentForMobile(
@@ -389,11 +299,6 @@ export async function saveAppointmentForMobile(
 ) {
   const { orgId, branchId } = await ensureOrgContext(client);
   const customerId = await findOrCreateCustomerForMobile(client, orgId, branchId ?? null, input.customerName, input.customerPhone);
-  await ensureCustomerBranchLinkForMobile(client, {
-    customerId,
-    orgId,
-    branchId: branchId ?? null,
-  });
 
   const payload = {
     customer_id: customerId,

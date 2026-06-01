@@ -1386,7 +1386,7 @@ function createStyles(theme: ReturnType<typeof useCustomerTheme>) {
       backgroundColor: "#FFFDFB",
       borderColor: theme.colors.dangerText,
       borderRadius: 22,
-      borderWidth: 1.5,
+      borderWidth: 1,
       flexDirection: "row",
       gap: 10,
       justifyContent: "center",

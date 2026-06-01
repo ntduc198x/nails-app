@@ -1,61 +1,36 @@
 import Feather from "@expo/vector-icons/Feather";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
-import * as Linking from "expo-linking";
 import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
-import {
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { premiumTheme } from "@/src/design/premium-theme";
-import { mobileSupabase } from "@/src/lib/supabase";
+import { mobileEnv } from "@/src/lib/env";
 
 const { colors } = premiumTheme;
 const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
-function readAuthParams(url: string) {
-  const parsed = new URL(url);
-  const hash = new URLSearchParams(parsed.hash.replace(/^#/, ""));
-  return {
-    code: parsed.searchParams.get("code"),
-    accessToken: parsed.searchParams.get("access_token") || hash.get("access_token"),
-    refreshToken: parsed.searchParams.get("refresh_token") || hash.get("refresh_token"),
-    type: parsed.searchParams.get("type") || hash.get("type"),
-    error: parsed.searchParams.get("error") || hash.get("error"),
-    errorDescription: parsed.searchParams.get("error_description") || hash.get("error_description"),
-  };
-}
-
 export default function ResetPasswordScreen() {
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const params = useLocalSearchParams<{ token?: string }>();
+  const token = typeof params.token === "string" ? params.token.trim() : "";
   const [isPreparing, setIsPreparing] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [locale, setLocale] = useState<Locale>("vi");
   const [message, setMessage] = useState("");
   const [isReady, setIsReady] = useState(false);
+  const [isUsed, setIsUsed] = useState(false);
   const t = useMemo(
-    () => (key: TranslationKey<"mobileAuth">, params?: Record<string, string | number>) =>
-      translate(locale, "mobileAuth", key, params),
+    () => (key: TranslationKey<"mobileAuth">, nextParams?: Record<string, string | number>) =>
+      translate(locale, "mobileAuth", key, nextParams),
     [locale],
   );
 
   const submitLabel = useMemo(() => {
-    if (isSubmitting) return translate(locale, "customer", "updating");
-    return translate(locale, "customer", "updatePassword");
-  }, [isSubmitting, locale]);
+    if (isSubmitting) return t("resetConfirming");
+    return t("resetConfirmAction");
+  }, [isSubmitting, t]);
 
   useEffect(() => {
     let mounted = true;
@@ -69,60 +44,52 @@ export default function ResetPasswordScreen() {
       }
     })();
 
-    async function prepareRecoverySession() {
-      if (!mobileSupabase) {
-        if (mounted) {
-          setError(t("mobileSupabaseMissing"));
-          setMessage("");
-          setIsPreparing(false);
-        }
-        return;
-      }
-
+    async function validateResetToken() {
       try {
-        const initialUrl = await Linking.getInitialURL();
-        if (!initialUrl) {
+        if (!token) {
           throw new Error(t("invalidRecoveryLink"));
         }
 
-        const params = readAuthParams(initialUrl);
-        if (params.error) {
-          throw new Error(params.errorDescription || params.error || t("invalidRecoveryLink"));
+        const response = await fetch(
+          `${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/status?token=${encodeURIComponent(token)}`,
+          { method: "GET" },
+        );
+        const payload = (await response.json().catch(() => null)) as
+          | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
+          | null;
+
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error || t("invalidRecoveryToken"));
         }
 
-        if (params.type === "recovery" && params.accessToken && params.refreshToken) {
-          const { error: setSessionError } = await mobileSupabase.auth.setSession({
-            access_token: params.accessToken,
-            refresh_token: params.refreshToken,
-          });
-          if (setSessionError) {
-            throw setSessionError;
-          }
-        } else if (params.code) {
-          const { error: exchangeError } = await mobileSupabase.auth.exchangeCodeForSession(params.code);
-          if (exchangeError) {
-            throw exchangeError;
-          }
-        } else {
-          const {
-            data: { session },
-          } = await mobileSupabase.auth.getSession();
+        if (!mounted) return;
 
-          if (!session) {
-            throw new Error(t("invalidRecoveryToken"));
-          }
-        }
+        setError(null);
+        setIsReady(payload.status === "pending");
+        setIsUsed(payload.status === "used");
 
-        if (mounted) {
-          setIsReady(true);
+        if (payload.status === "pending") {
           setMessage(t("resetReady"));
-          setError(null);
+          return;
         }
-      } catch (nextError) {
-        if (mounted) {
-          setError(nextError instanceof Error ? nextError.message : t("invalidRecoveryToken"));
+
+        if (payload.status === "used") {
+          setMessage(t("resetAlreadyUsed"));
+          return;
+        }
+
+        if (payload.status === "expired") {
           setMessage("");
+          setError(t("resetExpired"));
+          return;
         }
+
+        setMessage("");
+        setError(t("invalidRecoveryToken"));
+      } catch (nextError) {
+        if (!mounted) return;
+        setError(nextError instanceof Error ? nextError.message : t("invalidRecoveryToken"));
+        setMessage("");
       } finally {
         if (mounted) {
           setIsPreparing(false);
@@ -130,26 +97,16 @@ export default function ResetPasswordScreen() {
       }
     }
 
-    void prepareRecoverySession();
+    void validateResetToken();
 
     return () => {
       mounted = false;
     };
-  }, [t]);
+  }, [t, token]);
 
   async function handleSubmit() {
-    if (!mobileSupabase) {
-      setError(t("mobileSupabaseMissing"));
-      return;
-    }
-
-    if (!password || password.length < 6) {
-      setError(translate(locale, "customer", "passwordTooShort"));
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError(translate(locale, "customer", "passwordMismatch"));
+    if (!token) {
+      setError(t("invalidRecoveryLink"));
       return;
     }
 
@@ -157,13 +114,36 @@ export default function ResetPasswordScreen() {
     setError(null);
 
     try {
-      const { error: updateError } = await mobileSupabase.auth.updateUser({ password });
-      if (updateError) {
-        throw updateError;
+      const response = await fetch(`${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/confirm`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.success) {
+        if (payload?.status === "used") {
+          setIsUsed(true);
+          setIsReady(false);
+          setMessage(t("resetAlreadyUsed"));
+          return;
+        }
+        if (payload?.status === "expired") {
+          throw new Error(t("resetExpired"));
+        }
+        if (payload?.status === "invalid") {
+          throw new Error(payload.error || t("invalidRecoveryToken"));
+        }
+        throw new Error(payload?.error || translate(locale, "errors", "passwordChangeFailed"));
       }
 
+      setIsUsed(true);
+      setIsReady(false);
       setMessage(t("resetSuccess"));
-      await mobileSupabase.auth.signOut();
       Alert.alert(t("resetSuccessAlertTitle"), t("resetSuccessAlertBody"), [
         {
           text: t("backToLogin"),
@@ -179,11 +159,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
-        style={styles.keyboardShell}
-      >
+      <View style={styles.keyboardShell}>
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.brandMark}>
             <Text style={styles.brandMarkText}>C</Text>
@@ -196,33 +172,10 @@ export default function ResetPasswordScreen() {
             {message ? <Text style={styles.helper}>{message}</Text> : null}
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <InputField
-              icon="lock"
-              placeholder={translate(locale, "customer", "newPassword")}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              editable={isReady && !isPreparing && !isSubmitting}
-              rightAction={
-                <Pressable onPress={() => setShowPassword((current) => !current)} hitSlop={10}>
-                  <Feather color="#7B6D63" name={showPassword ? "eye-off" : "eye"} size={18} />
-                </Pressable>
-              }
-            />
-
-            <InputField
-              icon="shield"
-              placeholder={translate(locale, "customer", "confirmNewPassword")}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-              editable={isReady && !isPreparing && !isSubmitting}
-              rightAction={
-                <Pressable onPress={() => setShowConfirmPassword((current) => !current)} hitSlop={10}>
-                  <Feather color="#7B6D63" name={showConfirmPassword ? "eye-off" : "eye"} size={18} />
-                </Pressable>
-              }
-            />
+            <View style={styles.infoCard}>
+              <Feather color="#7B6D63" name="mail" size={18} />
+              <Text style={styles.infoCardText}>{t("resetEmailNotice")}</Text>
+            </View>
 
             <Pressable
               style={[styles.primaryButton, (!isReady || isPreparing || isSubmitting) ? styles.primaryButtonDisabled : null]}
@@ -232,55 +185,22 @@ export default function ResetPasswordScreen() {
               <Text style={styles.primaryButtonText}>{submitLabel}</Text>
             </Pressable>
 
+            {isUsed ? <Text style={styles.helper}>{t("resetLoginHint")}</Text> : null}
+
             <Pressable onPress={() => router.replace("/(auth)/sign-in")} style={styles.secondaryAction}>
               <Text style={styles.secondaryActionText}>{t("backToLogin")}</Text>
             </Pressable>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
-  );
-}
-
-function InputField({
-  icon,
-  placeholder,
-  value,
-  onChangeText,
-  secureTextEntry,
-  editable = true,
-  rightAction,
-}: {
-  icon: React.ComponentProps<typeof Feather>["name"];
-  placeholder: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  secureTextEntry?: boolean;
-  editable?: boolean;
-  rightAction?: React.ReactNode;
-}) {
-  return (
-    <View style={[styles.inputShell, !editable ? styles.inputShellDisabled : null]}>
-      <Feather color="#7B6D63" name={icon} size={18} />
-      <TextInput
-        style={styles.input}
-        placeholder={placeholder}
-        placeholderTextColor="#9E9085"
-        value={value}
-        onChangeText={onChangeText}
-        secureTextEntry={secureTextEntry}
-        editable={editable}
-        autoCapitalize="none"
-      />
-      {rightAction ? <View style={styles.inputAction}>{rightAction}</View> : null}
-    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFF9F6",
+    backgroundColor: "#FCFAF8",
   },
   keyboardShell: {
     flex: 1,
@@ -349,29 +269,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  inputShell: {
-    minHeight: 54,
+  infoCard: {
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E7DDD2",
     backgroundColor: "#FFFDFB",
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 14,
+    paddingVertical: 14,
     gap: 10,
   },
-  inputShellDisabled: {
-    opacity: 0.75,
-  },
-  input: {
+  infoCardText: {
     flex: 1,
-    color: colors.text,
-    fontSize: 15,
-    paddingVertical: 12,
-  },
-  inputAction: {
-    alignItems: "center",
-    justifyContent: "center",
+    color: "#7B6D63",
+    fontSize: 14,
+    lineHeight: 21,
   },
   primaryButton: {
     minHeight: 52,

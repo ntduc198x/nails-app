@@ -63,17 +63,17 @@ export function createPremiumTheme(mode: PremiumThemeMode = "light") {
 
   return {
   colors: {
-    background: "#fff8f1",
+    background: "#FCFAF8",
     surface: "#ffffff",
-    surfaceMuted: "#fff1e1",
-    surfaceRaised: "#fff9f3",
-    border: "#ead8c5",
-    borderStrong: "#d7bfa8",
+    surfaceMuted: "#F9F3EC",
+    surfaceRaised: "#FFF9F4",
+    border: "#E8DDD1",
+    borderStrong: "#D8C6B3",
     text: "#2d241d",
     textSoft: "#786453",
     textMuted: "#a38974",
     accent: "#3a2d23",
-    accentSoft: "#f6e4d2",
+    accentSoft: "#F4EADF",
     accentWarm: "#cf8649",
     successBg: "#ebfaef",
     successText: "#2f9d61",

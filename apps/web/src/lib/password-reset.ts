@@ -96,6 +96,15 @@ export function buildMobilePasswordResetConfirmUrl(token: string) {
   return `${MOBILE_APP_SCHEME}://reset-password?token=${encodeURIComponent(token)}`;
 }
 
+export function buildWebLoginUrl() {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) {
+    return null;
+  }
+
+  return new URL("/login", appUrl).toString();
+}
+
 export async function createPendingPasswordReset(email: string) {
   const serviceRoleClient = createServiceRoleClient();
   const normalizedEmail = normalizeResetEmail(email);
@@ -153,6 +162,29 @@ export async function createPendingPasswordReset(email: string) {
     webConfirmUrl: buildWebPasswordResetConfirmUrl(resetToken),
     mobileConfirmUrl: buildMobilePasswordResetConfirmUrl(resetToken),
   };
+}
+
+export async function issueTemporaryPasswordReset(email: string) {
+  const pendingReset = await createPendingPasswordReset(email);
+  if (!pendingReset) {
+    return null;
+  }
+
+  try {
+    const result = await confirmPasswordResetByToken(pendingReset.resetToken);
+    if (result.status !== "used") {
+      throw new Error(`PASSWORD_RESET_APPLY_UNEXPECTED_STATUS: ${result.status}`);
+    }
+
+    return {
+      email: pendingReset.email,
+      temporaryPassword: pendingReset.temporaryPassword,
+      loginUrl: buildWebLoginUrl(),
+    };
+  } catch (error) {
+    await deletePendingPasswordResetById(pendingReset.requestId).catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function deletePendingPasswordResetById(requestId: string) {

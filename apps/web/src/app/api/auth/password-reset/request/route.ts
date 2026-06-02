@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  createPendingPasswordReset,
-  deletePendingPasswordResetById,
   isValidResetEmail,
+  issueTemporaryPasswordReset,
   normalizeResetEmail,
 } from "@/lib/password-reset";
 import { sendPasswordResetEmail } from "@/lib/password-reset-email";
@@ -16,22 +15,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Email không hợp lệ." }, { status: 400 });
     }
 
-    const pendingReset = await createPendingPasswordReset(email);
-    if (!pendingReset) {
+    const temporaryReset = await issueTemporaryPasswordReset(email);
+    if (!temporaryReset) {
       return NextResponse.json({ success: true });
     }
 
-    try {
-      await sendPasswordResetEmail({
-        to: pendingReset.email,
-        temporaryPassword: pendingReset.temporaryPassword,
-        webConfirmUrl: pendingReset.webConfirmUrl,
-        mobileConfirmUrl: pendingReset.mobileConfirmUrl,
-      });
-    } catch (error) {
-      await deletePendingPasswordResetById(pendingReset.requestId).catch(() => undefined);
-      throw error;
-    }
+    await sendPasswordResetEmail({
+      to: temporaryReset.email,
+      temporaryPassword: temporaryReset.temporaryPassword,
+      loginUrl: temporaryReset.loginUrl,
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -49,6 +49,7 @@ export default function SignInScreen() {
   const [name, setName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [isResetSending, setIsResetSending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showEmailFallback, setShowEmailFallback] = useState(false);
   const [locale, setLocale] = useState<Locale>("vi");
@@ -174,12 +175,15 @@ export default function SignInScreen() {
           onPress: () => {
             void (async () => {
               try {
+                setIsResetSending(true);
                 setMessage(null);
                 clearError();
                 await requestPasswordReset(nextEmail);
                 setMessage(t("resetSent"));
               } catch {
                 // Session provider already surfaces the concrete error state.
+              } finally {
+                setIsResetSending(false);
               }
             })();
           },
@@ -356,8 +360,8 @@ export default function SignInScreen() {
               />
 
               {mode === "login" ? (
-                <Pressable style={styles.forgotWrap} onPress={() => void handlePasswordReset()}>
-                  <Text style={styles.forgotText}>{t("forgotPassword")}</Text>
+                <Pressable disabled={isResetSending} style={styles.forgotWrap} onPress={() => void handlePasswordReset()}>
+                  <Text style={styles.forgotText}>{isResetSending ? t("processing") : t("forgotPassword")}</Text>
                 </Pressable>
               ) : null}
 

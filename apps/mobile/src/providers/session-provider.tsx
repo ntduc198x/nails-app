@@ -901,30 +901,38 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }
 
   async function requestPasswordReset(email: string) {
-    if (!mobileSupabase) {
-      throw new Error("Thieu cau hinh Supabase mobile.");
+    const passwordResetApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
+    if (!passwordResetApiBaseUrl) {
+      throw new Error("Thieu cau hinh backend de gui reset password.");
     }
 
-    setIsBusy(true);
     setError(null);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const response = await fetch(`${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/request`, {
+      const response = await fetch(`${passwordResetApiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/request`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email: email.trim() }),
+        signal: controller.signal,
       });
       const payload = (await response.json().catch(() => null)) as { success?: boolean; error?: string } | null;
       if (!response.ok || !payload?.success) {
         throw new Error(payload?.error || "Gui reset password that bai.");
       }
     } catch (nextError) {
+      if (nextError instanceof Error && nextError.name === "AbortError") {
+        setError("Gui email reset password bi timeout. Kiem tra backend/mail service roi thu lai.");
+        throw new Error("Gui email reset password bi timeout. Kiem tra backend/mail service roi thu lai.");
+      }
       setError(nextError instanceof Error ? nextError.message : "Gui reset password that bai.");
       throw nextError;
     } finally {
-      setIsBusy(false);
+      clearTimeout(timeoutId);
     }
   }
 

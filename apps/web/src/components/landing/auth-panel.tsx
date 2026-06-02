@@ -139,7 +139,7 @@ export function AuthPanel({
 
     try {
       await requestBrowserPasswordReset(email);
-      setMessage("Đã gửi email chứa mật khẩu tạm mới. Bạn có thể dùng ngay mật khẩu đó để đăng nhập rồi đổi lại sau.");
+      setMessage("Đã gửi email chứa mật khẩu tạm và link kích hoạt. Bạn cần bấm vào email để kích hoạt mật khẩu mới trước khi đăng nhập.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không gửi được email đặt lại mật khẩu.");
     } finally {

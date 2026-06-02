@@ -4,19 +4,21 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
-import { formatDateLabel, formatDateTimeLabel, formatMoneyVnd, listCustomerFavoriteServices, translate, type CustomerFavoriteService } from "@nails/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { formatDateLabel, formatMoneyVnd, listCustomerFavoriteServices, translate, type CustomerFavoriteService, type CustomerHistoryItem } from "@nails/shared";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { uploadPickedAdminContentImage } from "@/src/features/admin/content-images";
 import { resizeAvatarImage } from "@/src/features/admin/content-images";
 import { FALLBACK_SERVICES } from "@/src/features/customer/data";
+import { AccountHistorySection } from "@/src/features/customer/account-history-section";
 import { CustomerImagePreviewModal } from "@/src/features/customer/image-preview-modal";
-import { localizeDynamicServiceText, localizeFavoriteService, localizeMembershipTier } from "@/src/features/customer/localize";
-import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
+import { localizeFavoriteService, localizeMembershipTier } from "@/src/features/customer/localize";
+import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerBrandTopBar, CustomerScreen, SurfaceCard } from "@/src/features/customer/ui";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
+import { useRouteScrollFocus } from "@/src/hooks/use-route-scroll-focus";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
 import { useLookbookServices } from "@/src/hooks/use-lookbook-services";
@@ -155,55 +157,17 @@ function getTierTextPalette(tierKey: string | null | undefined) {
   }
 }
 
-function getHistoryStatusBadgeStyle(status: string, theme: ReturnType<typeof useCustomerTheme>) {
-  switch (status) {
-    case "DONE":
-      return {
-        backgroundColor: theme.colors.successBg,
-        borderColor: "#CFEED9",
-        textColor: theme.colors.successText,
-      };
-    case "CONFIRMED":
-    case "BOOKED":
-    case "CHECKED_IN":
-    case "IN_SERVICE":
-      return {
-        backgroundColor: "#F2EEFF",
-        borderColor: "#DDD3FF",
-        textColor: "#6F52D9",
-      };
-    case "NEW":
-    case "NEEDS_RESCHEDULE":
-    case "CONVERTED":
-      return {
-        backgroundColor: theme.colors.warningBg,
-        borderColor: "#F0D8B3",
-        textColor: theme.colors.warningText,
-      };
-    case "CANCELLED":
-    case "NO_SHOW":
-    case "EXPIRED_UNCONFIRMED":
-      return {
-        backgroundColor: theme.colors.dangerBg,
-        borderColor: "#F3C8C1",
-        textColor: theme.colors.dangerText,
-      };
-    default:
-      return {
-        backgroundColor: theme.colors.accentSoft,
-        borderColor: theme.colors.border,
-        textColor: theme.colors.textSoft,
-      };
-  }
-}
-
 function formatRemainingVisitsLabel(value: number, locale: "vi" | "en") {
   const formattedValue = value.toLocaleString(locale === "en" ? "en-US" : "vi-VN");
   return translate(locale, "customer", "membershipRequirementQualifiedVisits", { count: formattedValue });
 }
 
 export default function AccountScreen() {
-  const params = useLocalSearchParams<{ tab?: string | string[] }>();
+  const params = useLocalSearchParams<{
+    tab?: string | string[];
+    focusSection?: string | string[];
+    highlightAppointmentId?: string | string[];
+  }>();
   const theme = useCustomerTheme();
   const { locale } = useCustomerPreferences();
   const strings = useCustomerStrings();
@@ -226,6 +190,10 @@ export default function AccountScreen() {
   const [manualTab, setManualTab] = useState<TabKey | null>(null);
   const routeTab = parseTabKey(params.tab);
   const currentTab = manualTab ?? routeTab ?? "history";
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(4);
+  const accountScrollRef = useRef<ScrollView | null>(null);
+  const historySectionYRef = useRef(0);
+  const historyItemYRef = useRef<Record<string, number>>({});
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -277,6 +245,44 @@ export default function AccountScreen() {
     const seed = encodeURIComponent(form.name.trim() || user?.email?.trim() || strings.accountFallbackName);
     return `https://ui-avatars.com/api/?name=${seed}&background=B4937D&color=FFFFFF&size=256`;
   }, [avatarUri, form.name, strings.accountFallbackName, user?.email]);
+
+  const visibleHistoryItems = useMemo(
+    () => historyItems.slice(0, visibleHistoryCount),
+    [historyItems, visibleHistoryCount],
+  );
+  const historyFocusSection = Array.isArray(params.focusSection) ? params.focusSection[0] : params.focusSection;
+  const historyHighlightAppointmentId = Array.isArray(params.highlightAppointmentId)
+    ? params.highlightAppointmentId[0]
+    : params.highlightAppointmentId;
+
+  useRouteScrollFocus<CustomerHistoryItem>({
+    clearFocusParams: useCallback(() => {
+      router.setParams({
+        focusSection: undefined,
+        highlightAppointmentId: undefined,
+      });
+    }, []),
+    focusSection: historyFocusSection,
+    getItemId: useCallback((item: CustomerHistoryItem) => item.id, []),
+    highlightId: historyHighlightAppointmentId,
+    itemYRef: historyItemYRef,
+    items: historyItems,
+    matchesHighlight: useCallback(
+      (item: CustomerHistoryItem, highlightId: string) =>
+        item.appointmentId === highlightId || item.id === highlightId,
+      [],
+    ),
+    onMatch: useCallback((matchedItem: CustomerHistoryItem) => {
+      setManualTab("history");
+      const matchedIndex = historyItems.findIndex((item) => item.id === matchedItem.id);
+      if (matchedIndex >= 0) {
+        setVisibleHistoryCount((current) => Math.max(current, matchedIndex + 1));
+      }
+    }, [historyItems]),
+    scrollViewRef: accountScrollRef,
+    sectionKey: "history",
+    sectionYRef: historySectionYRef,
+  });
 
   const membershipThemeKey = currentTier?.themeKey || currentTier?.code || "bronze";
   const membershipCardGradient = getTierGradient(membershipThemeKey);
@@ -690,6 +696,7 @@ export default function AccountScreen() {
     <CustomerScreen
       hideHeader
       scroll
+      scrollViewRef={accountScrollRef}
       keyboardAware
       keyboardVerticalOffset={Platform.OS === "ios" ? 96 : 32}
       contentContainerStyle={[styles.content, styles.keyboardSafeContent]}
@@ -746,7 +753,16 @@ export default function AccountScreen() {
         {TABS.map((tab) => {
           const active = tab.key === currentTab;
           return (
-            <Pressable key={tab.key} onPress={() => setManualTab(tab.key)} style={[styles.tabButton, active ? styles.tabButtonActive : null]}>
+            <Pressable
+              key={tab.key}
+              onPress={() => {
+                setManualTab(tab.key);
+                if (tab.key === "history") {
+                  setVisibleHistoryCount(4);
+                }
+              }}
+              style={[styles.tabButton, active ? styles.tabButtonActive : null]}
+            >
               <Feather color={active ? theme.colors.text : theme.colors.textSoft} name={tab.icon} size={14} />
               <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
             </Pressable>
@@ -755,44 +771,20 @@ export default function AccountScreen() {
       </SurfaceCard>
 
       {currentTab === "history" ? (
-        <View style={styles.cardList}>
-          {historyItems.map((item) => {
-            const badgeStyle = getHistoryStatusBadgeStyle(item.status, theme);
-            const serviceName = localizeDynamicServiceText(locale, item.serviceName, item.serviceTranslations, "name") ?? item.serviceName;
-            const serviceSummary = item.serviceSummary
-              ? localizeDynamicServiceText(locale, item.serviceSummary, item.serviceTranslations, "short_description")
-              : null;
-            return (
-              <SurfaceCard key={item.id} style={styles.rowCard}>
-                <CustomerCachedImage alt={serviceName} source={{ uri: item.serviceImageUrl ?? displayAvatar }} intent="thumbnail" style={styles.rowImage} />
-                <View style={styles.rowCopy}>
-                  <Text style={styles.rowTitle}>{serviceName}</Text>
-                  <Text style={styles.rowSubtitle}>
-                    {formatDateTimeLabel(item.occurredAt, locale)}
-                  </Text>
-                  <View style={styles.rowMetaWrap}>
-                    <View style={[styles.historyBadge, { backgroundColor: badgeStyle.backgroundColor, borderColor: badgeStyle.borderColor }]}>
-                      <Text style={[styles.historyBadgeText, { color: badgeStyle.textColor }]}>{getCustomerStatusLabel(locale, item.status)}</Text>
-                    </View>
-                    {item.servicePriceLabel ? <Text style={styles.rowMeta}>• {item.servicePriceLabel}</Text> : null}
-                    {item.preferredStaff ? <Text style={styles.rowMeta}>• {item.preferredStaff}</Text> : null}
-                    {serviceSummary ? <Text style={styles.rowMeta}>• {serviceSummary}</Text> : null}
-                  </View>
-                </View>
-              </SurfaceCard>
-            );
-          })}
-
-          {historyHydrated && !historyLoading && !historyItems.length ? (
-            <SurfaceCard style={styles.emptyCard}>
-              <View style={styles.emptyIconWrap}>
-                <Feather color="#D8B892" name="calendar" size={22} />
-              </View>
-              <Text style={styles.emptyTitle}>{strings.historyEmptyTitle}</Text>
-              <Text style={styles.emptyText}>{strings.historyEmptyBody}</Text>
-            </SurfaceCard>
-          ) : null}
-        </View>
+        <AccountHistorySection
+          displayAvatar={displayAvatar}
+          emptyBody={strings.historyEmptyBody}
+          emptyTitle={strings.historyEmptyTitle}
+          historyItems={historyItems}
+          isHydrated={historyHydrated}
+          isLoading={historyLoading}
+          itemYRef={historyItemYRef}
+          locale={locale}
+          onViewMore={() => setVisibleHistoryCount((current) => Math.min(current + 4, historyItems.length))}
+          sectionYRef={historySectionYRef}
+          viewMoreLabel={strings.homeViewMore}
+          visibleHistoryItems={visibleHistoryItems}
+        />
       ) : null}
 
       {currentTab === "favorites" ? (

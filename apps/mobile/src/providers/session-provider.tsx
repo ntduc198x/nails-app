@@ -909,15 +909,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setError(null);
 
     try {
-      const resetRedirectUrl =
-        mobileEnv.passwordResetUrl ||
-        (mobileEnv.apiBaseUrl ? `${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/reset-password` : buildNativeAppRedirectUrl());
-      const { error: resetError } = await mobileSupabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: resetRedirectUrl,
+      const response = await fetch(`${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/request`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email: email.trim() }),
       });
-
-      if (resetError) {
-        throw resetError;
+      const payload = (await response.json().catch(() => null)) as { success?: boolean; error?: string } | null;
+      if (!response.ok || !payload?.success) {
+        throw new Error(payload?.error || "Gui reset password that bai.");
       }
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Gui reset password that bai.");

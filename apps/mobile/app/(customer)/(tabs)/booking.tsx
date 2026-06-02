@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
-import { formatDateTimeLabel, translate } from "@nails/shared";
-import { useCallback, useEffect, useState } from "react";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { formatDateTimeLabel, translate, type CustomerUpcomingBookingItem } from "@nails/shared";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { CustomerBrandTopBar, CustomerScreen, Pill, PrimaryButton, SurfaceCard } from "@/src/features/customer/ui";
 import { QUICK_CONTACTS_CARD } from "@/src/features/customer/data";
@@ -10,6 +10,7 @@ import { premiumTheme } from "@/src/design/premium-theme";
 import { getCustomerStatusLabel, useCustomerStrings } from "@/src/features/customer/strings";
 import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
 import { useGuestBooking } from "@/src/hooks/use-guest-booking";
+import { useRouteScrollFocus } from "@/src/hooks/use-route-scroll-focus";
 import { readCustomerProfileCache } from "@/src/lib/customer-profile-cache";
 import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 import { mobileSupabase } from "@/src/lib/supabase";
@@ -26,12 +27,22 @@ function getLocalizedContactActionLabel(actionLabel: string, locale: "vi" | "en"
 }
 
 export default function BookingScreen() {
-  const params = useLocalSearchParams<{ service?: string; offerId?: string; offerClaimId?: string; offerCode?: string; offerTitle?: string }>();
+  const params = useLocalSearchParams<{
+    service?: string;
+    branchId?: string;
+    offerId?: string;
+    offerClaimId?: string;
+    offerCode?: string;
+    offerTitle?: string;
+    focusSection?: string | string[];
+    highlightAppointmentId?: string | string[];
+  }>();
   const strings = useCustomerStrings();
   const { locale } = useCustomerPreferences();
   const { user } = useSession();
+  const requestedBranchId = typeof params.branchId === "string" && params.branchId.trim() ? params.branchId.trim() : null;
   const { dateOptions, fieldErrors, isSubmitting, submit, submitError, successResult, timeSlots, updateValue, values } =
-    useGuestBooking(locale);
+    useGuestBooking(locale, { branchId: requestedBranchId });
   const {
     upcomingItems: upcomingBookings,
     isRefreshing: timelineBackgroundRefreshing,
@@ -39,6 +50,13 @@ export default function BookingScreen() {
     syncFromCache: syncTimelineFromCache,
   } = useCustomerBookingTimeline({ historyLimit: 8, upcomingLimit: 6 });
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const bookingScrollRef = useRef<ScrollView | null>(null);
+  const upcomingSectionYRef = useRef(0);
+  const upcomingItemYRef = useRef<Record<string, number>>({});
+  const bookingFocusSection = Array.isArray(params.focusSection) ? params.focusSection[0] : params.focusSection;
+  const bookingHighlightAppointmentId = Array.isArray(params.highlightAppointmentId)
+    ? params.highlightAppointmentId[0]
+    : params.highlightAppointmentId;
 
   useEffect(() => {
     if (params.service && typeof params.service === "string" && params.service !== values.requestedService) {
@@ -137,6 +155,28 @@ export default function BookingScreen() {
     void syncTimelineFromCache();
   }, [successResult?.bookingRequestId, syncTimelineFromCache]);
 
+  useRouteScrollFocus<CustomerUpcomingBookingItem>({
+    clearFocusParams: useCallback(() => {
+      router.setParams({
+        focusSection: undefined,
+        highlightAppointmentId: undefined,
+      });
+    }, []),
+    focusSection: bookingFocusSection,
+    getItemId: useCallback((item: CustomerUpcomingBookingItem) => item.id, []),
+    highlightId: bookingHighlightAppointmentId,
+    itemYRef: upcomingItemYRef,
+    items: upcomingBookings,
+    matchesHighlight: useCallback(
+      (item: CustomerUpcomingBookingItem, highlightId: string) =>
+        item.appointmentId === highlightId || item.id === highlightId,
+      [],
+    ),
+    scrollViewRef: bookingScrollRef,
+    sectionKey: "upcoming",
+    sectionYRef: upcomingSectionYRef,
+  });
+
   useEffect(() => {
     if (typeof params.offerId === "string" && params.offerId && values.appliedOfferId !== params.offerId) {
       updateValue("appliedOfferId", params.offerId);
@@ -176,6 +216,7 @@ export default function BookingScreen() {
     <CustomerScreen
       title=""
       hideHeader
+      scrollViewRef={bookingScrollRef}
       keyboardAware
       keyboardVerticalOffset={12}
       contentContainerStyle={styles.content}
@@ -348,7 +389,12 @@ export default function BookingScreen() {
           </View>
         </View>
 
-        <View style={styles.bookingList}>
+        <View
+          style={styles.bookingList}
+          onLayout={(event) => {
+            upcomingSectionYRef.current = event.nativeEvent.layout.y;
+          }}
+        >
           {!user ? (
             <Text style={styles.bookingEmptyText}>{strings.upcomingBookingsSignedOut}</Text>
           ) : !upcomingBookings.length ? (
@@ -363,7 +409,13 @@ export default function BookingScreen() {
               );
 
               return (
-                <View key={item.id} style={styles.bookingRow}>
+                <View
+                  key={item.id}
+                  style={styles.bookingRow}
+                  onLayout={(event) => {
+                    upcomingItemYRef.current[item.id] = event.nativeEvent.layout.y + upcomingSectionYRef.current;
+                  }}
+                >
                   <View style={styles.bookingThumbPlaceholder}>
                     <Feather color={colors.accentWarm} name="calendar" size={20} />
                   </View>

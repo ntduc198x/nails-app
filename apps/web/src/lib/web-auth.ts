@@ -290,14 +290,17 @@ export async function completeGoogleAuthFromCode(nextPath?: string | null) {
 }
 
 export async function requestBrowserPasswordReset(email: string) {
-  if (!supabase) {
-    throw new Error("Thiếu cấu hình Supabase.");
-  }
+  const response = await fetch("/api/auth/password-reset/request", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email: email.trim() }),
+  });
 
-  const redirectTo = typeof window !== "undefined" ? `${window.location.origin}/login` : undefined;
-  const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
-  if (error) {
-    throw error;
+  const payload = (await response.json().catch(() => null)) as { success?: boolean; error?: string } | null;
+  if (!response.ok || !payload?.success) {
+    throw new Error(payload?.error || "Không gửi được email đặt lại mật khẩu.");
   }
 }
 

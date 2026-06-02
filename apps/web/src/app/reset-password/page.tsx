@@ -3,122 +3,74 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
-
-function getRecoveryTokens() {
-  if (typeof window === "undefined") {
-    return {
-      accessToken: null,
-      refreshToken: null,
-      type: null,
-      code: null,
-      error: null,
-      errorDescription: null,
-    };
-  }
-
-  const currentUrl = new URL(window.location.href);
-  const hash = new URLSearchParams(currentUrl.hash.replace(/^#/, ""));
-  return {
-    code: currentUrl.searchParams.get("code"),
-    accessToken: hash.get("access_token"),
-    refreshToken: hash.get("refresh_token"),
-    type: hash.get("type") || currentUrl.searchParams.get("type"),
-    error: currentUrl.searchParams.get("error") || hash.get("error"),
-    errorDescription: currentUrl.searchParams.get("error_description") || hash.get("error_description"),
-  };
-}
 
 function ResetPasswordContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [message, setMessage] = useState("Đang xác thực link đổi mật khẩu...");
+  const [message, setMessage] = useState("Đang kiểm tra liên kết xác nhận reset mật khẩu...");
   const [error, setError] = useState<string | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUsed, setIsUsed] = useState(false);
 
   const nextPath = useMemo(() => searchParams.get("next") || "/login", [searchParams]);
+  const token = useMemo(() => searchParams.get("token")?.trim() || "", [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function prepareRecoverySession() {
-      if (!supabase) {
-        if (!cancelled) {
-          setError("Thiếu cấu hình Supabase trên web.");
-          setMessage("");
-        }
-        return;
-      }
-
+    async function validateResetToken() {
       try {
-        const { code, accessToken, refreshToken, type, error, errorDescription } = getRecoveryTokens();
-
-        if (error) {
-          throw new Error(errorDescription || error || "Link đổi mật khẩu không hợp lệ.");
+        if (!token) {
+          throw new Error("Không tìm thấy token reset mật khẩu hợp lệ.");
         }
 
-        if (type === "recovery" && accessToken && refreshToken) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
+        const response = await fetch(`/api/auth/password-reset/status?token=${encodeURIComponent(token)}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
+          | null;
 
-          if (sessionError) {
-            throw sessionError;
-          }
-        } else if (code) {
-          const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) {
-            throw exchangeError;
-          }
-        } else {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-
-          if (!session) {
-            throw new Error("Link đổi mật khẩu không hợp lệ hoặc đã hết hạn.");
-          }
+        if (!response.ok || !payload?.success) {
+          throw new Error(payload?.error || "Không kiểm tra được trạng thái reset mật khẩu.");
         }
 
         if (!cancelled) {
-          setIsReady(true);
-          setMessage("Nhập mật khẩu mới cho tài khoản của anh ngay trên web.");
+          setIsReady(payload.status === "pending");
+          setIsUsed(payload.status === "used");
+          if (payload.status === "pending") {
+            setMessage("Liên kết hợp lệ. Bấm xác nhận để kích hoạt mật khẩu tạm đã được gửi qua email.");
+          } else if (payload.status === "used") {
+            setMessage("Liên kết này đã được dùng. Bạn có thể đăng nhập bằng mật khẩu tạm trong email.");
+          } else if (payload.status === "expired") {
+            setError("Liên kết reset mật khẩu đã hết hạn.");
+            setMessage("");
+          } else {
+            setError("Liên kết reset mật khẩu không hợp lệ hoặc không còn tồn tại.");
+            setMessage("");
+          }
         }
       } catch (recoveryError) {
         if (!cancelled) {
-          setError(recoveryError instanceof Error ? recoveryError.message : "Không xác thực được link đổi mật khẩu.");
+          setError(recoveryError instanceof Error ? recoveryError.message : "Không xác thực được liên kết reset mật khẩu.");
           setMessage("");
         }
       }
     }
 
-    void prepareRecoverySession();
+    void validateResetToken();
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!supabase) {
-      setError("Thiếu cấu hình Supabase trên web.");
-      return;
-    }
-
-    if (!password || password.length < 6) {
-      setError("Mật khẩu mới phải có ít nhất 6 ký tự.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Mật khẩu xác nhận chưa khớp.");
+  async function handleConfirmReset() {
+    if (!token) {
+      setError("Không tìm thấy token reset mật khẩu hợp lệ.");
       return;
     }
 
@@ -126,18 +78,41 @@ function ResetPasswordContent() {
     setError(null);
 
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) {
-        throw updateError;
+      const response = await fetch("/api/auth/password-reset/confirm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ token }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.success) {
+        if (payload?.status === "used") {
+          setIsUsed(true);
+          setIsReady(false);
+          setMessage("Liên kết này đã được dùng. Bạn có thể đăng nhập bằng mật khẩu tạm trong email.");
+          return;
+        }
+        if (payload?.status === "expired") {
+          throw new Error("Liên kết reset mật khẩu đã hết hạn.");
+        }
+        if (payload?.status === "invalid") {
+          throw new Error(payload.error || "Liên kết reset mật khẩu không hợp lệ.");
+        }
+        throw new Error(payload?.error || "Không áp dụng được mật khẩu mới.");
       }
 
-      setMessage("Đổi mật khẩu thành công. Đang chuyển về đăng nhập...");
-      await supabase.auth.signOut();
+      setIsUsed(true);
+      setIsReady(false);
+      setMessage("Đã kích hoạt mật khẩu tạm thành công. Đang chuyển về đăng nhập...");
       window.setTimeout(() => {
         router.replace(nextPath.startsWith("/") ? nextPath : "/login");
       }, 1200);
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Không đổi được mật khẩu.");
+      setError(submitError instanceof Error ? submitError.message : "Không xác nhận được reset mật khẩu.");
     } finally {
       setIsSaving(false);
     }
@@ -164,33 +139,18 @@ function ResetPasswordContent() {
               ) : null}
 
               {isReady ? (
-                <form onSubmit={handleSubmit} style={{ marginTop: 20, display: "grid", gap: 12 }}>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span>Mật khẩu mới</span>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      className="landing-auth-form__input"
-                      autoComplete="new-password"
-                      placeholder="Nhập mật khẩu mới"
-                    />
-                  </label>
-                  <label style={{ display: "grid", gap: 6 }}>
-                    <span>Xác nhận mật khẩu</span>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
-                      className="landing-auth-form__input"
-                      autoComplete="new-password"
-                      placeholder="Nhập lại mật khẩu mới"
-                    />
-                  </label>
-                  <button type="submit" className="landing-auth-form__submit" disabled={isSaving}>
-                    {isSaving ? "Đang cập nhật..." : "Đổi mật khẩu"}
+                <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
+                  <p>Mật khẩu mới đã được gửi sẵn qua email. Bước cuối cùng là xác nhận để hệ thống kích hoạt mật khẩu đó.</p>
+                  <button type="button" className="landing-auth-form__submit" disabled={isSaving} onClick={() => void handleConfirmReset()}>
+                    {isSaving ? "Đang xác nhận..." : "Xác nhận reset mật khẩu"}
                   </button>
-                </form>
+                </div>
+              ) : null}
+
+              {isUsed ? (
+                <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
+                  <p>Hãy quay lại màn đăng nhập và dùng mật khẩu tạm đã nhận trong email.</p>
+                </div>
               ) : null}
             </div>
           </div>

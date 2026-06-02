@@ -677,6 +677,7 @@ export function useAdminNotifications(
   locale: Locale = "vi",
 ) {
   const [notifications, setNotifications] = useState<ManageNotificationItem[]>([]);
+  const [notificationsScopeKey, setNotificationsScopeKey] = useState<string | null>(null);
   const [legacySeenAt, setLegacySeenAt] = useState<string | null>(null);
   const [readFeedIds, setReadFeedIds] = useState<string[]>([]);
   const [dismissedActionIds, setDismissedActionIds] = useState<string[]>([]);
@@ -734,14 +735,17 @@ export function useAdminNotifications(
   const loadNotifications = useCallback(async () => {
     if (!enabled || !role) {
       setNotifications([]);
+      setNotificationsScopeKey(null);
       return;
     }
 
     try {
       const rows = await loadManageNotificationsForMobile(role, userId, observerScope, locale);
       setNotifications(rows);
+      setNotificationsScopeKey(observerScopeKey);
     } catch {
       setNotifications([]);
+      setNotificationsScopeKey(observerScopeKey);
     }
   }, [enabled, locale, observerScope, observerScopeKey, role, userId]);
 
@@ -778,14 +782,14 @@ export function useAdminNotifications(
   }, [enabled, locale, observerScope, observerScopeKey, role, userId]);
 
   useEffect(() => {
-    if (!enabled) {
-      setNotifications([]);
-      return;
-    }
+    const timeoutId = setTimeout(() => {
+      void loadNotifications();
+    }, 0);
 
-    setNotifications([]);
-    void loadNotifications();
-  }, [enabled, loadNotifications, observerScopeKey]);
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (!enabled || !mobileSupabase) {
@@ -858,7 +862,12 @@ export function useAdminNotifications(
   );
 
   const actionOpenCount = actionNotifications.length;
-  const visibleNotifications = useMemo(() => (enabled ? notifications : []), [enabled, notifications]);
+  const visibleNotifications = useMemo(() => {
+    if (!enabled || notificationsScopeKey !== observerScopeKey) {
+      return [];
+    }
+    return notifications;
+  }, [enabled, notifications, notificationsScopeKey, observerScopeKey]);
   const feedNotifications = useMemo(
     () => visibleNotifications.filter((item) => !item.actionRequired),
     [visibleNotifications],

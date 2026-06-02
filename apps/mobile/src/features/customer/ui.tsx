@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import { router, usePathname } from "expo-router";
-import { useCallback, useRef, type ReactNode } from "react";
+import { useCallback, useRef, type ReactNode, type RefObject } from "react";
 import {
   findNodeHandle,
   Keyboard,
@@ -44,6 +44,7 @@ type CustomerScreenProps = {
   scroll?: boolean;
   keyboardAware?: boolean;
   keyboardVerticalOffset?: number;
+  scrollViewRef?: RefObject<ScrollView | null>;
   subtitle?: string;
   title: string;
 };
@@ -517,6 +518,7 @@ export function CustomerScreen({
   scroll = true,
   keyboardAware = false,
   keyboardVerticalOffset = 0,
+  scrollViewRef,
   subtitle,
   title,
 }: CustomerScreenProps) {
@@ -584,7 +586,12 @@ export function CustomerScreen({
         >
           {scroll ? (
             <ScrollView
-              ref={scrollRef}
+              ref={(node) => {
+                scrollRef.current = node;
+                if (scrollViewRef) {
+                  scrollViewRef.current = node;
+                }
+              }}
               style={styles.body}
               refreshControl={
                 onRefresh ? (

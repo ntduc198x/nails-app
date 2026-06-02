@@ -129,7 +129,7 @@ export function AuthPanel({
 
   async function handleForgotPassword() {
     if (!email.trim()) {
-      setError("Vui lòng nhập email trước khi gửi link đặt lại mật khẩu.");
+      setError("Vui lòng nhập email trước khi gửi yêu cầu quên mật khẩu.");
       return;
     }
 
@@ -139,7 +139,7 @@ export function AuthPanel({
 
     try {
       await requestBrowserPasswordReset(email);
-      setMessage("Đã gửi link đặt lại mật khẩu. Vui lòng kiểm tra email của bạn.");
+      setMessage("Đã gửi email chứa mật khẩu tạm và liên kết xác nhận reset. Vui lòng kiểm tra hộp thư của bạn.");
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : "Không gửi được email đặt lại mật khẩu.");
     } finally {

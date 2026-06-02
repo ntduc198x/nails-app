@@ -29,6 +29,8 @@ const EMPTY_TIMELINE_STATE: TimelineState = {
   lastError: null,
 };
 const TIMELINE_FRESH_MS = 90 * 1000;
+const HISTORY_STALE_BOOKING_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+const HIDDEN_HISTORY_STATUSES = new Set(["CANCELLED", "EXPIRED_UNCONFIRMED"]);
 
 function makeStoreKey(config: TimelineConfig) {
   return `${config.userId ?? "guest"}:${config.historyLimit}:${config.upcomingLimit}`;
@@ -44,6 +46,28 @@ function getUpcomingCacheKey(userId: string, limit: number) {
 
 function getDefaultState(): TimelineState {
   return EMPTY_TIMELINE_STATE;
+}
+
+function shouldHideHistoryItem(item: CustomerHistoryItem, nowMs = Date.now()) {
+  if (HIDDEN_HISTORY_STATUSES.has(item.status)) {
+    return true;
+  }
+
+  if (item.status !== "BOOKED" && item.status !== "CONFIRMED") {
+    return false;
+  }
+
+  const occurredAtMs = new Date(item.occurredAt).getTime();
+  if (!Number.isFinite(occurredAtMs)) {
+    return false;
+  }
+
+  return nowMs - occurredAtMs > HISTORY_STALE_BOOKING_WINDOW_MS;
+}
+
+function filterVisibleHistoryItems(items: CustomerHistoryItem[]) {
+  const nowMs = Date.now();
+  return items.filter((item) => !shouldHideHistoryItem(item, nowMs));
 }
 
 function emit(storeKey: string) {
@@ -93,7 +117,7 @@ export async function syncCustomerBookingTimelineFromCache(config: TimelineConfi
   if (historyPeek || upcomingPeek) {
     setState(storeKey, (prev) => ({
       ...prev,
-      historyItems: Array.isArray(historyPeek?.value) ? historyPeek!.value : prev.historyItems,
+      historyItems: Array.isArray(historyPeek?.value) ? filterVisibleHistoryItems(historyPeek!.value) : prev.historyItems,
       upcomingItems: Array.isArray(upcomingPeek?.value) ? upcomingPeek!.value : prev.upcomingItems,
       isHydrated: true,
       isLoading: false,
@@ -108,7 +132,7 @@ export async function syncCustomerBookingTimelineFromCache(config: TimelineConfi
 
   setState(storeKey, (prev) => ({
     ...prev,
-    historyItems: Array.isArray(historyCached?.value) ? historyCached!.value : prev.historyItems,
+    historyItems: Array.isArray(historyCached?.value) ? filterVisibleHistoryItems(historyCached!.value) : prev.historyItems,
     upcomingItems: Array.isArray(upcomingCached?.value) ? upcomingCached!.value : prev.upcomingItems,
     isHydrated: true,
     isLoading: false,
@@ -153,14 +177,15 @@ export async function refreshCustomerBookingTimeline(config: TimelineConfig, opt
         listCustomerHistory(mobileSupabase, { limit: config.historyLimit }),
         listCustomerUpcomingBookings(mobileSupabase, { limit: config.upcomingLimit }),
       ]);
+      const visibleHistoryItems = filterVisibleHistoryItems(historyItems);
 
       await Promise.all([
-        writeCachedValue(getHistoryCacheKey(config.userId!, config.historyLimit), historyItems),
+        writeCachedValue(getHistoryCacheKey(config.userId!, config.historyLimit), visibleHistoryItems),
         writeCachedValue(getUpcomingCacheKey(config.userId!, config.upcomingLimit), upcomingItems),
       ]);
 
       setState(storeKey, {
-        historyItems,
+        historyItems: visibleHistoryItems,
         upcomingItems,
         isHydrated: true,
         isLoading: false,

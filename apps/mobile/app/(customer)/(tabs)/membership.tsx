@@ -1,11 +1,12 @@
 import Feather from "@expo/vector-icons/Feather";
 import { LinearGradient } from "expo-linear-gradient";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CustomerBrandTopBar, CustomerScreen, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
+import { useRouteScrollFocus } from "@/src/hooks/use-route-scroll-focus";
 import {
   localizeMembershipTier,
   localizeOfferCard,
@@ -498,6 +499,7 @@ function getOfferPackageLabel(offer: { metadata?: Record<string, unknown> }, loc
 }
 
 export default function MembershipScreen() {
+  const params = useLocalSearchParams<{ focusSection?: string | string[]; highlightOfferId?: string | string[] }>();
   const strings = useCustomerStrings();
   const { locale } = useCustomerPreferences();
   const [showBenefitsModal, setShowBenefitsModal] = useState(false);
@@ -597,9 +599,39 @@ export default function MembershipScreen() {
     : null;
   const selectedTierIndex = selectedTierLocalized ? tiersLocalized.findIndex((tier) => tier.id === selectedTierLocalized.id) : -1;
   const selectedTierPrevious = selectedTierIndex > 0 ? tiersLocalized[selectedTierIndex - 1] ?? null : null;
+  const membershipScrollRef = useRef<ScrollView | null>(null);
+  const offersSectionYRef = useRef(0);
+  const offerCardYRef = useRef<Record<string, number>>({});
+  const focusSection = Array.isArray(params.focusSection) ? params.focusSection[0] : params.focusSection;
+  const highlightOfferId = Array.isArray(params.highlightOfferId) ? params.highlightOfferId[0] : params.highlightOfferId;
+
+  useRouteScrollFocus({
+    clearFocusParams: () => {
+      router.setParams({
+        focusSection: undefined,
+        highlightOfferId: undefined,
+      });
+    },
+    focusSection,
+    getItemId: (offer) => offer.id,
+    highlightId: highlightOfferId,
+    itemYRef: offerCardYRef,
+    items: offersLocalized,
+    matchesHighlight: (offer, id) => offer.id === id,
+    scrollViewRef: membershipScrollRef,
+    sectionKey: "offers",
+    sectionYRef: offersSectionYRef,
+  });
 
   return (
-    <CustomerScreen hideHeader title={strings.membershipTitle} contentContainerStyle={styles.content} onRefresh={() => void refresh()} refreshing={isRefreshing}>
+    <CustomerScreen
+      hideHeader
+      title={strings.membershipTitle}
+      contentContainerStyle={styles.content}
+      onRefresh={() => void refresh()}
+      refreshing={isRefreshing}
+      scrollViewRef={membershipScrollRef}
+    >
       <CustomerBrandTopBar />
 
       <LinearGradient colors={heroGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
@@ -764,7 +796,12 @@ export default function MembershipScreen() {
       </View>
 
 
-      <View style={styles.sectionBlock}>
+      <View
+        style={styles.sectionBlock}
+        onLayout={(event) => {
+          offersSectionYRef.current = event.nativeEvent.layout.y;
+        }}
+      >
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>{strings.membershipActiveOffersTitle}</Text>
           <Pressable style={styles.inlineActionButton} onPress={() => setShowUsageModal(true)}>
@@ -798,11 +835,13 @@ export default function MembershipScreen() {
                       })
                     : null;
                 const pointStatusLabel = getOfferPointStatus(offer, pointsBalance, locale);
-
                 return (
                   <Pressable
                     key={offer.id}
                     disabled={disabled}
+                    onLayout={(event) => {
+                      offerCardYRef.current[offer.id] = event.nativeEvent.layout.y + offersSectionYRef.current;
+                    }}
                     onPress={() =>
                       disabled
                         ? undefined
@@ -911,44 +950,50 @@ export default function MembershipScreen() {
                 const offerCode = getOfferCode(offer);
                 const offerUsageHint = getOfferUsageHint(offer, locale);
                 const offerStatusLabel = getOfferStatusLabel(offer, locale);
-
                 return (
-                  <SurfaceCard key={offer.id} style={[styles.offerCard, styles.offerCardDisabled]}>
-                    <View style={styles.offerTopRow}>
-                      <View style={styles.perkIcon}>
-                        <Feather color={colors.text} name="tag" size={18} />
-                      </View>
+                  <View
+                    key={offer.id}
+                    onLayout={(event) => {
+                      offerCardYRef.current[offer.id] = event.nativeEvent.layout.y + offersSectionYRef.current;
+                    }}
+                  >
+                    <SurfaceCard style={[styles.offerCard, styles.offerCardDisabled]}>
+                      <View style={styles.offerTopRow}>
+                        <View style={styles.perkIcon}>
+                          <Feather color={colors.text} name="tag" size={18} />
+                        </View>
 
-                      <View style={styles.perkCopy}>
-                        <Text style={styles.perkTitle}>{offer.title}</Text>
-                        <Text numberOfLines={2} style={styles.perkDetail}>{offer.description}</Text>
-                        <View style={styles.offerChipRow}>
-                          <View style={styles.offerTierChip}>
-                            <Feather color={colors.accentWarm} name="award" size={12} />
-                            <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer, locale)}</Text>
-                          </View>
-                          <View style={styles.offerTierChip}>
-                            <Feather color={colors.textSoft} name="lock" size={12} />
-                            <Text style={styles.offerTierChipText}>{offerStatusLabel}</Text>
+                        <View style={styles.perkCopy}>
+                          <Text style={styles.perkTitle}>{offer.title}</Text>
+                          <Text numberOfLines={2} style={styles.perkDetail}>{offer.description}</Text>
+                          <View style={styles.offerChipRow}>
+                            <View style={styles.offerTierChip}>
+                              <Feather color={colors.accentWarm} name="award" size={12} />
+                              <Text style={styles.offerTierChipText}>{getOfferPackageLabel(offer, locale)}</Text>
+                            </View>
+                            <View style={styles.offerTierChip}>
+                              <Feather color={colors.textSoft} name="lock" size={12} />
+                              <Text style={styles.offerTierChipText}>{offerStatusLabel}</Text>
+                            </View>
                           </View>
                         </View>
                       </View>
-                    </View>
 
-                    <View style={styles.offerBottomRow}>
-                      {offerCode ? (
-                        <View style={styles.offerCodeBox}>
-                          <Text style={styles.offerMetaLabel}>{strings.membershipOfferCodeLabel}</Text>
-                          <Text style={styles.offerCodeText}>{offerCode}</Text>
+                      <View style={styles.offerBottomRow}>
+                        {offerCode ? (
+                          <View style={styles.offerCodeBox}>
+                            <Text style={styles.offerMetaLabel}>{strings.membershipOfferCodeLabel}</Text>
+                            <Text style={styles.offerCodeText}>{offerCode}</Text>
+                          </View>
+                        ) : null}
+
+                        <View style={styles.offerUsageBox}>
+                          <Feather color={colors.text} name="calendar" size={16} />
+                          <Text numberOfLines={2} style={styles.offerUsageText}>{offerUsageHint}</Text>
                         </View>
-                      ) : null}
-
-                      <View style={styles.offerUsageBox}>
-                        <Feather color={colors.text} name="calendar" size={16} />
-                        <Text numberOfLines={2} style={styles.offerUsageText}>{offerUsageHint}</Text>
                       </View>
-                    </View>
-                  </SurfaceCard>
+                    </SurfaceCard>
+                  </View>
                 );
               })}
             </>

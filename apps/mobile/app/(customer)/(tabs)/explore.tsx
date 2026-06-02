@@ -112,6 +112,7 @@ export default function ExploreScreen() {
   const localizedTeam = useMemo(() => team.map((member) => localizeTeamMember(locale, member)), [locale, team]);
   const localizedGallery = useMemo(() => gallery.map((item) => localizeGalleryItem(locale, item)), [locale, gallery]);
   const localizedOffers = useMemo(() => offers.map((offer) => localizeOfferCard(locale, offer)), [locale, offers]);
+  const activeStorefrontBranchId = localizedStorefront?.branchId ?? storefront?.branchId ?? undefined;
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -343,6 +344,7 @@ export default function ExploreScreen() {
               <MemoExploreServiceCard
                 key={service.id}
                 service={service}
+                branchId={activeStorefrontBranchId}
                 favorite={isFavorite(service.id)}
                 onToggleFavorite={handleToggleFavorite}
                 onOpenDetail={setSelectedService}
@@ -423,7 +425,7 @@ export default function ExploreScreen() {
           if (!selectedService) return;
           router.push({
             pathname: "/(customer)/(tabs)/booking",
-            params: { service: selectedService.title },
+            params: { service: selectedService.title, branchId: activeStorefrontBranchId },
           });
           setSelectedService(null);
         }}
@@ -523,12 +525,14 @@ function SectionHeader({ title, actionLabel }: { title: string; actionLabel?: st
 
 function ExploreServiceCard({
   service,
+  branchId,
   favorite,
   onToggleFavorite,
   onOpenDetail,
   bookingLabel,
 }: {
   service: LookbookItem;
+  branchId?: string;
   favorite: boolean;
   onToggleFavorite: (serviceId: string) => void;
   onOpenDetail: (service: LookbookItem) => void;
@@ -570,7 +574,7 @@ function ExploreServiceCard({
               event.stopPropagation();
               router.push({
                 pathname: "/(customer)/(tabs)/booking",
-                params: { service: service.title },
+                params: { service: service.title, branchId },
               });
             }}
           >
@@ -585,6 +589,7 @@ function ExploreServiceCard({
 const MemoExploreServiceCard = memo(
   ExploreServiceCard,
   (previous, next) =>
+    previous.branchId === next.branchId &&
     previous.favorite === next.favorite &&
     previous.bookingLabel === next.bookingLabel &&
     previous.service.id === next.service.id &&

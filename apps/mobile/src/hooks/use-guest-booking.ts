@@ -11,6 +11,7 @@ import {
   type PublicBookingInput,
   type PublicBookingSubmissionResult,
 } from "@nails/shared";
+import { useRef as useSubmitLockRef } from "react";
 import { mobileEnv } from "@/src/lib/env";
 import {
   prewarmCustomerHistoryCache,
@@ -334,7 +335,7 @@ export function useGuestBooking(locale: Locale, options?: UseGuestBookingOptions
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successResult, setSuccessResult] = useState<PublicBookingSubmissionResult | null>(null);
-  const submitLockRef = useMemo(() => ({ current: false }), []);
+  const submitLockRef = useSubmitLockRef(false);
 
   function updateValue<Key extends keyof GuestBookingFormValues>(key: Key, value: GuestBookingFormValues[Key]) {
     setValues((current) => ({ ...current, [key]: value }));

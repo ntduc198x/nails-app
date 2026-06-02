@@ -127,6 +127,11 @@ const NOTIFICATION_PRIORITY: Record<ManageNotificationKind, number> = {
   shift_published: 10,
 };
 
+function getObserverScopeKey(observerScope?: ObserverScopeInput | null) {
+  if (!observerScope) return "default";
+  return `${observerScope.mode}:${observerScope.branchId ?? "org"}`;
+}
+
 function getLocaleTag(locale: Locale) {
   return locale === "en" ? "en-US" : "vi-VN";
 }
@@ -680,6 +685,7 @@ export function useAdminNotifications(
   const feedReadStorageKey = email ? `${FEED_READ_STORAGE_PREFIX}.${email}` : null;
   const actionDismissedStorageKey = email ? `${ACTION_DISMISSED_STORAGE_PREFIX}.${email}` : null;
   const enabled = Boolean(role && MANAGE_NOTIFICATION_ROLES.includes(role));
+  const observerScopeKey = getObserverScopeKey(observerScope);
 
   const loadLegacySeenAt = useCallback(async () => {
     if (!legacySeenAtStorageKey) {
@@ -737,7 +743,7 @@ export function useAdminNotifications(
     } catch {
       setNotifications([]);
     }
-  }, [enabled, locale, observerScope, role, userId]);
+  }, [enabled, locale, observerScope, observerScopeKey, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -769,7 +775,61 @@ export function useAdminNotifications(
       disposed = true;
       clearInterval(id);
     };
-  }, [enabled, locale, observerScope, role, userId]);
+  }, [enabled, locale, observerScope, observerScopeKey, role, userId]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setNotifications([]);
+      return;
+    }
+
+    setNotifications([]);
+    void loadNotifications();
+  }, [enabled, loadNotifications, observerScopeKey]);
+
+  useEffect(() => {
+    if (!enabled || !mobileSupabase) {
+      return;
+    }
+
+    const client = mobileSupabase;
+    const channelName = `admin-notifications:${role ?? "unknown"}:${userId ?? "anon"}:${observerScopeKey}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "booking_requests" },
+        () => {
+          void loadNotifications();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "appointments" },
+        () => {
+          void loadNotifications();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "customer_notifications" },
+        () => {
+          void loadNotifications();
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "admin_notification_states" },
+        () => {
+          void loadNotifications();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [enabled, loadNotifications, observerScopeKey, role, userId]);
 
   const actionNotifications = useMemo(
     () => notifications.filter((item) => item.actionRequired && !item.resolvedAt),

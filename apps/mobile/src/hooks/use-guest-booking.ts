@@ -38,6 +38,9 @@ export type GuestBookingFormValues = {
 };
 
 type GuestBookingFieldErrors = Partial<Record<keyof GuestBookingFormValues, string>>;
+type UseGuestBookingOptions = {
+  branchId?: string | null;
+};
 
 const DEFAULT_TIME_SLOTS = Array.from({ length: 25 }, (_, index) => {
   if (index === 24) return "21:00";
@@ -146,7 +149,11 @@ function shouldFallbackToBookingApi(error: unknown) {
 
   return (
     normalized.includes("booking_api_timeout") ||
+    normalized.includes("booking_api_non_json") ||
     normalized.includes("aborterror") ||
+    normalized.includes("unexpected token '<'") ||
+    normalized.includes("<!doctype html") ||
+    normalized.includes("<html") ||
     normalized.startsWith("typeerror: network request failed") ||
     normalized.includes("network request failed") ||
     normalized.includes("failed to fetch") ||
@@ -223,7 +230,92 @@ async function notifyTelegramAfterMobileFallback(input: {
   }
 }
 
-export function useGuestBooking(locale: Locale) {
+async function resolvePrimaryBranchIdForOrg(orgId: string) {
+  if (!mobileSupabase) return null;
+
+  const primaryBranchResult = await mobileSupabase
+    .from("orgs")
+    .select("primary_branch_id")
+    .eq("id", orgId)
+    .maybeSingle();
+
+  if (!primaryBranchResult.error && typeof primaryBranchResult.data?.primary_branch_id === "string") {
+    return primaryBranchResult.data.primary_branch_id;
+  }
+
+  const fallbackBranchResult = await mobileSupabase
+    .from("branches")
+    .select("id")
+    .eq("org_id", orgId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (fallbackBranchResult.error) {
+    throw fallbackBranchResult.error;
+  }
+
+  return typeof fallbackBranchResult.data?.id === "string" ? fallbackBranchResult.data.id : null;
+}
+
+async function resolveActiveStorefrontBranchIdForOrg(orgId: string) {
+  if (!mobileSupabase) return null;
+
+  const storefrontResult = await mobileSupabase
+    .from("storefront_profile")
+    .select("branch_id")
+    .eq("org_id", orgId)
+    .eq("is_active", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (storefrontResult.error) {
+    throw storefrontResult.error;
+  }
+
+  return typeof storefrontResult.data?.branch_id === "string" ? storefrontResult.data.branch_id : null;
+}
+
+async function resolveBookingBranchId(options?: UseGuestBookingOptions) {
+  if (typeof options?.branchId === "string" && options.branchId.trim()) {
+    return options.branchId.trim();
+  }
+
+  if (mobileSupabase) {
+    const scope = await getCustomerScopedContext(mobileSupabase);
+    const orgId = scope?.orgId ?? mobileEnv.defaultOrgId ?? null;
+
+    if (orgId) {
+      const storefrontBranchId = await resolveActiveStorefrontBranchIdForOrg(orgId);
+      if (storefrontBranchId) {
+        return storefrontBranchId;
+      }
+
+      const primaryBranchId = await resolvePrimaryBranchIdForOrg(orgId);
+      if (primaryBranchId) {
+        return primaryBranchId;
+      }
+    }
+
+    if (scope?.branchId) {
+      return scope.branchId;
+    }
+  }
+
+  if (mobileEnv.defaultOrgId) {
+    return (
+      getCustomerScopedContextForGuest(
+        mobileEnv.defaultOrgId,
+        mobileEnv.defaultBranchId || null,
+      ).branchId ?? null
+    );
+  }
+
+  return null;
+}
+
+export function useGuestBooking(locale: Locale, options?: UseGuestBookingOptions) {
   const { user } = useSession();
   const dateOptions = useMemo(() => createDateOptions(locale), [locale]);
   const [values, setValues] = useState<GuestBookingFormValues>({
@@ -292,19 +384,7 @@ export function useGuestBooking(locale: Locale) {
       }
 
       const requestedStartAtIso = toIsoDateTime(values.selectedDate, values.selectedTime);
-      let bookingBranchId: string | undefined;
-
-      if (mobileSupabase) {
-        const scope = await getCustomerScopedContext(mobileSupabase);
-        bookingBranchId = scope?.branchId ?? undefined;
-      }
-
-      if (!bookingBranchId && mobileEnv.defaultOrgId) {
-        bookingBranchId = getCustomerScopedContextForGuest(
-          mobileEnv.defaultOrgId,
-          mobileEnv.defaultBranchId || null,
-        ).branchId ?? undefined;
-      }
+      const bookingBranchId = (await resolveBookingBranchId(options)) ?? undefined;
 
       if (mobileSupabase && user?.id) {
         const accountResult = await mobileSupabase

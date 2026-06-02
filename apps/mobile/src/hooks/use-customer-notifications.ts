@@ -9,7 +9,12 @@ export type CustomerNotificationItem = {
   createdAt: string;
   type: string;
   isRead: boolean;
+  relatedAppointmentId: string | null;
+  relatedBookingRequestId: string | null;
+  relatedOfferId: string | null;
 };
+
+const NOTIFICATION_LOOKBACK_DAYS = 3;
 
 export function useCustomerNotifications(limit = 50) {
   const { user } = useSession();
@@ -29,13 +34,48 @@ export function useCustomerNotifications(limit = 50) {
 
     setIsRefreshing(true);
     try {
-      const { data, error } = await mobileSupabase
+      const cutoff = new Date(Date.now() - NOTIFICATION_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const primarySelect =
+        "id,title,body,kind,is_read,sent_at,related_appointment_id,related_booking_request_id,related_offer_id";
+      const legacySelect =
+        "id,title,body,kind,is_read,sent_at,related_appointment_id,related_offer_id";
+
+      let data:
+        | Array<Record<string, unknown>>
+        | null = null;
+
+      const primaryResult = await mobileSupabase
         .from("customer_notifications")
-        .select("id,title,body,kind,is_read,sent_at")
+        .select(primarySelect)
+        .gte("sent_at", cutoff)
         .order("sent_at", { ascending: false })
         .limit(limit);
 
-      if (error) throw error;
+      if (primaryResult.error) {
+        const message = primaryResult.error.message ?? "";
+        const missingRelatedBookingColumn =
+          message.includes("related_booking_request_id") ||
+          message.includes("column customer_notifications.related_booking_request_id does not exist");
+
+        if (!missingRelatedBookingColumn) {
+          throw primaryResult.error;
+        }
+
+        const legacyResult = await mobileSupabase
+          .from("customer_notifications")
+          .select(legacySelect)
+          .gte("sent_at", cutoff)
+          .order("sent_at", { ascending: false })
+          .limit(limit);
+
+        if (legacyResult.error) {
+          throw legacyResult.error;
+        }
+
+        data = (legacyResult.data ?? []) as Array<Record<string, unknown>>;
+      } else {
+        data = (primaryResult.data ?? []) as Array<Record<string, unknown>>;
+      }
 
       setItems(
         (data ?? []).map((row) => ({
@@ -45,8 +85,15 @@ export function useCustomerNotifications(limit = 50) {
           createdAt: typeof row.sent_at === "string" ? row.sent_at : "",
           type: typeof row.kind === "string" ? row.kind : "GENERAL",
           isRead: Boolean(row.is_read),
+          relatedAppointmentId:
+            typeof row.related_appointment_id === "string" ? row.related_appointment_id : null,
+          relatedBookingRequestId:
+            typeof row.related_booking_request_id === "string" ? row.related_booking_request_id : null,
+          relatedOfferId: typeof row.related_offer_id === "string" ? row.related_offer_id : null,
         })),
       );
+    } catch {
+      setItems([]);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -81,6 +128,29 @@ export function useCustomerNotifications(limit = 50) {
       clearTimeout(timeoutId);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!mobileSupabase || !user?.id) {
+      return;
+    }
+
+    const client = mobileSupabase;
+    const channelName = `customer-notifications:${user.id}:${limit}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "customer_notifications" },
+        () => {
+          void refresh();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [limit, refresh, user?.id]);
 
   return {
     items,

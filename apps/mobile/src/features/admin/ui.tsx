@@ -694,6 +694,7 @@ export function AdminHeaderActions({
     badgeCount,
     feedNotifications,
     markFeedRead,
+    reloadNotifications,
   } = useAdminNotifications(role as AppRole | null | undefined, user?.email, user?.id, observer.observerScope, locale);
 
   const visibleNotifications = notificationTab === "action" ? actionNotifications : feedNotifications;
@@ -714,6 +715,7 @@ export function AdminHeaderActions({
         <Pressable
           style={styles.headerIconButton}
           onPress={() => {
+            void reloadNotifications();
             setNotificationTab(actionNotifications.length ? "action" : "feed");
             setNotificationsOpen(true);
           }}

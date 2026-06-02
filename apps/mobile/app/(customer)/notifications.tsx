@@ -3,10 +3,18 @@ import { router } from "expo-router";
 import { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { type Locale, translate } from "@nails/shared";
+import {
+  canNavigateNotification,
+  getNotificationDestination,
+  normalizeNotificationType,
+  type CustomerNotificationRouteItem,
+} from "@/src/features/customer/notification-navigation";
 import { localizeNotificationItem } from "@/src/features/customer/localize";
 import { CustomerScreen, CustomerTopActions } from "@/src/features/customer/ui";
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { premiumTheme } from "@/src/design/premium-theme";
+import { useCustomerBookingTimeline } from "@/src/hooks/use-customer-booking-timeline";
+import { useCustomerMembership } from "@/src/hooks/use-customer-membership";
 import { useCustomerNotifications } from "@/src/hooks/use-customer-notifications";
 import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
@@ -15,26 +23,8 @@ const { colors, radius } = premiumTheme;
 type FilterKey = "all" | "appointments" | "updates";
 type FeatherIconName = React.ComponentProps<typeof Feather>["name"];
 
-type NotificationItem = {
-  id: string;
-  title: string;
-  body: string;
-  created_at: string;
-  type: string;
-  is_read: boolean;
-};
-
-function normalizeVietnamese(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase();
-}
-
 function normalizeGroup(value: string): FilterKey {
-  const normalized = normalizeVietnamese(value);
+  const normalized = normalizeNotificationType(value);
   if (normalized.includes("booking") || normalized.includes("lich")) return "appointments";
   return "updates";
 }
@@ -54,7 +44,7 @@ function formatTime(isoString: string, locale: Locale): string {
 }
 
 function getVisualFromType(type: string): { accent: string; icon: FeatherIconName; surface: string } {
-  const normalized = normalizeVietnamese(type);
+  const normalized = normalizeNotificationType(type);
   if (normalized.includes("khuyen mai") || normalized.includes("promo")) {
     return { accent: "#f39a24", icon: "gift", surface: "#fdf2e5" };
   }
@@ -72,9 +62,12 @@ function getVisualFromType(type: string): { accent: string; icon: FeatherIconNam
 
 export default function NotificationsScreen() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("all");
+  const [visibleCount, setVisibleCount] = useState(4);
   const strings = useCustomerStrings();
   const { locale } = useCustomerPreferences();
   const { items: rawItems, isLoading, isRefreshing, refresh, markAsRead, markAllAsRead } = useCustomerNotifications(50);
+  const { historyItems, upcomingItems } = useCustomerBookingTimeline({ historyLimit: 24, upcomingLimit: 6 });
+  const { offers } = useCustomerMembership({ autoRefreshOnMount: false });
   const filters = useMemo(
     () => [
       { key: "all" as const, label: strings.notificationsFilterAll, icon: "bell" as const },
@@ -84,7 +77,7 @@ export default function NotificationsScreen() {
     [strings],
   );
 
-  const notifications: NotificationItem[] = useMemo(
+  const notifications: CustomerNotificationRouteItem[] = useMemo(
     () => rawItems.map((item) => {
       const localized = localizeNotificationItem(locale, item);
       return {
@@ -94,6 +87,9 @@ export default function NotificationsScreen() {
         created_at: item.createdAt,
         type: item.type,
         is_read: item.isRead,
+        relatedAppointmentId: item.relatedAppointmentId,
+        relatedBookingRequestId: item.relatedBookingRequestId,
+        relatedOfferId: item.relatedOfferId,
       };
     }),
     [locale, rawItems],
@@ -106,6 +102,24 @@ export default function NotificationsScreen() {
     }
     return [];
   }, [activeFilter, notifications]);
+
+  const visibleItems = useMemo(() => items.slice(0, visibleCount), [items, visibleCount]);
+
+  async function handleNotificationPress(item: CustomerNotificationRouteItem) {
+    const destination = getNotificationDestination({
+      item,
+      historyItems,
+      upcomingItems,
+      offers,
+    });
+
+    if (!destination) {
+      return;
+    }
+
+    await markAsRead(item.id);
+    router.push(destination);
+  }
 
   return (
     <CustomerScreen
@@ -140,7 +154,10 @@ export default function NotificationsScreen() {
           return (
             <Pressable
               key={item.key}
-              onPress={() => setActiveFilter(item.key)}
+              onPress={() => {
+                setActiveFilter(item.key);
+                setVisibleCount(4);
+              }}
               style={[styles.segmentItem, active ? styles.segmentItemActive : null]}
             >
               <Feather color={active ? "#fffaf5" : "#857568"} name={item.icon} size={14} />
@@ -158,15 +175,21 @@ export default function NotificationsScreen() {
         ) : items.length === 0 ? (
           <Text style={styles.emptyText}>{strings.noNotifications}</Text>
         ) : (
-          items.map((item) => {
+          visibleItems.map((item) => {
             const visual = getVisualFromType(item.type);
             const content = { title: item.title, body: item.body, time: formatTime(item.created_at, locale) };
+            const canNavigate = canNavigateNotification({ item, historyItems, upcomingItems, offers });
 
             return (
               <Pressable
                 key={item.id}
-                style={[styles.card, !item.is_read && styles.cardUnread]}
-                onPress={() => void markAsRead(item.id)}
+                style={[
+                  styles.card,
+                  !item.is_read && styles.cardUnread,
+                  !canNavigate ? styles.cardUnavailable : null,
+                ]}
+                disabled={!canNavigate}
+                onPress={canNavigate ? () => void handleNotificationPress(item) : undefined}
               >
                 <View style={[styles.notificationIconWrap, { backgroundColor: visual.surface }]}>
                   <Feather color={visual.accent} name={visual.icon} size={16} />
@@ -177,11 +200,24 @@ export default function NotificationsScreen() {
                   <Text style={styles.cardBody} numberOfLines={2}>{content.body}</Text>
                 </View>
 
-                <Text style={styles.cardTime}>{content.time}</Text>
+                <View style={styles.cardMeta}>
+                  <Text style={styles.cardTime}>{content.time}</Text>
+                  <Feather color={canNavigate ? colors.textSoft : colors.textMuted} name={canNavigate ? "chevron-right" : "minus"} size={14} />
+                </View>
               </Pressable>
             );
           })
         )}
+
+        {items.length > visibleItems.length ? (
+          <Pressable
+            style={styles.viewMoreButton}
+            onPress={() => setVisibleCount((current) => Math.min(current + 4, items.length))}
+          >
+            <Text style={styles.viewMoreText}>{strings.homeViewMore}</Text>
+            <Feather color={colors.accent} name="chevron-down" size={16} />
+          </Pressable>
+        ) : null}
       </View>
 
       <Pressable style={styles.readAllButton} onPress={() => void markAllAsRead()}>
@@ -273,6 +309,9 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 12,
   },
+  cardUnavailable: {
+    opacity: 0.7,
+  },
   cardUnread: {
     borderLeftWidth: 3,
     borderLeftColor: colors.accent,
@@ -302,6 +341,10 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 11,
   },
+  cardMeta: {
+    alignItems: "center",
+    gap: 6,
+  },
   emptyText: {
     color: colors.textSoft,
     fontSize: 15,
@@ -318,6 +361,20 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     minHeight: 50,
     paddingHorizontal: 16,
+  },
+  viewMoreButton: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 44,
+    paddingHorizontal: 16,
+  },
+  viewMoreText: {
+    color: colors.accent,
+    fontSize: 14,
+    fontWeight: "700",
   },
   readAllCopy: {
     alignItems: "center",

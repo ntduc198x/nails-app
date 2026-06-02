@@ -29,6 +29,8 @@ type AppointmentMutationInput = {
 
 type AppointmentRow = {
   id: unknown;
+  branch_id?: unknown;
+  customer_id?: unknown;
   start_at: unknown;
   end_at: unknown;
   status: unknown;
@@ -79,6 +81,16 @@ function normalizeAppointmentStatusMutationError(error: unknown, locale: Locale 
     return new Error(translate(locale, "errors", "invalidAppointmentStatusTransition"));
   }
   return error instanceof Error ? error : new Error(message || translate(locale, "errors", "appointmentMutationFailed"));
+}
+
+function normalizeCustomerPhone(raw: string | null | undefined) {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("84") && digits.length >= 11) {
+    return `0${digits.slice(2)}`;
+  }
+  return digits;
 }
 
 export async function listAppointmentsForMobile(
@@ -297,9 +309,97 @@ export async function saveAppointmentForMobile(
   client: SharedSupabaseClient,
   input: AppointmentMutationInput,
 ) {
+  if (input.appointmentId) {
+    const { orgId, branchId } = await ensureOrgContext(client);
+    const existingAppointmentRes = await client
+      .from("appointments")
+      .select("id,branch_id,customer_id")
+      .eq("id", input.appointmentId)
+      .eq("org_id", orgId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingAppointmentRes.error) {
+      throw existingAppointmentRes.error;
+    }
+
+    if (!existingAppointmentRes.data?.id) {
+      throw new Error("APPOINTMENT_NOT_FOUND");
+    }
+
+    const targetBranchId =
+      typeof existingAppointmentRes.data.branch_id === "string" && existingAppointmentRes.data.branch_id
+        ? existingAppointmentRes.data.branch_id
+        : branchId;
+    let customerId =
+      typeof existingAppointmentRes.data.customer_id === "string" && existingAppointmentRes.data.customer_id
+        ? existingAppointmentRes.data.customer_id
+        : null;
+
+    if (customerId) {
+      const normalizedName = input.customerName.trim();
+      if (!normalizedName) {
+        throw new Error(translate(DEFAULT_LOCALE, "errors", "customerNameRequired"));
+      }
+
+      const trimmedPhone = input.customerPhone?.trim() ? input.customerPhone.trim() : null;
+      const normalizedPhone = normalizeCustomerPhone(trimmedPhone);
+      const customerUpdateRes = await client
+        .from("customers")
+        .update({
+          full_name: normalizedName,
+          name: normalizedName,
+          phone: trimmedPhone,
+          normalized_phone: normalizedPhone,
+          branch_id: targetBranchId ?? null,
+        })
+        .eq("id", customerId)
+        .eq("org_id", orgId)
+        .select("id")
+        .single();
+
+      if (customerUpdateRes.error) {
+        throw customerUpdateRes.error;
+      }
+    } else {
+      customerId = await findOrCreateCustomerForMobile(
+        client,
+        orgId,
+        targetBranchId ?? null,
+        input.customerName,
+        input.customerPhone,
+      );
+    }
+
+    const payload = {
+      customer_id: customerId,
+      start_at: input.startAt,
+      end_at: input.endAt,
+      staff_user_id: input.staffUserId ?? null,
+      resource_id: input.resourceId ?? null,
+    };
+    const updateRes = await client
+      .from("appointments")
+      .update(payload)
+      .eq("id", input.appointmentId)
+      .eq("org_id", orgId)
+      .eq("branch_id", targetBranchId)
+      .select("id")
+      .maybeSingle();
+
+    if (updateRes.error) {
+      throw updateRes.error;
+    }
+
+    if (!updateRes.data?.id) {
+      throw new Error("APPOINTMENT_UPDATE_TARGET_NOT_FOUND");
+    }
+
+    return { appointmentId: input.appointmentId, mode: "updated" as const };
+  }
+
   const { orgId, branchId } = await ensureOrgContext(client);
   const customerId = await findOrCreateCustomerForMobile(client, orgId, branchId ?? null, input.customerName, input.customerPhone);
-
   const payload = {
     customer_id: customerId,
     start_at: input.startAt,
@@ -307,22 +407,6 @@ export async function saveAppointmentForMobile(
     staff_user_id: input.staffUserId ?? null,
     resource_id: input.resourceId ?? null,
   };
-
-  if (input.appointmentId) {
-    const updateRes = await client
-      .from("appointments")
-      .update(payload)
-      .eq("id", input.appointmentId)
-      .eq("org_id", orgId)
-      .eq("branch_id", branchId);
-
-    if (updateRes.error) {
-      throw updateRes.error;
-    }
-
-    return { appointmentId: input.appointmentId, mode: "updated" as const };
-  }
-
   const insertRes = await client
     .from("appointments")
     .insert({

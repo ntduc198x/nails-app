@@ -1,7 +1,15 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Href } from "expo-router";
-import { ensureOrgContext, resolveMobileAdminViewContext, translate, type AppRole, type Locale, type ObserverScopeInput } from "@nails/shared";
+import {
+  ensureOrgContext,
+  isAppointmentArrivalOverdue,
+  resolveMobileAdminViewContext,
+  translate,
+  type AppRole,
+  type Locale,
+  type ObserverScopeInput,
+} from "@nails/shared";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 export type ManageNotificationKind =
@@ -102,7 +110,6 @@ type ShiftPlanNotificationRow = {
 };
 
 const ADMIN_NOTIFICATION_RULES = {
-  appointmentOverdueMinutes: 20,
   staleCheckedInMinutes: 90,
   staleCheckedInDays: 7,
   recentShiftPublishedHours: 72,
@@ -445,8 +452,7 @@ export async function loadManageNotificationsForMobile(
   const appointmentNotifications = appointmentEvents
     .map<ManageNotificationItem | null>((row) => {
       if (row.status === "BOOKED") {
-        const startAtMs = new Date(row.start_at).getTime();
-        if (startAtMs <= Date.now() - ADMIN_NOTIFICATION_RULES.appointmentOverdueMinutes * 60 * 1000) {
+        if (isAppointmentArrivalOverdue({ startAt: row.start_at, status: row.status })) {
           return {
             id: `arrival-overdue-${row.id}`,
             kind: "customer_arrival_overdue",

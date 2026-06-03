@@ -2,7 +2,6 @@ import Feather from "@expo/vector-icons/Feather";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -13,12 +12,9 @@ import {
 import {
   getCrmDashboardMetricsForMobile,
   listCustomersCrmForMobile,
-  listSafeCustomerDuplicateCandidatesForMobile,
-  mergeCustomerRecordsForMobile,
   type CrmDashboardMetrics,
   type CustomerCrmSummary,
   type CustomerStatus,
-  type SafeCustomerDuplicateCandidate,
 } from "@nails/shared";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { ManageScreenShell, manageStyles, useManageRouteAccess } from "@/src/features/admin/manage-ui";
@@ -293,43 +289,12 @@ function dedupeCustomerRowsForRender(rows: CustomerCrmSummary[]) {
   return Array.from(byId.values());
 }
 
-function normalizeDuplicateCandidatesForRender(candidates: SafeCustomerDuplicateCandidate[]) {
-  const grouped = new Map<string, SafeCustomerDuplicateCandidate>();
-
-  for (const candidate of candidates) {
-    const key = `${candidate.matchType}:${candidate.matchValue}:${candidate.canonicalCustomerId}`;
-    const duplicateCustomerIds = [...new Set(candidate.duplicateCustomerIds.filter(Boolean))];
-    const existing = grouped.get(key);
-
-    if (!existing) {
-      grouped.set(key, {
-        ...candidate,
-        duplicateCustomerIds,
-        duplicateCount: duplicateCustomerIds.length + 1,
-      });
-      continue;
-    }
-
-    const mergedIds = [...new Set([...existing.duplicateCustomerIds, ...duplicateCustomerIds])];
-    grouped.set(key, {
-      ...existing,
-      duplicateCustomerIds: mergedIds,
-      duplicateCount: mergedIds.length + 1,
-      reason: existing.reason || candidate.reason,
-    });
-  }
-
-  return Array.from(grouped.values());
-}
-
 export default function AdminManageCustomersScreen() {
   const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "RECEPTION"]);
   const observer = useAdminObserverScope();
   const strings = useAdminStrings();
   const [rows, setRows] = useState<CustomerCrmSummary[]>([]);
   const [allRows, setAllRows] = useState<CustomerCrmSummary[]>([]);
-  const [duplicateCandidates, setDuplicateCandidates] = useState<SafeCustomerDuplicateCandidate[]>([]);
-  const [mergingPairKey, setMergingPairKey] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<CrmDashboardMetrics>({
     newToday: 0,
     returningToday: 0,
@@ -371,7 +336,7 @@ export default function AdminManageCustomersScreen() {
       }
       setError(null);
 
-      const [filteredRows, customers, dashboard, duplicates] = await Promise.all([
+      const [filteredRows, customers, dashboard] = await Promise.all([
         listCustomersCrmForMobile(mobileSupabase, {
           search,
           status,
@@ -381,13 +346,11 @@ export default function AdminManageCustomersScreen() {
         }, { observerScope: observer.observerScope }),
         listCustomersCrmForMobile(mobileSupabase, undefined, { observerScope: observer.observerScope }),
         getCrmDashboardMetricsForMobile(mobileSupabase, { observerScope: observer.observerScope }),
-        listSafeCustomerDuplicateCandidatesForMobile(mobileSupabase).catch(() => []),
       ]);
 
       setRows(dedupeCustomerRowsForRender(filteredRows));
       setAllRows(dedupeCustomerRowsForRender(customers));
       setMetrics(dashboard);
-      setDuplicateCandidates(normalizeDuplicateCandidatesForRender(duplicates));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : strings.manageCustomersLoadFailed);
     } finally {
@@ -428,52 +391,14 @@ export default function AdminManageCustomersScreen() {
   );
   const selectedDormantLabel = useMemo(
     () => dormantDayOptions.find((option) => option.value === dormantDays)?.label ?? `${dormantDays} ${strings.manageCustomersDaysUnit}`,
-    [dormantDayOptions, dormantDays],
+    [dormantDayOptions, dormantDays, strings.manageCustomersDaysUnit],
   );
 
   const renderRows = useMemo(() => dedupeCustomerRowsForRender(rows), [rows]);
-
-  const safeEmailPreviewCount = useMemo(
-    () => duplicateCandidates.filter((candidate) => candidate.matchType === "EMAIL").length,
-    [duplicateCandidates],
-  );
-  const safePhonePreviewCount = useMemo(
-    () => duplicateCandidates.filter((candidate) => candidate.matchType === "PHONE").length,
-    [duplicateCandidates],
-  );
   const selectedCustomer = useMemo(
     () => allRows.find((item) => item.id === selectedCustomerId) ?? null,
     [allRows, selectedCustomerId],
   );
-
-  async function handleMergeDuplicate(candidate: SafeCustomerDuplicateCandidate, duplicateCustomerId: string) {
-    if (!mobileSupabase) {
-      return;
-    }
-    if (observerReadOnly) {
-      Alert.alert(strings.manageCustomersObserverTitle, strings.manageCustomersObserverMergeUnavailable);
-      return;
-    }
-
-    const pairKey = `${candidate.canonicalCustomerId}:${duplicateCustomerId}`;
-    try {
-      setMergingPairKey(pairKey);
-      await mergeCustomerRecordsForMobile(mobileSupabase, {
-        canonicalCustomerId: candidate.canonicalCustomerId,
-        duplicateCustomerId,
-        reason: `MANUAL_${candidate.matchType}_MERGE`,
-      });
-      Alert.alert(strings.manageCustomersMergeSuccessTitle, strings.manageCustomersMergeSuccessBody);
-      await load(true);
-    } catch (mergeError) {
-      Alert.alert(
-        strings.manageCustomersMergeFailedTitle,
-        mergeError instanceof Error ? mergeError.message : strings.manageCustomersMergeFailedBody,
-      );
-    } finally {
-      setMergingPairKey(null);
-    }
-  }
 
   if (!isHydrated || !allowed) {
     return <View style={manageStyles.loadingState} />;

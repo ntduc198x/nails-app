@@ -708,7 +708,21 @@ export default function AdminShiftsScreen() {
         setRefreshing(false);
       }
     },
-    [canManage, currentUserDisplayName, currentUserEmail, isHydrated, observer.isReady, observerScope, role, todayKey, userId, weekStart],
+    [
+      canManage,
+      currentUserDisplayName,
+      currentUserEmail,
+      isHydrated,
+      localizeErrorMessage,
+      observer.isReady,
+      observerScope,
+      role,
+      strings.manageShiftsFallbackStaffName,
+      strings.manageShiftsLoadFailed,
+      todayKey,
+      userId,
+      weekStart,
+    ],
   );
 
   useEffect(() => {

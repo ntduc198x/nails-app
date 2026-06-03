@@ -6,6 +6,7 @@ import {
   canCheckInAppointmentAt,
   deleteAppointmentForMobile,
   getAppointmentForMobile,
+  isAppointmentArrivalOverdue,
   listBookingRequestsForMobile,
   saveAppointmentForMobile,
   updateAppointmentStatusForMobile,
@@ -94,6 +95,34 @@ function formatDisplayTime(isoValue: string) {
   return `${hh}:${mm}`;
 }
 
+function getAppointmentDetailStatusCopy(
+  appointment: Pick<MobileAppointmentSummary, "startAt" | "status">,
+  strings: ReturnType<typeof useAdminStrings>,
+) {
+  const isArrivalOverdue = isAppointmentArrivalOverdue(appointment);
+
+  if (appointment.status === "BOOKED") {
+    return {
+      isArrivalOverdue,
+      label: isArrivalOverdue ? strings.manageSchedulingStatusOverdue : strings.manageSchedulingStatusBooked,
+    };
+  }
+
+  if (appointment.status === "CHECKED_IN") {
+    return { isArrivalOverdue: false, label: strings.manageSchedulingStatusCheckedIn };
+  }
+
+  if (appointment.status === "DONE") {
+    return { isArrivalOverdue: false, label: strings.manageSchedulingStatusDone };
+  }
+
+  if (appointment.status === "CANCELLED") {
+    return { isArrivalOverdue: false, label: strings.manageSchedulingStatusCancelled };
+  }
+
+  return { isArrivalOverdue: false, label: strings.manageSchedulingStatusNoShow };
+}
+
 type AppointmentEditorProps = {
   appointment: MobileAppointmentSummary;
   resourceOptions: ResourceOption[];
@@ -152,7 +181,9 @@ function AppointmentEditor({
   const [pickerDay, setPickerDay] = useState(() => new Date().getDate());
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
-  const canCheckInNow = appointment.status === "BOOKED" && canCheckInAppointmentAt(appointment.startAt);
+  const { isArrivalOverdue, label: statusLabel } = getAppointmentDetailStatusCopy(appointment, strings);
+  const canCheckInNow =
+    appointment.status === "BOOKED" && (canCheckInAppointmentAt(appointment.startAt) || isArrivalOverdue);
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -231,9 +262,21 @@ function AppointmentEditor({
             </View>
             <View style={styles.statusBadgeWrap}>
               <Text style={styles.statusLabel}>{strings.manageSchedulingDetailStatusLabel}</Text>
-              <View style={[styles.statusBadge, appointment.status === "BOOKED" && styles.statusBadgeBooked]}>
-                <Text style={[styles.statusBadgeText, appointment.status === "BOOKED" && styles.statusBadgeTextBooked]}>
-                  {appointment.status === "BOOKED" ? strings.manageSchedulingStatusBooked : strings.manageSchedulingStatusCheckedIn}
+              <View
+                style={[
+                  styles.statusBadge,
+                  appointment.status === "BOOKED" && styles.statusBadgeBooked,
+                  isArrivalOverdue && styles.statusBadgeOverdue,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusBadgeText,
+                    appointment.status === "BOOKED" && styles.statusBadgeTextBooked,
+                    isArrivalOverdue && styles.statusBadgeTextOverdue,
+                  ]}
+                >
+                  {statusLabel}
                 </Text>
               </View>
             </View>
@@ -389,9 +432,31 @@ function AppointmentEditor({
             <Feather name="user-check" size={16} color={palette.success} />
             <Text style={styles.checkinButtonText}>{strings.manageSchedulingDetailCheckIn}</Text>
           </Pressable>
-          {!canCheckInNow ? (
+          {isArrivalOverdue ? (
+            <Text style={[styles.checkinHintText, styles.overdueHintText]}>
+              {strings.manageSchedulingDetailCheckInOverdueHint}
+            </Text>
+          ) : !canCheckInNow ? (
             <Text style={styles.checkinHintText}>{strings.manageSchedulingDetailCheckInHint}</Text>
           ) : null}
+          <View style={styles.bookedActionsRow}>
+            <Pressable
+              style={styles.secondaryButton}
+              disabled={mutating || busyTargetId === appointment.id}
+              onPress={() => void updateAppointmentStatus(appointment.id, "NO_SHOW")}
+            >
+              <Feather name="user-x" size={16} color={palette.textPrimary} />
+              <Text style={styles.secondaryButtonText}>{strings.manageSchedulingDetailMarkNoShow}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.dangerButton}
+              disabled={mutating || busyTargetId === appointment.id}
+              onPress={() => void updateAppointmentStatus(appointment.id, "CANCELLED")}
+            >
+              <Feather name="x-circle" size={16} color={palette.danger} />
+              <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailMarkCancelled}</Text>
+            </Pressable>
+          </View>
         </>
       )}
 
@@ -402,17 +467,19 @@ function AppointmentEditor({
         </Pressable>
       )}
 
-      {deleteConfirm ? (
-        <Pressable style={styles.dangerButton} disabled={mutating || busyTargetId === appointment.id} onPress={() => void handleDelete()}>
-          <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailConfirmDelete}</Text>
-        </Pressable>
-      ) : (
-        <Pressable style={styles.dangerButton} onPress={() => setDeleteConfirm(true)}>
-          <Feather name="trash-2" size={16} color={palette.danger} />
-          <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailDelete}</Text>
-        </Pressable>
-      )}
+      {appointment.status !== "BOOKED"
+        ? deleteConfirm ? (
+            <Pressable style={styles.dangerButton} disabled={mutating || busyTargetId === appointment.id} onPress={() => void handleDelete()}>
+              <Feather name="trash-2" size={16} color={palette.danger} />
+              <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailConfirmDelete}</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.dangerButton} onPress={() => setDeleteConfirm(true)}>
+              <Feather name="trash-2" size={16} color={palette.danger} />
+              <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailDelete}</Text>
+            </Pressable>
+          )
+        : null}
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -764,6 +831,8 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 11, fontWeight: "700", color: palette.success },
   statusBadgeBooked: { backgroundColor: "#E0F2FE" },
   statusBadgeTextBooked: { color: "#0284C7" },
+  statusBadgeOverdue: { backgroundColor: "#FFF1E6" },
+  statusBadgeTextOverdue: { color: "#C96A16" },
   infoPillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   infoPill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: palette.beigeLight, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
   infoPillText: { fontSize: 13, color: palette.textSecondary, fontWeight: "500" },
@@ -788,6 +857,8 @@ const styles = StyleSheet.create({
   checkinButtonDisabled: { opacity: 0.45 },
   checkinButtonText: { fontSize: 15, fontWeight: "700", color: palette.success },
   checkinHintText: { marginTop: 8, textAlign: "center", fontSize: 12, lineHeight: 18, color: palette.textSecondary },
+  overdueHintText: { color: "#A45212" },
+  bookedActionsRow: { gap: 12 },
   secondaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card },
   secondaryButtonText: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
   dangerButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.card },

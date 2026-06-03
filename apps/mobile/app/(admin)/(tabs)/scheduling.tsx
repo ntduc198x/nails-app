@@ -2,6 +2,7 @@
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { isAppointmentArrivalOverdue } from "@nails/shared";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, ADMIN_SURFACE_BG, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
@@ -24,6 +25,11 @@ const palette = {
 type SchedulingFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "OTHER";
 type SchedulingTab = "appointments" | "bookings";
 type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED";
+type AppointmentStatusMeta = {
+  label: string;
+  bg: string;
+  fg: string;
+};
 
 const STATUS_WEIGHT: Record<string, number> = {
   CHECKED_IN: 0,
@@ -38,6 +44,22 @@ const BOOKING_STATUS_WEIGHT: Record<BookingStatusGroup, number> = {
   NEW: 1,
   EXPIRED_UNCONFIRMED: 2,
 };
+
+function getSchedulingAppointmentStatusMeta(
+  appointment: { startAt: string; status: string },
+  statusMetaMap: Record<string, AppointmentStatusMeta>,
+  overdueLabel: string,
+): { primary: AppointmentStatusMeta; secondary: AppointmentStatusMeta | null } {
+  const baseMeta = statusMetaMap[appointment.status] ?? statusMetaMap.NO_SHOW;
+  if (!isAppointmentArrivalOverdue(appointment)) {
+    return { primary: baseMeta, secondary: null };
+  }
+
+  return {
+    primary: { label: overdueLabel, bg: "#FFF1E6", fg: "#C96A16" },
+    secondary: baseMeta,
+  };
+}
 
 function normalizeFilter(value: string | string[] | undefined): SchedulingFilter {
   const next = Array.isArray(value) ? value[0] : value;
@@ -277,6 +299,13 @@ export default function AdminSchedulingScreen() {
     return [...rows].sort((left, right) => {
       const statusDelta = (STATUS_WEIGHT[left.status] ?? 99) - (STATUS_WEIGHT[right.status] ?? 99);
       if (statusDelta !== 0) return statusDelta;
+      if (left.status === "BOOKED" && right.status === "BOOKED") {
+        const leftOverdue = isAppointmentArrivalOverdue(left);
+        const rightOverdue = isAppointmentArrivalOverdue(right);
+        if (leftOverdue !== rightOverdue) {
+          return leftOverdue ? -1 : 1;
+        }
+      }
       return new Date(left.startAt).getTime() - new Date(right.startAt).getTime();
     });
   }, [activeFilter, appointments]);
@@ -553,9 +582,10 @@ export default function AdminSchedulingScreen() {
 
             {activeTab === "appointments"
               ? filteredAppointments.map((item) => {
-                  const meta = STATUS_META[item.status as keyof typeof STATUS_META] ?? STATUS_META.NO_SHOW;
                   const dateTime = toHumanDateTime(item.startAt);
                   const actionable = item.status === "BOOKED" || item.status === "CHECKED_IN";
+                  const { primary: primaryStatusMeta, secondary: secondaryStatusMeta } =
+                    getSchedulingAppointmentStatusMeta(item, STATUS_META, strings.manageSchedulingStatusOverdue);
 
                   return (
                     <Pressable
@@ -578,9 +608,14 @@ export default function AdminSchedulingScreen() {
                           <Text numberOfLines={1} style={styles.appointmentName}>
                             {item.customerName}
                           </Text>
-                          <View style={[styles.statusPill, { backgroundColor: meta.bg }]}>
-                            <Text style={[styles.statusPillText, { color: meta.fg }]}>{meta.label}</Text>
+                          <View style={[styles.statusPill, { backgroundColor: primaryStatusMeta.bg }]}>
+                            <Text style={[styles.statusPillText, { color: primaryStatusMeta.fg }]}>{primaryStatusMeta.label}</Text>
                           </View>
+                          {secondaryStatusMeta ? (
+                            <View style={[styles.statusPill, { backgroundColor: secondaryStatusMeta.bg }]}>
+                              <Text style={[styles.statusPillText, { color: secondaryStatusMeta.fg }]}>{secondaryStatusMeta.label}</Text>
+                            </View>
+                          ) : null}
                         </View>
                         <Text style={styles.appointmentMeta}>
                           {dateTime.time} • {dateTime.date}

@@ -16,6 +16,7 @@ export type MobileAppointmentSummary = {
 
 export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW";
 export const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
+export const APPOINTMENT_ARRIVAL_OVERDUE_MINUTES = 20;
 
 type AppointmentMutationInput = {
   customerName: string;
@@ -64,6 +65,23 @@ export function canCheckInAppointmentAt(startAt: string, now = new Date()): bool
 
   const windowMs = APPOINTMENT_CHECK_IN_WINDOW_MINUTES * 60 * 1000;
   return nowMs >= scheduledAtMs - windowMs && nowMs <= scheduledAtMs + windowMs;
+}
+
+export function isAppointmentArrivalOverdue(
+  appointment: Pick<MobileAppointmentSummary, "startAt" | "status">,
+  now = new Date(),
+): boolean {
+  if (appointment.status !== "BOOKED") {
+    return false;
+  }
+
+  const scheduledAtMs = new Date(appointment.startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) {
+    return false;
+  }
+
+  return nowMs >= scheduledAtMs + APPOINTMENT_ARRIVAL_OVERDUE_MINUTES * 60 * 1000;
 }
 
 export function assertAppointmentCheckInWindow(startAt: string, now = new Date(), locale: Locale = DEFAULT_LOCALE) {
@@ -211,7 +229,17 @@ export async function updateAppointmentStatusForMobile(
       throw new Error(translate(DEFAULT_LOCALE, "errors", "appointmentCheckinOnlyBooked"));
     }
 
-    assertAppointmentCheckInWindow(String(currentAppointment.start_at ?? ""));
+    const currentAppointmentSummary: Pick<MobileAppointmentSummary, "startAt" | "status"> = {
+      startAt: String(currentAppointment.start_at ?? ""),
+      status: String(currentAppointment.status ?? ""),
+    };
+
+    if (
+      !canCheckInAppointmentAt(currentAppointmentSummary.startAt) &&
+      !isAppointmentArrivalOverdue(currentAppointmentSummary)
+    ) {
+      assertAppointmentCheckInWindow(currentAppointmentSummary.startAt);
+    }
   }
 
   if (status === "CANCELLED") {

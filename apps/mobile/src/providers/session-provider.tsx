@@ -11,6 +11,7 @@ import type {
   AppSessionValidation,
   AuthenticatedUserSummary,
   InviteCodeConsumptionResult,
+  Locale,
 } from "@nails/shared";
 import {
   buildRoleSignUpAuthData,
@@ -31,6 +32,7 @@ import { mobileEnv } from "@/src/lib/env";
 import { mobileSupabase } from "@/src/lib/supabase";
 
 const SESSION_BOOT_TIMEOUT_MS = 3000;
+const PASSWORD_RESET_REQUEST_TIMEOUT_MS = 5000;
 const OAUTH_CALLBACK_PATH = "auth/callback";
 const { colors, radius, spacing, shadow } = premiumTheme;
 
@@ -94,7 +96,7 @@ type SessionContextValue = {
     inviteCode?: string;
     registrationMode: "USER" | "ADMIN";
   }) => Promise<InviteCodeConsumptionResult | null>;
-  requestPasswordReset: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string, locale?: Locale) => Promise<void>;
   refreshSession: () => Promise<void>;
   signOut: () => Promise<void>;
   clearError: () => void;
@@ -163,6 +165,67 @@ function buildAuthRedirectUrl() {
 
 function buildNativeAppRedirectUrl() {
   return Linking.createURL(OAUTH_CALLBACK_PATH, { scheme: "nails-app" });
+}
+
+function resolvePasswordResetApiBaseUrls() {
+  const sources = [
+    mobileEnv.passwordResetUrl,
+    mobileEnv.webApiBaseUrl,
+    mobileEnv.apiBaseUrl,
+  ];
+  const resolvedOrigins = new Set<string>();
+
+  for (const source of sources) {
+    const rawValue = source?.trim();
+    if (!rawValue) {
+      continue;
+    }
+
+    try {
+      resolvedOrigins.add(new URL(rawValue).origin);
+    } catch {
+      continue;
+    }
+  }
+
+  return Array.from(resolvedOrigins);
+}
+
+function normalizePasswordResetRequestErrorMessage(
+  locale: Locale,
+  input: {
+    error?: unknown;
+    status?: number;
+    contentType?: string | null;
+    payloadError?: string | null;
+  },
+) {
+  const rawMessage =
+    input.payloadError ||
+    (input.error instanceof Error ? input.error.message : typeof input.error === "string" ? input.error : "");
+  const normalizedMessage = rawMessage.toLowerCase();
+  const normalizedContentType = input.contentType?.toLowerCase() ?? "";
+
+  if (input.status === 404 || normalizedContentType.includes("text/html")) {
+    return translate(locale, "mobileAuth", "resetRouteMissing");
+  }
+
+  if (
+    normalizedMessage.includes("domain is not verified") ||
+    normalizedMessage.includes("gmail.com domain is not verified")
+  ) {
+    return translate(locale, "mobileAuth", "resetMailDomainUnverified");
+  }
+
+  if (
+    normalizedMessage.includes("failed to fetch") ||
+    normalizedMessage.includes("network request failed") ||
+    normalizedMessage.includes("fetch failed")
+  ) {
+    return translate(locale, "mobileAuth", "resetBackendUnreachable");
+  }
+
+  return rawMessage || translate(locale, "mobileAuth", "resetRequestFailed");
 }
 
 function shouldUseNativeOAuthRedirect() {
@@ -900,39 +963,60 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function requestPasswordReset(email: string) {
-    const passwordResetApiBaseUrl = mobileEnv.webApiBaseUrl || mobileEnv.apiBaseUrl;
-    if (!passwordResetApiBaseUrl) {
-      throw new Error("Thieu cau hinh backend de gui reset password.");
+  async function requestPasswordReset(email: string, locale: Locale = "vi") {
+    const passwordResetApiBaseUrls = resolvePasswordResetApiBaseUrls();
+    if (passwordResetApiBaseUrls.length === 0) {
+      throw new Error(translate(locale, "mobileAuth", "resetBackendMissing"));
     }
 
     setError(null);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    let lastError: Error | null = null;
 
     try {
-      const response = await fetch(`${passwordResetApiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/request`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email: email.trim() }),
-        signal: controller.signal,
-      });
-      const payload = (await response.json().catch(() => null)) as { success?: boolean; error?: string } | null;
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || "Gui reset password that bai.");
+      for (const baseUrl of passwordResetApiBaseUrls) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), PASSWORD_RESET_REQUEST_TIMEOUT_MS);
+
+        try {
+          const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/auth/password-reset/request`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ email: email.trim() }),
+            signal: controller.signal,
+          });
+          const contentType = response.headers.get("content-type");
+          const parsedPayload = (contentType?.toLowerCase() ?? "").includes("application/json")
+            ? ((await response.json().catch(() => null)) as { success?: boolean; error?: string } | null)
+            : null;
+          if (!response.ok || !parsedPayload?.success) {
+            throw new Error(
+              normalizePasswordResetRequestErrorMessage(locale, {
+                status: response.status,
+                contentType,
+                payloadError: parsedPayload?.error ?? null,
+              }),
+            );
+          }
+          return;
+        } catch (nextError) {
+          if (nextError instanceof Error && nextError.name === "AbortError") {
+            lastError = new Error(translate(locale, "mobileAuth", "resetRequestTimeout"));
+          } else if (nextError instanceof Error) {
+            lastError = nextError;
+          } else {
+            lastError = new Error(translate(locale, "mobileAuth", "resetRequestFailed"));
+          }
+        } finally {
+          clearTimeout(timeoutId);
+        }
       }
+
+      throw lastError ?? new Error(translate(locale, "mobileAuth", "resetRequestFailed"));
     } catch (nextError) {
-      if (nextError instanceof Error && nextError.name === "AbortError") {
-        setError("Gui email reset password bi timeout. Kiem tra backend/mail service roi thu lai.");
-        throw new Error("Gui email reset password bi timeout. Kiem tra backend/mail service roi thu lai.");
-      }
-      setError(nextError instanceof Error ? nextError.message : "Gui reset password that bai.");
+      setError(nextError instanceof Error ? nextError.message : translate(locale, "mobileAuth", "resetRequestFailed"));
       throw nextError;
-    } finally {
-      clearTimeout(timeoutId);
     }
   }
 

@@ -1,5 +1,12 @@
 import Constants from "expo-constants";
 
+function canonicalizePublicHostname(hostname: string) {
+  if (hostname === "chambeauty.io.vn" || hostname === "cham.beauty.io.vn") {
+    return "www.chambeauty.io.vn";
+  }
+  return hostname;
+}
+
 function readRequiredValue(name: string, rawValue: string | undefined) {
   const value = rawValue?.trim() ?? "";
   if (!value) {
@@ -26,6 +33,7 @@ function normalizeApiBaseUrl(rawValue: string | undefined) {
 
   try {
     const parsed = new URL(value);
+    parsed.hostname = canonicalizePublicHostname(parsed.hostname);
     const isExpoScheme = parsed.protocol === "exp:" || parsed.protocol === "exps:";
     const isMetroPort = parsed.port === "8081";
 
@@ -36,6 +44,21 @@ function normalizeApiBaseUrl(rawValue: string | undefined) {
     const nextProtocol = parsed.protocol === "exps:" ? "https:" : "http:";
     const nextHost = parsed.hostname || "localhost";
     return `${nextProtocol}//${nextHost}:3000`;
+  } catch {
+    return value;
+  }
+}
+
+function normalizePublicUrl(rawValue: string | undefined) {
+  const value = rawValue?.trim() ?? "";
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(value);
+    parsed.hostname = canonicalizePublicHostname(parsed.hostname);
+    return parsed.toString().replace(/\/$/, "");
   } catch {
     return value;
   }
@@ -81,7 +104,7 @@ export const mobileEnv = {
     normalizeApiBaseUrl(process.env.EXPO_PUBLIC_BOOKING_API_BASE_URL) ||
     normalizeApiBaseUrl(process.env.NEXT_PUBLIC_APP_URL) ||
     "",
-  passwordResetUrl: process.env.EXPO_PUBLIC_PASSWORD_RESET_URL?.trim() ?? "",
+  passwordResetUrl: normalizePublicUrl(process.env.EXPO_PUBLIC_PASSWORD_RESET_URL),
   defaultOrgId: process.env.EXPO_PUBLIC_DEFAULT_ORG_ID?.trim() ?? "",
   defaultBranchId: process.env.EXPO_PUBLIC_DEFAULT_BRANCH_ID?.trim() ?? "",
 };

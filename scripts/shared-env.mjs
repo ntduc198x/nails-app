@@ -65,21 +65,39 @@ export function getMergedEnv(baseEnv = process.env) {
   };
 }
 
+function canonicalizePublicUrl(rawValue) {
+  const value = rawValue?.trim();
+  if (!value) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.hostname === "chambeauty.io.vn" || parsed.hostname === "cham.beauty.io.vn") {
+      parsed.hostname = "www.chambeauty.io.vn";
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return value;
+  }
+}
+
 export function getDerivedMobilePublicEnv(sourceEnv = process.env) {
   const mergedEnv = getMergedEnv(sourceEnv);
+  const publicAppUrl = canonicalizePublicUrl(mergedEnv.NEXT_PUBLIC_APP_URL);
+  const explicitApiBaseUrl = canonicalizePublicUrl(mergedEnv.EXPO_PUBLIC_API_BASE_URL);
+  const explicitPasswordResetUrl = canonicalizePublicUrl(mergedEnv.EXPO_PUBLIC_PASSWORD_RESET_URL);
+  const explicitWebApiBaseUrl = canonicalizePublicUrl(mergedEnv.EXPO_PUBLIC_WEB_API_BASE_URL);
 
   return {
     EXPO_PUBLIC_SUPABASE_URL:
       mergedEnv.EXPO_PUBLIC_SUPABASE_URL || mergedEnv.NEXT_PUBLIC_SUPABASE_URL || "",
     EXPO_PUBLIC_SUPABASE_ANON_KEY:
       mergedEnv.EXPO_PUBLIC_SUPABASE_ANON_KEY || mergedEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
-    EXPO_PUBLIC_API_BASE_URL:
-      mergedEnv.EXPO_PUBLIC_API_BASE_URL || mergedEnv.NEXT_PUBLIC_APP_URL || "",
+    EXPO_PUBLIC_API_BASE_URL: explicitApiBaseUrl || publicAppUrl || "",
     EXPO_PUBLIC_PASSWORD_RESET_URL:
-      mergedEnv.EXPO_PUBLIC_PASSWORD_RESET_URL ||
-      (mergedEnv.NEXT_PUBLIC_APP_URL ? `${mergedEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/reset-password` : ""),
-    EXPO_PUBLIC_WEB_API_BASE_URL:
-      mergedEnv.EXPO_PUBLIC_WEB_API_BASE_URL || "",
+      explicitPasswordResetUrl || (publicAppUrl ? `${publicAppUrl}/reset-password` : ""),
+    EXPO_PUBLIC_WEB_API_BASE_URL: explicitWebApiBaseUrl || "",
     EXPO_PUBLIC_BOOKING_API_BASE_URL:
       mergedEnv.EXPO_PUBLIC_BOOKING_API_BASE_URL || "",
   };

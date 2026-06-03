@@ -5,6 +5,19 @@ type PasswordResetEmailInput = {
   mobileConfirmUrl: string;
 };
 
+function normalizePasswordResetEmailError(payloadText: string, statusText: string) {
+  const normalizedPayload = payloadText.toLowerCase();
+
+  if (
+    normalizedPayload.includes("domain is not verified") ||
+    normalizedPayload.includes("gmail.com domain is not verified")
+  ) {
+    return "Dịch vụ gửi mail chưa sẵn sàng: domain gửi email trên Resend chưa được xác minh.";
+  }
+
+  return `PASSWORD_RESET_EMAIL_FAILED: ${payloadText || statusText}`;
+}
+
 function getEmailSender() {
   const apiKey = process.env.RESEND_API_KEY?.trim() || "";
   const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || "";
@@ -72,6 +85,6 @@ export async function sendPasswordResetEmail(input: PasswordResetEmailInput) {
 
   if (!response.ok) {
     const payload = await response.text();
-    throw new Error(`PASSWORD_RESET_EMAIL_FAILED: ${payload || response.statusText}`);
+    throw new Error(normalizePasswordResetEmailError(payload, response.statusText));
   }
 }

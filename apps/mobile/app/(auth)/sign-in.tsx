@@ -178,7 +178,7 @@ export default function SignInScreen() {
                 setIsResetSending(true);
                 setMessage(null);
                 clearError();
-                await requestPasswordReset(nextEmail);
+                await requestPasswordReset(nextEmail, locale);
                 setMessage(t("resetSent"));
               } catch {
                 // Session provider already surfaces the concrete error state.

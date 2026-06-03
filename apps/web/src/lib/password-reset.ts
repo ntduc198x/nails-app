@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { createServiceRoleClient } from "@/lib/supabase";
 
 const PASSWORD_RESET_TTL_MINUTES = 30;
@@ -82,12 +83,7 @@ export function getPasswordResetTtlMinutes() {
 }
 
 export function buildWebPasswordResetConfirmUrl(token: string) {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  if (!appUrl) {
-    throw new Error("Thiếu NEXT_PUBLIC_APP_URL để tạo link xác nhận reset mật khẩu.");
-  }
-
-  const url = new URL("/reset-password", appUrl);
+  const url = new URL("/reset-password", resolvePublicAppBaseUrl());
   url.searchParams.set("token", token);
   return url.toString();
 }
@@ -96,21 +92,41 @@ export function buildMobilePasswordResetConfirmUrl(token: string) {
   return `${MOBILE_APP_SCHEME}://reset-password?token=${encodeURIComponent(token)}`;
 }
 
+async function findAuthUserByEmail(email: string) {
+  const serviceRoleClient = createServiceRoleClient();
+  let page = 1;
+  const perPage = 200;
+
+  while (page <= 10) {
+    const { data, error } = await serviceRoleClient.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      throw new Error(`PASSWORD_RESET_AUTH_LOOKUP_FAILED: ${error.message}`);
+    }
+
+    const matchedUser =
+      data?.users?.find((user) => normalizeResetEmail(user.email ?? "") === email) ?? null;
+
+    if (matchedUser) {
+      return {
+        id: matchedUser.id,
+        email: normalizeResetEmail(matchedUser.email ?? email),
+      };
+    }
+
+    if (!data?.users?.length || data.users.length < perPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return null;
+}
+
 export async function createPendingPasswordReset(email: string) {
   const serviceRoleClient = createServiceRoleClient();
   const normalizedEmail = normalizeResetEmail(email);
-
-  const { data: authUserRow, error: authUserError } = await serviceRoleClient
-    .schema("auth")
-    .from("users")
-    .select("id,email")
-    .eq("email", normalizedEmail)
-    .limit(1)
-    .maybeSingle();
-
-  if (authUserError) {
-    throw new Error(`PASSWORD_RESET_AUTH_LOOKUP_FAILED: ${authUserError.message}`);
-  }
+  const authUserRow = await findAuthUserByEmail(normalizedEmail);
 
   if (!authUserRow?.id || !authUserRow.email) {
     return null;

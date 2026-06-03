@@ -11,6 +11,62 @@ import { mobileEnv } from "@/src/lib/env";
 const { colors } = premiumTheme;
 const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
+function normalizeResetRouteError(
+  locale: Locale,
+  input: {
+    status?: number;
+    contentType?: string | null;
+    payloadError?: string | null;
+    fallbackKey?: TranslationKey<"mobileAuth">;
+  },
+) {
+  const rawMessage = input.payloadError ?? "";
+  const normalizedMessage = rawMessage.toLowerCase();
+  const normalizedContentType = input.contentType?.toLowerCase() ?? "";
+
+  if (input.status === 404 || normalizedContentType.includes("text/html")) {
+    return translate(locale, "mobileAuth", "resetRouteMissing");
+  }
+
+  if (
+    normalizedMessage.includes("failed to fetch") ||
+    normalizedMessage.includes("network request failed") ||
+    normalizedMessage.includes("fetch failed")
+  ) {
+    return translate(locale, "mobileAuth", "resetBackendUnreachable");
+  }
+
+  return rawMessage || translate(locale, "mobileAuth", input.fallbackKey ?? "invalidRecoveryToken");
+}
+
+type ResetRoutePayload = {
+  success?: boolean;
+  status?: "pending" | "expired" | "used" | "invalid";
+  error?: string;
+} | null;
+
+async function readResetRoutePayload(response: Response): Promise<{
+  contentType: string | null;
+  payload: ResetRoutePayload;
+}> {
+  const contentType = response.headers.get("content-type");
+  const payload = (contentType?.toLowerCase() ?? "").includes("application/json")
+    ? ((await response.json().catch(() => null)) as ResetRoutePayload)
+    : null;
+
+  return { contentType, payload };
+}
+
+function buildResetRouteUrl(pathname: "status" | "confirm", token: string) {
+  const baseUrl = mobileEnv.apiBaseUrl.replace(/\/$/, "");
+
+  if (pathname === "status") {
+    return `${baseUrl}/api/auth/password-reset/status?token=${encodeURIComponent(token)}`;
+  }
+
+  return `${baseUrl}/api/auth/password-reset/confirm`;
+}
+
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === "string" ? params.token.trim() : "";
@@ -50,16 +106,18 @@ export default function ResetPasswordScreen() {
           throw new Error(t("invalidRecoveryLink"));
         }
 
-        const response = await fetch(
-          `${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/status?token=${encodeURIComponent(token)}`,
-          { method: "GET" },
-        );
-        const payload = (await response.json().catch(() => null)) as
-          | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
-          | null;
+        const response = await fetch(buildResetRouteUrl("status", token), { method: "GET" });
+        const { contentType, payload } = await readResetRoutePayload(response);
 
         if (!response.ok || !payload?.success) {
-          throw new Error(payload?.error || t("invalidRecoveryToken"));
+          throw new Error(
+            normalizeResetRouteError(locale, {
+              status: response.status,
+              contentType,
+              payloadError: payload?.error ?? null,
+              fallbackKey: "invalidRecoveryToken",
+            }),
+          );
         }
 
         if (!mounted) return;
@@ -102,7 +160,7 @@ export default function ResetPasswordScreen() {
     return () => {
       mounted = false;
     };
-  }, [t, token]);
+  }, [locale, t, token]);
 
   async function handleSubmit() {
     if (!token) {
@@ -114,16 +172,14 @@ export default function ResetPasswordScreen() {
     setError(null);
 
     try {
-      const response = await fetch(`${mobileEnv.apiBaseUrl.replace(/\/$/, "")}/api/auth/password-reset/confirm`, {
+      const response = await fetch(buildResetRouteUrl("confirm", token), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ token }),
       });
-      const payload = (await response.json().catch(() => null)) as
-        | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
-        | null;
+      const { contentType, payload } = await readResetRoutePayload(response);
 
       if (!response.ok || !payload?.success) {
         if (payload?.status === "used") {
@@ -136,9 +192,23 @@ export default function ResetPasswordScreen() {
           throw new Error(t("resetExpired"));
         }
         if (payload?.status === "invalid") {
-          throw new Error(payload.error || t("invalidRecoveryToken"));
+          throw new Error(
+            normalizeResetRouteError(locale, {
+              status: response.status,
+              contentType,
+              payloadError: payload.error ?? null,
+              fallbackKey: "invalidRecoveryToken",
+            }),
+          );
         }
-        throw new Error(payload?.error || translate(locale, "errors", "passwordChangeFailed"));
+        throw new Error(
+          normalizeResetRouteError(locale, {
+            status: response.status,
+            contentType,
+            payloadError: payload?.error ?? null,
+            fallbackKey: "invalidRecoveryToken",
+          }),
+        );
       }
 
       setIsUsed(true);

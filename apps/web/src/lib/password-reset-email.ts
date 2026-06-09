@@ -1,8 +1,6 @@
 type PasswordResetEmailInput = {
   to: string;
-  temporaryPassword: string;
   webConfirmUrl: string;
-  mobileConfirmUrl: string;
 };
 
 function normalizePasswordResetEmailError(payloadText: string, statusText: string) {
@@ -34,34 +32,31 @@ function getEmailSender() {
 }
 
 function buildPasswordResetEmailHtml(input: PasswordResetEmailInput) {
-  const activateNote = "Để mật khẩu mới có hiệu lực, bạn cần bấm vào một trong hai liên kết kích hoạt bên dưới.";
   return `
   <div style="font-family:Arial,sans-serif;color:#1f2937;line-height:1.6">
-    <h2 style="margin-bottom:12px">Cham Beauty - Mật khẩu tạm thời mới</h2>
-    <p>Chúng tôi đã tạo sẵn cho bạn một mật khẩu tạm mới.</p>
-    <p><strong>Mật khẩu tạm:</strong> <span style="font-size:18px">${input.temporaryPassword}</span></p>
-    <p>${activateNote}</p>
-    <ul>
-      <li><a href="${input.webConfirmUrl}">Kích hoạt trên web</a></li>
-      <li><a href="${input.mobileConfirmUrl}">Mở ứng dụng và kích hoạt</a></li>
-    </ul>
-    <p>Sau khi kích hoạt thành công, bạn có thể đăng nhập bằng mật khẩu tạm ở trên và nên đổi lại mật khẩu trong phần tài khoản.</p>
+    <h2 style="margin-bottom:12px">Cham Beauty - Đặt lại mật khẩu</h2>
+    <p>Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.</p>
+    <p>Bấm vào liên kết bên dưới để mở trang đặt mật khẩu mới.</p>
+    <p style="margin:20px 0">
+      <a href="${input.webConfirmUrl}" style="display:inline-block;padding:12px 18px;border-radius:10px;background:#1f2937;color:#ffffff;text-decoration:none;font-weight:700">
+        Đặt mật khẩu mới
+      </a>
+    </p>
+    <p>Nếu bạn không yêu cầu thao tác này, hãy bỏ qua email.</p>
   </div>
   `.trim();
 }
 
 function buildPasswordResetEmailText(input: PasswordResetEmailInput) {
   const lines = [
-    "Cham Beauty - Mat khau tam thoi moi",
+    "Cham Beauty - Dat lai mat khau",
     "",
-    "Chung toi da tao san cho ban mot mat khau tam moi.",
-    `Mat khau tam: ${input.temporaryPassword}`,
+    "Chung toi da nhan duoc yeu cau dat lai mat khau cho tai khoan cua ban.",
     "",
-    "De mat khau moi co hieu luc, ban can bam vao mot trong hai lien ket kich hoat ben duoi.",
-    `Web: ${input.webConfirmUrl}`,
-    `Mobile app: ${input.mobileConfirmUrl}`,
+    "Bam vao lien ket ben duoi de mo trang dat mat khau moi:",
+    input.webConfirmUrl,
   ];
-  lines.push("", "Sau khi kich hoat thanh cong, hay dang nhap bang mat khau tam va doi lai mat khau trong phan tai khoan.");
+  lines.push("", "Neu ban khong yeu cau thao tac nay, hay bo qua email.");
   return lines.join("\n");
 }
 
@@ -77,7 +72,7 @@ export async function sendPasswordResetEmail(input: PasswordResetEmailInput) {
     body: JSON.stringify({
       from: sender.from,
       to: [input.to],
-      subject: "Cham Beauty - Mat khau tam thoi moi",
+      subject: "Cham Beauty - Dat lai mat khau",
       html: buildPasswordResetEmailHtml(input),
       text: buildPasswordResetEmailText(input),
     }),

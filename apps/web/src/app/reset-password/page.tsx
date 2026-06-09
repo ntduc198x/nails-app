@@ -14,9 +14,12 @@ function ResetPasswordContent() {
   const [isReady, setIsReady] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isUsed, setIsUsed] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   const nextPath = useMemo(() => searchParams.get("next") || "/login", [searchParams]);
   const token = useMemo(() => searchParams.get("token")?.trim() || "", [searchParams]);
+  const minPasswordLength = 8;
 
   useEffect(() => {
     let cancelled = false;
@@ -42,9 +45,9 @@ function ResetPasswordContent() {
           setIsReady(payload.status === "pending");
           setIsUsed(payload.status === "used");
           if (payload.status === "pending") {
-            setMessage("Liên kết hợp lệ. Bấm xác nhận để kích hoạt mật khẩu tạm đã được gửi qua email.");
+            setMessage("Liên kết hợp lệ. Nhập mật khẩu mới để hoàn tất đặt lại mật khẩu.");
           } else if (payload.status === "used") {
-            setMessage("Liên kết này đã được dùng. Bạn có thể đăng nhập bằng mật khẩu tạm trong email.");
+            setMessage("Liên kết này đã được dùng. Hãy đăng nhập bằng mật khẩu mới đã đặt.");
           } else if (payload.status === "expired") {
             setError("Liên kết reset mật khẩu đã hết hạn.");
             setMessage("");
@@ -74,6 +77,21 @@ function ResetPasswordContent() {
       return;
     }
 
+    if (!newPassword.trim()) {
+      setError("Nhập mật khẩu mới.");
+      return;
+    }
+
+    if (newPassword.trim().length < minPasswordLength) {
+      setError(`Mật khẩu mới phải có ít nhất ${minPasswordLength} ký tự.`);
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("Mật khẩu nhập lại không khớp.");
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
 
@@ -83,7 +101,7 @@ function ResetPasswordContent() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, newPassword: newPassword.trim() }),
       });
       const payload = (await response.json().catch(() => null)) as
         | { success?: boolean; status?: "pending" | "expired" | "used" | "invalid"; error?: string }
@@ -93,7 +111,7 @@ function ResetPasswordContent() {
         if (payload?.status === "used") {
           setIsUsed(true);
           setIsReady(false);
-          setMessage("Liên kết này đã được dùng. Bạn có thể đăng nhập bằng mật khẩu tạm trong email.");
+          setMessage("Liên kết này đã được dùng. Hãy đăng nhập bằng mật khẩu mới đã đặt.");
           return;
         }
         if (payload?.status === "expired") {
@@ -107,7 +125,9 @@ function ResetPasswordContent() {
 
       setIsUsed(true);
       setIsReady(false);
-      setMessage("Đã kích hoạt mật khẩu tạm thành công. Đang chuyển về đăng nhập...");
+      setMessage("Đổi mật khẩu thành công. Đang chuyển về đăng nhập...");
+      setNewPassword("");
+      setConfirmPassword("");
       window.setTimeout(() => {
         router.replace(nextPath.startsWith("/") ? nextPath : "/login");
       }, 1200);
@@ -140,16 +160,44 @@ function ResetPasswordContent() {
 
               {isReady ? (
                 <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
-                  <p>Mật khẩu mới đã được gửi sẵn qua email. Bước cuối cùng là xác nhận để hệ thống kích hoạt mật khẩu đó.</p>
+                  <p>Đặt mật khẩu mới ngay tại đây. Sau khi hoàn tất, bạn có thể quay lại app hoặc đăng nhập lại trên web.</p>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    placeholder="Mật khẩu mới"
+                    className="landing-auth-form__input"
+                    autoComplete="new-password"
+                  />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="Nhập lại mật khẩu mới"
+                    className="landing-auth-form__input"
+                    autoComplete="new-password"
+                  />
                   <button type="button" className="landing-auth-form__submit" disabled={isSaving} onClick={() => void handleConfirmReset()}>
-                    {isSaving ? "Đang xác nhận..." : "Xác nhận reset mật khẩu"}
+                    {isSaving ? "Đang cập nhật..." : "Lưu mật khẩu mới"}
                   </button>
                 </div>
               ) : null}
 
               {isUsed ? (
                 <div style={{ marginTop: 20, display: "grid", gap: 12 }}>
-                  <p>Hãy quay lại màn đăng nhập và dùng mật khẩu tạm đã nhận trong email.</p>
+                  <p>Bạn có thể quay lại web đăng nhập hoặc mở lại ứng dụng để đăng nhập bằng mật khẩu mới.</p>
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                    <Link className="landing-auth-form__submit" href="/login" style={{ textDecoration: "none", textAlign: "center" }}>
+                      Về đăng nhập web
+                    </Link>
+                    <a
+                      className="landing-auth-form__secondary"
+                      href="nails-app://sign-in"
+                      style={{ textDecoration: "none", textAlign: "center" }}
+                    >
+                      Mở ứng dụng
+                    </a>
+                  </div>
                 </div>
               ) : null}
             </div>

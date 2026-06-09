@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
-import { confirmPasswordResetByToken } from "@/lib/password-reset";
+import { confirmPasswordResetByTokenWithNewPassword } from "@/lib/password-reset";
 
 export async function POST(req: Request) {
   try {
-    const body = (await req.json().catch(() => ({}))) as { token?: string };
+    const body = (await req.json().catch(() => ({}))) as { token?: string; newPassword?: string };
     const token = body.token?.trim() ?? "";
+    const newPassword = typeof body.newPassword === "string" ? body.newPassword : "";
 
     if (!token) {
       return NextResponse.json({ success: false, status: "invalid", error: "Thiếu token reset mật khẩu." }, { status: 400 });
     }
 
-    const result = await confirmPasswordResetByToken(token);
+    const result = await confirmPasswordResetByTokenWithNewPassword(token, newPassword);
     if (result.status !== "used") {
       return NextResponse.json({ success: false, status: result.status }, { status: 400 });
     }

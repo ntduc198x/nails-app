@@ -24,9 +24,7 @@ export async function POST(req: Request) {
     try {
       await sendPasswordResetEmail({
         to: pendingReset.email,
-        temporaryPassword: pendingReset.temporaryPassword,
         webConfirmUrl: pendingReset.webConfirmUrl,
-        mobileConfirmUrl: pendingReset.mobileConfirmUrl,
       });
     } catch (error) {
       await deletePendingPasswordResetById(pendingReset.requestId).catch(() => undefined);

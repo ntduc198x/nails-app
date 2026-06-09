@@ -3,14 +3,14 @@ import { resolvePublicAppBaseUrl } from "@/lib/public-app-url";
 import { createServiceRoleClient } from "@/lib/supabase";
 
 const PASSWORD_RESET_TTL_MINUTES = 30;
-const MOBILE_APP_SCHEME = process.env.EXPO_PUBLIC_APP_SCHEME?.trim() || "nails-app";
+const MIN_PASSWORD_LENGTH = 8;
 
 type PasswordResetRecord = {
   id: string;
   user_id: string;
   email: string;
   reset_token: string;
-  temporary_password_ciphertext: string;
+  temporary_password_ciphertext: string | null;
   expires_at: string;
   confirmed_at: string | null;
   used_at: string | null;
@@ -19,55 +19,8 @@ type PasswordResetRecord = {
 
 export type PasswordResetStatus = "pending" | "expired" | "used" | "invalid";
 
-function getPasswordResetSecret() {
-  const secret = process.env.PASSWORD_RESET_SECRET?.trim() || process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() || "";
-  if (!secret) {
-    throw new Error("Thiếu PASSWORD_RESET_SECRET hoặc SUPABASE_SERVICE_ROLE_KEY để mã hóa mật khẩu tạm.");
-  }
-  return crypto.createHash("sha256").update(secret).digest();
-}
-
-function encodeBase64Url(value: Buffer) {
-  return value.toString("base64url");
-}
-
-function decodeBase64Url(value: string) {
-  return Buffer.from(value, "base64url");
-}
-
-function encryptTemporaryPassword(plainText: string) {
-  const key = getPasswordResetSecret();
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
-  const cipherText = Buffer.concat([cipher.update(plainText, "utf8"), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  return [encodeBase64Url(iv), encodeBase64Url(authTag), encodeBase64Url(cipherText)].join(".");
-}
-
-function decryptTemporaryPassword(cipherText: string) {
-  const [ivPart, authTagPart, payloadPart] = cipherText.split(".");
-  if (!ivPart || !authTagPart || !payloadPart) {
-    throw new Error("PASSWORD_RESET_CIPHERTEXT_INVALID");
-  }
-
-  const key = getPasswordResetSecret();
-  const decipher = crypto.createDecipheriv("aes-256-gcm", key, decodeBase64Url(ivPart));
-  decipher.setAuthTag(decodeBase64Url(authTagPart));
-  const plainBuffer = Buffer.concat([decipher.update(decodeBase64Url(payloadPart)), decipher.final()]);
-  return plainBuffer.toString("utf8");
-}
-
 function generatePasswordResetToken() {
   return crypto.randomBytes(32).toString("base64url");
-}
-
-function generateTemporaryPassword(length = 14) {
-  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
-  let output = "";
-  for (let index = 0; index < length; index += 1) {
-    output += alphabet[crypto.randomInt(0, alphabet.length)];
-  }
-  return output;
 }
 
 export function normalizeResetEmail(email: string) {
@@ -82,14 +35,14 @@ export function getPasswordResetTtlMinutes() {
   return PASSWORD_RESET_TTL_MINUTES;
 }
 
+export function getPasswordResetMinPasswordLength() {
+  return MIN_PASSWORD_LENGTH;
+}
+
 export function buildWebPasswordResetConfirmUrl(token: string) {
   const url = new URL("/reset-password", resolvePublicAppBaseUrl());
   url.searchParams.set("token", token);
   return url.toString();
-}
-
-export function buildMobilePasswordResetConfirmUrl(token: string) {
-  return `${MOBILE_APP_SCHEME}://reset-password?token=${encodeURIComponent(token)}`;
 }
 
 async function findAuthUserByEmail(email: string) {
@@ -133,7 +86,6 @@ export async function createPendingPasswordReset(email: string) {
   }
 
   const resetToken = generatePasswordResetToken();
-  const temporaryPassword = generateTemporaryPassword();
   const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000).toISOString();
 
   await serviceRoleClient
@@ -148,7 +100,7 @@ export async function createPendingPasswordReset(email: string) {
       user_id: authUserRow.id,
       email: normalizedEmail,
       reset_token: resetToken,
-      temporary_password_ciphertext: encryptTemporaryPassword(temporaryPassword),
+      temporary_password_ciphertext: null,
       expires_at: expiresAt,
     })
     .select("id,user_id,email,reset_token,temporary_password_ciphertext,expires_at,confirmed_at,used_at,created_at")
@@ -163,11 +115,9 @@ export async function createPendingPasswordReset(email: string) {
   return {
     requestId: insertedRow.id,
     email: normalizedEmail,
-    temporaryPassword,
     resetToken,
     expiresAt,
     webConfirmUrl: buildWebPasswordResetConfirmUrl(resetToken),
-    mobileConfirmUrl: buildMobilePasswordResetConfirmUrl(resetToken),
   };
 }
 
@@ -218,20 +168,36 @@ async function revokeUserAppSessions(userId: string) {
   ]);
 }
 
-export async function confirmPasswordResetByToken(token: string): Promise<{
+export function validatePasswordResetNewPassword(newPassword: string) {
+  const normalized = newPassword.trim();
+  if (!normalized) {
+    throw new Error("Mật khẩu mới không được để trống.");
+  }
+
+  if (normalized.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`Mật khẩu mới phải có ít nhất ${MIN_PASSWORD_LENGTH} ký tự.`);
+  }
+
+  return normalized;
+}
+
+export async function confirmPasswordResetByTokenWithNewPassword(
+  token: string,
+  newPassword: string,
+): Promise<{
   status: PasswordResetStatus;
 }> {
   const serviceRoleClient = createServiceRoleClient();
   const { data, error } = await serviceRoleClient
     .from("password_reset_requests")
-    .select("id,user_id,temporary_password_ciphertext,expires_at,used_at")
+    .select("id,user_id,expires_at,used_at")
     .eq("reset_token", token)
     .limit(1)
     .maybeSingle();
 
   const row = (data ?? null) as Pick<
     PasswordResetRecord,
-    "id" | "user_id" | "temporary_password_ciphertext" | "expires_at" | "used_at"
+    "id" | "user_id" | "expires_at" | "used_at"
   > | null;
 
   if (error) {
@@ -250,9 +216,9 @@ export async function confirmPasswordResetByToken(token: string): Promise<{
     return { status: "expired" };
   }
 
-  const temporaryPassword = decryptTemporaryPassword(row.temporary_password_ciphertext);
+  const validatedPassword = validatePasswordResetNewPassword(newPassword);
   const { error: updateUserError } = await serviceRoleClient.auth.admin.updateUserById(row.user_id, {
-    password: temporaryPassword,
+    password: validatedPassword,
   });
 
   if (updateUserError) {

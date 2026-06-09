@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { premiumTheme } from "@/src/design/premium-theme";
 import { mobileEnv } from "@/src/lib/env";
@@ -11,220 +11,36 @@ import { mobileEnv } from "@/src/lib/env";
 const { colors } = premiumTheme;
 const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
-function normalizeResetRouteError(
-  locale: Locale,
-  input: {
-    status?: number;
-    contentType?: string | null;
-    payloadError?: string | null;
-    fallbackKey?: TranslationKey<"mobileAuth">;
-  },
-) {
-  const rawMessage = input.payloadError ?? "";
-  const normalizedMessage = rawMessage.toLowerCase();
-  const normalizedContentType = input.contentType?.toLowerCase() ?? "";
-
-  if (input.status === 404 || normalizedContentType.includes("text/html")) {
-    return translate(locale, "mobileAuth", "resetRouteMissing");
-  }
-
-  if (
-    normalizedMessage.includes("failed to fetch") ||
-    normalizedMessage.includes("network request failed") ||
-    normalizedMessage.includes("fetch failed")
-  ) {
-    return translate(locale, "mobileAuth", "resetBackendUnreachable");
-  }
-
-  return rawMessage || translate(locale, "mobileAuth", input.fallbackKey ?? "invalidRecoveryToken");
-}
-
-type ResetRoutePayload = {
-  success?: boolean;
-  status?: "pending" | "expired" | "used" | "invalid";
-  error?: string;
-} | null;
-
-async function readResetRoutePayload(response: Response): Promise<{
-  contentType: string | null;
-  payload: ResetRoutePayload;
-}> {
-  const contentType = response.headers.get("content-type");
-  const payload = (contentType?.toLowerCase() ?? "").includes("application/json")
-    ? ((await response.json().catch(() => null)) as ResetRoutePayload)
-    : null;
-
-  return { contentType, payload };
-}
-
-function buildResetRouteUrl(pathname: "status" | "confirm", token: string) {
-  const baseUrl = mobileEnv.apiBaseUrl.replace(/\/$/, "");
-
-  if (pathname === "status") {
-    return `${baseUrl}/api/auth/password-reset/status?token=${encodeURIComponent(token)}`;
-  }
-
-  return `${baseUrl}/api/auth/password-reset/confirm`;
+function buildResetWebUrl(token: string) {
+  const baseUrl = (mobileEnv.passwordResetUrl || mobileEnv.apiBaseUrl).replace(/\/$/, "");
+  return `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
 }
 
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
   const token = typeof params.token === "string" ? params.token.trim() : "";
-  const [isPreparing, setIsPreparing] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [locale, setLocale] = useState<Locale>("vi");
-  const [message, setMessage] = useState("");
-  const [isReady, setIsReady] = useState(false);
-  const [isUsed, setIsUsed] = useState(false);
   const t = useMemo(
     () => (key: TranslationKey<"mobileAuth">, nextParams?: Record<string, string | number>) =>
       translate(locale, "mobileAuth", key, nextParams),
     [locale],
   );
 
-  const submitLabel = useMemo(() => {
-    if (isSubmitting) return t("resetConfirming");
-    return t("resetConfirmAction");
-  }, [isSubmitting, t]);
-
   useEffect(() => {
-    let mounted = true;
-
     void (async () => {
       const storedLocale = await AsyncStorage.getItem(LOCALE_STORAGE_KEY);
-      const nextLocale = normalizeLocale(storedLocale);
-      if (mounted) {
-        setLocale(nextLocale);
-        setMessage(translate(nextLocale, "mobileAuth", "resetPreparing"));
-      }
+      setLocale(normalizeLocale(storedLocale));
     })();
+  }, []);
 
-    async function validateResetToken() {
-      try {
-        if (!token) {
-          throw new Error(t("invalidRecoveryLink"));
-        }
+  const resetWebUrl = token ? buildResetWebUrl(token) : null;
 
-        const response = await fetch(buildResetRouteUrl("status", token), { method: "GET" });
-        const { contentType, payload } = await readResetRoutePayload(response);
-
-        if (!response.ok || !payload?.success) {
-          throw new Error(
-            normalizeResetRouteError(locale, {
-              status: response.status,
-              contentType,
-              payloadError: payload?.error ?? null,
-              fallbackKey: "invalidRecoveryToken",
-            }),
-          );
-        }
-
-        if (!mounted) return;
-
-        setError(null);
-        setIsReady(payload.status === "pending");
-        setIsUsed(payload.status === "used");
-
-        if (payload.status === "pending") {
-          setMessage(t("resetReady"));
-          return;
-        }
-
-        if (payload.status === "used") {
-          setMessage(t("resetAlreadyUsed"));
-          return;
-        }
-
-        if (payload.status === "expired") {
-          setMessage("");
-          setError(t("resetExpired"));
-          return;
-        }
-
-        setMessage("");
-        setError(t("invalidRecoveryToken"));
-      } catch (nextError) {
-        if (!mounted) return;
-        setError(nextError instanceof Error ? nextError.message : t("invalidRecoveryToken"));
-        setMessage("");
-      } finally {
-        if (mounted) {
-          setIsPreparing(false);
-        }
-      }
-    }
-
-    void validateResetToken();
-
-    return () => {
-      mounted = false;
-    };
-  }, [locale, t, token]);
-
-  async function handleSubmit() {
-    if (!token) {
-      setError(t("invalidRecoveryLink"));
+  async function handleOpenWeb() {
+    if (!resetWebUrl) {
       return;
     }
 
-    setIsSubmitting(true);
-    setError(null);
-
-    try {
-      const response = await fetch(buildResetRouteUrl("confirm", token), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ token }),
-      });
-      const { contentType, payload } = await readResetRoutePayload(response);
-
-      if (!response.ok || !payload?.success) {
-        if (payload?.status === "used") {
-          setIsUsed(true);
-          setIsReady(false);
-          setMessage(t("resetAlreadyUsed"));
-          return;
-        }
-        if (payload?.status === "expired") {
-          throw new Error(t("resetExpired"));
-        }
-        if (payload?.status === "invalid") {
-          throw new Error(
-            normalizeResetRouteError(locale, {
-              status: response.status,
-              contentType,
-              payloadError: payload.error ?? null,
-              fallbackKey: "invalidRecoveryToken",
-            }),
-          );
-        }
-        throw new Error(
-          normalizeResetRouteError(locale, {
-            status: response.status,
-            contentType,
-            payloadError: payload?.error ?? null,
-            fallbackKey: "invalidRecoveryToken",
-          }),
-        );
-      }
-
-      setIsUsed(true);
-      setIsReady(false);
-      setMessage(t("resetSuccess"));
-      Alert.alert(t("resetSuccessAlertTitle"), t("resetSuccessAlertBody"), [
-        {
-          text: t("backToLogin"),
-          onPress: () => router.replace("/(auth)/sign-in"),
-        },
-      ]);
-    } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : translate(locale, "errors", "passwordChangeFailed"));
-    } finally {
-      setIsSubmitting(false);
-    }
+    await Linking.openURL(resetWebUrl);
   }
 
   return (
@@ -239,23 +55,22 @@ export default function ResetPasswordScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{t("resetTitle")}</Text>
-            {message ? <Text style={styles.helper}>{message}</Text> : null}
-            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Text style={styles.helper}>
+              {token ? t("resetWebFirstNotice") : t("invalidRecoveryLink")}
+            </Text>
 
             <View style={styles.infoCard}>
-              <Feather color="#7B6D63" name="mail" size={18} />
-              <Text style={styles.infoCardText}>{t("resetEmailNotice")}</Text>
+              <Feather color="#7B6D63" name="globe" size={18} />
+              <Text style={styles.infoCardText}>{t("resetWebFirstHelp")}</Text>
             </View>
 
             <Pressable
-              style={[styles.primaryButton, (!isReady || isPreparing || isSubmitting) ? styles.primaryButtonDisabled : null]}
-              disabled={!isReady || isPreparing || isSubmitting}
-              onPress={() => void handleSubmit()}
+              style={[styles.primaryButton, !resetWebUrl ? styles.primaryButtonDisabled : null]}
+              disabled={!resetWebUrl}
+              onPress={() => void handleOpenWeb()}
             >
-              <Text style={styles.primaryButtonText}>{submitLabel}</Text>
+              <Text style={styles.primaryButtonText}>{t("resetOpenWebAction")}</Text>
             </Pressable>
-
-            {isUsed ? <Text style={styles.helper}>{t("resetLoginHint")}</Text> : null}
 
             <Pressable onPress={() => router.replace("/(auth)/sign-in")} style={styles.secondaryAction}>
               <Text style={styles.secondaryActionText}>{t("backToLogin")}</Text>
@@ -268,116 +83,106 @@ export default function ResetPasswordScreen() {
 }
 
 const styles = StyleSheet.create({
+  brand: {
+    color: "#4B3425",
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: 1.8,
+    textAlign: "center",
+  },
+  brandMark: {
+    alignItems: "center",
+    backgroundColor: "#E9DDD3",
+    borderRadius: 999,
+    height: 64,
+    justifyContent: "center",
+    marginBottom: 16,
+    width: 64,
+  },
+  brandMarkText: {
+    color: "#7B4B2A",
+    fontSize: 28,
+    fontWeight: "800",
+  },
+  brandSub: {
+    color: "#7B6D63",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 2.4,
+    marginBottom: 28,
+    marginTop: 6,
+    textAlign: "center",
+  },
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E6DDD6",
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 18,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+  },
+  cardTitle: {
+    color: "#24160F",
+    fontSize: 23,
+    fontWeight: "800",
+  },
   container: {
+    backgroundColor: "#F6EFE9",
     flex: 1,
-    backgroundColor: "#FCFAF8",
+  },
+  helper: {
+    color: "#6C5343",
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  infoCard: {
+    alignItems: "flex-start",
+    backgroundColor: "#F9F4EF",
+    borderColor: "#EFE3D8",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  infoCardText: {
+    color: "#6C5343",
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20,
   },
   keyboardShell: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    paddingTop: 28,
-    justifyContent: "center",
-    gap: 18,
-  },
-  brandMark: {
-    alignSelf: "center",
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#231815",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  brandMarkText: {
-    color: "#F8E3D0",
-    fontSize: 26,
-    fontWeight: "800",
-  },
-  brand: {
-    textAlign: "center",
-    color: colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-  },
-  brandSub: {
-    textAlign: "center",
-    color: "#8A7B6F",
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 2.2,
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 28,
-    paddingHorizontal: 18,
-    paddingVertical: 20,
-    borderWidth: 1,
-    borderColor: "#EFE5DB",
-    gap: 14,
-  },
-  cardTitle: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: "800",
-  },
-  helper: {
-    color: "#7B6D63",
-    fontSize: 14,
-    lineHeight: 21,
-  },
-  error: {
-    color: "#B43A3A",
-    fontSize: 13,
-    lineHeight: 20,
-    backgroundColor: "#FFF1F1",
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  infoCard: {
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E7DDD2",
-    backgroundColor: "#FFFDFB",
-    flexDirection: "row",
-    alignItems: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    gap: 10,
-  },
-  infoCardText: {
-    flex: 1,
-    color: "#7B6D63",
-    fontSize: 14,
-    lineHeight: 21,
-  },
   primaryButton: {
-    minHeight: 52,
-    borderRadius: 18,
-    backgroundColor: colors.accent,
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 16,
+    backgroundColor: "#3C2415",
+    borderRadius: 18,
+    paddingVertical: 16,
   },
   primaryButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.45,
   },
   primaryButtonText: {
-    color: "#FFFFFF",
+    color: colors.surface,
     fontSize: 15,
     fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 32,
   },
   secondaryAction: {
-    alignSelf: "center",
+    alignItems: "center",
     paddingVertical: 4,
   },
   secondaryActionText: {
-    color: "#7B6D63",
+    color: "#6C5343",
     fontSize: 14,
     fontWeight: "700",
   },

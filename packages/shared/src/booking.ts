@@ -1,5 +1,7 @@
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
+import { DEFAULT_LOCALE, translate } from "./i18n";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
+import { APPOINTMENT_TIME_PAST_ERROR, assertAppointmentTimeNotPast } from "./appointments";
 import type { PublicBookingInput } from "./validation";
 import { publicBookingInputSchema } from "./validation";
 
@@ -332,6 +334,10 @@ export async function updateBookingRequestForMobile(
   const { orgId, branchId } = await ensureOrgContext(client);
   const payload: Record<string, string | null> = {};
 
+  if (input.requestedStartAt !== undefined && input.requestedStartAt !== null) {
+    assertAppointmentTimeNotPast(input.requestedStartAt);
+  }
+
   if (typeof input.status === "string") {
     payload.status = input.status;
   }
@@ -385,6 +391,10 @@ export async function convertBookingRequestToAppointmentForMobile(
     endAt?: string | null;
   },
 ): Promise<BookingRequestAppointmentResult> {
+  if (input.startAt) {
+    assertAppointmentTimeNotPast(input.startAt);
+  }
+
   const { data, error } = await client.rpc("convert_booking_request_to_appointment_secure", {
     p_booking_request_id: input.bookingRequestId,
     p_staff_user_id: input.staffUserId ?? null,
@@ -415,6 +425,9 @@ export async function convertBookingRequestToAppointmentForMobile(
     }
     if (rawMessage.includes("FORBIDDEN")) {
       throw new Error("Tai khoan hien tai khong co quyen tao lich tu booking nay.");
+    }
+    if (rawMessage.includes(APPOINTMENT_TIME_PAST_ERROR)) {
+      throw new Error(`${APPOINTMENT_TIME_PAST_ERROR}:${translate(DEFAULT_LOCALE, "errors", "bookingTimePast")}`);
     }
 
     throw new Error(rawMessage || "Khong convert duoc booking request");

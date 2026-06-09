@@ -1,9 +1,9 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { listBookingRequestsForMobile, type MobileBookingRequestSummary } from "@nails/shared";
+import { listBookingRequestsForMobile, translate, type MobileBookingRequestSummary } from "@nails/shared";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { addMinutesToIso, AdminBottomNavDock, AdminDetailLoadingScreen, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
@@ -167,13 +167,30 @@ function BookingRequestEditor({
 
   async function handleConvertBooking() {
     if (!effectiveScheduledStartAt) return;
+    if (new Date(effectiveScheduledStartAt).getTime() < Date.now()) {
+      Alert.alert(strings.bookingRequestConvertSuccessTitle, translate(locale, "errors", "bookingTimePast"));
+      return;
+    }
     await convertBookingRequest({
       bookingRequestId: booking.id,
       startAt: effectiveScheduledStartAt,
       staffUserId: effectiveSelectedStaffUserId || null,
       resourceId: selectedResourceId || null,
     });
-    router.replace("/scheduling");
+    Alert.alert(
+      strings.bookingRequestConvertSuccessTitle,
+      [
+        strings.bookingRequestConvertSuccessBody,
+        "",
+        strings.bookingRequestConvertNextSteps,
+      ].join("\n"),
+      [
+        {
+          text: "OK",
+          onPress: () => router.replace(getAdminNavHref("scheduling", role)),
+        },
+      ],
+    );
   }
 
   async function handleCancelBooking() {
@@ -183,7 +200,12 @@ function BookingRequestEditor({
       requestedStartAt: effectiveScheduledStartAt,
       preferredStaff: resolveStaffName(effectiveSelectedStaffUserId, staffOptions) ?? preferredStaffName ?? null,
     });
-    router.replace("/booking");
+    Alert.alert(strings.bookingRequestCancelSuccessTitle, strings.bookingRequestCancelSuccessBody, [
+      {
+        text: "OK",
+        onPress: () => router.replace(getAdminNavHref("booking", role)),
+      },
+    ]);
   }
 
   const activeStaffId = selectedStaffUserId || effectiveSelectedStaffUserId;

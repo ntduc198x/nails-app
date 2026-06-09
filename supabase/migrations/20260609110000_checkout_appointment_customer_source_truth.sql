@@ -1,25 +1,14 @@
 begin;
 
-drop policy if exists "appointments branch read" on public.appointments;
-
-create policy "appointments branch read"
-on public.appointments
-for select
-to authenticated
-using (
-  org_id = public.my_org_id()
-  and (
-    public.can_access_branch(
-      branch_id,
-      array['OWNER','PARTNER','MANAGER','RECEPTION','ACCOUNTANT']
-    )
-    or staff_user_id = auth.uid()
-    or (
-      status in ('BOOKED','CHECKED_IN')
-      and public.can_access_branch(branch_id, array['TECH'])
-    )
-  )
-);
+-- Repair tickets that were incorrectly linked to a newly inserted customer
+-- even though the source appointment already had a canonical customer_id.
+update public.tickets t
+set customer_id = a.customer_id
+from public.appointments a
+where t.appointment_id = a.id
+  and t.org_id = a.org_id
+  and a.customer_id is not null
+  and t.customer_id is distinct from a.customer_id;
 
 create or replace function public.checkout_close_ticket_secure(
   p_customer_name text,
@@ -295,27 +284,6 @@ begin
 end;
 $$;
 
-create or replace function public.create_checkout_secure(
-  p_customer_name text,
-  p_payment_method text,
-  p_lines jsonb,
-  p_appointment_id uuid default null,
-  p_dedupe_window_ms int default 15000,
-  p_idempotency_key text default null
-)
-returns jsonb
-language sql
-security definer
-set search_path = public
-as $$
-  select public.checkout_close_ticket_secure(
-    p_customer_name,
-    p_payment_method,
-    p_lines,
-    p_appointment_id,
-    p_dedupe_window_ms,
-    p_idempotency_key
-  )
-$$;
+grant execute on function public.checkout_close_ticket_secure(text, text, jsonb, uuid, int, text) to authenticated;
 
 commit;

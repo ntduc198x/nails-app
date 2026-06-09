@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   canCheckInAppointmentAt,
   deleteAppointmentForMobile,
@@ -9,12 +9,20 @@ import {
   isAppointmentArrivalOverdue,
   listBookingRequestsForMobile,
   saveAppointmentForMobile,
+  translate,
   updateAppointmentStatusForMobile,
   type AppRole,
   type MobileAppointmentSummary,
 } from "@nails/shared";
 import { useAdminStrings } from "@/src/features/admin/strings";
-import { listResourceOptions, listStaffOptions, type ResourceOption, type StaffOption } from "@/src/hooks/use-admin-operations";
+import {
+  listResourceOptions,
+  listStaffOptions,
+  removeAppointmentFromAdminOperationsCache,
+  upsertAppointmentInAdminOperationsCache,
+  type ResourceOption,
+  type StaffOption,
+} from "@/src/hooks/use-admin-operations";
 import { AdminBottomNavDock, AdminDetailLoadingScreen, AdminKeyboardAwareScrollView, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, useAdminKeyboardFieldFocus, useKeyboardVisible } from "@/src/features/admin/ui";
 import { dismissToHref, getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
@@ -160,6 +168,7 @@ function AppointmentEditor({
 }: AppointmentEditorProps) {
   const strings = useAdminStrings();
   const router = useRouter();
+  const { locale } = useAdminPreferences();
 
   const [customerName, setCustomerName] = useState(appointment.customerName);
   const [customerPhone, setCustomerPhone] = useState(appointment.customerPhone ?? "");
@@ -182,8 +191,7 @@ function AppointmentEditor({
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
   const { isArrivalOverdue, label: statusLabel } = getAppointmentDetailStatusCopy(appointment, strings);
-  const canCheckInNow =
-    appointment.status === "BOOKED" && (canCheckInAppointmentAt(appointment.startAt) || isArrivalOverdue);
+  const canCheckInNow = appointment.status === "BOOKED" && canCheckInAppointmentAt(appointment.startAt);
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -223,6 +231,10 @@ function AppointmentEditor({
     const normalizedStart = combineDateAndTimeToIso(dateInput, timeInput);
     const duration = Number(durationMinutes);
     if (!customerName.trim() || !normalizedStart || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+    if (new Date(normalizedStart).getTime() < Date.now()) {
+      Alert.alert(strings.manageSchedulingDetailSave, translate(locale, "errors", "bookingTimePast"));
       return;
     }
 
@@ -432,11 +444,7 @@ function AppointmentEditor({
             <Feather name="user-check" size={16} color={palette.success} />
             <Text style={styles.checkinButtonText}>{strings.manageSchedulingDetailCheckIn}</Text>
           </Pressable>
-          {isArrivalOverdue ? (
-            <Text style={[styles.checkinHintText, styles.overdueHintText]}>
-              {strings.manageSchedulingDetailCheckInOverdueHint}
-            </Text>
-          ) : !canCheckInNow ? (
+          {!canCheckInNow ? (
             <Text style={styles.checkinHintText}>{strings.manageSchedulingDetailCheckInHint}</Text>
           ) : null}
           <View style={styles.bookedActionsRow}>
@@ -604,6 +612,9 @@ export default function AdminAppointmentDetailScreen() {
       ]);
 
       setAppointment(nextAppointment);
+      if (nextAppointment) {
+        upsertAppointmentInAdminOperationsCache(nextAppointment);
+      }
       setStaffOptions(nextStaffOptions);
       setResourceOptions(nextResourceOptions);
       setNewBookingCount(bookingRequests.filter((item) => item.status === "NEW").length);
@@ -690,6 +701,7 @@ export default function AdminAppointmentDetailScreen() {
       await runMutation(targetAppointmentId, async () => {
         await deleteAppointmentForMobile(client, targetAppointmentId);
       });
+      removeAppointmentFromAdminOperationsCache(targetAppointmentId);
     },
     [runMutation],
   );

@@ -17,6 +17,7 @@ export type MobileAppointmentSummary = {
 export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW";
 export const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 export const APPOINTMENT_ARRIVAL_OVERDUE_MINUTES = 20;
+export const APPOINTMENT_TIME_PAST_ERROR = "BOOKING_TIME_PAST";
 
 type AppointmentMutationInput = {
   customerName: string;
@@ -67,6 +68,16 @@ export function canCheckInAppointmentAt(startAt: string, now = new Date()): bool
   return nowMs >= scheduledAtMs - windowMs && nowMs <= scheduledAtMs + windowMs;
 }
 
+export function isAppointmentStartAtOrAfterNow(startAt: string, now = new Date()): boolean {
+  const scheduledAtMs = new Date(startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) {
+    return false;
+  }
+
+  return scheduledAtMs >= nowMs;
+}
+
 export function isAppointmentArrivalOverdue(
   appointment: Pick<MobileAppointmentSummary, "startAt" | "status">,
   now = new Date(),
@@ -90,8 +101,17 @@ export function assertAppointmentCheckInWindow(startAt: string, now = new Date()
   }
 }
 
+export function assertAppointmentTimeNotPast(startAt: string, now = new Date(), locale: Locale = DEFAULT_LOCALE) {
+  if (!isAppointmentStartAtOrAfterNow(startAt, now)) {
+    throw new Error(`${APPOINTMENT_TIME_PAST_ERROR}:${translate(locale, "errors", "bookingTimePast")}`);
+  }
+}
+
 function normalizeAppointmentStatusMutationError(error: unknown, locale: Locale = DEFAULT_LOCALE): Error {
   const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes(APPOINTMENT_TIME_PAST_ERROR)) {
+    return new Error(translate(locale, "errors", "bookingTimePast"));
+  }
   if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
     return new Error(translate(locale, "errors", "appointmentCheckInWindow"));
   }
@@ -234,10 +254,7 @@ export async function updateAppointmentStatusForMobile(
       status: String(currentAppointment.status ?? ""),
     };
 
-    if (
-      !canCheckInAppointmentAt(currentAppointmentSummary.startAt) &&
-      !isAppointmentArrivalOverdue(currentAppointmentSummary)
-    ) {
+    if (!canCheckInAppointmentAt(currentAppointmentSummary.startAt)) {
       assertAppointmentCheckInWindow(currentAppointmentSummary.startAt);
     }
   }
@@ -337,6 +354,8 @@ export async function saveAppointmentForMobile(
   client: SharedSupabaseClient,
   input: AppointmentMutationInput,
 ) {
+  assertAppointmentTimeNotPast(input.startAt);
+
   if (input.appointmentId) {
     const { orgId, branchId } = await ensureOrgContext(client);
     const existingAppointmentRes = await client

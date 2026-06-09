@@ -5,10 +5,12 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   View,
@@ -74,6 +76,14 @@ function formatStaleDays(value: string | null | undefined, fallback: string, fal
   return `${fallbackLabel} ${days}d`;
 }
 
+type CheckoutSuccessState = {
+  ticketId: string;
+  receiptToken: string;
+  grandTotal: number;
+  customerName: string;
+  paymentMethod: "CASH" | "TRANSFER";
+};
+
 export default function AdminCheckoutScreen() {
   const router = useRouter();
   const strings = useAdminStrings();
@@ -103,7 +113,7 @@ export default function AdminCheckoutScreen() {
   const [serviceQueries, setServiceQueries] = useState<string[]>([""]);
   const [openServicePickerIndex, setOpenServicePickerIndex] = useState<number | null>(0);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
-  const [lastReceiptToken, setLastReceiptToken] = useState<string | null>(null);
+  const [checkoutSuccess, setCheckoutSuccess] = useState<CheckoutSuccessState | null>(null);
   const keyboardVisible = useKeyboardVisible();
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
   const observerReadOnly =
@@ -136,6 +146,12 @@ export default function AdminCheckoutScreen() {
     return { selectedLines, serviceCount, total };
   }, [activeCheckoutServices, checkoutLines]);
   const effectiveCheckoutCustomerName = checkoutCustomerName.trim() || selectedAppointment?.customerName || "";
+  const receiptUrl =
+    checkoutSuccess?.receiptToken && mobileEnv.apiBaseUrl
+      ? new URL(`/receipt/${checkoutSuccess.receiptToken}`, mobileEnv.apiBaseUrl).toString()
+      : null;
+  const checkoutPaymentMethodLabel =
+    checkoutSuccess?.paymentMethod === "TRANSFER" ? strings.checkoutMethodTransfer : strings.checkoutMethodCash;
 
   function addCheckoutLine() {
     setCheckoutLines((current) => [...current, { serviceId: "", qty: 1 }]);
@@ -167,6 +183,7 @@ export default function AdminCheckoutScreen() {
     if (!selectedAppointment) return;
     const validLines = checkoutLines.filter((line) => line.serviceId && line.qty > 0);
     if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0) return;
+    setCheckoutNotice(null);
     const result = await createCheckout({
       customerName: effectiveCheckoutCustomerName.trim(),
       paymentMethod: checkoutPaymentMethod,
@@ -174,8 +191,14 @@ export default function AdminCheckoutScreen() {
       appointmentId: selectedAppointment.id,
       idempotencyKey: createCheckoutKey(),
     });
-    setCheckoutNotice(strings.checkoutPaidNotice);
-    setLastReceiptToken(result?.receiptToken ?? null);
+    if (!result) return;
+    setCheckoutSuccess({
+      ticketId: result.ticketId,
+      receiptToken: result.receiptToken,
+      grandTotal: result.grandTotal,
+      customerName: effectiveCheckoutCustomerName.trim(),
+      paymentMethod: checkoutPaymentMethod,
+    });
     setCheckoutLines([{ serviceId: "", qty: 1 }]);
     setServiceQueries([""]);
     setOpenServicePickerIndex(0);
@@ -183,13 +206,91 @@ export default function AdminCheckoutScreen() {
   }
 
   async function openReceipt() {
-    if (!lastReceiptToken || !mobileEnv.apiBaseUrl) return;
-    const receiptUrl = new URL(`/receipt/${lastReceiptToken}`, mobileEnv.apiBaseUrl).toString();
+    if (!receiptUrl) return;
     await Linking.openURL(receiptUrl);
+  }
+
+  async function shareReceipt() {
+    if (!checkoutSuccess) return;
+    if (!receiptUrl) {
+      setCheckoutNotice(strings.checkoutShareReceiptFailed);
+      return;
+    }
+
+    try {
+      await Share.share({
+        message: `${strings.checkoutPaidNotice}\n${checkoutSuccess.customerName}\n${formatVnd(checkoutSuccess.grandTotal)}\n${receiptUrl}`,
+      });
+      setCheckoutNotice(null);
+    } catch {
+      setCheckoutNotice(strings.checkoutShareReceiptFailed);
+    }
+  }
+
+  function closeCheckoutSuccess() {
+    setCheckoutSuccess(null);
+    setCheckoutNotice(null);
   }
 
   return (
     <View style={styles.screen}>
+      <Modal visible={checkoutSuccess != null} transparent animationType="fade" onRequestClose={closeCheckoutSuccess}>
+        <View style={styles.successOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={closeCheckoutSuccess} />
+          <View style={styles.successSheet}>
+            <Pressable style={styles.successCloseButton} onPress={closeCheckoutSuccess}>
+              <Feather name="x" size={18} color={palette.muted} />
+            </Pressable>
+            <View style={styles.successBadge}>
+              <Feather name="check" size={18} color="#2B7A56" />
+            </View>
+            <Text style={styles.successTitle}>{strings.checkoutSuccessTitle}</Text>
+            <Text style={styles.successBody}>{strings.checkoutSuccessBody}</Text>
+
+            {checkoutSuccess ? (
+              <View style={styles.successDetails}>
+                <View style={styles.successDetailRow}>
+                  <Text style={styles.successDetailLabel}>{strings.checkoutSuccessCustomerLabel}</Text>
+                  <Text style={styles.successDetailValue}>{checkoutSuccess.customerName}</Text>
+                </View>
+                <View style={styles.successDetailRow}>
+                  <Text style={styles.successDetailLabel}>{strings.checkoutSuccessAmountLabel}</Text>
+                  <Text style={styles.successDetailValue}>{formatVnd(checkoutSuccess.grandTotal)}</Text>
+                </View>
+                <View style={styles.successDetailRow}>
+                  <Text style={styles.successDetailLabel}>{strings.checkoutSuccessMethodLabel}</Text>
+                  <Text style={styles.successDetailValue}>{checkoutPaymentMethodLabel}</Text>
+                </View>
+                <View style={styles.successDetailRow}>
+                  <Text style={styles.successDetailLabel}>{strings.checkoutSuccessTicketLabel}</Text>
+                  <Text style={styles.successDetailValue} numberOfLines={1}>{checkoutSuccess.ticketId}</Text>
+                </View>
+              </View>
+            ) : null}
+            {checkoutNotice ? <Text style={styles.noticeTextInline}>{checkoutNotice}</Text> : null}
+
+            <View style={styles.successActions}>
+              <Pressable style={styles.primaryButton} onPress={() => void shareReceipt()}>
+                <Text style={styles.primaryButtonText}>{strings.checkoutShareReceipt}</Text>
+              </Pressable>
+              {receiptUrl ? (
+                <Pressable style={styles.secondaryButton} onPress={() => void openReceipt()}>
+                  <Text style={styles.secondaryButtonText}>{strings.checkoutOpenReceipt}</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                style={styles.secondaryButton}
+                onPress={() => {
+                  closeCheckoutSuccess();
+                  void router.replace("/scheduling");
+                }}
+              >
+                <Text style={styles.secondaryButtonText}>{strings.checkoutBackToScheduling}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
       <AdminTopSafeArea style={styles.topChrome}>
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
@@ -297,7 +398,7 @@ export default function AdminCheckoutScreen() {
 
               {error ? <Text style={styles.errorText}>{error}</Text> : null}
               {role === "TECH" && techShiftOpen === false ? <Text style={styles.errorText}>{strings.checkoutShiftNotOpen}</Text> : null}
-              {checkoutNotice ? <Text style={styles.successText}>{checkoutNotice}</Text> : null}
+              {checkoutNotice ? <Text style={styles.errorText}>{checkoutNotice}</Text> : null}
 
               <View style={styles.methodRow}>
                 {(["CASH", "TRANSFER"] as const).map((method) => {
@@ -436,7 +537,6 @@ export default function AdminCheckoutScreen() {
                 <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/scheduling")}>
                   <Text style={styles.secondaryButtonText}>{strings.checkoutBackToScheduling}</Text>
                 </Pressable>
-                {lastReceiptToken && mobileEnv.apiBaseUrl ? <Pressable style={styles.linkButton} onPress={() => void openReceipt()}><Text style={styles.linkText}>{strings.checkoutOpenReceipt}</Text></Pressable> : null}
                 {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/shifts")}><Text style={styles.linkText}>{strings.checkoutOpenShift}</Text></Pressable> : null}
               </View>
             </View>
@@ -458,6 +558,18 @@ const styles = StyleSheet.create({
   hiddenHeader: { display: "none" },
   headerTitle: { fontSize: 28, lineHeight: 32, fontWeight: "800", color: palette.text, letterSpacing: -0.6 },
   headerSubtitle: { marginTop: 4, fontSize: 13, lineHeight: 18, color: palette.muted },
+  successOverlay: { flex: 1, backgroundColor: "rgba(28, 20, 14, 0.36)", alignItems: "center", justifyContent: "center", paddingHorizontal: 22 },
+  successSheet: { width: "100%", maxWidth: 420, borderRadius: 24, backgroundColor: palette.white, paddingHorizontal: 18, paddingTop: 18, paddingBottom: 16, gap: 14 },
+  successCloseButton: { alignSelf: "flex-end", width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#F6F1EB" },
+  successBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#E5F4EC", alignItems: "center", justifyContent: "center", alignSelf: "center" },
+  successTitle: { fontSize: 22, lineHeight: 26, fontWeight: "800", color: palette.text, textAlign: "center" },
+  successBody: { fontSize: 13, lineHeight: 18, color: palette.muted, textAlign: "center" },
+  successDetails: { borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.beigeSoft, paddingHorizontal: 14, paddingVertical: 12, gap: 10 },
+  successDetailRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  successDetailLabel: { fontSize: 12, lineHeight: 15, color: palette.muted, flexShrink: 0 },
+  successDetailValue: { flex: 1, fontSize: 13, lineHeight: 17, fontWeight: "700", color: palette.text, textAlign: "right" },
+  noticeTextInline: { fontSize: 12, lineHeight: 17, color: "#B64747", fontWeight: "600", textAlign: "center" },
+  successActions: { gap: 10 },
   card: { backgroundColor: palette.white, borderRadius: 20, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 14, paddingVertical: 15, gap: 12 },
   noticeCard: { backgroundColor: "#FFF5E7", borderColor: "#F0D9B7", borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
   noticeText: { color: "#8A5B21", fontSize: 12, lineHeight: 18, fontWeight: "600" },

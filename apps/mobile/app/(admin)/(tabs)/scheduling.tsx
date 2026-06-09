@@ -1,12 +1,13 @@
 ﻿import Feather from "@expo/vector-icons/Feather";
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { isAppointmentArrivalOverdue } from "@nails/shared";
+import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { isAppointmentArrivalOverdue, translate } from "@nails/shared";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, ADMIN_SURFACE_BG, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
+import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 
 const palette = {
   screen: "#FCFAF8",
@@ -57,7 +58,7 @@ function getSchedulingAppointmentStatusMeta(
 
   return {
     primary: { label: overdueLabel, bg: "#FFF1E6", fg: "#C96A16" },
-    secondary: baseMeta,
+    secondary: null,
   };
 }
 
@@ -160,6 +161,7 @@ function getResourceAccent(index: number) {
 
 export default function AdminSchedulingScreen() {
   const strings = useAdminStrings();
+  const { locale } = useAdminPreferences();
   const router = useRouter();
   const params = useLocalSearchParams<{ filter?: string; tab?: string; focusBookingId?: string; status?: string }>();
   const {
@@ -347,6 +349,10 @@ export default function AdminSchedulingScreen() {
     const startAt = combineDateAndTimeToIso(dateInput, timeInput);
     const duration = Number(durationMinutes);
     if (!customerName.trim() || !startAt || !Number.isFinite(duration) || duration <= 0) return;
+    if (new Date(startAt).getTime() < Date.now()) {
+      Alert.alert(strings.manageSchedulingQuickCreateSuccessTitle, translate(locale, "errors", "bookingTimePast"));
+      return;
+    }
 
     const endAt = new Date(startAt);
     endAt.setMinutes(endAt.getMinutes() + duration);
@@ -359,8 +365,24 @@ export default function AdminSchedulingScreen() {
       resourceId: resourceId || null,
     });
 
+    const appointmentDateTime = toHumanDateTime(startAt);
+    const effectiveStaffId = staffUserId || (role === "TECH" ? user?.id ?? "" : "");
+    const selectedStaffName = staffOptions.find((item) => item.userId === effectiveStaffId)?.name ?? null;
+    const selectedResourceName = resourceOptions.find((item) => item.id === resourceId)?.name ?? null;
+    const alertLines = [
+      strings.manageSchedulingQuickCreateSuccessBody,
+      "",
+      `${strings.manageSchedulingCustomerPlaceholder}: ${customerName.trim()}`,
+      `${strings.bookingRequestDateLabel}: ${appointmentDateTime.date}`,
+      `${strings.bookingRequestTimeLabel}: ${appointmentDateTime.time}`,
+      selectedStaffName ? `${strings.manageSchedulingDetailStaffTitle}: ${selectedStaffName}` : null,
+      selectedResourceName ? `${strings.manageSchedulingDetailResourceTitle}: ${selectedResourceName}` : null,
+    ].filter(Boolean);
+
     setCustomerName("");
     setDurationMinutes("60");
+
+    Alert.alert(strings.manageSchedulingQuickCreateSuccessTitle, alertLines.join("\n"));
   }
 
   return (

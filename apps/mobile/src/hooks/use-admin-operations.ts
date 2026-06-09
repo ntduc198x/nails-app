@@ -30,6 +30,7 @@ import {
   localizeAdminResource,
   saveAppointmentForMobile,
   translate,
+  APPOINTMENT_TIME_PAST_ERROR,
   updateBookingRequestForMobile,
   updateAppointmentStatusForMobile,
   updateBookingRequestStatusForMobile,
@@ -87,6 +88,9 @@ const INITIAL_STATE: AdminOperationsState = {
 
 function normalizeAdminOperationError(error: unknown, locale: "vi" | "en"): string {
   const message = error instanceof Error ? error.message : String(error ?? "");
+  if (message.includes(APPOINTMENT_TIME_PAST_ERROR)) {
+    return translate(locale, "errors", "bookingTimePast");
+  }
   if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
     return translate(locale, "errors", "appointmentCheckInWindow");
   }
@@ -108,6 +112,26 @@ function emitAdminState(nextState: AdminOperationsState) {
   cachedAdminState = nextState;
   cachedAdminStateAt = Date.now();
   adminStateListeners.forEach((listener) => listener(nextState));
+}
+
+export function upsertAppointmentInAdminOperationsCache(appointment: MobileAppointmentSummary) {
+  const existingIndex = cachedAdminState.appointments.findIndex((item) => item.id === appointment.id);
+  const nextAppointments =
+    existingIndex >= 0
+      ? cachedAdminState.appointments.map((item, index) => (index === existingIndex ? appointment : item))
+      : [...cachedAdminState.appointments, appointment];
+
+  emitAdminState({
+    ...cachedAdminState,
+    appointments: nextAppointments,
+  });
+}
+
+export function removeAppointmentFromAdminOperationsCache(appointmentId: string) {
+  emitAdminState({
+    ...cachedAdminState,
+    appointments: cachedAdminState.appointments.filter((item) => item.id !== appointmentId),
+  });
 }
 
 function resetAdminStateCache(scopeKey?: string | null) {
@@ -502,6 +526,9 @@ export function useAdminOperations() {
           if (Number.isNaN(startAt.getTime())) {
             throw new Error("Thoi gian mong muon khong hop le.");
           }
+          if (startAt.getTime() < Date.now()) {
+            throw new Error(`${APPOINTMENT_TIME_PAST_ERROR}:${translate(locale, "errors", "bookingTimePast")}`);
+          }
 
           const durationMinutes = input.durationMinutes ?? 60;
           requestedEndAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000).toISOString();
@@ -516,7 +543,7 @@ export function useAdminOperations() {
         });
       });
     },
-    [runMutation],
+    [locale, runMutation],
   );
 
   const deleteBookingRequest = useCallback(
@@ -551,6 +578,9 @@ export function useAdminOperations() {
         if (Number.isNaN(startAt.getTime())) {
           throw new Error("Thoi gian booking khong hop le.");
         }
+        if (startAt.getTime() < Date.now()) {
+          throw new Error(`${APPOINTMENT_TIME_PAST_ERROR}:${translate(locale, "errors", "bookingTimePast")}`);
+        }
 
         const durationMinutes = input.durationMinutes ?? 60;
         const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
@@ -564,7 +594,7 @@ export function useAdminOperations() {
         });
       });
     },
-    [runMutation],
+    [locale, runMutation],
   );
 
   const updateAppointmentStatus = useCallback(
@@ -598,10 +628,17 @@ export function useAdminOperations() {
 
       const targetId = input.appointmentId ?? `create:${input.customerName}:${input.startAt}`;
       await runMutation(targetId, async () => {
+        const startAt = new Date(input.startAt);
+        if (Number.isNaN(startAt.getTime())) {
+          throw new Error("Thoi gian lich hen khong hop le.");
+        }
+        if (startAt.getTime() < Date.now()) {
+          throw new Error(`${APPOINTMENT_TIME_PAST_ERROR}:${translate(locale, "errors", "bookingTimePast")}`);
+        }
         await saveAppointmentForMobile(client, input);
       });
     },
-    [runMutation],
+    [locale, runMutation],
   );
 
   const createCheckout = useCallback(

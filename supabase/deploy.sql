@@ -1506,6 +1506,8 @@ declare
   v_branch_id uuid;
   v_allowed boolean;
   v_customer_id uuid;
+  v_appointment_customer_id uuid;
+  v_customer_name text;
   v_subtotal numeric := 0;
   v_vat_total numeric := 0;
   v_grand_total numeric := 0;
@@ -1523,7 +1525,8 @@ begin
     raise exception 'UNAUTHENTICATED';
   end if;
 
-  if p_customer_name is null or btrim(p_customer_name) = '' then
+  v_customer_name := nullif(btrim(p_customer_name), '');
+  if v_customer_name is null then
     raise exception 'CUSTOMER_NAME_REQUIRED';
   end if;
 
@@ -1557,6 +1560,18 @@ begin
     raise exception 'FORBIDDEN';
   end if;
 
+  if p_appointment_id is not null then
+    select a.branch_id, a.customer_id
+    into v_branch_id, v_appointment_customer_id
+    from public.appointments a
+    where a.id = p_appointment_id
+      and a.org_id = v_org_id;
+
+    if v_branch_id is null then
+      raise exception 'APPOINTMENT_NOT_FOUND';
+    end if;
+  end if;
+
   if v_branch_id is null then
     select b.id into v_branch_id
     from branches b
@@ -1569,16 +1584,28 @@ begin
     raise exception 'BRANCH_NOT_FOUND';
   end if;
 
-  select c.id into v_customer_id
-  from customers c
-  where c.org_id = v_org_id and c.name = p_customer_name
-  order by c.created_at asc
-  limit 1;
+  if v_appointment_customer_id is not null then
+    v_customer_id := v_appointment_customer_id;
 
-  if v_customer_id is null then
-    insert into customers (org_id, name)
-    values (v_org_id, p_customer_name)
-    returning id into v_customer_id;
+    update public.customers c
+    set name = case
+          when btrim(coalesce(c.name, '')) = '' then v_customer_name
+          else c.name
+        end
+    where c.id = v_customer_id
+      and c.org_id = v_org_id;
+  else
+    select c.id into v_customer_id
+    from customers c
+    where c.org_id = v_org_id and c.name = v_customer_name
+    order by c.created_at asc
+    limit 1;
+
+    if v_customer_id is null then
+      insert into customers (org_id, name)
+      values (v_org_id, v_customer_name)
+      returning id into v_customer_id;
+    end if;
   end if;
 
   select

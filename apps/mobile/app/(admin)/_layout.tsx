@@ -6,14 +6,13 @@ const detailScreenOptions = {
   animation: "default" as const,
   presentation: "card" as const,
   gestureEnabled: true,
-  fullScreenGestureEnabled: true,
-  gestureResponseDistance: { start: 120 } as const,
+  fullScreenGestureEnabled: false,
 };
 
 export default function AdminStackLayout() {
   return (
     <AdminPreferencesProvider>
-      <Stack screenOptions={{ headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: true }}>
+      <Stack screenOptions={{ headerShown: false, gestureEnabled: true, fullScreenGestureEnabled: false }}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="change-password" options={detailScreenOptions} />
         <Stack.Screen name="manage-content-explore-services" options={detailScreenOptions} />

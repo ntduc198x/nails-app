@@ -2134,13 +2134,23 @@ export default function AdminManageContentScreen() {
               ) : null}
               {exploreFeaturedExpanded ? (
                 <Pressable
-                  style={styles.secondaryButton}
+                  style={[
+                    styles.exploreFeatureAddRow,
+                    visibleExploreFeaturedServices.length ? styles.exploreFeatureAddDivider : null,
+                  ]}
                   onPress={() => {
                     setLookbookPickerQuery("");
                     setLookbookPickerContext("explore");
                   }}
                 >
-                  <Text style={styles.secondaryButtonText}>{strings.manageContentAddShort}</Text>
+                  <View style={styles.exploreFeatureAddIcon}>
+                    <Feather name="plus" size={18} color={palette.accent} />
+                  </View>
+                  <View style={styles.exploreFeatureAddCopy}>
+                    <Text style={styles.exploreFeatureAddTitle}>{strings.manageContentFeaturedServicesAddTitle}</Text>
+                    <Text style={styles.exploreFeatureAddSubtitle}>{strings.manageContentFeaturedServicesAddSubtitle}</Text>
+                  </View>
+                  <Feather name="chevron-right" size={18} color="#A7988A" />
                 </Pressable>
               ) : null}
             </View>
@@ -2177,10 +2187,10 @@ export default function AdminManageContentScreen() {
                   </Pressable>
                 </View>
               ))}
-              {(snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT ? (
-                <Pressable style={styles.exploreFooterAction} onPress={() => setProductsExpanded((current) => !current)}>
-                  <Text style={styles.exploreFooterActionText}>{productsExpanded ? strings.manageContentCollapse : `${strings.manageContentViewAllPrefix} (${snapshot?.products.length ?? 0})`}</Text>
-                  <Feather name={productsExpanded ? "chevron-up" : "chevron-right"} size={18} color={palette.accent} />
+              {!productsExpanded && (snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT ? (
+                <Pressable style={styles.exploreFooterAction} onPress={() => setProductsExpanded(true)}>
+                  <Text style={styles.exploreFooterActionText}>{`${strings.manageContentViewAllPrefix} (${snapshot?.products.length ?? 0})`}</Text>
+                  <Feather name="chevron-right" size={18} color={palette.accent} />
                 </Pressable>
               ) : null}
               {productsExpanded ? (
@@ -3022,6 +3032,41 @@ const styles = StyleSheet.create({
   exploreFeatureBorder: {
     borderBottomWidth: 1,
     borderBottomColor: palette.border,
+  },
+  exploreFeatureAddRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    backgroundColor: "#FFF8F1",
+  },
+  exploreFeatureAddDivider: {
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+  },
+  exploreFeatureAddIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8E9D7",
+  },
+  exploreFeatureAddCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  exploreFeatureAddTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: "800",
+    color: palette.text,
+  },
+  exploreFeatureAddSubtitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: palette.sub,
   },
   exploreFooterAction: {
     minHeight: 54,

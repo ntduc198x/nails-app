@@ -13,6 +13,7 @@ import {
   type MobileAppointmentSummary,
   type MobileBookingRequestSummary,
   type MobileDashboardSnapshot,
+  type ObserverScopeInput,
   createCheckoutForMobile,
   deleteAppointmentForMobile,
   convertBookingRequestToAppointmentForMobile,
@@ -173,6 +174,135 @@ function normalizePhone(raw: string | null | undefined) {
   return digits;
 }
 
+function getAdminObserverScopeKey(observerScope: ObserverScopeInput, hasViewContext: boolean) {
+  if (!hasViewContext) {
+    return "pending";
+  }
+
+  return `${observerScope.mode}:${observerScope.branchId ?? "org"}`;
+}
+
+function getAdminStateScopeKey(params: {
+  role: AppRole | null | undefined;
+  userId: string | null | undefined;
+  observerScope: ObserverScopeInput;
+  hasViewContext: boolean;
+}) {
+  const observerScopeKey = getAdminObserverScopeKey(params.observerScope, params.hasViewContext);
+  return params.role && params.userId ? `${params.role}:${params.userId}:${observerScopeKey}` : null;
+}
+
+async function fetchAdminOperationsState(params: {
+  locale: Locale;
+  role: AppRole;
+  observerScope: ObserverScopeInput;
+}): Promise<AdminOperationsState> {
+  if (!mobileSupabase) {
+    return INITIAL_STATE;
+  }
+
+  const { locale, observerScope, role } = params;
+  const canSeeBookingRequests =
+    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
+  const canSeeCrm =
+    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
+  const canSeeRecentTickets =
+    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
+  const observerOptions = { observerScope };
+
+  const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
+    getDashboardSnapshotForMobile(mobileSupabase, observerOptions),
+    canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase, observerOptions) : Promise.resolve([]),
+    listAppointmentsForMobile(mobileSupabase, observerOptions),
+    canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase, observerOptions) : Promise.resolve(null),
+    listStaffOptions(),
+    listResourceOptions(locale),
+    listServicesForMobile(mobileSupabase, observerOptions),
+    listCheckedInQueueForMobile(mobileSupabase, observerOptions),
+    canSeeRecentTickets
+      ? listRecentTicketsForMobile(mobileSupabase, { limit: 12, observerScope })
+      : Promise.resolve([]),
+    role === "TECH" ? hasOpenShiftForMobile(mobileSupabase).catch(() => false) : Promise.resolve(null),
+    canSeeCrm ? listCustomersCrmForMobile(mobileSupabase, {}, observerOptions).catch(() => []) : Promise.resolve([]),
+  ]);
+
+  const customerCrmByPhone = Object.fromEntries(
+    customersCrm
+      .map((customer) => {
+        const phone = normalizePhone(customer.phone);
+        return phone ? [phone, customer] : null;
+      })
+      .filter((entry): entry is [string, CustomerCrmSummary] => Boolean(entry)),
+  );
+
+  return {
+    dashboard,
+    bookingRequests: bookingRequests.filter(
+      (bookingRequest) =>
+        bookingRequest.status === "NEW" ||
+        bookingRequest.status === "NEEDS_RESCHEDULE" ||
+        bookingRequest.status === "EXPIRED_UNCONFIRMED",
+    ),
+    appointments,
+    crmMetrics,
+    staffOptions,
+    resourceOptions,
+    checkoutServices,
+    checkoutCheckedInAppointments: checkedInQueue.active,
+    staleCheckedInAppointments: checkedInQueue.stale,
+    recentTickets,
+    techShiftOpen,
+    customerCrmByPhone,
+    staleCheckInAutoCancelledCount: checkedInQueue.autoCancelledCount,
+    staleCheckInCleanupError: checkedInQueue.cleanupError,
+  };
+}
+
+export async function prefetchAdminOperations(params: {
+  locale: Locale;
+  role: AppRole | null | undefined;
+  userId: string | null | undefined;
+  observerScope: ObserverScopeInput;
+  hasViewContext: boolean;
+  force?: boolean;
+}) {
+  if (!mobileSupabase || !params.role || !params.userId || !params.hasViewContext) {
+    return INITIAL_STATE;
+  }
+
+  const scopeKey = getAdminStateScopeKey(params);
+  if (!scopeKey) {
+    return INITIAL_STATE;
+  }
+
+  if (cachedAdminScopeKey !== scopeKey) {
+    resetAdminStateCache(scopeKey);
+  }
+
+  if (!params.force && hasCachedAdminState() && isAdminStateCacheFresh()) {
+    return cachedAdminState;
+  }
+
+  if (inflightAdminLoad && !params.force) {
+    return inflightAdminLoad;
+  }
+
+  inflightAdminLoad = fetchAdminOperationsState({
+    locale: params.locale,
+    role: params.role,
+    observerScope: params.observerScope,
+  }).then((nextState) => {
+    emitAdminState(nextState);
+    return nextState;
+  });
+
+  try {
+    return await inflightAdminLoad;
+  } finally {
+    inflightAdminLoad = null;
+  }
+}
+
 export async function listStaffOptions(): Promise<StaffOption[]> {
   if (!mobileSupabase) {
     return [];
@@ -324,11 +454,15 @@ export function useAdminOperations() {
   const { isHydrated, role, user } = useSession();
   const observer = useAdminObserverScope();
   const userId = user?.id ?? null;
-  const observerScopeKey =
-    observer.viewContext
-      ? `${observer.observerScope.mode}:${observer.observerScope.branchId ?? "org"}`
-      : "pending";
-  const scopeKey = isHydrated && role && userId ? `${role}:${userId}:${observerScopeKey}` : null;
+  const scopeKey =
+    isHydrated && role && userId
+      ? getAdminStateScopeKey({
+          role,
+          userId,
+          observerScope: observer.observerScope,
+          hasViewContext: Boolean(observer.viewContext),
+        })
+      : null;
   const [state, setState] = useState<AdminOperationsState>(
     scopeKey && cachedAdminScopeKey === scopeKey ? cachedAdminState : INITIAL_STATE,
   );
@@ -366,7 +500,12 @@ export function useAdminOperations() {
       return INITIAL_STATE;
     }
 
-    const nextScopeKey = userId ? `${role}:${userId}:${observerScopeKey}` : null;
+    const nextScopeKey = getAdminStateScopeKey({
+      role,
+      userId,
+      observerScope: observer.observerScope,
+      hasViewContext: Boolean(observer.viewContext),
+    });
     if (!nextScopeKey) {
       return INITIAL_STATE;
     }
@@ -380,75 +519,18 @@ export function useAdminOperations() {
       return cachedAdminState;
     }
 
-    if (inflightAdminLoad && !force) {
-      return inflightAdminLoad;
-    }
-
     setLoading(true);
     setError(null);
 
-    inflightAdminLoad = (async () => {
-      const canSeeBookingRequests =
-        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
-      const canSeeCrm =
-        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
-      const canSeeRecentTickets =
-        role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
-      const observerOptions = { observerScope: observer.observerScope };
-
-      const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
-        getDashboardSnapshotForMobile(mobileSupabase, observerOptions),
-        canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase, observerOptions) : Promise.resolve([]),
-        listAppointmentsForMobile(mobileSupabase, observerOptions),
-        canSeeCrm ? getCrmDashboardMetricsForMobile(mobileSupabase, observerOptions) : Promise.resolve(null),
-        listStaffOptions(),
-        listResourceOptions(locale),
-        listServicesForMobile(mobileSupabase, observerOptions),
-        listCheckedInQueueForMobile(mobileSupabase, observerOptions),
-        canSeeRecentTickets
-          ? listRecentTicketsForMobile(mobileSupabase, { limit: 12, observerScope: observer.observerScope })
-          : Promise.resolve([]),
-        role === "TECH" ? hasOpenShiftForMobile(mobileSupabase).catch(() => false) : Promise.resolve(null),
-        canSeeCrm ? listCustomersCrmForMobile(mobileSupabase, {}, observerOptions).catch(() => []) : Promise.resolve([]),
-      ]);
-
-      const customerCrmByPhone = Object.fromEntries(
-        customersCrm
-          .map((customer) => {
-            const phone = normalizePhone(customer.phone);
-            return phone ? [phone, customer] : null;
-          })
-          .filter((entry): entry is [string, CustomerCrmSummary] => Boolean(entry)),
-      );
-
-      const nextState: AdminOperationsState = {
-        dashboard,
-        bookingRequests: bookingRequests.filter(
-          (bookingRequest) =>
-            bookingRequest.status === "NEW" ||
-            bookingRequest.status === "NEEDS_RESCHEDULE" ||
-            bookingRequest.status === "EXPIRED_UNCONFIRMED",
-        ),
-        appointments,
-        crmMetrics,
-        staffOptions,
-        resourceOptions,
-        checkoutServices,
-        checkoutCheckedInAppointments: checkedInQueue.active,
-        staleCheckedInAppointments: checkedInQueue.stale,
-        recentTickets,
-        techShiftOpen,
-        customerCrmByPhone,
-        staleCheckInAutoCancelledCount: checkedInQueue.autoCancelledCount,
-        staleCheckInCleanupError: checkedInQueue.cleanupError,
-      };
-
-      emitAdminState(nextState);
-      return nextState;
-    })();
-
     try {
-      return await inflightAdminLoad;
+      return await prefetchAdminOperations({
+        locale,
+        role,
+        userId,
+        observerScope: observer.observerScope,
+        hasViewContext: Boolean(observer.viewContext),
+        force,
+      });
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : translate(locale, "errors", "appointmentMutationFailed"));
       throw nextError;
@@ -456,7 +538,7 @@ export function useAdminOperations() {
       inflightAdminLoad = null;
       setLoading(false);
     }
-  }, [isHydrated, locale, observer.isReady, observer.observerScope, observer.viewContext, observerScopeKey, role, userId]);
+  }, [isHydrated, locale, observer.isReady, observer.observerScope, observer.viewContext, role, userId]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {

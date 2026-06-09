@@ -36,9 +36,10 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
+import { prefetchAdminOperations } from "@/src/hooks/use-admin-operations";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
-import { isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
+import { getAdminNavHref, isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
 
 export type AppointmentFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "NO_SHOW" | "CANCELLED";
 export const ADMIN_HEADER_TOP_OFFSET = 4;
@@ -575,9 +576,44 @@ export function AdminBottomNavDock({
   insetBottom?: number;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { locale } = useAdminPreferences();
+  const observer = useAdminObserverScope();
+  const { isHydrated, role: sessionRole, user } = useSession();
   const resolvedInsetBottom = insetBottom ?? insets.bottom;
   const keyboardVisible = useKeyboardVisible();
+  const resolvedRole = (role ?? sessionRole) as AppRole | null | undefined;
+
+  useEffect(() => {
+    const schedulingHref = getAdminNavHref("scheduling", resolvedRole);
+    const checkoutHref = getAdminNavHref("checkout", resolvedRole);
+
+    void router.prefetch(schedulingHref);
+    void router.prefetch(checkoutHref);
+  }, [resolvedRole, router]);
+
+  useEffect(() => {
+    if (!isHydrated || !user?.id || !resolvedRole || !observer.isReady || !observer.viewContext) {
+      return;
+    }
+
+    void prefetchAdminOperations({
+      locale,
+      role: resolvedRole,
+      userId: user.id,
+      observerScope: observer.observerScope,
+      hasViewContext: true,
+    });
+  }, [
+    isHydrated,
+    locale,
+    observer.isReady,
+    observer.observerScope,
+    observer.viewContext,
+    resolvedRole,
+    user?.id,
+  ]);
 
   if (keyboardVisible) {
     return null;

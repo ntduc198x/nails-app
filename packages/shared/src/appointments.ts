@@ -9,6 +9,7 @@ export type MobileAppointmentSummary = {
   status: string;
   staffUserId: string | null;
   resourceId: string | null;
+  secondaryResourceId: string | null;
   checkedInAt: string | null;
   customerName: string;
   customerPhone: string | null;
@@ -18,6 +19,7 @@ export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" |
 export const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 export const APPOINTMENT_ARRIVAL_OVERDUE_MINUTES = 20;
 export const APPOINTMENT_TIME_PAST_ERROR = "BOOKING_TIME_PAST";
+export const RESOURCE_TIME_CONFLICT_ERROR = "RESOURCE_TIME_CONFLICT";
 
 type AppointmentMutationInput = {
   customerName: string;
@@ -26,6 +28,7 @@ type AppointmentMutationInput = {
   endAt: string;
   staffUserId?: string | null;
   resourceId?: string | null;
+  secondaryResourceId?: string | null;
   appointmentId?: string | null;
 };
 
@@ -38,6 +41,7 @@ type AppointmentRow = {
   status: unknown;
   staff_user_id: unknown;
   resource_id: unknown;
+  secondary_resource_id?: unknown;
   checked_in_at?: unknown;
   customers?: { name?: unknown; phone?: unknown }[] | { name?: unknown; phone?: unknown } | null;
 };
@@ -51,6 +55,7 @@ function mapAppointmentRow(row: AppointmentRow): MobileAppointmentSummary {
     status: String(row.status ?? ""),
     staffUserId: typeof row.staff_user_id === "string" ? row.staff_user_id : null,
     resourceId: typeof row.resource_id === "string" ? row.resource_id : null,
+    secondaryResourceId: typeof row.secondary_resource_id === "string" ? row.secondary_resource_id : null,
     checkedInAt: typeof row.checked_in_at === "string" ? row.checked_in_at : null,
     customerName: typeof customer?.name === "string" ? customer.name : "-",
     customerPhone: typeof customer?.phone === "string" ? customer.phone : null,
@@ -112,6 +117,9 @@ function normalizeAppointmentStatusMutationError(error: unknown, locale: Locale 
   if (message.includes(APPOINTMENT_TIME_PAST_ERROR)) {
     return new Error(translate(locale, "errors", "bookingTimePast"));
   }
+  if (message.includes(RESOURCE_TIME_CONFLICT_ERROR)) {
+    return new Error(translate(locale, "errors", "appointmentResourceConflict"));
+  }
   if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
     return new Error(translate(locale, "errors", "appointmentCheckInWindow"));
   }
@@ -131,6 +139,100 @@ function normalizeCustomerPhone(raw: string | null | undefined) {
   return digits;
 }
 
+function collectAppointmentResourceIds(row: Pick<AppointmentRow, "resource_id" | "secondary_resource_id">) {
+  return [row.resource_id, row.secondary_resource_id].filter(
+    (value): value is string => typeof value === "string" && value.length > 0,
+  );
+}
+
+function hasAppointmentOverlap(
+  existingStartAt: string,
+  existingEndAt: string,
+  nextStartAt: string,
+  nextEndAt: string,
+) {
+  return new Date(existingStartAt).getTime() < new Date(nextEndAt).getTime()
+    && new Date(existingEndAt).getTime() > new Date(nextStartAt).getTime();
+}
+
+async function assertAppointmentResourcesAvailable(
+  client: SharedSupabaseClient,
+  input: {
+    orgId: string;
+    branchId: string | null;
+    startAt: string;
+    endAt: string;
+    resourceIds: string[];
+    excludeAppointmentId?: string | null;
+    locale?: Locale;
+  },
+) {
+  if (!input.branchId || input.resourceIds.length === 0) {
+    return;
+  }
+
+  let query = client
+    .from("appointments")
+    .select("id,start_at,end_at,status,resource_id,secondary_resource_id")
+    .eq("org_id", input.orgId)
+    .eq("branch_id", input.branchId)
+    .in("status", ["BOOKED", "CHECKED_IN"])
+    .lt("start_at", input.endAt)
+    .gt("end_at", input.startAt);
+
+  if (input.excludeAppointmentId) {
+    query = query.neq("id", input.excludeAppointmentId);
+  }
+
+  const result = await query;
+
+  let rows = (result.data ?? []) as AppointmentRow[];
+  let error = result.error;
+
+  if (error?.message?.includes("secondary_resource_id")) {
+    let fallbackQuery = client
+      .from("appointments")
+      .select("id,start_at,end_at,status,resource_id")
+      .eq("org_id", input.orgId)
+      .eq("branch_id", input.branchId)
+      .in("status", ["BOOKED", "CHECKED_IN"])
+      .lt("start_at", input.endAt)
+      .gt("end_at", input.startAt);
+
+    if (input.excludeAppointmentId) {
+      fallbackQuery = fallbackQuery.neq("id", input.excludeAppointmentId);
+    }
+
+    const fallback = await fallbackQuery;
+    rows = ((fallback.data ?? []) as AppointmentRow[]).map((row) => ({
+      ...row,
+      secondary_resource_id: null,
+    }));
+    error = fallback.error;
+  }
+
+  if (error) {
+    throw error;
+  }
+
+  const requestedResourceIds = new Set(input.resourceIds);
+  const conflict = rows.some((row) => {
+    if (
+      typeof row.start_at !== "string"
+      || typeof row.end_at !== "string"
+      || !hasAppointmentOverlap(row.start_at, row.end_at, input.startAt, input.endAt)
+    ) {
+      return false;
+    }
+
+    return collectAppointmentResourceIds(row).some((resourceId) => requestedResourceIds.has(resourceId));
+  });
+
+  if (conflict) {
+    throw new Error(`${RESOURCE_TIME_CONFLICT_ERROR}:${translate(input.locale ?? DEFAULT_LOCALE, "errors", "appointmentResourceConflict")}`);
+  }
+}
+
 export async function listAppointmentsForMobile(
   client: SharedSupabaseClient,
   options?: { observerScope?: ObserverScopeInput | null },
@@ -138,7 +240,7 @@ export async function listAppointmentsForMobile(
   const view = await resolveMobileAdminViewContext(client, options?.observerScope);
   let query = client
     .from("appointments")
-    .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
+    .select("id,start_at,end_at,status,staff_user_id,resource_id,secondary_resource_id,checked_in_at,customers(name,phone)")
     .eq("org_id", view.orgId)
     .gte("start_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
     .order("start_at", { ascending: true })
@@ -153,7 +255,7 @@ export async function listAppointmentsForMobile(
   let data: AppointmentRow[] | null = (result.data ?? []) as AppointmentRow[];
   let error: { message?: string } | null = result.error;
 
-  if (error?.message?.includes("checked_in_at")) {
+  if (error?.message?.includes("checked_in_at") || error?.message?.includes("secondary_resource_id")) {
     let fallbackQuery = client
       .from("appointments")
       .select("id,start_at,end_at,status,staff_user_id,resource_id,customers(name,phone)")
@@ -167,7 +269,11 @@ export async function listAppointmentsForMobile(
     }
 
     const fallback = await fallbackQuery;
-    data = ((fallback.data ?? []) as AppointmentRow[]).map((row) => ({ ...row, checked_in_at: null }));
+    data = ((fallback.data ?? []) as AppointmentRow[]).map((row) => ({
+      ...row,
+      checked_in_at: null,
+      secondary_resource_id: null,
+    }));
     error = fallback.error;
   }
 
@@ -187,7 +293,7 @@ export async function getAppointmentForMobile(
 
   let query = client
     .from("appointments")
-    .select("id,start_at,end_at,status,staff_user_id,resource_id,checked_in_at,customers(name,phone)")
+    .select("id,start_at,end_at,status,staff_user_id,resource_id,secondary_resource_id,checked_in_at,customers(name,phone)")
     .eq("org_id", view.orgId)
     .eq("id", appointmentId)
     .limit(1);
@@ -201,7 +307,7 @@ export async function getAppointmentForMobile(
   let data = result.data as AppointmentRow | null;
   let error: { message?: string } | null = result.error;
 
-  if (error?.message?.includes("checked_in_at")) {
+  if (error?.message?.includes("checked_in_at") || error?.message?.includes("secondary_resource_id")) {
     let fallbackQuery = client
       .from("appointments")
       .select("id,start_at,end_at,status,staff_user_id,resource_id,customers(name,phone)")
@@ -214,7 +320,9 @@ export async function getAppointmentForMobile(
     }
 
     const fallback = await fallbackQuery.maybeSingle();
-    data = fallback.data ? ({ ...(fallback.data as AppointmentRow), checked_in_at: null }) : null;
+    data = fallback.data
+      ? ({ ...(fallback.data as AppointmentRow), checked_in_at: null, secondary_resource_id: null })
+      : null;
     error = fallback.error;
   }
 
@@ -360,7 +468,7 @@ export async function saveAppointmentForMobile(
     const { orgId, branchId } = await ensureOrgContext(client);
     const existingAppointmentRes = await client
       .from("appointments")
-      .select("id,branch_id,customer_id")
+      .select("id,branch_id,customer_id,secondary_resource_id")
       .eq("id", input.appointmentId)
       .eq("org_id", orgId)
       .limit(1)
@@ -424,7 +532,26 @@ export async function saveAppointmentForMobile(
       end_at: input.endAt,
       staff_user_id: input.staffUserId ?? null,
       resource_id: input.resourceId ?? null,
+      secondary_resource_id:
+        input.secondaryResourceId === undefined
+          ? (typeof existingAppointmentRes.data.secondary_resource_id === "string"
+              ? existingAppointmentRes.data.secondary_resource_id
+              : null)
+          : input.secondaryResourceId,
     };
+
+    await assertAppointmentResourcesAvailable(client, {
+      orgId,
+      branchId: targetBranchId,
+      startAt: input.startAt,
+      endAt: input.endAt,
+      resourceIds: [payload.resource_id, payload.secondary_resource_id].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      ),
+      excludeAppointmentId: input.appointmentId,
+      locale: DEFAULT_LOCALE,
+    });
+
     const updateRes = await client
       .from("appointments")
       .update(payload)
@@ -453,7 +580,20 @@ export async function saveAppointmentForMobile(
     end_at: input.endAt,
     staff_user_id: input.staffUserId ?? null,
     resource_id: input.resourceId ?? null,
+    secondary_resource_id: input.secondaryResourceId ?? null,
   };
+
+  await assertAppointmentResourcesAvailable(client, {
+    orgId,
+    branchId,
+    startAt: input.startAt,
+    endAt: input.endAt,
+    resourceIds: [payload.resource_id, payload.secondary_resource_id].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    ),
+    locale: DEFAULT_LOCALE,
+  });
+
   const insertRes = await client
     .from("appointments")
     .insert({

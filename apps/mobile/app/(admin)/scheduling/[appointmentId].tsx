@@ -148,6 +148,7 @@ type AppointmentEditorProps = {
     endAt: string;
     staffUserId?: string | null;
     resourceId?: string | null;
+    secondaryResourceId?: string | null;
   }) => Promise<void>;
   updateAppointmentStatus: (appointmentId: string, status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW") => Promise<void>;
   deleteAppointment: (appointmentId: string) => Promise<void>;
@@ -192,6 +193,18 @@ function AppointmentEditor({
   const [pickerMinute, setPickerMinute] = useState(() => 0);
   const { isArrivalOverdue, label: statusLabel } = getAppointmentDetailStatusCopy(appointment, strings);
   const canCheckInNow = appointment.status === "BOOKED" && canCheckInAppointmentAt(appointment.startAt);
+  const cancelAppointmentCopy =
+    locale === "vi"
+      ? {
+          button: "Hủy lịch",
+          confirmTitle: "Xác nhận hủy lịch",
+          confirmBody: "Bạn có chắc muốn hủy lịch hẹn này không?",
+        }
+      : {
+          button: "Cancel appointment",
+          confirmTitle: "Confirm cancellation",
+          confirmBody: "Are you sure you want to cancel this appointment?",
+        };
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -256,6 +269,19 @@ function AppointmentEditor({
   async function handleDelete() {
     await deleteAppointment(appointment.id);
     goBackToScheduling();
+  }
+
+  function handleCancelAppointment() {
+    Alert.alert(cancelAppointmentCopy.confirmTitle, cancelAppointmentCopy.confirmBody, [
+      { text: strings.settingsCancelButton, style: "cancel" },
+      {
+        text: cancelAppointmentCopy.button,
+        style: "destructive",
+        onPress: () => {
+          void updateAppointmentStatus(appointment.id, "CANCELLED");
+        },
+      },
+    ]);
   }
 
   return (
@@ -447,24 +473,14 @@ function AppointmentEditor({
           {!canCheckInNow ? (
             <Text style={styles.checkinHintText}>{strings.manageSchedulingDetailCheckInHint}</Text>
           ) : null}
-          <View style={styles.bookedActionsRow}>
-            <Pressable
-              style={styles.secondaryButton}
-              disabled={mutating || busyTargetId === appointment.id}
-              onPress={() => void updateAppointmentStatus(appointment.id, "NO_SHOW")}
-            >
-              <Feather name="user-x" size={16} color={palette.textPrimary} />
-              <Text style={styles.secondaryButtonText}>{strings.manageSchedulingDetailMarkNoShow}</Text>
-            </Pressable>
-            <Pressable
-              style={styles.dangerButton}
-              disabled={mutating || busyTargetId === appointment.id}
-              onPress={() => void updateAppointmentStatus(appointment.id, "CANCELLED")}
-            >
-              <Feather name="x-circle" size={16} color={palette.danger} />
-              <Text style={styles.dangerButtonText}>{strings.manageSchedulingDetailMarkCancelled}</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            style={styles.dangerButton}
+            disabled={mutating || busyTargetId === appointment.id}
+            onPress={handleCancelAppointment}
+          >
+            <Feather name="x-circle" size={16} color={palette.danger} />
+            <Text style={styles.dangerButtonText}>{cancelAppointmentCopy.button}</Text>
+          </Pressable>
         </>
       )}
 
@@ -664,6 +680,7 @@ export default function AdminAppointmentDetailScreen() {
       endAt: string;
       staffUserId?: string | null;
       resourceId?: string | null;
+      secondaryResourceId?: string | null;
     }) => {
       const client = mobileSupabase;
       if (!client) {
@@ -870,7 +887,6 @@ const styles = StyleSheet.create({
   checkinButtonText: { fontSize: 15, fontWeight: "700", color: palette.success },
   checkinHintText: { marginTop: 8, textAlign: "center", fontSize: 12, lineHeight: 18, color: palette.textSecondary },
   overdueHintText: { color: "#A45212" },
-  bookedActionsRow: { gap: 12 },
   secondaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card },
   secondaryButtonText: { fontSize: 15, fontWeight: "700", color: palette.textPrimary },
   dangerButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 52, borderRadius: 18, borderWidth: 1, borderColor: palette.danger, backgroundColor: palette.card },

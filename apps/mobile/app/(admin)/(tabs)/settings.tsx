@@ -1,5 +1,5 @@
 import { Feather } from "@expo/vector-icons";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { ensureOrgContext, localizeAdminBranchName, translate, type Locale, type LocalizedTextValue } from "@nails/shared";
@@ -16,6 +16,9 @@ import {
 } from "@/src/features/admin/ui";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { upsertAndVerifyAdminProfile } from "@/src/lib/admin-profile";
+import { clearAdminServicesCache, getAdminServicesCacheSizeBytes } from "@/src/lib/admin-services-cache";
+import { clearCustomerFeedCache, getCustomerFeedCacheSizeBytes } from "@/src/lib/customer-feed-cache";
+import { clearCustomerImageCacheManifest, getCustomerImageCacheManifestSizeBytes } from "@/src/lib/customer-image-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
@@ -42,6 +45,12 @@ type ProfileData = {
   branchId: string | null;
 };
 
+function formatCacheSize(bytes: number) {
+  if (bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function AdminSettingsScreen() {
   const { user, signOut, role, refreshSession } = useSession();
   const { locale, setLocale } = useAdminPreferences();
@@ -49,6 +58,7 @@ export default function AdminSettingsScreen() {
   const keyboardVisible = useKeyboardVisible();
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
+  const [cacheSize, setCacheSize] = useState("0 KB");
   const [saving, setSaving] = useState(false);
   const [editingField, setEditingField] = useState<EditField>(null);
   const [editValue, setEditValue] = useState("");
@@ -62,6 +72,22 @@ export default function AdminSettingsScreen() {
     ],
     [strings.settingsLanguageEnglish, strings.settingsLanguageEnglishShort, strings.settingsLanguageVietnamese, strings.settingsLanguageVietnameseShort],
   );
+
+  const loadCacheSize = useCallback(async () => {
+    const [adminBytes, customerFeedBytes, customerImageBytes] = await Promise.all([
+      getAdminServicesCacheSizeBytes(),
+      getCustomerFeedCacheSizeBytes(),
+      getCustomerImageCacheManifestSizeBytes(),
+    ]);
+    setCacheSize(formatCacheSize(adminBytes + customerFeedBytes + customerImageBytes));
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      void loadCacheSize();
+    }, 0);
+    return () => clearTimeout(timeoutId);
+  }, [loadCacheSize]);
 
   useEffect(() => {
     async function loadProfileData() {
@@ -144,6 +170,27 @@ export default function AdminSettingsScreen() {
   );
   const currentLanguageName =
     locale === "vi" ? strings.settingsLanguageVietnamese : strings.settingsLanguageEnglish;
+  const cacheText = locale === "vi"
+    ? {
+        cardTitle: "Bộ nhớ đệm",
+        actionLabel: "Xóa cache",
+        confirmTitle: "Xác nhận xóa cache",
+        confirmBody: "Bạn có chắc muốn xóa toàn bộ cache cục bộ của ứng dụng không?",
+        successTitle: "Đã xóa",
+        successBody: "Bộ nhớ đệm ứng dụng đã được xóa.",
+        errorTitle: "Lỗi",
+        errorBody: "Không thể xóa bộ nhớ đệm.",
+      }
+    : {
+        cardTitle: "Cache",
+        actionLabel: "Clear cache",
+        confirmTitle: "Clear cache",
+        confirmBody: "Are you sure you want to clear all local app cache?",
+        successTitle: "Cleared",
+        successBody: "App cache has been cleared.",
+        errorTitle: "Error",
+        errorBody: "Unable to clear app cache.",
+      };
 
   function getEditFieldLabel(field: EditField) {
     switch (field) {
@@ -261,6 +308,31 @@ export default function AdminSettingsScreen() {
     ]);
   }
 
+  function handleClearCache() {
+    Alert.alert(cacheText.confirmTitle, cacheText.confirmBody, [
+      { text: strings.settingsCancelButton, style: "cancel" },
+      {
+        text: cacheText.actionLabel,
+        style: "destructive",
+        onPress: () => {
+          void (async () => {
+            try {
+              await Promise.all([
+                clearAdminServicesCache(),
+                clearCustomerFeedCache(),
+                clearCustomerImageCacheManifest(),
+              ]);
+              await loadCacheSize();
+              Alert.alert(cacheText.successTitle, cacheText.successBody);
+            } catch {
+              Alert.alert(cacheText.errorTitle, cacheText.errorBody);
+            }
+          })();
+        },
+      },
+    ]);
+  }
+
   const editFieldLabel = getEditFieldLabel(editingField);
 
   return (
@@ -329,6 +401,18 @@ export default function AdminSettingsScreen() {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>{strings.settingsLanguageTitle}</Text>
             <SecurityRow icon="globe" iconColor="#2563EB" title={strings.settingsCurrentLanguageLabel} subtitle={currentLanguageName} onPress={() => setLanguageModalOpen(true)} isLast />
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>{cacheText.cardTitle}</Text>
+            <SecurityRow
+              icon="database"
+              iconColor="#2C9B5F"
+              title={cacheText.actionLabel}
+              subtitle={cacheSize}
+              onPress={handleClearCache}
+              isLast
+            />
           </View>
 
           <Pressable style={styles.logoutButton} onPress={handleLogout}>

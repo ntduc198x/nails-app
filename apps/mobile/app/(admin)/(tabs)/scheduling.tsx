@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { isAppointmentArrivalOverdue, translate } from "@nails/shared";
+import { isAppointmentArrivalOverdue, translate, type MobileAppointmentSummary } from "@nails/shared";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, ADMIN_SURFACE_BG, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminStrings } from "@/src/features/admin/strings";
@@ -45,6 +45,42 @@ const BOOKING_STATUS_WEIGHT: Record<BookingStatusGroup, number> = {
   NEW: 1,
   EXPIRED_UNCONFIRMED: 2,
 };
+const BLOCKING_RESOURCE_STATUSES = new Set(["BOOKED", "CHECKED_IN"]);
+
+function rangesOverlap(existingStartAt: string, existingEndAt: string, nextStartAt: string, nextEndAt: string) {
+  return new Date(existingStartAt).getTime() < new Date(nextEndAt).getTime()
+    && new Date(existingEndAt).getTime() > new Date(nextStartAt).getTime();
+}
+
+function getOccupiedResourceIdsForWindow(
+  appointments: MobileAppointmentSummary[],
+  startAt: string,
+  endAt: string,
+  excludedAppointmentId?: string | null,
+) {
+  const occupied = new Set<string>();
+
+  appointments.forEach((appointment) => {
+    if (excludedAppointmentId && appointment.id === excludedAppointmentId) {
+      return;
+    }
+    if (!BLOCKING_RESOURCE_STATUSES.has(appointment.status)) {
+      return;
+    }
+    if (!rangesOverlap(appointment.startAt, appointment.endAt, startAt, endAt)) {
+      return;
+    }
+
+    if (appointment.resourceId) {
+      occupied.add(appointment.resourceId);
+    }
+    if (appointment.secondaryResourceId) {
+      occupied.add(appointment.secondaryResourceId);
+    }
+  });
+
+  return occupied;
+}
 
 function getSchedulingAppointmentStatusMeta(
   appointment: { startAt: string; status: string },
@@ -106,6 +142,22 @@ function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
   if (!day || !month || !year || !timeValue) return null;
   const parsed = new Date(`${year}-${month}-${day}T${timeValue}`);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function buildAppointmentWindow(dateValue: string, timeValue: string, durationValue: string) {
+  const startAt = combineDateAndTimeToIso(dateValue, timeValue);
+  const duration = Number(durationValue);
+  if (!startAt || !Number.isFinite(duration) || duration <= 0) {
+    return null;
+  }
+
+  const endAt = new Date(startAt);
+  endAt.setMinutes(endAt.getMinutes() + duration);
+
+  return {
+    startAt,
+    endAt: endAt.toISOString(),
+  };
 }
 
 function getBookingStatusLabel(
@@ -191,6 +243,7 @@ export default function AdminSchedulingScreen() {
   const [durationMinutes, setDurationMinutes] = useState("60");
   const [staffUserId, setStaffUserId] = useState(role === "TECH" ? user?.id ?? "" : "");
   const [resourceId, setResourceId] = useState("");
+  const [secondaryResourceId, setSecondaryResourceId] = useState<string | null>(null);
   
   // Date/Time picker state
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -201,6 +254,29 @@ export default function AdminSchedulingScreen() {
   const [pickerHour, setPickerHour] = useState(() => 9);
   const [pickerMinute, setPickerMinute] = useState(() => 0);
   const keyboardVisible = useKeyboardVisible();
+  const comboCopy =
+    locale === "vi"
+      ? {
+          label: "Combo chân tay",
+          resourceSummaryLabel: "Tài nguyên",
+          missingPairTitle: "Thiếu tài nguyên",
+          missingPairBody: "Cần ít nhất 1 ghế chân và 1 bàn tay đang hoạt động để tạo combo chân tay.",
+          unavailableTitle: "Không còn combo trống",
+          unavailableBody:
+            "Khung giờ này không còn đủ 1 ghế chân và 1 bàn tay đang trống. Vui lòng đổi giờ hoặc chọn tài nguyên thủ công.",
+          conflictTitle: "Tài nguyên đã có lịch",
+        }
+      : {
+          label: "Foot + hand combo",
+          resourceSummaryLabel: "Resources",
+          missingPairTitle: "Missing resources",
+          missingPairBody: "At least one active foot chair and one active hand table are required for a foot + hand combo.",
+          unavailableTitle: "No combo available",
+          unavailableBody:
+            "This time slot no longer has both one available foot chair and one available hand table. Please change the time or choose resources manually.",
+          conflictTitle: "Resource unavailable",
+        };
+  const comboActive = Boolean(resourceId && secondaryResourceId);
   const observerReadOnly =
     observerViewContext?.observerScope.mode === "org" ||
     (observerViewContext?.viewBranchId != null && observerViewContext.viewBranchId !== observerViewContext.workingBranchId);
@@ -301,11 +377,11 @@ export default function AdminSchedulingScreen() {
     return [...rows].sort((left, right) => {
       const statusDelta = (STATUS_WEIGHT[left.status] ?? 99) - (STATUS_WEIGHT[right.status] ?? 99);
       if (statusDelta !== 0) return statusDelta;
-      if (left.status === "BOOKED" && right.status === "BOOKED") {
+      if (activeFilter === "ALL" && left.status === "BOOKED" && right.status === "BOOKED") {
         const leftOverdue = isAppointmentArrivalOverdue(left);
         const rightOverdue = isAppointmentArrivalOverdue(right);
         if (leftOverdue !== rightOverdue) {
-          return leftOverdue ? -1 : 1;
+          return leftOverdue ? 1 : -1;
         }
       }
       return new Date(left.startAt).getTime() - new Date(right.startAt).getTime();
@@ -346,29 +422,45 @@ export default function AdminSchedulingScreen() {
   }, [focusedBookingId, visibleBookingRequests]);
 
   async function handleCreateAppointment() {
-    const startAt = combineDateAndTimeToIso(dateInput, timeInput);
-    const duration = Number(durationMinutes);
-    if (!customerName.trim() || !startAt || !Number.isFinite(duration) || duration <= 0) return;
-    if (new Date(startAt).getTime() < Date.now()) {
+    const appointmentWindow = buildAppointmentWindow(dateInput, timeInput, durationMinutes);
+    if (!customerName.trim() || !appointmentWindow) return;
+    if (new Date(appointmentWindow.startAt).getTime() < Date.now()) {
       Alert.alert(strings.manageSchedulingQuickCreateSuccessTitle, translate(locale, "errors", "bookingTimePast"));
       return;
     }
 
-    const endAt = new Date(startAt);
-    endAt.setMinutes(endAt.getMinutes() + duration);
+    const occupiedResourceIds = getOccupiedResourceIdsForWindow(
+      appointments,
+      appointmentWindow.startAt,
+      appointmentWindow.endAt,
+    );
+    const requestedResourceIds = [resourceId, secondaryResourceId].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+
+    if (requestedResourceIds.some((value) => occupiedResourceIds.has(value))) {
+      Alert.alert(
+        comboActive ? comboCopy.unavailableTitle : comboCopy.conflictTitle,
+        comboActive ? comboCopy.unavailableBody : translate(locale, "errors", "appointmentResourceConflict"),
+      );
+      return;
+    }
 
     await saveAppointment({
       customerName: customerName.trim(),
-      startAt,
-      endAt: endAt.toISOString(),
+      startAt: appointmentWindow.startAt,
+      endAt: appointmentWindow.endAt,
       staffUserId: staffUserId || (role === "TECH" ? user?.id ?? "" : "") || null,
       resourceId: resourceId || null,
+      secondaryResourceId,
     });
 
-    const appointmentDateTime = toHumanDateTime(startAt);
+    const appointmentDateTime = toHumanDateTime(appointmentWindow.startAt);
     const effectiveStaffId = staffUserId || (role === "TECH" ? user?.id ?? "" : "");
     const selectedStaffName = staffOptions.find((item) => item.userId === effectiveStaffId)?.name ?? null;
     const selectedResourceName = resourceOptions.find((item) => item.id === resourceId)?.name ?? null;
+    const selectedSecondaryResourceName =
+      resourceOptions.find((item) => item.id === secondaryResourceId)?.name ?? null;
     const alertLines = [
       strings.manageSchedulingQuickCreateSuccessBody,
       "",
@@ -376,13 +468,58 @@ export default function AdminSchedulingScreen() {
       `${strings.bookingRequestDateLabel}: ${appointmentDateTime.date}`,
       `${strings.bookingRequestTimeLabel}: ${appointmentDateTime.time}`,
       selectedStaffName ? `${strings.manageSchedulingDetailStaffTitle}: ${selectedStaffName}` : null,
-      selectedResourceName ? `${strings.manageSchedulingDetailResourceTitle}: ${selectedResourceName}` : null,
+      selectedResourceName && selectedSecondaryResourceName
+        ? `${comboCopy.resourceSummaryLabel}: ${selectedResourceName} + ${selectedSecondaryResourceName}`
+        : selectedResourceName
+          ? `${strings.manageSchedulingDetailResourceTitle}: ${selectedResourceName}`
+          : null,
     ].filter(Boolean);
 
     setCustomerName("");
     setDurationMinutes("60");
 
     Alert.alert(strings.manageSchedulingQuickCreateSuccessTitle, alertLines.join("\n"));
+  }
+
+  function handleSelectResource(nextResourceId: string) {
+    setResourceId(nextResourceId);
+    setSecondaryResourceId(null);
+  }
+
+  function handleSelectFootHandCombo() {
+    const appointmentWindow = buildAppointmentWindow(dateInput, timeInput, durationMinutes);
+    if (!appointmentWindow) {
+      return;
+    }
+
+    const hasChairResource = resourceOptions.some((item) => item.type === "CHAIR");
+    const hasTableResource = resourceOptions.some((item) => item.type === "TABLE");
+    if (!hasChairResource || !hasTableResource) {
+      Alert.alert(comboCopy.missingPairTitle, comboCopy.missingPairBody);
+      return;
+    }
+
+    const occupiedResourceIds = getOccupiedResourceIdsForWindow(
+      appointments,
+      appointmentWindow.startAt,
+      appointmentWindow.endAt,
+    );
+    const availableChairResource =
+      resourceOptions.find((item) => item.type === "CHAIR" && !occupiedResourceIds.has(item.id)) ?? null;
+    const availableTableResource =
+      resourceOptions.find((item) => item.type === "TABLE" && !occupiedResourceIds.has(item.id)) ?? null;
+
+    if (!availableChairResource || !availableTableResource) {
+      if (secondaryResourceId) {
+        setResourceId("");
+        setSecondaryResourceId(null);
+      }
+      Alert.alert(comboCopy.unavailableTitle, comboCopy.unavailableBody);
+      return;
+    }
+
+    setResourceId(availableChairResource.id);
+    setSecondaryResourceId(availableTableResource.id);
   }
 
   return (
@@ -504,12 +641,12 @@ export default function AdminSchedulingScreen() {
             <Text style={styles.blockLabel}>{strings.manageSchedulingResourceLabel}</Text>
             <View style={styles.optionWrap}>
               {resourceOptions.map((resource, index) => {
-                const active = resourceId === resource.id;
+                const active = resourceId === resource.id || secondaryResourceId === resource.id;
                 const accent = getResourceAccent(index);
                 return (
                   <Pressable
                     key={resource.id}
-                    onPress={() => setResourceId(resource.id)}
+                    onPress={() => handleSelectResource(resource.id)}
                     style={[styles.resourceChip, active ? styles.resourceChipActive : null]}
                   >
                     <View style={[styles.resourceIconBadge, { backgroundColor: accent.bg }]}>
@@ -522,6 +659,15 @@ export default function AdminSchedulingScreen() {
                 );
               })}
             </View>
+            <Pressable
+              onPress={handleSelectFootHandCombo}
+              style={[styles.comboButton, comboActive ? styles.comboButtonActive : null]}
+            >
+              <Feather color={comboActive ? "#FFFFFF" : palette.text} name="layers" size={15} />
+              <Text style={[styles.comboButtonText, comboActive ? styles.comboButtonTextActive : null]}>
+                {comboCopy.label}
+              </Text>
+            </Pressable>
           </View>
 
           <Pressable disabled={mutating || observerReadOnly} onPress={() => void handleCreateAppointment()} style={[styles.primaryButton, observerReadOnly ? styles.primaryButtonDisabled : null]}>
@@ -1067,6 +1213,32 @@ const styles = StyleSheet.create({
   },
   resourceChipTextActive: {
     color: "#2b241f",
+  },
+  comboButton: {
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "#fffdfa",
+    borderColor: "#ece0d5",
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    minHeight: 38,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  comboButtonActive: {
+    backgroundColor: "#4a3528",
+    borderColor: "#4a3528",
+  },
+  comboButtonText: {
+    color: "#2b241f",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  comboButtonTextActive: {
+    color: "#fff",
   },
   primaryButton: {
     alignItems: "center",

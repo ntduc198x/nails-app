@@ -801,6 +801,8 @@ function SectionCard({
   titleBadge,
   actionLabel,
   onActionPress,
+  secondaryActionLabel,
+  onSecondaryActionPress,
   children,
 }: {
   title: string;
@@ -808,6 +810,8 @@ function SectionCard({
   titleBadge?: string;
   actionLabel?: string;
   onActionPress?: () => void;
+  secondaryActionLabel?: string;
+  onSecondaryActionPress?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -821,8 +825,19 @@ function SectionCard({
           {subtitle ? <Text style={styles.sectionSubtitle}>{subtitle}</Text> : null}
         </View>
         {actionLabel && onActionPress ? (
-          <Pressable style={styles.actionButton} onPress={onActionPress}>
-            <Text style={styles.actionButtonText}>{actionLabel}</Text>
+          <View style={styles.sectionActions}>
+            {secondaryActionLabel && onSecondaryActionPress ? (
+              <Pressable style={styles.actionButton} onPress={onSecondaryActionPress}>
+                <Text style={styles.actionButtonText}>{secondaryActionLabel}</Text>
+              </Pressable>
+            ) : null}
+            <Pressable style={styles.actionButton} onPress={onActionPress}>
+              <Text style={styles.actionButtonText}>{actionLabel}</Text>
+            </Pressable>
+          </View>
+        ) : secondaryActionLabel && onSecondaryActionPress ? (
+          <Pressable style={styles.actionButton} onPress={onSecondaryActionPress}>
+            <Text style={styles.actionButtonText}>{secondaryActionLabel}</Text>
           </Pressable>
         ) : null}
       </View>
@@ -896,6 +911,8 @@ export default function AdminManageContentScreen() {
   const [homeServiceQuery, setHomeServiceQuery] = useState("");
   const [exploreFeaturedQuery] = useState("");
   const [exploreRegularQuery, setExploreRegularQuery] = useState("");
+  const [lookbookPickerContext, setLookbookPickerContext] = useState<MerchContext | null>(null);
+  const [lookbookPickerQuery, setLookbookPickerQuery] = useState("");
   const [homeServicesExpanded, setHomeServicesExpanded] = useState(true);
   const [exploreFeaturedExpanded, setExploreFeaturedExpanded] = useState(false);
 
@@ -1182,6 +1199,21 @@ export default function AdminManageContentScreen() {
         : exploreFeaturedServices.slice(0, EXPLORE_FEATURED_PREVIEW_COUNT),
     [exploreFeaturedExpanded, exploreFeaturedServices],
   );
+  const lookbookPickerServices = useMemo(() => {
+    const context = lookbookPickerContext;
+    if (!context) return [] as MobileAdminMerchService[];
+
+    const normalizedQuery = lookbookPickerQuery.trim().toLowerCase();
+    return localizedServices
+      .filter((item) => item.active)
+      .filter((item) => (context === "home" ? !item.featuredInHome : !item.featuredInExplore))
+      .filter((item) => {
+        if (!normalizedQuery) return true;
+        const haystack = `${item.name} ${item.shortDescription ?? ""} ${item.durationLabel ?? ""} ${item.lookbookCategory ?? ""} ${item.lookbookBadge ?? ""}`.toLowerCase();
+        return haystack.includes(normalizedQuery);
+      })
+      .sort((left, right) => left.name.localeCompare(right.name, locale));
+  }, [locale, localizedServices, lookbookPickerContext, lookbookPickerQuery]);
 
   const visibleProducts = useMemo(() => {
     const products = snapshot?.products ?? [];
@@ -1682,12 +1714,12 @@ export default function AdminManageContentScreen() {
 
       {activeTab === "home" ? (
         <>
-          <SectionCard
+      <SectionCard
             title={strings.manageContentLookbookTitle}
             titleBadge={`${homeServices.length}/${lookbookServices.length}`}
             subtitle={strings.manageContentLookbookSubtitle}
-            actionLabel={homeServicesExpanded ? strings.manageContentCollapseChevron : strings.manageContentExpandChevron}
-            onActionPress={() => setHomeServicesExpanded((current) => !current)}
+            secondaryActionLabel={homeServicesExpanded ? strings.manageContentCollapseChevron : strings.manageContentExpandChevron}
+            onSecondaryActionPress={() => setHomeServicesExpanded((current) => !current)}
           >
             {homeServicesExpanded ? (
               <>
@@ -1720,6 +1752,15 @@ export default function AdminManageContentScreen() {
                 </Pressable>
               ))}
             </View>
+            <Pressable
+              style={styles.secondaryButton}
+              onPress={() => {
+                setLookbookPickerQuery("");
+                setLookbookPickerContext("home");
+              }}
+            >
+              <Text style={styles.secondaryButtonText}>{strings.manageContentAddShort}</Text>
+            </Pressable>
               </>
             ) : null}
           </SectionCard>
@@ -2056,7 +2097,21 @@ export default function AdminManageContentScreen() {
             </View>
           </SectionCard>
 
-          <SectionCard title={strings.manageContentFeaturedServicesTitle} titleBadge={String(exploreServices.length)} subtitle={strings.manageContentFeaturedServicesSubtitle} actionLabel={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? (exploreFeaturedExpanded ? strings.manageContentCollapse : strings.manageContentExpand) : undefined} onActionPress={exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT ? () => setExploreFeaturedExpanded((current) => !current) : undefined}>
+          <SectionCard
+            title={strings.manageContentFeaturedServicesTitle}
+            titleBadge={String(exploreServices.length)}
+            subtitle={strings.manageContentFeaturedServicesSubtitle}
+            secondaryActionLabel={
+              exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT
+                ? (exploreFeaturedExpanded ? strings.manageContentCollapse : strings.manageContentExpand)
+                : undefined
+            }
+            onSecondaryActionPress={
+              exploreFeaturedServices.length > EXPLORE_FEATURED_PREVIEW_COUNT
+                ? () => setExploreFeaturedExpanded((current) => !current)
+                : undefined
+            }
+          >
             <View style={styles.exploreFeatureShell}>
               {visibleExploreFeaturedServices.map((service, index) => (
                 <Pressable key={service.id} style={[styles.exploreFeatureRow, index < visibleExploreFeaturedServices.length - 1 ? styles.exploreFeatureBorder : null]} onPress={() => {
@@ -2077,10 +2132,35 @@ export default function AdminManageContentScreen() {
                   <Feather name="chevron-right" size={18} color={palette.accent} />
                 </Pressable>
               ) : null}
+              {exploreFeaturedExpanded ? (
+                <Pressable
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    setLookbookPickerQuery("");
+                    setLookbookPickerContext("explore");
+                  }}
+                >
+                  <Text style={styles.secondaryButtonText}>{strings.manageContentAddShort}</Text>
+                </Pressable>
+              ) : null}
             </View>
           </SectionCard>
 
-          <SectionCard title={strings.manageContentProductsTitle} titleBadge={String(snapshot?.products.length ?? 0)} subtitle={strings.manageContentProductsSubtitle} actionLabel={strings.manageContentAddImage} onActionPress={() => setProductForm(emptyProductForm())}>
+          <SectionCard
+            title={strings.manageContentProductsTitle}
+            titleBadge={String(snapshot?.products.length ?? 0)}
+            subtitle={strings.manageContentProductsSubtitle}
+            secondaryActionLabel={
+              (snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT
+                ? (productsExpanded ? strings.manageContentCollapse : strings.manageContentExpand)
+                : undefined
+            }
+            onSecondaryActionPress={
+              (snapshot?.products.length ?? 0) > EXPLORE_PRODUCTS_PREVIEW_COUNT
+                ? () => setProductsExpanded((current) => !current)
+                : undefined
+            }
+          >
             <View style={styles.listColumn}>
               {visibleProducts.map((product) => (
                 <View key={product.id} style={styles.rowCard}>
@@ -2101,6 +2181,11 @@ export default function AdminManageContentScreen() {
                 <Pressable style={styles.exploreFooterAction} onPress={() => setProductsExpanded((current) => !current)}>
                   <Text style={styles.exploreFooterActionText}>{productsExpanded ? strings.manageContentCollapse : `${strings.manageContentViewAllPrefix} (${snapshot?.products.length ?? 0})`}</Text>
                   <Feather name={productsExpanded ? "chevron-up" : "chevron-right"} size={18} color={palette.accent} />
+                </Pressable>
+              ) : null}
+              {productsExpanded ? (
+                <Pressable style={styles.secondaryButton} onPress={() => setProductForm(emptyProductForm())}>
+                  <Text style={styles.secondaryButtonText}>{strings.manageContentAddImage}</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -2218,6 +2303,53 @@ export default function AdminManageContentScreen() {
                 <Feather name="chevron-right" size={18} color="#A7988A" />
               </Pressable>
             ))}
+          </View>
+        </View>
+      </ModalShell>
+
+      <ModalShell
+        title={lookbookPickerContext === "home" ? strings.manageContentLookbookTitle : strings.manageContentFeaturedServicesTitle}
+        visible={lookbookPickerContext !== null}
+        onClose={() => {
+          setLookbookPickerContext(null);
+          setLookbookPickerQuery("");
+        }}
+      >
+        <View style={styles.formColumn}>
+          <Input
+            placeholder={lookbookPickerContext === "home" ? strings.manageContentLookbookSearchPlaceholder : strings.manageContentRegularServicesSearchPlaceholder}
+            value={lookbookPickerQuery}
+            onChangeText={setLookbookPickerQuery}
+          />
+          <View style={styles.listColumn}>
+            {lookbookPickerServices.map((service) => (
+              <Pressable
+                key={`lookbook-picker-${service.id}`}
+                style={styles.rowCard}
+                onPress={() => {
+                  const targetContext = lookbookPickerContext === "home" ? "home" : "explore";
+                  setLookbookPickerContext(null);
+                  setLookbookPickerQuery("");
+                  setMerchContext(targetContext);
+                  setMerchForm(() => {
+                    const base = buildMerchForm(servicesById.get(service.id) ?? service);
+                    return targetContext === "home"
+                      ? { ...base, featuredInHome: true }
+                      : { ...base, featuredInExplore: true };
+                  });
+                }}
+              >
+                <ItemThumbnail uri={service.imageUrl} label={service.name} />
+                <View style={styles.rowCopy}>
+                  <Text style={styles.rowTitle}>{service.name}</Text>
+                  <Text numberOfLines={2} style={styles.rowSubtitle}>
+                    {`${service.priceLabel || strings.exploreServicesNoPrice} · ${service.durationLabel || strings.exploreServicesNoDuration}`}
+                  </Text>
+                </View>
+                <Feather name="plus-circle" size={18} color={palette.accent} />
+              </Pressable>
+            ))}
+            {!lookbookPickerServices.length ? <Text style={styles.emptyText}>{strings.exploreServicesEmpty}</Text> : null}
           </View>
         </View>
       </ModalShell>
@@ -2662,6 +2794,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   sectionHeader: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
+  sectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   sectionCopy: { flex: 1, gap: 4 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   sectionTitle: { fontSize: 19, lineHeight: 26, fontWeight: "800", color: palette.text },

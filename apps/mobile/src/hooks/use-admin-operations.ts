@@ -31,6 +31,7 @@ import {
   saveAppointmentForMobile,
   translate,
   APPOINTMENT_TIME_PAST_ERROR,
+  RESOURCE_TIME_CONFLICT_ERROR,
   updateBookingRequestForMobile,
   updateAppointmentStatusForMobile,
   updateBookingRequestStatusForMobile,
@@ -90,6 +91,9 @@ function normalizeAdminOperationError(error: unknown, locale: "vi" | "en"): stri
   const message = error instanceof Error ? error.message : String(error ?? "");
   if (message.includes(APPOINTMENT_TIME_PAST_ERROR)) {
     return translate(locale, "errors", "bookingTimePast");
+  }
+  if (message.includes(RESOURCE_TIME_CONFLICT_ERROR)) {
+    return translate(locale, "errors", "appointmentResourceConflict");
   }
   if (message.includes("CHECK_IN_WINDOW_VIOLATION")) {
     return translate(locale, "errors", "appointmentCheckInWindow");
@@ -619,6 +623,7 @@ export function useAdminOperations() {
       endAt: string;
       staffUserId?: string | null;
       resourceId?: string | null;
+      secondaryResourceId?: string | null;
       appointmentId?: string | null;
     }) => {
       const client = mobileSupabase;

@@ -7,6 +7,7 @@ import {
   type LocalizedTextValue,
   type TranslationMetaValue,
   type MobileCheckedInAppointment,
+  type MobileClosedTicketUpdateInput,
   type MobileCheckoutService,
   type MobileRecentTicketSummary,
   type CrmDashboardMetrics,
@@ -36,6 +37,7 @@ import {
   updateBookingRequestForMobile,
   updateAppointmentStatusForMobile,
   updateBookingRequestStatusForMobile,
+  updateClosedTicketForMobile,
 } from "@nails/shared";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
@@ -105,6 +107,10 @@ function normalizeAdminOperationError(error: unknown, locale: "vi" | "en"): stri
   return message || translate(locale, "errors", "appointmentMutationFailed");
 }
 
+function canReadRecentTickets(role: AppRole) {
+  return role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
+}
+
 const ADMIN_OPERATIONS_CACHE_TTL_MS = 60 * 1000;
 
 let cachedAdminState: AdminOperationsState = INITIAL_STATE;
@@ -137,6 +143,10 @@ export function removeAppointmentFromAdminOperationsCache(appointmentId: string)
     ...cachedAdminState,
     appointments: cachedAdminState.appointments.filter((item) => item.id !== appointmentId),
   });
+}
+
+export function clearAdminOperationsCache() {
+  resetAdminStateCache(null);
 }
 
 function resetAdminStateCache(scopeKey?: string | null) {
@@ -174,12 +184,19 @@ function normalizePhone(raw: string | null | undefined) {
   return digits;
 }
 
+export function normalizeAdminObserverScope(observerScope: ObserverScopeInput): ObserverScopeInput {
+  return observerScope.mode === "branch"
+    ? { mode: "branch", branchId: observerScope.branchId ?? undefined }
+    : { mode: "org" };
+}
+
 function getAdminObserverScopeKey(observerScope: ObserverScopeInput, hasViewContext: boolean) {
   if (!hasViewContext) {
     return "pending";
   }
 
-  return `${observerScope.mode}:${observerScope.branchId ?? "org"}`;
+  const normalizedScope = normalizeAdminObserverScope(observerScope);
+  return `${normalizedScope.mode}:${normalizedScope.branchId ?? "org"}`;
 }
 
 function getAdminStateScopeKey(params: {
@@ -206,8 +223,7 @@ async function fetchAdminOperationsState(params: {
     role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "TECH";
   const canSeeCrm =
     role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION";
-  const canSeeRecentTickets =
-    role === "OWNER" || role === "PARTNER" || role === "MANAGER" || role === "RECEPTION" || role === "ACCOUNTANT";
+  const canSeeRecentTickets = canReadRecentTickets(role);
   const observerOptions = { observerScope };
 
   const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
@@ -653,6 +669,7 @@ export function useAdminOperations() {
       durationMinutes?: number;
       staffUserId?: string | null;
       resourceId?: string | null;
+      secondaryResourceId?: string | null;
     }) => {
       const client = mobileSupabase;
       if (!client) {
@@ -675,6 +692,7 @@ export function useAdminOperations() {
           bookingRequestId: input.bookingRequestId,
           staffUserId: input.staffUserId ?? null,
           resourceId: input.resourceId ?? null,
+          secondaryResourceId: input.secondaryResourceId ?? null,
           startAt: startAt.toISOString(),
           endAt: endAt.toISOString(),
         });
@@ -764,6 +782,34 @@ export function useAdminOperations() {
     [runMutation],
   );
 
+  const updateClosedTicket = useCallback(
+    async (
+      input: MobileClosedTicketUpdateInput,
+    ): Promise<{
+      ticketId: string;
+      receiptToken: string;
+      grandTotal: number;
+    } | null> => {
+      const client = mobileSupabase;
+      if (!client) {
+        throw new Error("Thieu cau hinh Supabase mobile.");
+      }
+
+      let result: {
+        ticketId: string;
+        receiptToken: string;
+        grandTotal: number;
+      } | null = null;
+
+      await runMutation(input.ticketId, async () => {
+        result = await updateClosedTicketForMobile(client, input);
+      });
+
+      return result;
+    },
+    [runMutation],
+  );
+
   const deleteAppointment = useCallback(
     async (appointmentId: string) => {
       const client = mobileSupabase;
@@ -776,6 +822,30 @@ export function useAdminOperations() {
       });
     },
     [runMutation],
+  );
+
+  const loadRecentTickets = useCallback(
+    async (input?: {
+      fromIso?: string;
+      toIso?: string;
+      limit?: number;
+    }) => {
+      if (!mobileSupabase || !isHydrated || !role || !observer.isReady || !observer.viewContext) {
+        return [] as MobileRecentTicketSummary[];
+      }
+
+      if (!canReadRecentTickets(role)) {
+        return [] as MobileRecentTicketSummary[];
+      }
+
+      return listRecentTicketsForMobile(mobileSupabase, {
+        fromIso: input?.fromIso,
+        toIso: input?.toIso,
+        limit: input?.limit,
+        observerScope: observer.observerScope,
+      });
+    },
+    [isHydrated, observer.isReady, observer.observerScope, observer.viewContext, role],
   );
 
   return {
@@ -798,6 +868,8 @@ export function useAdminOperations() {
     updateAppointmentStatus,
     saveAppointment,
     createCheckout,
+    updateClosedTicket,
     deleteAppointment,
+    loadRecentTickets,
   };
 }

@@ -1,7 +1,8 @@
 import { Feather } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import {
+  ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
   Linking,
@@ -15,11 +16,13 @@ import {
   Text,
   View,
 } from "react-native";
+import { getTicketDetailForMobile, type MobileCheckoutService, type MobileTicketDetail } from "@nails/shared";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { AdminBottomNavDock, AdminHeaderActions, AdminKeyboardAwareScrollView, AdminKeyboardTextInput, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, ADMIN_CONTENT_TOP_GAP, ADMIN_KEYBOARD_ACTIVE_FIELD_CLEARANCE, createCheckoutKey, formatVnd, useKeyboardVisible } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { mobileEnv } from "@/src/lib/env";
+import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
 const palette = {
@@ -76,12 +79,134 @@ function formatStaleDays(value: string | null | undefined, fallback: string, fal
   return `${fallbackLabel} ${days}d`;
 }
 
+type RangeMode = "day" | "week" | "month" | "custom";
+type HistoryRange = { from: Date; to: Date };
+type CheckoutLineDraft = { serviceId: string; qty: number };
+type EditableTicketLine = CheckoutLineDraft & { serviceName: string };
+
+function toDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfDay(date: Date) {
+  const value = new Date(date);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+
+function endOfDay(date: Date) {
+  const value = new Date(date);
+  value.setHours(23, 59, 59, 999);
+  return value;
+}
+
+function startOfWeek(date: Date) {
+  const value = startOfDay(date);
+  const day = (value.getDay() + 6) % 7;
+  value.setDate(value.getDate() - day);
+  return value;
+}
+
+function endOfWeek(date: Date) {
+  const value = startOfWeek(date);
+  value.setDate(value.getDate() + 6);
+  value.setHours(23, 59, 59, 999);
+  return value;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function buildHistoryRange(mode: RangeMode, customFrom: string, customTo: string): HistoryRange {
+  const today = new Date();
+  if (mode === "day") return { from: startOfDay(today), to: endOfDay(today) };
+  if (mode === "week") return { from: startOfWeek(today), to: endOfWeek(today) };
+  if (mode === "month") return { from: startOfMonth(today), to: endOfMonth(today) };
+
+  const from = new Date(`${customFrom}T00:00:00`);
+  const to = new Date(`${customTo}T23:59:59`);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+    return { from: startOfDay(today), to: endOfDay(today) };
+  }
+  return from.getTime() <= to.getTime()
+    ? { from, to }
+    : { from: new Date(`${customTo}T00:00:00`), to: new Date(`${customFrom}T23:59:59`) };
+}
+
+function createEmptyCheckoutLine(): CheckoutLineDraft {
+  return { serviceId: "", qty: 1 };
+}
+
+function normalizeServiceName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function buildCheckoutServiceLookups(services: MobileCheckoutService[]) {
+  return {
+    byId: new Map(services.map((service) => [service.id, service])),
+    byName: new Map(services.map((service) => [normalizeServiceName(service.name), service])),
+  };
+}
+
+function resolveEditableTicketLines(
+  items: MobileTicketDetail["items"],
+  serviceById: Map<string, MobileCheckoutService>,
+  serviceByName: Map<string, MobileCheckoutService>,
+): EditableTicketLine[] {
+  return items
+    .map((item) => {
+      if (item.qty <= 0) return null;
+
+      const resolvedService =
+        (typeof item.serviceId === "string" && item.serviceId.length > 0 ? serviceById.get(item.serviceId) : undefined)
+        ?? serviceByName.get(normalizeServiceName(item.serviceName));
+
+      if (!resolvedService) return null;
+      return {
+        serviceId: resolvedService.id,
+        qty: item.qty,
+        serviceName: resolvedService.name,
+      };
+    })
+    .filter((line): line is EditableTicketLine => Boolean(line));
+}
+
+function formatDateRangeLabel(mode: RangeMode, customFrom: string, customTo: string) {
+  const today = new Date();
+  if (mode === "day") {
+    return today.toLocaleDateString("vi-VN");
+  }
+  if (mode === "week") {
+    return `${startOfWeek(today).toLocaleDateString("vi-VN")} - ${endOfWeek(today).toLocaleDateString("vi-VN")}`;
+  }
+  if (mode === "month") {
+    return `${today.getMonth() + 1}/${today.getFullYear()}`;
+  }
+  return `${new Date(`${customFrom}T00:00:00`).toLocaleDateString("vi-VN")} - ${new Date(`${customTo}T00:00:00`).toLocaleDateString("vi-VN")}`;
+}
+
 type CheckoutSuccessState = {
+  mode: "create" | "update";
   ticketId: string;
   receiptToken: string;
   grandTotal: number;
   customerName: string;
   paymentMethod: "CASH" | "TRANSFER";
+};
+
+type EditingClosedTicketState = {
+  ticketId: string;
+  customerName: string;
+  receiptToken: string | null;
+  createdAt: string;
 };
 
 export default function AdminCheckoutScreen() {
@@ -95,7 +220,10 @@ export default function AdminCheckoutScreen() {
     staleCheckInAutoCancelledCount,
     staleCheckInCleanupError,
     checkoutServices,
+    recentTickets,
     createCheckout,
+    updateClosedTicket,
+    loadRecentTickets,
     reload,
     loading,
     observerViewContext,
@@ -109,11 +237,19 @@ export default function AdminCheckoutScreen() {
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [checkoutCustomerName] = useState("");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
-  const [checkoutLines, setCheckoutLines] = useState<Array<{ serviceId: string; qty: number }>>([{ serviceId: "", qty: 1 }]);
+  const [checkoutLines, setCheckoutLines] = useState<CheckoutLineDraft[]>([createEmptyCheckoutLine()]);
   const [serviceQueries, setServiceQueries] = useState<string[]>([""]);
   const [openServicePickerIndex, setOpenServicePickerIndex] = useState<number | null>(0);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
   const [checkoutSuccess, setCheckoutSuccess] = useState<CheckoutSuccessState | null>(null);
+  const [editingClosedTicket, setEditingClosedTicket] = useState<EditingClosedTicketState | null>(null);
+  const [loadingHistoryTicketId, setLoadingHistoryTicketId] = useState<string | null>(null);
+  const [historyRangeMode, setHistoryRangeMode] = useState<RangeMode>("day");
+  const [historyCustomFrom, setHistoryCustomFrom] = useState(() => toDateInput(new Date()));
+  const [historyCustomTo, setHistoryCustomTo] = useState(() => toDateInput(new Date()));
+  const [historyTickets, setHistoryTickets] = useState(() => recentTickets.filter((ticket) => ticket.status === "CLOSED"));
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const keyboardVisible = useKeyboardVisible();
   const requestedAppointmentId = Array.isArray(params.appointmentId) ? params.appointmentId[0] : params.appointmentId;
   const observerReadOnly =
@@ -133,10 +269,41 @@ export default function AdminCheckoutScreen() {
     [checkoutAppointments, requestedAppointmentId, selectedAppointmentId],
   );
   const checkedInAppointments = checkoutAppointments;
+  const { byId: checkoutServiceById, byName: checkoutServiceByName } = useMemo(
+    () => buildCheckoutServiceLookups(checkoutServices),
+    [checkoutServices],
+  );
   const activeCheckoutServices = useMemo(() => checkoutServices.filter((item) => item.active), [checkoutServices]);
+  const canEditClosedTickets = role === "OWNER" || role === "PARTNER";
+  const selectableCheckoutServices = useMemo(() => {
+    if (!editingClosedTicket) {
+      return activeCheckoutServices;
+    }
+
+    const selectedIds = new Set(checkoutLines.map((line) => line.serviceId).filter(Boolean));
+    const preservedInactive = checkoutServices.filter((service) => !service.active && selectedIds.has(service.id));
+    return [...activeCheckoutServices, ...preservedInactive];
+  }, [activeCheckoutServices, checkoutLines, checkoutServices, editingClosedTicket]);
+  const historyRange = useMemo(
+    () => buildHistoryRange(historyRangeMode, historyCustomFrom, historyCustomTo),
+    [historyCustomFrom, historyCustomTo, historyRangeMode],
+  );
+  const historyRangeLabel = useMemo(
+    () => formatDateRangeLabel(historyRangeMode, historyCustomFrom, historyCustomTo),
+    [historyCustomFrom, historyCustomTo, historyRangeMode],
+  );
+  const historyRangeOptions = useMemo(
+    () => [
+      { value: "day" as const, label: strings.manageReportsModeDay },
+      { value: "week" as const, label: strings.manageReportsModeWeek },
+      { value: "month" as const, label: strings.manageReportsModeMonth },
+      { value: "custom" as const, label: strings.manageReportsModeCustom },
+    ],
+    [strings.manageReportsModeCustom, strings.manageReportsModeDay, strings.manageReportsModeMonth, strings.manageReportsModeWeek],
+  );
   const checkoutSummary = useMemo(() => {
     const selectedLines = checkoutLines
-      .map((line) => ({ ...line, service: activeCheckoutServices.find((service) => service.id === line.serviceId) ?? null }))
+      .map((line) => ({ ...line, service: checkoutServiceById.get(line.serviceId) ?? null }))
       .filter((line) => line.service && line.qty > 0);
     const serviceCount = selectedLines.reduce((sum, line) => sum + line.qty, 0);
     const total = selectedLines.reduce((sum, line) => {
@@ -144,8 +311,10 @@ export default function AdminCheckoutScreen() {
       return sum + line.service.basePrice * line.qty * (1 + line.service.vatRate);
     }, 0);
     return { selectedLines, serviceCount, total };
-  }, [activeCheckoutServices, checkoutLines]);
-  const effectiveCheckoutCustomerName = checkoutCustomerName.trim() || selectedAppointment?.customerName || "";
+  }, [checkoutLines, checkoutServiceById]);
+  const effectiveCheckoutCustomerName = editingClosedTicket?.customerName
+    ?? (checkoutCustomerName.trim() || selectedAppointment?.customerName || "");
+  const activeMutationTargetId = editingClosedTicket?.ticketId ?? selectedAppointment?.id ?? null;
   const receiptUrl =
     checkoutSuccess?.receiptToken && mobileEnv.apiBaseUrl
       ? new URL(`/receipt/${checkoutSuccess.receiptToken}`, mobileEnv.apiBaseUrl).toString()
@@ -153,13 +322,68 @@ export default function AdminCheckoutScreen() {
   const checkoutPaymentMethodLabel =
     checkoutSuccess?.paymentMethod === "TRANSFER" ? strings.checkoutMethodTransfer : strings.checkoutMethodCash;
 
+  function buildReceiptUrl(receiptToken: string | null | undefined) {
+    if (!receiptToken || !mobileEnv.apiBaseUrl) return null;
+    return new URL(`/receipt/${receiptToken}`, mobileEnv.apiBaseUrl).toString();
+  }
+
+  function resetCheckoutComposer() {
+    setCheckoutPaymentMethod("CASH");
+    setCheckoutLines([createEmptyCheckoutLine()]);
+    setServiceQueries([""]);
+    setOpenServicePickerIndex(0);
+  }
+
+  function clearClosedTicketEdit() {
+    setEditingClosedTicket(null);
+    setCheckoutNotice(null);
+    resetCheckoutComposer();
+  }
+
+  const loadHistoryTickets = useCallback(async () => {
+    if (!observerViewContext || !role) {
+      setHistoryTickets([]);
+      setHistoryError(null);
+      return [] as typeof historyTickets;
+    }
+
+    setHistoryLoading(true);
+    setHistoryError(null);
+
+    try {
+      const tickets = await loadRecentTickets({
+        fromIso: historyRange.from.toISOString(),
+        toIso: historyRange.to.toISOString(),
+        limit: 100,
+      });
+      const closedTickets = tickets.filter((ticket) => ticket.status === "CLOSED");
+      setHistoryTickets(closedTickets);
+      return closedTickets;
+    } catch (nextError) {
+      setHistoryError(nextError instanceof Error ? nextError.message : strings.checkoutNoPaidHistory);
+      return [] as typeof historyTickets;
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [historyRange.from, historyRange.to, loadRecentTickets, observerViewContext, role, strings.checkoutNoPaidHistory]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      void loadHistoryTickets();
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [loadHistoryTickets]);
+
   function addCheckoutLine() {
-    setCheckoutLines((current) => [...current, { serviceId: "", qty: 1 }]);
+    setCheckoutLines((current) => [...current, createEmptyCheckoutLine()]);
     setServiceQueries((current) => [...current, ""]);
     setOpenServicePickerIndex(checkoutLines.length);
   }
 
-  function updateCheckoutLine(index: number, patch: Partial<{ serviceId: string; qty: number }>) {
+  function updateCheckoutLine(index: number, patch: Partial<CheckoutLineDraft>) {
     setCheckoutLines((current) => current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)));
   }
 
@@ -193,21 +417,83 @@ export default function AdminCheckoutScreen() {
     });
     if (!result) return;
     setCheckoutSuccess({
+      mode: "create",
       ticketId: result.ticketId,
       receiptToken: result.receiptToken,
       grandTotal: result.grandTotal,
       customerName: effectiveCheckoutCustomerName.trim(),
       paymentMethod: checkoutPaymentMethod,
     });
-    setCheckoutLines([{ serviceId: "", qty: 1 }]);
-    setServiceQueries([""]);
-    setOpenServicePickerIndex(0);
+    resetCheckoutComposer();
     setSelectedAppointmentId(null);
+    await loadHistoryTickets();
+  }
+
+  async function handleUpdateClosedTicket() {
+    if (!editingClosedTicket) return;
+    const validLines = checkoutLines.filter((line) => line.serviceId && line.qty > 0);
+    if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0) return;
+
+    setCheckoutNotice(null);
+    const result = await updateClosedTicket({
+      ticketId: editingClosedTicket.ticketId,
+      paymentMethod: checkoutPaymentMethod,
+      lines: validLines,
+    });
+    if (!result) return;
+
+    setCheckoutSuccess({
+      mode: "update",
+      ticketId: result.ticketId,
+      receiptToken: result.receiptToken,
+      grandTotal: result.grandTotal,
+      customerName: effectiveCheckoutCustomerName.trim(),
+      paymentMethod: checkoutPaymentMethod,
+    });
+    clearClosedTicketEdit();
+    await loadHistoryTickets();
+  }
+
+  async function openReceiptByToken(receiptToken: string | null | undefined) {
+    const nextReceiptUrl = buildReceiptUrl(receiptToken);
+    if (!nextReceiptUrl) return;
+    await Linking.openURL(nextReceiptUrl);
+  }
+
+  async function handleStartEditClosedTicket(ticket: (typeof historyTickets)[number]) {
+    if (!mobileSupabase || !canEditClosedTickets) return;
+
+    try {
+      setLoadingHistoryTicketId(ticket.id);
+      setCheckoutNotice(null);
+      setSelectedAppointmentId(null);
+      const detail = await getTicketDetailForMobile(mobileSupabase, ticket.id);
+      const editableLines = resolveEditableTicketLines(detail.items, checkoutServiceById, checkoutServiceByName);
+
+      if (!editableLines.length) {
+        setCheckoutNotice(strings.checkoutServiceNotFound);
+        return;
+      }
+
+      setEditingClosedTicket({
+        ticketId: detail.ticket.id,
+        customerName: detail.customer?.name ?? ticket.customerName ?? strings.checkoutHistoryBadge,
+        receiptToken: detail.receipt?.publicToken ?? ticket.receiptToken ?? null,
+        createdAt: detail.ticket.createdAt,
+      });
+      setCheckoutPaymentMethod(detail.payment?.method === "TRANSFER" ? "TRANSFER" : "CASH");
+      setCheckoutLines(editableLines.map((line) => ({ serviceId: line.serviceId, qty: line.qty })));
+      setServiceQueries(editableLines.map((line) => line.serviceName));
+      setOpenServicePickerIndex(null);
+    } catch (nextError) {
+      setCheckoutNotice(nextError instanceof Error ? nextError.message : strings.checkoutServiceNotFound);
+    } finally {
+      setLoadingHistoryTicketId(null);
+    }
   }
 
   async function openReceipt() {
-    if (!receiptUrl) return;
-    await Linking.openURL(receiptUrl);
+    await openReceiptByToken(checkoutSuccess?.receiptToken);
   }
 
   async function shareReceipt() {
@@ -244,8 +530,12 @@ export default function AdminCheckoutScreen() {
             <View style={styles.successBadge}>
               <Feather name="check" size={18} color="#2B7A56" />
             </View>
-            <Text style={styles.successTitle}>{strings.checkoutSuccessTitle}</Text>
-            <Text style={styles.successBody}>{strings.checkoutSuccessBody}</Text>
+            <Text style={styles.successTitle}>
+              {checkoutSuccess?.mode === "update" ? strings.checkoutUpdateBillSuccessTitle : strings.checkoutSuccessTitle}
+            </Text>
+            <Text style={styles.successBody}>
+              {checkoutSuccess?.mode === "update" ? strings.checkoutUpdateBillSuccessBody : strings.checkoutSuccessBody}
+            </Text>
 
             {checkoutSuccess ? (
               <View style={styles.successDetails}>
@@ -316,7 +606,14 @@ export default function AdminCheckoutScreen() {
           contentInsetAdjustmentBehavior="always"
           automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void reload()} tintColor={palette.brown} colors={[palette.brown]} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={loading || historyLoading}
+              onRefresh={() => void Promise.all([reload(), loadHistoryTickets()])}
+              tintColor={palette.brown}
+              colors={[palette.brown]}
+            />
+          }
         >
           {observerReadOnly ? (
             <View style={styles.noticeCard}>
@@ -341,7 +638,14 @@ export default function AdminCheckoutScreen() {
                 const [avatarStrong, avatarSoft] = buildAvatarTone(item.customerName);
                 const active = item.id === selectedAppointment?.id;
                 return (
-                  <Pressable key={item.id} style={[styles.customerPill, active && styles.customerPillActive]} onPress={() => setSelectedAppointmentId(item.id)}>
+                  <Pressable
+                    key={item.id}
+                    style={[styles.customerPill, active && styles.customerPillActive]}
+                    onPress={() => {
+                      clearClosedTicketEdit();
+                      setSelectedAppointmentId(item.id);
+                    }}
+                  >
                     <View style={[styles.smallAvatarOuter, { backgroundColor: avatarSoft }]}>
                       <View style={[styles.smallAvatarInner, { backgroundColor: avatarStrong }]}>
                         <Text style={styles.smallAvatarText}>{getInitials(item.customerName)}</Text>
@@ -376,22 +680,147 @@ export default function AdminCheckoutScreen() {
             </View>
           ) : null}
 
-          {selectedAppointment ? (
+          <View style={styles.card}>
+            <View style={styles.historyHeader}>
+              <Text style={styles.cardTitle}>{strings.checkoutPaidHistoryTitle}</Text>
+              <View style={styles.historyCountBadge}>
+                <Text style={styles.historyCountBadgeText}>{historyTickets.length}</Text>
+              </View>
+            </View>
+            <View style={styles.historyFilterRow}>
+              {historyRangeOptions.map((option) => {
+                const active = historyRangeMode === option.value;
+                return (
+                  <Pressable
+                    key={option.value}
+                    style={[styles.historyFilterButton, active && styles.historyFilterButtonActive]}
+                    onPress={() => setHistoryRangeMode(option.value)}
+                  >
+                    <Text style={[styles.historyFilterButtonText, active && styles.historyFilterButtonTextActive]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={styles.historyRangeLabel}>{historyRangeLabel}</Text>
+            {historyRangeMode === "custom" ? (
+              <View style={styles.historyCustomRow}>
+                <View style={styles.historyCustomField}>
+                  <Text style={styles.historyCustomLabel}>{strings.manageReportsFromLabel}</Text>
+                  <AdminKeyboardTextInput
+                    style={styles.historyCustomInput}
+                    value={historyCustomFrom}
+                    onChangeText={setHistoryCustomFrom}
+                    placeholder="YYYY-MM-DD"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholderTextColor="#A69789"
+                  />
+                </View>
+                <View style={styles.historyCustomField}>
+                  <Text style={styles.historyCustomLabel}>{strings.manageReportsToLabel}</Text>
+                  <AdminKeyboardTextInput
+                    style={styles.historyCustomInput}
+                    value={historyCustomTo}
+                    onChangeText={setHistoryCustomTo}
+                    placeholder="YYYY-MM-DD"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholderTextColor="#A69789"
+                  />
+                </View>
+              </View>
+            ) : null}
+            {historyError ? <Text style={styles.errorText}>{historyError}</Text> : null}
+            {historyLoading ? (
+              <View style={styles.historyLoadingRow}>
+                <ActivityIndicator size="small" color={palette.brown} />
+              </View>
+            ) : null}
+            {historyTickets.length === 0 ? (
+              <Text style={styles.emptyText}>{strings.checkoutNoPaidHistory}</Text>
+            ) : (
+              <View style={styles.historyList}>
+                {historyTickets.map((ticket) => (
+                  <View key={ticket.id} style={styles.historyCard}>
+                    <View style={styles.historyTopRow}>
+                      <View style={{ flex: 1, gap: 4 }}>
+                        <Text style={styles.historyTitle} numberOfLines={1}>
+                          {ticket.customerName ?? strings.checkoutHistoryBadge}
+                        </Text>
+                        <Text style={styles.historyMeta}>{formatShortDateTime(ticket.createdAt)}</Text>
+                      </View>
+                      <View style={styles.historyAmountWrap}>
+                        <View style={styles.historyBadge}>
+                          <Text style={styles.historyBadgeText}>{strings.checkoutHistoryBadge}</Text>
+                        </View>
+                        <Text style={styles.historyAmount}>{formatVnd(ticket.grandTotal)}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.historyActions}>
+                      {ticket.receiptToken ? (
+                        <Pressable style={styles.historyActionButton} onPress={() => void openReceiptByToken(ticket.receiptToken)}>
+                          <Text style={styles.historyActionButtonText}>{strings.checkoutOpenReceipt}</Text>
+                        </Pressable>
+                      ) : null}
+                      {canEditClosedTickets ? (
+                        <Pressable
+                          style={styles.historyActionButton}
+                          disabled={loadingHistoryTicketId === ticket.id}
+                          onPress={() => void handleStartEditClosedTicket(ticket)}
+                        >
+                          {loadingHistoryTicketId === ticket.id ? (
+                            <ActivityIndicator size="small" color="#6A5848" />
+                          ) : (
+                            <Text style={styles.historyActionButtonText}>{strings.checkoutEditPaidBill}</Text>
+                          )}
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+
+          {(selectedAppointment || editingClosedTicket) ? (
             <View style={styles.card}>
               <View style={styles.profileRow}>
                 <View style={styles.heroAvatarOuter}>
                   <View style={styles.heroAvatarInner}>
-                    <Text style={styles.heroAvatarText}>{getInitials(selectedAppointment.customerName)}</Text>
+                    <Text style={styles.heroAvatarText}>{getInitials(effectiveCheckoutCustomerName || strings.checkoutTitle)}</Text>
                   </View>
                 </View>
                 <View style={{ flex: 1, gap: 8 }}>
                   <View style={styles.profileTop}>
-                    <Text style={styles.profileName}>{selectedAppointment.customerName}</Text>
-                    <View style={styles.badge}><Text style={styles.badgeText}>{strings.checkoutServingBadge}</Text></View>
+                    <Text style={styles.profileName}>{effectiveCheckoutCustomerName}</Text>
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {editingClosedTicket ? strings.checkoutHistoryBadge : strings.checkoutServingBadge}
+                      </Text>
+                    </View>
                   </View>
                   <View style={styles.timeRow}>
-                    <View style={styles.timePill}><Feather name="clock" size={13} color={palette.muted} /><Text style={styles.timeText}>{formatShortDateTime(selectedAppointment.startAt)}</Text></View>
-                    <View style={styles.timePill}><Feather name="clock" size={13} color={palette.muted} /><Text style={styles.timeText}>{formatShortDateTime(selectedAppointment.checkedInAt)}</Text></View>
+                    {editingClosedTicket ? (
+                      <>
+                        <View style={styles.timePill}>
+                          <Feather name="clock" size={13} color={palette.muted} />
+                          <Text style={styles.timeText}>{formatShortDateTime(editingClosedTicket.createdAt)}</Text>
+                        </View>
+                        {editingClosedTicket.receiptToken ? (
+                          <View style={styles.timePill}>
+                            <Feather name="file-text" size={13} color={palette.muted} />
+                            <Text style={styles.timeText} numberOfLines={1}>{editingClosedTicket.receiptToken.slice(0, 8)}</Text>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : selectedAppointment ? (
+                      <>
+                        <View style={styles.timePill}><Feather name="clock" size={13} color={palette.muted} /><Text style={styles.timeText}>{formatShortDateTime(selectedAppointment.startAt)}</Text></View>
+                        <View style={styles.timePill}><Feather name="clock" size={13} color={palette.muted} /><Text style={styles.timeText}>{formatShortDateTime(selectedAppointment.checkedInAt)}</Text></View>
+                      </>
+                    ) : null}
                   </View>
                 </View>
               </View>
@@ -415,7 +844,8 @@ export default function AdminCheckoutScreen() {
               <View style={styles.serviceCard}>
                 <Text style={styles.serviceTitle}>{strings.checkoutServicesTitle}</Text>
                 {checkoutLines.map((line, index) => {
-                  const filteredServices = activeCheckoutServices.filter((service) => {
+                  const selectedService = checkoutServiceById.get(line.serviceId) ?? null;
+                  const filteredServices = selectableCheckoutServices.filter((service) => {
                     const query = (serviceQueries[index] ?? "").trim().toLowerCase();
                     return !query || service.name.toLowerCase().includes(query);
                   });
@@ -423,7 +853,7 @@ export default function AdminCheckoutScreen() {
                     <View key={`checkout-line-${index}`} style={{ gap: 10 }}>
                       <Pressable style={styles.field} onPress={() => setOpenServicePickerIndex((current) => (current === index ? null : index))}>
                         <Text style={line.serviceId ? styles.fieldValue : styles.fieldPlaceholder}>
-                          {activeCheckoutServices.find((service) => service.id === line.serviceId)?.name ?? strings.checkoutServicePlaceholder}
+                          {selectedService?.name ?? strings.checkoutServicePlaceholder}
                         </Text>
                         <Feather name="chevron-down" size={18} color={palette.muted} />
                       </Pressable>
@@ -492,8 +922,8 @@ export default function AdminCheckoutScreen() {
 
                       {line.serviceId ? (
                         <View style={styles.selectedRow}>
-                          <Text style={styles.selectedName}>{activeCheckoutServices.find((service) => service.id === line.serviceId)?.name ?? "-"}</Text>
-                          <Text style={styles.selectedPrice}>{formatVnd((activeCheckoutServices.find((service) => service.id === line.serviceId)?.basePrice ?? 0) * (1 + (activeCheckoutServices.find((service) => service.id === line.serviceId)?.vatRate ?? 0)))}</Text>
+                          <Text style={styles.selectedName}>{selectedService?.name ?? "-"}</Text>
+                          <Text style={styles.selectedPrice}>{formatVnd((selectedService?.basePrice ?? 0) * (1 + (selectedService?.vatRate ?? 0)))}</Text>
                           <Pressable style={styles.trashButton} onPress={() => removeCheckoutLine(index)} disabled={checkoutLines.length === 1}>
                             <Feather name="trash-2" size={15} color={checkoutLines.length === 1 ? "#D0C5BB" : "#7C6F63"} />
                           </Pressable>
@@ -527,16 +957,29 @@ export default function AdminCheckoutScreen() {
                 </View>
 
                 <Pressable
-                  style={[styles.primaryButton, (observerReadOnly || mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0) && styles.primaryButtonDisabled]}
-                  disabled={observerReadOnly || mutating || busyTargetId === selectedAppointment.id || (role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
-                  onPress={() => void handleCreateCheckout()}
+                  style={[styles.primaryButton, (observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0) && styles.primaryButtonDisabled]}
+                  disabled={observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
+                  onPress={() => void (editingClosedTicket ? handleUpdateClosedTicket() : handleCreateCheckout())}
                 >
-                  <Text style={styles.primaryButtonText}>{busyTargetId === selectedAppointment.id ? strings.checkoutProcessingButton : strings.checkoutPayButton}</Text>
+                  <Text style={styles.primaryButtonText}>
+                    {activeMutationTargetId != null && busyTargetId === activeMutationTargetId
+                      ? editingClosedTicket
+                        ? strings.checkoutUpdatingBillButton
+                        : strings.checkoutProcessingButton
+                      : editingClosedTicket
+                        ? strings.checkoutUpdateBillButton
+                        : strings.checkoutPayButton}
+                  </Text>
                 </Pressable>
 
                 <Pressable style={styles.secondaryButton} onPress={() => void router.replace("/scheduling")}>
                   <Text style={styles.secondaryButtonText}>{strings.checkoutBackToScheduling}</Text>
                 </Pressable>
+                {editingClosedTicket ? (
+                  <Pressable style={styles.linkButton} onPress={clearClosedTicketEdit}>
+                    <Text style={styles.linkText}>{strings.checkoutCancelEditBill}</Text>
+                  </Pressable>
+                ) : null}
                 {role === "TECH" && techShiftOpen === false ? <Pressable style={styles.linkButton} onPress={() => void router.push("/shifts")}><Text style={styles.linkText}>{strings.checkoutOpenShift}</Text></Pressable> : null}
               </View>
             </View>
@@ -574,6 +1017,32 @@ const styles = StyleSheet.create({
   noticeCard: { backgroundColor: "#FFF5E7", borderColor: "#F0D9B7", borderRadius: 16, borderWidth: 1, paddingHorizontal: 14, paddingVertical: 12 },
   noticeText: { color: "#8A5B21", fontSize: 12, lineHeight: 18, fontWeight: "600" },
   cardTitle: { fontSize: 15, lineHeight: 19, fontWeight: "700", color: palette.text },
+  historyHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  historyCountBadge: { minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 6, backgroundColor: "#FBF2E6", alignItems: "center", justifyContent: "center" },
+  historyCountBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: "800", color: "#8A5530" },
+  historyFilterRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  historyFilterButton: { minHeight: 32, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  historyFilterButtonActive: { backgroundColor: palette.beige, borderColor: palette.beigeStrong },
+  historyFilterButtonText: { fontSize: 12, lineHeight: 15, color: "#6A5848", fontWeight: "600" },
+  historyFilterButtonTextActive: { color: palette.text, fontWeight: "700" },
+  historyRangeLabel: { fontSize: 12, lineHeight: 16, color: palette.muted },
+  historyCustomRow: { flexDirection: "row", gap: 10 },
+  historyCustomField: { flex: 1, gap: 6 },
+  historyCustomLabel: { fontSize: 12, lineHeight: 15, color: "#6A5848", fontWeight: "700" },
+  historyCustomInput: { minHeight: 40, borderRadius: 12, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, fontSize: 13, lineHeight: 16, color: palette.text },
+  historyLoadingRow: { minHeight: 22, alignItems: "flex-start", justifyContent: "center" },
+  historyList: { gap: 10 },
+  historyCard: { borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.beigeSoft, paddingHorizontal: 12, paddingVertical: 12, gap: 10 },
+  historyTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  historyTitle: { fontSize: 14, lineHeight: 18, fontWeight: "700", color: palette.text },
+  historyMeta: { fontSize: 12, lineHeight: 16, color: palette.muted },
+  historyAmountWrap: { alignItems: "flex-end", gap: 6 },
+  historyAmount: { fontSize: 13, lineHeight: 16, fontWeight: "800", color: palette.text },
+  historyBadge: { minHeight: 22, borderRadius: 11, paddingHorizontal: 8, backgroundColor: "#EAF7EE", alignItems: "center", justifyContent: "center" },
+  historyBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: "700", color: "#2B7A56" },
+  historyActions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  historyActionButton: { minHeight: 34, minWidth: 110, borderRadius: 17, borderWidth: 1, borderColor: "#D8C8BA", backgroundColor: palette.white, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
+  historyActionButtonText: { fontSize: 12, lineHeight: 15, color: "#6A5848", fontWeight: "700" },
   pillRow: { gap: 10, paddingRight: 6 },
   customerPill: { minWidth: 108, maxWidth: 150, height: 42, borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, gap: 8 },
   customerPillActive: { backgroundColor: palette.beige, borderColor: palette.beigeStrong },

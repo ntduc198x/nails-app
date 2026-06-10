@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { listBookingRequestsForMobile, translate, type MobileBookingRequestSummary } from "@nails/shared";
+import {
+  buildAppointmentWindow,
+  findAvailableFootHandCombo,
+  getFootHandComboCopy,
+  getOccupiedResourceIdsForWindow,
+} from "@/src/features/admin/resource-combo";
 import { useAdminOperations } from "@/src/hooks/use-admin-operations";
 import { addMinutesToIso, AdminBottomNavDock, AdminDetailLoadingScreen, AdminTopSafeArea, ADMIN_CONTENT_BOTTOM_NAV_CLEARANCE, getAdminBottomBarPadding } from "@/src/features/admin/ui";
 import { getAdminNavHref } from "@/src/features/admin/navigation";
@@ -31,6 +37,7 @@ const palette = {
 
 type BookingRequestDetailProps = {
   booking: NonNullable<ReturnType<typeof useAdminOperations>["bookingRequests"][number] | null>;
+  appointments: ReturnType<typeof useAdminOperations>["appointments"];
   busyTargetId: string | null;
   error: string | null;
   mutating: boolean;
@@ -129,6 +136,7 @@ function formatDisplayTime(isoValue: string) {
 }
 
 function BookingRequestEditor({
+  appointments,
   booking,
   busyTargetId,
   error,
@@ -147,6 +155,7 @@ function BookingRequestEditor({
   const [scheduledTimeInput, setScheduledTimeInput] = useState(() => toLocalTimeInput(booking.requestedStartAt));
   const [selectedStaffUserId, setSelectedStaffUserId] = useState("");
   const [selectedResourceId, setSelectedResourceId] = useState("");
+  const [selectedSecondaryResourceId, setSelectedSecondaryResourceId] = useState<string | null>(null);
   const [bookingCancelConfirmId, setBookingCancelConfirmId] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -162,20 +171,95 @@ function BookingRequestEditor({
 
   const effectiveScheduledStartAt =
     combineDateAndTimeToIso(scheduledDateInput, scheduledTimeInput) ?? booking.requestedStartAt ?? null;
+  const bookingDurationMinutes = useMemo(() => {
+    const startAtMs = new Date(booking.requestedStartAt).getTime();
+    const endAtMs = new Date(booking.requestedEndAt).getTime();
+    if (!Number.isFinite(startAtMs) || !Number.isFinite(endAtMs) || endAtMs <= startAtMs) {
+      return 60;
+    }
+
+    return Math.max(15, Math.round((endAtMs - startAtMs) / 60000));
+  }, [booking.requestedEndAt, booking.requestedStartAt]);
+  const effectiveScheduledEndAt = effectiveScheduledStartAt
+    ? addMinutesToIso(effectiveScheduledStartAt, bookingDurationMinutes)
+    : null;
   const effectiveSelectedStaffUserId = selectedStaffUserId || (role === "TECH" ? user?.id ?? "" : "");
   const preferredStaffName = resolveStaffName(booking.preferredStaff, staffOptions);
+  const comboCopy = getFootHandComboCopy(locale);
+  const comboActive = Boolean(selectedResourceId && selectedSecondaryResourceId);
+
+  function handleSelectResource(resourceId: string) {
+    setSelectedResourceId(resourceId);
+    setSelectedSecondaryResourceId(null);
+  }
+
+  function handleSelectFootHandCombo() {
+    const appointmentWindow = buildAppointmentWindow(
+      scheduledDateInput,
+      scheduledTimeInput,
+      String(bookingDurationMinutes),
+    );
+
+    if (!appointmentWindow) {
+      return;
+    }
+
+    const comboSelection = findAvailableFootHandCombo({
+      appointments,
+      resourceOptions,
+      startAt: appointmentWindow.startAt,
+      endAt: appointmentWindow.endAt,
+    });
+
+    if (
+      !resourceOptions.some((resource) => resource.type === "CHAIR")
+      || !resourceOptions.some((resource) => resource.type === "TABLE")
+    ) {
+      Alert.alert(comboCopy.missingPairTitle, comboCopy.missingPairBody);
+      return;
+    }
+
+    if (!comboSelection) {
+      setSelectedSecondaryResourceId(null);
+      Alert.alert(comboCopy.unavailableTitle, comboCopy.unavailableBody);
+      return;
+    }
+
+    setSelectedResourceId(comboSelection.resourceId);
+    setSelectedSecondaryResourceId(comboSelection.secondaryResourceId);
+  }
 
   async function handleConvertBooking() {
-    if (!effectiveScheduledStartAt) return;
+    if (!effectiveScheduledStartAt || !effectiveScheduledEndAt) return;
     if (new Date(effectiveScheduledStartAt).getTime() < Date.now()) {
       Alert.alert(strings.bookingRequestConvertSuccessTitle, translate(locale, "errors", "bookingTimePast"));
       return;
     }
+
+    const requestedResourceIds = [selectedResourceId, selectedSecondaryResourceId].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+    const occupiedResourceIds = getOccupiedResourceIdsForWindow(
+      appointments,
+      effectiveScheduledStartAt,
+      effectiveScheduledEndAt,
+    );
+
+    if (requestedResourceIds.some((value) => occupiedResourceIds.has(value))) {
+      Alert.alert(
+        comboActive ? comboCopy.unavailableTitle : comboCopy.conflictTitle,
+        comboActive ? comboCopy.unavailableBody : translate(locale, "errors", "appointmentResourceConflict"),
+      );
+      return;
+    }
+
     await convertBookingRequest({
       bookingRequestId: booking.id,
       startAt: effectiveScheduledStartAt,
+      durationMinutes: bookingDurationMinutes,
       staffUserId: effectiveSelectedStaffUserId || null,
       resourceId: selectedResourceId || null,
+      secondaryResourceId: selectedSecondaryResourceId,
     });
     Alert.alert(
       strings.bookingRequestConvertSuccessTitle,
@@ -340,7 +424,8 @@ function BookingRequestEditor({
       </View>
 
       {/* Date Picker Modal */}
-      <Modal visible={showDatePicker} transparent animationType="fade">
+      {showDatePicker ? (
+      <Modal visible transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
@@ -400,9 +485,11 @@ function BookingRequestEditor({
           </Pressable>
         </Pressable>
       </Modal>
+      ) : null}
 
       {/* Time Picker Modal */}
-      <Modal visible={showTimePicker} transparent animationType="fade">
+      {showTimePicker ? (
+      <Modal visible transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
           <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
             <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
@@ -446,6 +533,7 @@ function BookingRequestEditor({
           </Pressable>
         </Pressable>
       </Modal>
+      ) : null}
 
       {/* Staff Selector */}
       <View style={styles.card}>
@@ -486,14 +574,24 @@ function BookingRequestEditor({
           <Text style={styles.cardTitle}>{strings.manageSchedulingDetailResourceTitle}</Text>
         </View>
 
+        <Pressable
+          style={[styles.comboButton, comboActive ? styles.comboButtonActive : null]}
+          onPress={handleSelectFootHandCombo}
+        >
+          <Feather name="layers" size={14} color={comboActive ? "#FFFFFF" : palette.primary} />
+          <Text style={[styles.comboButtonText, comboActive ? styles.comboButtonTextActive : null]}>
+            {comboCopy.label}
+          </Text>
+        </Pressable>
+
         <View style={styles.resourceGrid}>
           {resourceOptions.map((resource) => {
-            const active = selectedResourceId === resource.id;
+            const active = selectedResourceId === resource.id || selectedSecondaryResourceId === resource.id;
             return (
               <Pressable
                 key={resource.id}
                 style={[styles.resourcePill, active && styles.selectPillActive]}
-                onPress={() => setSelectedResourceId(resource.id)}
+                onPress={() => handleSelectResource(resource.id)}
               >
                 <Text style={[styles.selectPillText, active && styles.selectPillTextActive]}>
                   {resource.name}
@@ -549,6 +647,7 @@ function BookingRequestDetailScreenContent() {
 
   const {
     bookingRequests,
+    appointments,
     convertBookingRequest,
     resourceOptions,
     role,
@@ -687,6 +786,7 @@ function BookingRequestDetailScreenContent() {
         ) : (
           <BookingRequestEditor
             key={booking.id}
+            appointments={appointments}
             booking={booking}
             busyTargetId={busyTargetId}
             error={error}
@@ -707,6 +807,7 @@ function BookingRequestDetailScreenContent() {
         current="booking"
         role={role}
         insetBottom={insets.bottom}
+        prefetchEnabled={false}
         onNavigate={(target) => {
           void router.replace(getAdminNavHref(target, role));
         }}
@@ -998,6 +1099,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
+  },
+  comboButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingHorizontal: 14,
+  },
+  comboButtonActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  comboButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.primary,
+  },
+  comboButtonTextActive: {
+    color: "#FFFFFF",
   },
   resourcePill: {
     flexDirection: "row",

@@ -387,6 +387,7 @@ export async function convertBookingRequestToAppointmentForMobile(
     bookingRequestId: string;
     staffUserId?: string | null;
     resourceId?: string | null;
+    secondaryResourceId?: string | null;
     startAt?: string | null;
     endAt?: string | null;
   },
@@ -399,6 +400,7 @@ export async function convertBookingRequestToAppointmentForMobile(
     p_booking_request_id: input.bookingRequestId,
     p_staff_user_id: input.staffUserId ?? null,
     p_resource_id: input.resourceId ?? null,
+    p_secondary_resource_id: input.secondaryResourceId ?? null,
     p_start_at: input.startAt ?? null,
     p_end_at: input.endAt ?? null,
   });

@@ -203,7 +203,7 @@ function formatMonthRangeLabel(anchorDate: Date, strings: ReturnType<typeof useA
 export default function AdminManageReportsScreen() {
   const strings = useAdminStrings();
   const { locale } = useAdminPreferences();
-  const { isHydrated, allowed } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "ACCOUNTANT"]);
+  const { isHydrated, allowed, role } = useManageRouteAccess(["OWNER", "PARTNER", "MANAGER", "ACCOUNTANT"]);
   const observer = useAdminObserverScope();
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [anchorDate, setAnchorDate] = useState(() => new Date());
@@ -219,7 +219,6 @@ export default function AdminManageReportsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [showBills, setShowBills] = useState(false);
   const [showInsights, setShowInsights] = useState(false);
   const [showModeSheet, setShowModeSheet] = useState(false);
   const [showStaffSheet, setShowStaffSheet] = useState(false);
@@ -285,8 +284,9 @@ export default function AdminManageReportsScreen() {
   const benchmarkSummary = breakdown?.orgBenchmark ?? null;
   const selectedBranchBenchmark = benchmarkSummary?.selectedBranch ?? null;
   const topBranches = breakdown?.branchRanking?.slice(0, 5) ?? [];
+  const canCompareWithOrg = role !== "PARTNER";
 
-  const load = useCallback(async (force = false) => {
+  const load = useCallback(async () => {
     if (!mobileSupabase || !observer.isReady) {
       setError(strings.manageReportsMissingSupabase);
       setLoading(false);
@@ -294,7 +294,7 @@ export default function AdminManageReportsScreen() {
     }
 
     try {
-      if (force || !tickets.length) setLoading(true);
+      if (!tickets.length) setLoading(true);
       else setRefreshing(true);
       setError(null);
 
@@ -333,7 +333,7 @@ export default function AdminManageReportsScreen() {
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
-      void load(true);
+      void load();
     }, 0);
     return () => clearTimeout(timeoutId);
   }, [load]);
@@ -438,16 +438,6 @@ export default function AdminManageReportsScreen() {
             )}
             <SelectLike label={strings.manageReportsStaffLabel} value={selectedStaffLabel} onPress={() => setShowStaffSheet(true)} />
             <View style={styles.actionRow}>
-              <Pressable style={styles.secondaryAction} onPress={() => setShowBills(true)}>
-                <Feather name="eye" size={14} color={palette.sub} />
-                <Text style={styles.secondaryActionText}>{strings.manageReportsViewBills}</Text>
-              </Pressable>
-              <Pressable style={styles.secondaryAction} onPress={() => setShowInsights((current) => !current)}>
-                <Feather name="bar-chart-2" size={14} color={palette.sub} />
-                <Text style={styles.secondaryActionText}>{showInsights ? strings.manageReportsQuickHide : strings.manageReportsQuickOpen}</Text>
-              </Pressable>
-            </View>
-            <View style={styles.actionRow}>
               <Pressable style={styles.secondaryAction} onPress={() => setShowFilters(false)}>
                 <Feather name="filter" size={14} color={palette.sub} />
                 <Text style={styles.secondaryActionText}>{strings.manageReportsHideFilters}</Text>
@@ -460,10 +450,6 @@ export default function AdminManageReportsScreen() {
           </View>
         ) : (
           <View style={styles.actionRow}>
-            <Pressable style={styles.secondaryAction} onPress={() => setShowBills(true)}>
-              <Feather name="eye" size={14} color={palette.sub} />
-              <Text style={styles.secondaryActionText}>{strings.manageReportsViewBills}</Text>
-            </Pressable>
             <Pressable style={styles.secondaryAction} onPress={() => setShowFilters(true)}>
               <Feather name="filter" size={14} color={palette.sub} />
               <Text style={styles.secondaryActionText}>{strings.manageReportsOpenFilters}</Text>
@@ -479,7 +465,7 @@ export default function AdminManageReportsScreen() {
         </View>
       ) : null}
 
-      {breakdown?.viewMode === "branch" && selectedBranchBenchmark && benchmarkSummary ? (
+      {canCompareWithOrg && breakdown?.viewMode === "branch" && selectedBranchBenchmark && benchmarkSummary ? (
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{strings.manageReportsCompareOrgTitle}</Text>
@@ -556,9 +542,13 @@ export default function AdminManageReportsScreen() {
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{strings.manageReportsRevenueAnalysisTitle}</Text>
-          <View style={styles.periodPill}>
+          <Pressable
+            style={styles.periodPill}
+            onPress={() => setShowInsights((current) => !current)}
+            accessibilityRole="button"
+          >
             <Text style={styles.periodPillText}>{showInsights ? strings.manageReportsOpened : strings.manageReportsHidden}</Text>
-          </View>
+          </Pressable>
         </View>
 
         {showInsights ? (
@@ -607,16 +597,19 @@ export default function AdminManageReportsScreen() {
       <View style={styles.sectionCard}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{strings.manageReportsBillDetailsSectionTitle}</Text>
-          <View style={styles.countDot}>
-            <Text style={styles.countDotText}>{filteredTickets.length}</Text>
+          <View style={styles.billDetailsHeaderRight}>
+            {refreshing && tickets.length ? <ActivityIndicator size="small" color={palette.accent} /> : null}
+            <View style={styles.countDot}>
+              <Text style={styles.countDotText}>{filteredTickets.length}</Text>
+            </View>
           </View>
         </View>
-        {loading ? (
+        {loading && !tickets.length ? (
           <View style={styles.emptySection}>
             <ActivityIndicator size="small" color={palette.accent} />
             <Text style={styles.emptySectionText}>{strings.manageReportsLoadingBills}</Text>
           </View>
-        ) : showBills && filteredTickets.length ? (
+        ) : filteredTickets.length ? (
           <View style={styles.stack}>
             {filteredTickets.slice(0, 12).map((ticket) => (
               <View key={ticket.id} style={styles.ticketCard}>
@@ -1057,6 +1050,11 @@ const styles = StyleSheet.create({
     lineHeight: 12,
     fontWeight: "800",
     color: palette.accent,
+  },
+  billDetailsHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   stack: {
     gap: 10,

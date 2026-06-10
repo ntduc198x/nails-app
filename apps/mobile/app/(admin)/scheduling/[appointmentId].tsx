@@ -1,12 +1,19 @@
 import { Feather } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  buildAppointmentWindow,
+  findAvailableFootHandCombo,
+  getFootHandComboCopy,
+  getOccupiedResourceIdsForWindow,
+} from "@/src/features/admin/resource-combo";
 import {
   canCheckInAppointmentAt,
   deleteAppointmentForMobile,
   getAppointmentForMobile,
   isAppointmentArrivalOverdue,
+  listAppointmentsForMobile,
   listBookingRequestsForMobile,
   saveAppointmentForMobile,
   translate,
@@ -16,6 +23,7 @@ import {
 } from "@nails/shared";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import {
+  normalizeAdminObserverScope,
   listResourceOptions,
   listStaffOptions,
   removeAppointmentFromAdminOperationsCache,
@@ -79,16 +87,6 @@ function toLocalTimeInput(isoValue: string) {
   return `${hh}:${mm}`;
 }
 
-function combineDateAndTimeToIso(dateValue: string, timeValue: string) {
-  const dateIso = fromLocalDateInput(dateValue);
-  if (!dateIso) return null;
-  const [hh, mm] = timeValue.split(":");
-  if (!hh || !mm) return null;
-  const parsed = new Date(dateIso);
-  parsed.setHours(parseInt(hh, 10), parseInt(mm, 10), 0, 0);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
-
 function formatDisplayDate(isoValue: string) {
   const date = new Date(isoValue);
   const dd = String(date.getDate()).padStart(2, "0");
@@ -133,6 +131,7 @@ function getAppointmentDetailStatusCopy(
 
 type AppointmentEditorProps = {
   appointment: MobileAppointmentSummary;
+  appointments: MobileAppointmentSummary[];
   resourceOptions: ResourceOption[];
   role: AppRole | null;
   staffOptions: StaffOption[];
@@ -156,6 +155,7 @@ type AppointmentEditorProps = {
 
 function AppointmentEditor({
   appointment,
+  appointments,
   resourceOptions,
   role,
   staffOptions,
@@ -180,6 +180,7 @@ function AppointmentEditor({
   );
   const [staffUserId, setStaffUserId] = useState(appointment.staffUserId ?? (role === "TECH" ? userId ?? "" : ""));
   const [resourceId, setResourceId] = useState(appointment.resourceId ?? "");
+  const [secondaryResourceId, setSecondaryResourceId] = useState<string | null>(appointment.secondaryResourceId ?? null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const handleFieldFocus = useAdminKeyboardFieldFocus();
 
@@ -205,6 +206,8 @@ function AppointmentEditor({
           confirmTitle: "Confirm cancellation",
           confirmBody: "Are you sure you want to cancel this appointment?",
         };
+  const comboCopy = getFootHandComboCopy(locale);
+  const comboActive = Boolean(resourceId && secondaryResourceId);
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -240,28 +243,80 @@ function AppointmentEditor({
     setShowTimePicker(false);
   }
 
-  async function handleSave() {
-    const normalizedStart = combineDateAndTimeToIso(dateInput, timeInput);
-    const duration = Number(durationMinutes);
-    if (!customerName.trim() || !normalizedStart || !Number.isFinite(duration) || duration <= 0) {
+  function handleSelectResource(nextResourceId: string) {
+    setResourceId(nextResourceId);
+    setSecondaryResourceId(null);
+  }
+
+  function handleSelectFootHandCombo() {
+    const appointmentWindow = buildAppointmentWindow(dateInput, timeInput, durationMinutes);
+    if (!appointmentWindow) {
       return;
     }
-    if (new Date(normalizedStart).getTime() < Date.now()) {
+
+    const comboSelection = findAvailableFootHandCombo({
+      appointments,
+      resourceOptions,
+      startAt: appointmentWindow.startAt,
+      endAt: appointmentWindow.endAt,
+      excludedAppointmentId: appointment.id,
+    });
+
+    if (
+      !resourceOptions.some((resource) => resource.type === "CHAIR")
+      || !resourceOptions.some((resource) => resource.type === "TABLE")
+    ) {
+      Alert.alert(comboCopy.missingPairTitle, comboCopy.missingPairBody);
+      return;
+    }
+
+    if (!comboSelection) {
+      setSecondaryResourceId(null);
+      Alert.alert(comboCopy.unavailableTitle, comboCopy.unavailableBody);
+      return;
+    }
+
+    setResourceId(comboSelection.resourceId);
+    setSecondaryResourceId(comboSelection.secondaryResourceId);
+  }
+
+  async function handleSave() {
+    const appointmentWindow = buildAppointmentWindow(dateInput, timeInput, durationMinutes);
+    if (!customerName.trim() || !appointmentWindow) {
+      return;
+    }
+    if (new Date(appointmentWindow.startAt).getTime() < Date.now()) {
       Alert.alert(strings.manageSchedulingDetailSave, translate(locale, "errors", "bookingTimePast"));
       return;
     }
 
-    const endAt = new Date(normalizedStart);
-    endAt.setMinutes(endAt.getMinutes() + duration);
+    const requestedResourceIds = [resourceId, secondaryResourceId].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    );
+    const occupiedResourceIds = getOccupiedResourceIdsForWindow(
+      appointments,
+      appointmentWindow.startAt,
+      appointmentWindow.endAt,
+      appointment.id,
+    );
+
+    if (requestedResourceIds.some((value) => occupiedResourceIds.has(value))) {
+      Alert.alert(
+        comboActive ? comboCopy.unavailableTitle : comboCopy.conflictTitle,
+        comboActive ? comboCopy.unavailableBody : translate(locale, "errors", "appointmentResourceConflict"),
+      );
+      return;
+    }
 
     await saveAppointment({
       appointmentId: appointment.id,
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim() || null,
-      startAt: normalizedStart,
-      endAt: endAt.toISOString(),
+      startAt: appointmentWindow.startAt,
+      endAt: appointmentWindow.endAt,
       staffUserId: staffUserId || null,
       resourceId: resourceId || null,
+      secondaryResourceId,
     });
     goBackToScheduling();
   }
@@ -433,14 +488,23 @@ function AppointmentEditor({
           <Feather name="grid" size={16} color={palette.primary} />
           <Text style={styles.cardTitle}>{strings.manageSchedulingDetailResourceTitle}</Text>
         </View>
+        <Pressable
+          style={[styles.comboButton, comboActive ? styles.comboButtonActive : null]}
+          onPress={handleSelectFootHandCombo}
+        >
+          <Feather name="layers" size={14} color={comboActive ? "#FFFFFF" : palette.primary} />
+          <Text style={[styles.comboButtonText, comboActive ? styles.comboButtonTextActive : null]}>
+            {comboCopy.label}
+          </Text>
+        </Pressable>
         <View style={styles.resourceGrid}>
           {resourceOptions.map((resource) => {
-            const active = resourceId === resource.id;
+            const active = resourceId === resource.id || secondaryResourceId === resource.id;
             return (
               <Pressable
                 key={resource.id}
                 style={[styles.resourcePill, active && styles.selectPillActive]}
-                onPress={() => setResourceId(resource.id)}
+                onPress={() => handleSelectResource(resource.id)}
               >
                 <Text style={[styles.selectPillText, active && styles.selectPillTextActive]}>{resource.name}</Text>
                 {active && <Feather name="check" size={14} color={palette.primary} />}
@@ -507,83 +571,85 @@ function AppointmentEditor({
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
-      {/* Date Picker Modal */}
-      <Modal visible={showDatePicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
-          <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
-            <View style={styles.pickerRow}>
-              <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerDay}</Text>
-                <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                  {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
-                    <Pressable key={day} style={[styles.pickerItem, pickerDay === day && styles.pickerItemActive]} onPress={() => setPickerDay(day)}>
-                      <Text style={[styles.pickerItemText, pickerDay === day && styles.pickerItemTextActive]}>{day}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+      {showDatePicker ? (
+        <Modal visible transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)}>
+            <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerDateTitle}</Text>
+              <View style={styles.pickerRow}>
+                <View style={styles.pickerColumn}>
+                  <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerDay}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {Array.from({ length: 31 }, (_, i) => i + 1).map((day) => (
+                      <Pressable key={day} style={[styles.pickerItem, pickerDay === day && styles.pickerItemActive]} onPress={() => setPickerDay(day)}>
+                        <Text style={[styles.pickerItemText, pickerDay === day && styles.pickerItemTextActive]}>{day}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={styles.pickerColumn}>
+                  <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMonth}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                      <Pressable key={month} style={[styles.pickerItem, pickerMonth === month && styles.pickerItemActive]} onPress={() => setPickerMonth(month)}>
+                        <Text style={[styles.pickerItemText, pickerMonth === month && styles.pickerItemTextActive]}>{month}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={styles.pickerColumn}>
+                  <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerYear}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
+                      <Pressable key={year} style={[styles.pickerItem, pickerYear === year && styles.pickerItemActive]} onPress={() => setPickerYear(year)}>
+                        <Text style={[styles.pickerItemText, pickerYear === year && styles.pickerItemTextActive]}>{year}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
-              <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMonth}</Text>
-                <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
-                    <Pressable key={month} style={[styles.pickerItem, pickerMonth === month && styles.pickerItemActive]} onPress={() => setPickerMonth(month)}>
-                      <Text style={[styles.pickerItemText, pickerMonth === month && styles.pickerItemTextActive]}>{month}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-              <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerYear}</Text>
-                <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((year) => (
-                    <Pressable key={year} style={[styles.pickerItem, pickerYear === year && styles.pickerItemActive]} onPress={() => setPickerYear(year)}>
-                      <Text style={[styles.pickerItemText, pickerYear === year && styles.pickerItemTextActive]}>{year}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
-            <Pressable style={styles.pickerConfirmButton} onPress={confirmDatePicker}>
-              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
+              <Pressable style={styles.pickerConfirmButton} onPress={confirmDatePicker}>
+                <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
+              </Pressable>
             </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      ) : null}
 
-      {/* Time Picker Modal */}
-      <Modal visible={showTimePicker} transparent animationType="fade">
-        <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
-          <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
-            <View style={styles.pickerRow}>
-              <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerHour}</Text>
-                <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                  {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
-                    <Pressable key={hour} style={[styles.pickerItem, pickerHour === hour && styles.pickerItemActive]} onPress={() => setPickerHour(hour)}>
-                      <Text style={[styles.pickerItemText, pickerHour === hour && styles.pickerItemTextActive]}>{String(hour).padStart(2, "0")}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+      {showTimePicker ? (
+        <Modal visible transparent animationType="fade">
+          <Pressable style={styles.modalOverlay} onPress={() => setShowTimePicker(false)}>
+            <Pressable style={styles.pickerCard} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.pickerTitle}>{strings.manageSchedulingPickerTimeTitle}</Text>
+              <View style={styles.pickerRow}>
+                <View style={styles.pickerColumn}>
+                  <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerHour}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {Array.from({ length: 24 }, (_, i) => i).map((hour) => (
+                      <Pressable key={hour} style={[styles.pickerItem, pickerHour === hour && styles.pickerItemActive]} onPress={() => setPickerHour(hour)}>
+                        <Text style={[styles.pickerItemText, pickerHour === hour && styles.pickerItemTextActive]}>{String(hour).padStart(2, "0")}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+                <View style={styles.pickerColumn}>
+                  <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMinute}</Text>
+                  <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
+                    {[0, 15, 30, 45].map((minute) => (
+                      <Pressable key={minute} style={[styles.pickerItem, pickerMinute === minute && styles.pickerItemActive]} onPress={() => setPickerMinute(minute)}>
+                        <Text style={[styles.pickerItemText, pickerMinute === minute && styles.pickerItemTextActive]}>{String(minute).padStart(2, "0")}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
               </View>
-              <View style={styles.pickerColumn}>
-                <Text style={styles.pickerLabel}>{strings.manageSchedulingPickerMinute}</Text>
-                <ScrollView style={styles.pickerScroll} showsVerticalScrollIndicator={false}>
-                  {[0, 15, 30, 45].map((minute) => (
-                    <Pressable key={minute} style={[styles.pickerItem, pickerMinute === minute && styles.pickerItemActive]} onPress={() => setPickerMinute(minute)}>
-                      <Text style={[styles.pickerItemText, pickerMinute === minute && styles.pickerItemTextActive]}>{String(minute).padStart(2, "0")}</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            </View>
-            <Pressable style={styles.pickerConfirmButton} onPress={confirmTimePicker}>
-              <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
+              <Pressable style={styles.pickerConfirmButton} onPress={confirmTimePicker}>
+                <Text style={styles.pickerConfirmText}>{strings.manageSchedulingPickerConfirm}</Text>
+              </Pressable>
             </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -597,7 +663,14 @@ export default function AdminAppointmentDetailScreen() {
   const keyboardVisible = useKeyboardVisible();
   const { role, user } = useSession();
   const observer = useAdminObserverScope();
+  const rawObserverScopeMode = observer.observerScope.mode;
+  const rawObserverScopeBranchId = observer.observerScope.branchId;
+  const normalizedObserverScope = useMemo(
+    () => normalizeAdminObserverScope({ mode: rawObserverScopeMode, branchId: rawObserverScopeBranchId }),
+    [rawObserverScopeBranchId, rawObserverScopeMode],
+  );
   const [appointment, setAppointment] = useState<MobileAppointmentSummary | null>(null);
+  const [appointments, setAppointments] = useState<MobileAppointmentSummary[]>([]);
   const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
   const [resourceOptions, setResourceOptions] = useState<ResourceOption[]>([]);
   const [newBookingCount, setNewBookingCount] = useState(0);
@@ -620,17 +693,19 @@ export default function AdminAppointmentDetailScreen() {
       setLoading(true);
       setError(null);
 
-      const [nextAppointment, nextStaffOptions, nextResourceOptions, bookingRequests] = await Promise.all([
-        getAppointmentForMobile(mobileSupabase, appointmentId, { observerScope: observer.observerScope }),
+      const [nextAppointment, nextAppointments, nextStaffOptions, nextResourceOptions, bookingRequests] = await Promise.all([
+        getAppointmentForMobile(mobileSupabase, appointmentId, { observerScope: normalizedObserverScope }),
+        listAppointmentsForMobile(mobileSupabase, { observerScope: normalizedObserverScope }).catch(() => []),
         listStaffOptions().catch(() => []),
         listResourceOptions(locale).catch(() => []),
-        listBookingRequestsForMobile(mobileSupabase, { observerScope: observer.observerScope }).catch(() => []),
+        listBookingRequestsForMobile(mobileSupabase, { observerScope: normalizedObserverScope }).catch(() => []),
       ]);
 
       setAppointment(nextAppointment);
       if (nextAppointment) {
         upsertAppointmentInAdminOperationsCache(nextAppointment);
       }
+      setAppointments(nextAppointments);
       setStaffOptions(nextStaffOptions);
       setResourceOptions(nextResourceOptions);
       setNewBookingCount(bookingRequests.filter((item) => item.status === "NEW").length);
@@ -639,7 +714,7 @@ export default function AdminAppointmentDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [appointmentId, locale, observer.isReady, observer.observerScope, strings.manageSchedulingDetailNotFound]);
+  }, [appointmentId, locale, normalizedObserverScope, observer.isReady, strings.manageSchedulingDetailNotFound]);
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -758,7 +833,7 @@ export default function AdminAppointmentDetailScreen() {
             <Text style={styles.stateTitle}>{strings.manageSchedulingDetailNotFound}</Text>
           </View>
         </View>
-        <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+        <AdminBottomNavDock current="scheduling" role={role} prefetchEnabled={false} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
       </View>
     );
   }
@@ -806,6 +881,7 @@ export default function AdminAppointmentDetailScreen() {
         >
           <AppointmentEditor
             appointment={appointment}
+            appointments={appointments}
             resourceOptions={resourceOptions}
             role={role as AppRole | null}
             staffOptions={staffOptions}
@@ -821,7 +897,7 @@ export default function AdminAppointmentDetailScreen() {
       </KeyboardAvoidingView>
 
       {/* Bottom Navigation */}
-      <AdminBottomNavDock current="scheduling" role={role} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
+      <AdminBottomNavDock current="scheduling" role={role} prefetchEnabled={false} onNavigate={(target) => void router.replace(getAdminNavHref(target, role))} />
     </View>
   );
 }
@@ -858,8 +934,8 @@ const styles = StyleSheet.create({
   statusLabel: { color: palette.textSecondary, fontSize: 11, fontWeight: "700", letterSpacing: 0.2, textTransform: "uppercase" },
   statusBadge: { minHeight: 24, borderRadius: 12, paddingHorizontal: 10, backgroundColor: palette.successSoft, alignItems: "center", justifyContent: "center" },
   statusBadgeText: { fontSize: 11, fontWeight: "700", color: palette.success },
-  statusBadgeBooked: { backgroundColor: "#E0F2FE" },
-  statusBadgeTextBooked: { color: "#0284C7" },
+  statusBadgeBooked: { backgroundColor: "#FFF4DE" },
+  statusBadgeTextBooked: { color: "#D68A1E" },
   statusBadgeOverdue: { backgroundColor: "#FFF1E6" },
   statusBadgeTextOverdue: { color: "#C96A16" },
   infoPillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -878,6 +954,30 @@ const styles = StyleSheet.create({
   selectPillText: { fontSize: 14, color: palette.textSecondary, fontWeight: "500" },
   selectPillTextActive: { color: palette.primary, fontWeight: "700" },
   resourceGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  comboButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: palette.border,
+    backgroundColor: palette.card,
+    paddingHorizontal: 14,
+  },
+  comboButtonActive: {
+    backgroundColor: palette.primary,
+    borderColor: palette.primary,
+  },
+  comboButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: palette.primary,
+  },
+  comboButtonTextActive: {
+    color: "#FFFFFF",
+  },
   resourcePill: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 44, width: "48%", borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, paddingHorizontal: 12 },
   primaryButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, height: 56, borderRadius: 20, backgroundColor: palette.primary },
   primaryButtonDisabled: { opacity: 0.55 },

@@ -87,6 +87,20 @@ export async function clearCustomerImageCacheManifest() {
   }
 }
 
+export async function clearCustomerImageRuntimeCache() {
+  await Promise.allSettled([
+    Image.clearMemoryCache(),
+    Image.clearDiskCache(),
+  ]);
+}
+
+export async function clearCustomerImageCache() {
+  await Promise.all([
+    clearCustomerImageCacheManifest(),
+    clearCustomerImageRuntimeCache(),
+  ]);
+}
+
 export async function getCustomerImageCacheManifestSizeBytes() {
   try {
     const raw = await AsyncStorage.getItem(IMAGE_CACHE_KEY);

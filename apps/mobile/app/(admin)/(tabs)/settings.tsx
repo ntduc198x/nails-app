@@ -15,10 +15,8 @@ import {
   useKeyboardVisible,
 } from "@/src/features/admin/ui";
 import { useAdminStrings } from "@/src/features/admin/strings";
+import { clearAdminAppCache, getAdminAppCacheSizeBytes } from "@/src/lib/admin-app-cache";
 import { upsertAndVerifyAdminProfile } from "@/src/lib/admin-profile";
-import { clearAdminServicesCache, getAdminServicesCacheSizeBytes } from "@/src/lib/admin-services-cache";
-import { clearCustomerFeedCache, getCustomerFeedCacheSizeBytes } from "@/src/lib/customer-feed-cache";
-import { clearCustomerImageCacheManifest, getCustomerImageCacheManifestSizeBytes } from "@/src/lib/customer-image-cache";
 import { mobileSupabase } from "@/src/lib/supabase";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { useSession } from "@/src/providers/session-provider";
@@ -60,6 +58,7 @@ export default function AdminSettingsScreen() {
   const [branchOptions, setBranchOptions] = useState<BranchOption[]>([]);
   const [cacheSize, setCacheSize] = useState("0 KB");
   const [saving, setSaving] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [editingField, setEditingField] = useState<EditField>(null);
   const [editValue, setEditValue] = useState("");
   const [branchModalOpen, setBranchModalOpen] = useState(false);
@@ -74,12 +73,8 @@ export default function AdminSettingsScreen() {
   );
 
   const loadCacheSize = useCallback(async () => {
-    const [adminBytes, customerFeedBytes, customerImageBytes] = await Promise.all([
-      getAdminServicesCacheSizeBytes(),
-      getCustomerFeedCacheSizeBytes(),
-      getCustomerImageCacheManifestSizeBytes(),
-    ]);
-    setCacheSize(formatCacheSize(adminBytes + customerFeedBytes + customerImageBytes));
+    const cacheBytes = await getAdminAppCacheSizeBytes();
+    setCacheSize(formatCacheSize(cacheBytes));
   }, []);
 
   useEffect(() => {
@@ -172,24 +167,26 @@ export default function AdminSettingsScreen() {
     locale === "vi" ? strings.settingsLanguageVietnamese : strings.settingsLanguageEnglish;
   const cacheText = locale === "vi"
     ? {
-        cardTitle: "Bộ nhớ đệm",
+        cardTitle: "Bộ nhớ đệm cục bộ",
         actionLabel: "Xóa cache",
+        actionBusyLabel: "Đang xóa...",
         confirmTitle: "Xác nhận xóa cache",
-        confirmBody: "Bạn có chắc muốn xóa toàn bộ cache cục bộ của ứng dụng không?",
+        confirmBody: "Thao tác này sẽ xóa dữ liệu cache cục bộ do ứng dụng quản lý. Tài khoản và cài đặt của bạn sẽ không bị thay đổi.",
         successTitle: "Đã xóa",
-        successBody: "Bộ nhớ đệm ứng dụng đã được xóa.",
+        successBody: "Dữ liệu cache cục bộ đã được xóa.",
         errorTitle: "Lỗi",
-        errorBody: "Không thể xóa bộ nhớ đệm.",
+        errorBody: "Không thể xóa dữ liệu cache cục bộ.",
       }
     : {
-        cardTitle: "Cache",
+        cardTitle: "Local cache",
         actionLabel: "Clear cache",
+        actionBusyLabel: "Clearing...",
         confirmTitle: "Clear cache",
-        confirmBody: "Are you sure you want to clear all local app cache?",
+        confirmBody: "This clears app-managed local cache data. Your account and preferences will not be changed.",
         successTitle: "Cleared",
-        successBody: "App cache has been cleared.",
+        successBody: "Local cache data has been cleared.",
         errorTitle: "Error",
-        errorBody: "Unable to clear app cache.",
+        errorBody: "Unable to clear local cache data.",
       };
 
   function getEditFieldLabel(field: EditField) {
@@ -308,26 +305,31 @@ export default function AdminSettingsScreen() {
     ]);
   }
 
+  const clearCache = useCallback(async () => {
+    if (clearingCache) {
+      return;
+    }
+
+    setClearingCache(true);
+    try {
+      await clearAdminAppCache();
+      await loadCacheSize();
+      Alert.alert(cacheText.successTitle, cacheText.successBody);
+    } catch {
+      Alert.alert(cacheText.errorTitle, cacheText.errorBody);
+    } finally {
+      setClearingCache(false);
+    }
+  }, [cacheText.errorBody, cacheText.errorTitle, cacheText.successBody, cacheText.successTitle, clearingCache, loadCacheSize]);
+
   function handleClearCache() {
     Alert.alert(cacheText.confirmTitle, cacheText.confirmBody, [
       { text: strings.settingsCancelButton, style: "cancel" },
       {
-        text: cacheText.actionLabel,
+        text: clearingCache ? cacheText.actionBusyLabel : cacheText.actionLabel,
         style: "destructive",
         onPress: () => {
-          void (async () => {
-            try {
-              await Promise.all([
-                clearAdminServicesCache(),
-                clearCustomerFeedCache(),
-                clearCustomerImageCacheManifest(),
-              ]);
-              await loadCacheSize();
-              Alert.alert(cacheText.successTitle, cacheText.successBody);
-            } catch {
-              Alert.alert(cacheText.errorTitle, cacheText.errorBody);
-            }
-          })();
+          void clearCache();
         },
       },
     ]);
@@ -408,9 +410,10 @@ export default function AdminSettingsScreen() {
             <SecurityRow
               icon="database"
               iconColor="#2C9B5F"
-              title={cacheText.actionLabel}
+              title={clearingCache ? cacheText.actionBusyLabel : cacheText.actionLabel}
               subtitle={cacheSize}
               onPress={handleClearCache}
+              disabled={clearingCache}
               isLast
             />
           </View>
@@ -546,6 +549,7 @@ function SecurityRow({
   title,
   subtitle,
   onPress,
+  disabled = false,
   isLast = false,
 }: {
   icon: React.ComponentProps<typeof Feather>["name"];
@@ -553,10 +557,11 @@ function SecurityRow({
   title: string;
   subtitle: string;
   onPress: () => void;
+  disabled?: boolean;
   isLast?: boolean;
 }) {
   return (
-    <Pressable style={[styles.securityRow, !isLast && styles.securityRowBorder]} onPress={onPress}>
+    <Pressable style={[styles.securityRow, !isLast && styles.securityRowBorder, disabled ? styles.rowDisabled : null]} onPress={onPress} disabled={disabled}>
       <View style={styles.securityIconCircle}>
         <Feather name={icon} size={18} color={iconColor ?? palette.primary} />
       </View>
@@ -586,6 +591,7 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 14, color: palette.textPrimary, fontWeight: "600" },
   securityRow: { flexDirection: "row", alignItems: "center", paddingVertical: 12, gap: 12 },
   securityRowBorder: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
+  rowDisabled: { opacity: 0.55 },
   securityIconCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: palette.beige, alignItems: "center", justifyContent: "center" },
   securityContent: { flex: 1, gap: 2 },
   securityTitle: { fontSize: 14, fontWeight: "700", color: palette.textPrimary },

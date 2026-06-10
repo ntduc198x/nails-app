@@ -36,7 +36,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useAdminNotifications, type ManageNotificationItem } from "@/src/features/admin/notifications";
 import { useAdminStrings } from "@/src/features/admin/strings";
 import { useAdminObserverScope } from "@/src/hooks/use-admin-observer-scope";
-import { prefetchAdminOperations } from "@/src/hooks/use-admin-operations";
+import { normalizeAdminObserverScope, prefetchAdminOperations } from "@/src/hooks/use-admin-operations";
 import { useAdminPreferences } from "@/src/providers/admin-preferences-provider";
 import { SessionActions, useSession } from "@/src/providers/session-provider";
 import { getAdminNavHref, isOwnerRole, canAccessLandingFeed, type AdminNavTarget } from "@/src/features/admin/navigation";
@@ -569,11 +569,13 @@ export function AdminBottomNavDock({
   current,
   role,
   insetBottom,
+  prefetchEnabled = true,
   onNavigate,
 }: {
   current: AdminNavTarget | null;
   role: string | null | undefined;
   insetBottom?: number;
+  prefetchEnabled?: boolean;
   onNavigate: (target: AdminNavTarget) => void;
 }) {
   const router = useRouter();
@@ -584,16 +586,30 @@ export function AdminBottomNavDock({
   const resolvedInsetBottom = insetBottom ?? insets.bottom;
   const keyboardVisible = useKeyboardVisible();
   const resolvedRole = (role ?? sessionRole) as AppRole | null | undefined;
+  const rawObserverScopeMode = observer.observerScope.mode;
+  const rawObserverScopeBranchId = observer.observerScope.branchId;
+  const normalizedObserverScope = useMemo(
+    () => normalizeAdminObserverScope({ mode: rawObserverScopeMode, branchId: rawObserverScopeBranchId }),
+    [rawObserverScopeBranchId, rawObserverScopeMode],
+  );
+  const observerScopeMode = normalizedObserverScope.mode;
+  const observerScopeBranchId = normalizedObserverScope.branchId ?? null;
 
   useEffect(() => {
+    if (!prefetchEnabled) {
+      return;
+    }
     const schedulingHref = getAdminNavHref("scheduling", resolvedRole);
     const checkoutHref = getAdminNavHref("checkout", resolvedRole);
 
     void router.prefetch(schedulingHref);
     void router.prefetch(checkoutHref);
-  }, [resolvedRole, router]);
+  }, [prefetchEnabled, resolvedRole, router]);
 
   useEffect(() => {
+    if (!prefetchEnabled) {
+      return;
+    }
     if (!isHydrated || !user?.id || !resolvedRole || !observer.isReady || !observer.viewContext) {
       return;
     }
@@ -602,15 +618,18 @@ export function AdminBottomNavDock({
       locale,
       role: resolvedRole,
       userId: user.id,
-      observerScope: observer.observerScope,
+      observerScope: normalizedObserverScope,
       hasViewContext: true,
     });
   }, [
     isHydrated,
     locale,
     observer.isReady,
-    observer.observerScope,
+    observerScopeBranchId,
+    observerScopeMode,
     observer.viewContext,
+    normalizedObserverScope,
+    prefetchEnabled,
     resolvedRole,
     user?.id,
   ]);
@@ -705,7 +724,7 @@ export function AdminDetailLoadingScreen({
         <View style={detailStateStyles.ctaGhost} />
       </View>
 
-      <AdminBottomNavDock current={current} role={role} onNavigate={onNavigate} />
+      <AdminBottomNavDock current={current} role={role} prefetchEnabled={false} onNavigate={onNavigate} />
     </View>
   );
 }

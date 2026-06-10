@@ -1,11 +1,14 @@
+import { Redirect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeLocale, translate, type Locale, type TranslationKey } from "@nails/shared";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useSession } from "@/src/providers/session-provider";
 
 const LOCALE_STORAGE_KEY = "customer-preferences:locale";
 
 export default function AuthCallbackScreen() {
+  const { isHydrated } = useSession();
   const [locale, setLocale] = useState<Locale>("vi");
   const t = useMemo(
     () => (key: TranslationKey<"mobileAuth">) => translate(locale, "mobileAuth", key),
@@ -24,6 +27,10 @@ export default function AuthCallbackScreen() {
       mounted = false;
     };
   }, []);
+
+  if (isHydrated) {
+    return <Redirect href="/" />;
+  }
 
   return (
     <View style={styles.container}>

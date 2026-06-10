@@ -89,7 +89,7 @@ export type MobileTicketDetail = {
   customer: { name: string | null; phone: string | null } | null;
   payment: { method: string | null; amount: number; status: string | null; createdAt: string | null } | null;
   receipt: { publicToken: string | null; expiresAt: string | null } | null;
-  items: Array<{ qty: number; unitPrice: number; vatRate: number; serviceName: string }>;
+  items: Array<{ serviceId: string | null; qty: number; unitPrice: number; vatRate: number; serviceName: string }>;
 };
 
 async function getCurrentOrgRole(client: SharedSupabaseClient, orgId: string) {
@@ -652,7 +652,7 @@ export async function getTicketDetailForMobile(
     customer?: { name?: string | null; phone?: string | null } | null;
     payment?: { method?: string | null; amount?: number | null; status?: string | null; created_at?: string | null } | null;
     receipt?: { public_token?: string | null; expires_at?: string | null } | null;
-    items?: Array<{ qty?: number | null; unit_price?: number | null; vat_rate?: number | null; service_name?: string | null }>;
+    items?: Array<{ service_id?: string | null; qty?: number | null; unit_price?: number | null; vat_rate?: number | null; service_name?: string | null }>;
   };
 
   return {
@@ -685,6 +685,7 @@ export async function getTicketDetailForMobile(
         }
       : null,
     items: (payload.items ?? []).map((item) => ({
+      serviceId: typeof item.service_id === "string" ? item.service_id : null,
       qty: Number(item.qty ?? 0),
       unitPrice: Number(item.unit_price ?? 0),
       vatRate: Number(item.vat_rate ?? 0),

@@ -23,7 +23,7 @@ const palette = {
   avatar: "#F1E2D3",
 };
 
-type SchedulingFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "DONE" | "OTHER";
+type SchedulingFilter = "ALL" | "BOOKED" | "CHECKED_IN" | "OTHER";
 type SchedulingTab = "appointments" | "bookings";
 type BookingStatusGroup = "NEW" | "NEEDS_RESCHEDULE" | "EXPIRED_UNCONFIRMED";
 type AppointmentStatusMeta = {
@@ -100,7 +100,7 @@ function getSchedulingAppointmentStatusMeta(
 
 function normalizeFilter(value: string | string[] | undefined): SchedulingFilter {
   const next = Array.isArray(value) ? value[0] : value;
-  if (next === "BOOKED" || next === "CHECKED_IN" || next === "DONE" || next === "OTHER") {
+  if (next === "BOOKED" || next === "CHECKED_IN" || next === "OTHER") {
     return next;
   }
   return "ALL";
@@ -285,7 +285,6 @@ export default function AdminSchedulingScreen() {
       { value: "ALL" as const, label: strings.manageSchedulingFilterAll, icon: "grid" as const, accent: "#8a6346", accentSoft: "#f7ece2" },
       { value: "BOOKED" as const, label: strings.manageSchedulingFilterBooked, icon: "clock" as const, accent: "#d6a243", accentSoft: "#fff4de" },
       { value: "CHECKED_IN" as const, label: strings.manageSchedulingFilterCheckedIn, icon: "users" as const, accent: "#55a973", accentSoft: "#e8f8ee" },
-      { value: "DONE" as const, label: strings.manageSchedulingFilterDone, icon: "check-circle" as const, accent: "#55a973", accentSoft: "#eaf7ed" },
       { value: "OTHER" as const, label: strings.manageSchedulingFilterOther, icon: "more-horizontal" as const, accent: "#8b97ad", accentSoft: "#eff3fa" },
     ],
     [strings],
@@ -305,8 +304,8 @@ export default function AdminSchedulingScreen() {
   );
   const STATUS_META = useMemo(
     () => ({
-      BOOKED: { label: strings.manageSchedulingStatusBooked, bg: "#e9f4ff", fg: "#2d95df" },
-      CHECKED_IN: { label: strings.manageSchedulingStatusCheckedIn, bg: "#e9f4ff", fg: "#2d95df" },
+      BOOKED: { label: strings.manageSchedulingStatusBooked, bg: "#FFF4DE", fg: "#D68A1E" },
+      CHECKED_IN: { label: strings.manageSchedulingStatusCheckedIn, bg: "#E8F8EE", fg: "#2F8F59" },
       DONE: { label: strings.manageSchedulingStatusDone, bg: "#eef6e8", fg: "#729952" },
       CANCELLED: { label: strings.manageSchedulingStatusCancelled, bg: "#ffeceb", fg: "#df6f61" },
       NO_SHOW: { label: strings.manageSchedulingStatusNoShow, bg: "#f4efea", fg: "#8b7c71" },
@@ -369,7 +368,7 @@ export default function AdminSchedulingScreen() {
   const filteredAppointments = useMemo(() => {
     const rows =
       activeFilter === "ALL"
-        ? appointments.filter((item) => item.status === "BOOKED" || item.status === "CHECKED_IN" || item.status === "DONE")
+        ? appointments.filter((item) => item.status === "BOOKED" || item.status === "CHECKED_IN")
         : activeFilter === "OTHER"
           ? appointments.filter((item) => item.status === "NO_SHOW" || item.status === "CANCELLED")
           : appointments.filter((item) => item.status === activeFilter);
@@ -761,7 +760,7 @@ export default function AdminSchedulingScreen() {
                       onPress={() => {
                         if (!actionable) return;
                         void router.push({
-                          pathname: "/(admin)/scheduling/[appointmentId]",
+                          pathname: "/scheduling/[appointmentId]",
                           params: { appointmentId: item.id },
                         });
                       }}

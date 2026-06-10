@@ -31,6 +31,12 @@ export type MobileCheckoutInput = {
   idempotencyKey?: string | null;
 };
 
+export type MobileClosedTicketUpdateInput = {
+  ticketId: string;
+  paymentMethod: "CASH" | "TRANSFER";
+  lines: Array<{ serviceId: string; qty: number }>;
+};
+
 export type MobileCheckedInAppointment = {
   id: string;
   startAt: string;
@@ -355,5 +361,61 @@ export async function createCheckoutForMobile(
     receiptToken,
     grandTotal: Number(output.grandTotal ?? output.grand_total ?? 0),
     deduped: Boolean(output.deduped),
+  };
+}
+
+export async function updateClosedTicketForMobile(
+  client: SharedSupabaseClient,
+  input: MobileClosedTicketUpdateInput,
+) {
+  if (!input.ticketId) {
+    throw new Error("TICKET_NOT_FOUND");
+  }
+
+  if (!input.lines.length) {
+    throw new Error("CHECKOUT_LINES_REQUIRED");
+  }
+
+  const { data: rpcData, error: rpcError } = await client.rpc("update_closed_ticket_secure", {
+    p_ticket_id: input.ticketId,
+    p_payment_method: input.paymentMethod,
+    p_lines: input.lines,
+  });
+
+  if (rpcError) {
+    throw rpcError;
+  }
+
+  if (!rpcData) {
+    throw new Error("Closed ticket update RPC khong tra du lieu.");
+  }
+
+  const output = rpcData as {
+    ticketId?: string;
+    ticket_id?: string;
+    receiptToken?: string;
+    receipt_token?: string;
+    grandTotal?: number;
+    grand_total?: number;
+  };
+
+  const ticketId = output.ticketId ?? output.ticket_id ?? input.ticketId;
+  let receiptToken = output.receiptToken ?? output.receipt_token ?? "";
+
+  if (!receiptToken && ticketId) {
+    const { data: receiptRows } = await client
+      .from("receipts")
+      .select("public_token")
+      .eq("ticket_id", ticketId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    receiptToken = typeof receiptRows?.[0]?.public_token === "string" ? receiptRows[0].public_token : "";
+  }
+
+  return {
+    ticketId,
+    receiptToken,
+    grandTotal: Number(output.grandTotal ?? output.grand_total ?? 0),
   };
 }

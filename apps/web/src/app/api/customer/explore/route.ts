@@ -26,7 +26,12 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Customer scope not found" }, { status: 403 });
     }
 
-    const payload = await listCustomerExploreForContext(supabase, scope);
+    const url = new URL(req.url);
+    const branchId = url.searchParams.get("branchId");
+    const payload = await listCustomerExploreForContext(supabase, {
+      ...scope,
+      branchId: branchId?.trim() || scope.branchId,
+    });
     return NextResponse.json({ ok: true, data: payload });
   } catch (error) {
     console.error("customer explore GET failed", error);

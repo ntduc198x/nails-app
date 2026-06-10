@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Linking,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -13,6 +14,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { localizeAdminBranchName } from "@nails/shared";
 import type { ExploreGalleryItem, ExploreProduct, ExploreTeamMember, LookbookItem, MarketingOfferCard } from "@nails/shared";
 import { CustomerCachedImage } from "@/src/features/customer/cached-image";
 import { CATEGORY_ITEMS, matchesCategory } from "@/src/features/customer/data";
@@ -31,7 +33,7 @@ import { CustomerServiceDetailModal } from "@/src/features/customer/service-deta
 import { useCustomerStrings } from "@/src/features/customer/strings";
 import { CustomerBrandTopBar, CustomerScreen, SurfaceCard } from "@/src/features/customer/ui";
 import { premiumTheme } from "@/src/design/premium-theme";
-import { useCustomerExplore } from "@/src/hooks/use-customer-explore";
+import { useCustomerExplore, type CustomerExploreBranchOption } from "@/src/hooks/use-customer-explore";
 import { useCustomerFavorites } from "@/src/hooks/use-customer-favorites";
 import { useCustomerPreferences } from "@/src/providers/customer-preferences-provider";
 
@@ -67,10 +69,13 @@ export default function ExploreScreen() {
   const [activeCategory, setActiveCategory] = useState<CategoryKey>("all");
   const [selectedService, setSelectedService] = useState<LookbookItem | null>(null);
   const [activeServiceIndex, setActiveServiceIndex] = useState(0);
+  const [branchSheetOpen, setBranchSheetOpen] = useState(false);
   const servicesScrollerRef = useRef<ScrollView>(null);
   const filteredServicesLengthRef = useRef(0);
   const activeServiceIndexRef = useRef(0);
   const {
+    activeBranchId,
+    branchOptions,
     storefront,
     featuredServices,
     products,
@@ -82,6 +87,7 @@ export default function ExploreScreen() {
     isRefreshing,
     lastError,
     refresh,
+    setActiveBranchId,
   } = useCustomerExplore();
   const { isFavorite, lastError: favoriteError, toggleFavorite } = useCustomerFavorites();
 
@@ -112,7 +118,33 @@ export default function ExploreScreen() {
   const localizedTeam = useMemo(() => team.map((member) => localizeTeamMember(locale, member)), [locale, team]);
   const localizedGallery = useMemo(() => gallery.map((item) => localizeGalleryItem(locale, item)), [locale, gallery]);
   const localizedOffers = useMemo(() => offers.map((offer) => localizeOfferCard(locale, offer)), [locale, offers]);
-  const activeStorefrontBranchId = localizedStorefront?.branchId ?? storefront?.branchId ?? undefined;
+  const resolvedBranchId = activeBranchId ?? localizedStorefront?.branchId ?? storefront?.branchId ?? null;
+  const currentBranchOption = useMemo(
+    () => branchOptions.find((branch) => branch.id === resolvedBranchId) ?? null,
+    [branchOptions, resolvedBranchId],
+  );
+  const currentBranchName = useMemo(() => {
+    if (!currentBranchOption) return null;
+    return (
+      localizeAdminBranchName(locale, currentBranchOption.name, currentBranchOption.translations) ??
+      currentBranchOption.name
+    );
+  }, [currentBranchOption, locale]);
+  const fallbackBranchName = useMemo(() => {
+    const firstBranch = branchOptions[0];
+    if (!firstBranch) return null;
+    return localizeAdminBranchName(locale, firstBranch.name, firstBranch.translations) ?? firstBranch.name;
+  }, [branchOptions, locale]);
+  const branchSelectorName =
+    currentBranchName ??
+    fallbackBranchName ??
+    localizedStorefront?.branchName ??
+    storefront?.branchName ??
+    (localizedStorefront?.branchId || activeBranchId ? strings.exploreBranchPickerLabel : null);
+  const bookingBranchId = activeBranchId ?? localizedStorefront?.branchId ?? storefront?.branchId ?? undefined;
+  const branchSelectorSubtitle = branchSelectorName
+    ? strings.exploreBranchPickerHint.replace("{branchName}", branchSelectorName)
+    : strings.exploreBranchPickerHint.replace("{branchName}", strings.exploreBranchPickerLabel);
 
   useEffect(() => {
     if (!__DEV__) return;
@@ -238,6 +270,7 @@ export default function ExploreScreen() {
     localizedTeam.length === 0 &&
     localizedGallery.length === 0 &&
     localizedOffers.length === 0;
+  const shouldShowBranchSelector = !isInitialLoading && Boolean(branchSelectorName || localizedStorefront?.branchId || activeBranchId);
 
   return (
     <CustomerScreen
@@ -283,6 +316,35 @@ export default function ExploreScreen() {
               ))}
             </View>
           </View>
+        </View>
+      ) : null}
+
+      {shouldShowBranchSelector ? (
+        <View style={styles.branchSelectorBlock}>
+          <Pressable
+            style={styles.branchSelectorCard}
+            onPress={() => {
+              if (branchOptions.length > 0) {
+                setBranchSheetOpen(true);
+              }
+            }}
+          >
+            <View style={styles.branchSelectorIconWrap}>
+              <Feather color={colors.accent} name="map-pin" size={16} />
+            </View>
+            <View style={styles.branchSelectorCopy}>
+              <Text style={styles.branchSelectorTitle}>{branchSelectorName}</Text>
+              <Text numberOfLines={1} style={styles.branchSelectorSubtitle}>{branchSelectorSubtitle}</Text>
+            </View>
+            <View style={styles.branchSelectorActionWrap}>
+              {branchOptions.length > 1 ? (
+                <>
+                  <Text style={styles.branchSelectorActionText}>{strings.exploreBranchPickerAction}</Text>
+                  <Feather color={colors.textSoft} name="chevron-down" size={16} />
+                </>
+              ) : null}
+            </View>
+          </Pressable>
         </View>
       ) : null}
 
@@ -344,7 +406,7 @@ export default function ExploreScreen() {
               <MemoExploreServiceCard
                 key={service.id}
                 service={service}
-                branchId={activeStorefrontBranchId}
+                branchId={bookingBranchId}
                 favorite={isFavorite(service.id)}
                 onToggleFavorite={handleToggleFavorite}
                 onOpenDetail={setSelectedService}
@@ -425,7 +487,7 @@ export default function ExploreScreen() {
           if (!selectedService) return;
           router.push({
             pathname: "/(customer)/(tabs)/booking",
-            params: { service: selectedService.title, branchId: activeStorefrontBranchId },
+            params: { service: selectedService.title, branchId: bookingBranchId },
           });
           setSelectedService(null);
         }}
@@ -436,6 +498,18 @@ export default function ExploreScreen() {
         }}
         service={selectedService}
         visible={Boolean(selectedService)}
+      />
+      <BranchSelectorSheet
+        activeBranchId={activeBranchId}
+        branches={branchOptions}
+        locale={locale}
+        onClose={() => setBranchSheetOpen(false)}
+        onSelect={(branchId) => {
+          setActiveBranchId(branchId);
+          setBranchSheetOpen(false);
+        }}
+        open={branchSheetOpen}
+        strings={strings}
       />
     </CustomerScreen>
   );
@@ -652,6 +726,57 @@ function OfferCard({ offer }: { offer: MarketingOfferCard }) {
   );
 }
 
+function BranchSelectorSheet({
+  activeBranchId,
+  branches,
+  locale,
+  onClose,
+  onSelect,
+  open,
+  strings,
+}: {
+  activeBranchId: string | null;
+  branches: CustomerExploreBranchOption[];
+  locale: "vi" | "en";
+  onClose: () => void;
+  onSelect: (branchId: string) => void;
+  open: boolean;
+  strings: ReturnType<typeof useCustomerStrings>;
+}) {
+  return (
+    <Modal visible={open} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.sheetOverlay} onPress={onClose}>
+        <Pressable style={styles.sheetCard} onPress={(event) => event.stopPropagation()}>
+          <View style={styles.sheetHandle} />
+          <Text style={styles.sheetTitle}>{strings.exploreBranchSheetTitle}</Text>
+          <View style={styles.sheetOptionList}>
+            {branches.map((branch) => {
+              const active = branch.id === activeBranchId;
+              const label = localizeAdminBranchName(locale, branch.name, branch.translations) ?? branch.name;
+
+              return (
+                <Pressable
+                  key={branch.id}
+                  style={[styles.sheetOptionRow, active ? styles.sheetOptionRowActive : null]}
+                  onPress={() => onSelect(branch.id)}
+                >
+                  <View style={styles.sheetOptionCopy}>
+                    <Text style={styles.sheetOptionTitle}>{label}</Text>
+                    <Text style={styles.sheetOptionSubtitle}>
+                      {active ? strings.exploreBranchSheetCurrent : strings.exploreBranchSheetSwitch}
+                    </Text>
+                  </View>
+                  {active ? <Feather color={colors.accent} name="check-circle" size={20} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   content: {
     gap: 14,
@@ -688,6 +813,60 @@ const styles = StyleSheet.create({
     color: colors.textSoft,
     fontSize: 12,
     lineHeight: 18,
+  },
+  branchSelectorBlock: {
+    gap: 8,
+  },
+  branchSelectorLabel: {
+    color: "#8f8174",
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  branchSelectorCard: {
+    alignItems: "center",
+    backgroundColor: "#fffaf4",
+    borderColor: "#eadfd3",
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 60,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  branchSelectorIconWrap: {
+    alignItems: "center",
+    backgroundColor: "#f7ede2",
+    borderRadius: 16,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
+  branchSelectorCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  branchSelectorTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  branchSelectorSubtitle: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  branchSelectorActionWrap: {
+    alignItems: "center",
+    gap: 4,
+  },
+  branchSelectorActionText: {
+    color: colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
   },
   ratingRow: {
     alignItems: "center",
@@ -1279,5 +1458,66 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 13,
     fontWeight: "800",
+  },
+  sheetOverlay: {
+    backgroundColor: "rgba(35, 28, 22, 0.22)",
+    flex: 1,
+    justifyContent: "flex-end",
+    paddingHorizontal: 12,
+    paddingBottom: 18,
+  },
+  sheetCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 28,
+    borderWidth: 1,
+    gap: 16,
+    paddingHorizontal: 18,
+    paddingBottom: 18,
+    paddingTop: 12,
+  },
+  sheetHandle: {
+    alignSelf: "center",
+    backgroundColor: "#dbcdbf",
+    borderRadius: 999,
+    height: 5,
+    width: 54,
+  },
+  sheetTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  sheetOptionList: {
+    gap: 10,
+  },
+  sheetOptionRow: {
+    alignItems: "center",
+    backgroundColor: "#fffaf4",
+    borderColor: "#eadfd3",
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+  },
+  sheetOptionRowActive: {
+    backgroundColor: "#f7ede2",
+    borderColor: "#d9bea0",
+  },
+  sheetOptionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  sheetOptionTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  sheetOptionSubtitle: {
+    color: colors.textSoft,
+    fontSize: 12,
+    lineHeight: 17,
   },
 });

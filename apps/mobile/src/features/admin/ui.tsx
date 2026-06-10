@@ -70,6 +70,10 @@ export function getAdminBottomDockSafeAreaPadding(insetBottom: number) {
   return Math.max(getAdminBottomBarPadding(insetBottom) - insetBottom - 15, 0);
 }
 
+function getAdminBottomDockOffset() {
+  return Platform.OS === "android" ? 0 : -20;
+}
+
 export function useKeyboardVisible() {
   const [visible, setVisible] = useState(false);
 
@@ -639,16 +643,20 @@ export function AdminBottomNavDock({
   }
 
   return (
-    <SafeAreaView style={styles.bottomNavSafeArea} edges={["bottom"]}>
-      <View
-        style={[
-          styles.bottomNavDock,
-          { paddingBottom: getAdminBottomDockSafeAreaPadding(resolvedInsetBottom) },
-        ]}
-      >
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.bottomNavSafeArea,
+        {
+          bottom: getAdminBottomDockOffset(),
+          paddingBottom: Math.max(resolvedInsetBottom, 10),
+        },
+      ]}
+    >
+      <View style={styles.bottomNavDock}>
         <AdminBottomNav current={current} role={role} onNavigate={onNavigate} />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1299,7 +1307,7 @@ export const styles = StyleSheet.create({
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: -20,
+    bottom: 0,
     backgroundColor: "#FCFAF8",
   },
   bottomNavDock: {

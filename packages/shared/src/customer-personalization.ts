@@ -745,6 +745,7 @@ function normalizeStorefront(row?: StorefrontRow | null): ExploreStorefront | nu
   return {
     id: String(row.id),
     branchId: typeof row.branch_id === "string" ? row.branch_id : null,
+    branchName: null,
     slug: String(row.slug),
     name: getViString(row, "name", row.name) ?? String(row.name),
     category: getViString(row, "category", row.category),
@@ -1004,6 +1005,23 @@ export async function listCustomerExploreForContext(
 
   const storefront = normalizeStorefront(storefrontResult.data as StorefrontRow | null | undefined);
   const storefrontId = typeof storefrontResult.data?.id === "string" ? storefrontResult.data.id : null;
+  const storefrontBranchId = storefront?.branchId ?? null;
+
+  if (storefront && storefrontBranchId) {
+    const branchResult = await client
+      .from("branches")
+      .select("name")
+      .eq("org_id", context.orgId)
+      .eq("id", storefrontBranchId)
+      .maybeSingle();
+
+    if (branchResult.error) {
+      throw branchResult.error;
+    }
+
+    storefront.branchName =
+      typeof branchResult.data?.name === "string" && branchResult.data.name.trim() ? branchResult.data.name.trim() : null;
+  }
 
   const [servicesResult, productsResult, teamResult, galleryResult, offersResult] = storefrontId
     ? await Promise.all([

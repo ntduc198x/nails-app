@@ -26,12 +26,15 @@ const PROFILE_PATHS = new Set([
   "/account",
   "/profile",
   "/offers",
-  "/membership",
   "/reviews",
   "/notifications",
   "/payment-methods",
   "/settings",
 ]);
+
+function getCustomerBottomDockOffset() {
+  return Platform.OS === "android" ? 0 : -20;
+}
 
 type CustomerScreenProps = {
   children: ReactNode;
@@ -206,7 +209,7 @@ function useStaticStyles() {
       paddingBottom: 176,
     },
     navWrap: {
-      bottom: -20,
+      bottom: 0,
       left: 0,
       position: "absolute",
       right: 0,
@@ -695,7 +698,16 @@ export function CustomerBottomNav() {
   }
 
   return (
-    <View pointerEvents="box-none" style={[styles.navWrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
+    <View
+      pointerEvents="box-none"
+      style={[
+        styles.navWrap,
+        {
+          bottom: getCustomerBottomDockOffset(),
+          paddingBottom: Math.max(insets.bottom, 10),
+        },
+      ]}
+    >
       <View style={styles.navBar}>
         <View style={styles.navGroup}>
           {leftItems.map((item) => {

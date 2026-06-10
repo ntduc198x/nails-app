@@ -79,6 +79,7 @@ function normalizeStorefront(row?: Record<string, unknown> | null): ExploreStore
   return {
     id: String(row.id),
     branchId: typeof row.branch_id === "string" ? row.branch_id : null,
+    branchName: typeof row.branch_name === "string" ? row.branch_name : null,
     slug: String(row.slug),
     name: String(row.name),
     category: typeof row.category === "string" ? row.category : null,

@@ -6,6 +6,7 @@ import { mobileSupabase } from "@/src/lib/supabase";
 import { useSession } from "@/src/providers/session-provider";
 
 const DEFAULT_OWNER_SCOPE: ObserverScopeInput = { mode: "org" };
+const DEFAULT_BRANCH_SCOPE: ObserverScopeInput = { mode: "branch" };
 type ObserverRuntimeSnapshot = {
   scope: ObserverScopeInput;
   viewContext: MobileAdminViewContext;
@@ -51,6 +52,19 @@ async function writeStoredScope(userId: string, scope: ObserverScopeInput) {
   }
 }
 
+function isUnauthenticatedObserverError(error: unknown) {
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    return message.includes("chua dang nhap") || message.includes("unauthenticated");
+  }
+
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message.toLowerCase().includes("unauthenticated");
+  }
+
+  return false;
+}
+
 export function useAdminObserverScope() {
   const { isHydrated, role, user } = useSession();
   const [isReady, setIsReady] = useState(false);
@@ -63,7 +77,7 @@ export function useAdminObserverScope() {
     async (requestedScope?: ObserverScopeInput | null) => {
       if (!mobileSupabase || !isHydrated || !user?.id || !role) {
         setViewContext(null);
-        setObserverScopeState(DEFAULT_OWNER_SCOPE);
+        setObserverScopeState(role === "OWNER" ? DEFAULT_OWNER_SCOPE : DEFAULT_BRANCH_SCOPE);
         setIsReady(Boolean(isHydrated));
         return null;
       }
@@ -73,19 +87,30 @@ export function useAdminObserverScope() {
           ? requestedScope ?? (await readStoredScope(user.id)) ?? DEFAULT_OWNER_SCOPE
           : ({ mode: "branch" } satisfies ObserverScopeInput);
 
-      const nextViewContext = await resolveMobileAdminViewContext(mobileSupabase, preferredScope);
-      setViewContext(nextViewContext);
-      setObserverScopeState(nextViewContext.observerScope);
-      emitRuntimeSnapshot(user.id, {
-        scope: nextViewContext.observerScope,
-        viewContext: nextViewContext,
-      });
+      try {
+        const nextViewContext = await resolveMobileAdminViewContext(mobileSupabase, preferredScope);
+        setViewContext(nextViewContext);
+        setObserverScopeState(nextViewContext.observerScope);
+        emitRuntimeSnapshot(user.id, {
+          scope: nextViewContext.observerScope,
+          viewContext: nextViewContext,
+        });
 
-      if (role === "OWNER") {
-        await writeStoredScope(user.id, nextViewContext.observerScope);
+        if (role === "OWNER") {
+          await writeStoredScope(user.id, nextViewContext.observerScope);
+        }
+
+        return nextViewContext;
+      } catch (error) {
+        if (!isUnauthenticatedObserverError(error)) {
+          throw error;
+        }
+
+        setViewContext(null);
+        setObserverScopeState(role === "OWNER" ? DEFAULT_OWNER_SCOPE : DEFAULT_BRANCH_SCOPE);
+        setIsReady(Boolean(isHydrated));
+        return null;
       }
-
-      return nextViewContext;
     },
     [isHydrated, role, user],
   );

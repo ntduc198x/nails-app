@@ -924,9 +924,13 @@ export const translations = {
       manageContentDisplayNameLabel: "Tên hiển thị",
       manageContentDescriptionLabel: "Mô tả",
       manageContentDefaultStorefrontSlug: "cham-beauty",
-      manageContentDefaultStorefrontName: "CHẤM BEAUTY",
+      manageContentDefaultStorefrontName: "Chạm Beauty",
       manageContentDefaultStorefrontDescription:
-        "Chấm Beauty mang đến vẻ đẹp tinh tế, giúp bạn tự tin tỏa sáng trong mọi khoảnh khắc.",
+        "Chạm Beauty mang đến vẻ đẹp tinh tế, giúp bạn tự tin tỏa sáng trong mọi khoảnh khắc.",
+      manageContentStorefrontDescriptionPreviewPlaceholder:
+        "Thêm mô tả ngắn cho tiệm để nội dung này hiển thị trên Home và Explore.",
+      manageContentStorefrontDescriptionPreviewPlaceholderWithBranch:
+        "Thêm mô tả ngắn cho {branch} để nội dung này hiển thị trên Home và Explore.",
       manageContentCoverLinkLabel: "Link ảnh bìa",
       manageContentLogoLinkLabel: "Link logo",
       manageContentImageLinkFallback: "i.ibb.co/...",
@@ -964,7 +968,7 @@ export const translations = {
         "Cập nhật thông tin hiển thị của cửa hàng trên landing và explore.",
       manageContentStorefrontSlugPlaceholder: "Slug hiển thị",
       manageContentStorefrontNamePlaceholder: "Tên tiệm",
-      manageContentStorefrontNameDefault: "CHẠM BEAUTY",
+      manageContentStorefrontNameDefault: "Chạm Beauty",
       manageContentStorefrontCategoryLabel: "Nhóm tiệm",
       manageContentStorefrontCategoryPlaceholder: "Nail studio",
       manageContentStorefrontDescriptionPlaceholder: "Mô tả ngắn về cửa hàng",
@@ -2661,9 +2665,13 @@ export const translations = {
       manageContentDisplayNameLabel: "Display name",
       manageContentDescriptionLabel: "Description",
       manageContentDefaultStorefrontSlug: "cham-beauty",
-      manageContentDefaultStorefrontName: "CHAM BEAUTY",
+      manageContentDefaultStorefrontName: "Cham Beauty",
       manageContentDefaultStorefrontDescription:
         "Cham Beauty brings refined beauty so you can feel confident in every moment.",
+      manageContentStorefrontDescriptionPreviewPlaceholder:
+        "Add a short storefront description so this section can appear on Home and Explore.",
+      manageContentStorefrontDescriptionPreviewPlaceholderWithBranch:
+        "Add a short storefront description for {branch} so this section can appear on Home and Explore.",
       manageContentCoverLinkLabel: "Cover link",
       manageContentLogoLinkLabel: "Logo link",
       manageContentImageLinkFallback: "i.ibb.co/...",
@@ -2701,7 +2709,7 @@ export const translations = {
         "Update the storefront information shown on landing and Explore.",
       manageContentStorefrontSlugPlaceholder: "Visible slug",
       manageContentStorefrontNamePlaceholder: "Storefront name",
-      manageContentStorefrontNameDefault: "CHAM BEAUTY",
+      manageContentStorefrontNameDefault: "Cham Beauty",
       manageContentStorefrontCategoryLabel: "Store category",
       manageContentStorefrontCategoryPlaceholder: "Nail studio",
       manageContentStorefrontDescriptionPlaceholder: "Short storefront description",

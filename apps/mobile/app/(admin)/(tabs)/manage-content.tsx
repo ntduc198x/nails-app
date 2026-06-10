@@ -425,6 +425,40 @@ function buildStorefrontForm(snapshot: MobileAdminContentSnapshot | null): Store
   };
 }
 
+function hasStorefrontFieldValue(value: string | null | undefined) {
+  return Boolean(value?.trim());
+}
+
+function slugifyStorefrontPlaceholder(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function buildStorefrontPlaceholders(
+  strings: ReturnType<typeof useAdminStrings>,
+  currentBranchDisplayName: string,
+  includeBranchInPlaceholder: boolean,
+) {
+  const baseSlug = strings.manageContentDefaultStorefrontSlug;
+  const baseName = strings.manageContentStorefrontNameDefault;
+  const branchSlug = slugifyStorefrontPlaceholder(currentBranchDisplayName);
+  const slug = includeBranchInPlaceholder && branchSlug ? `${baseSlug}-${branchSlug}` : baseSlug;
+  const name = includeBranchInPlaceholder ? `${baseName} - ${currentBranchDisplayName}` : baseName;
+  const description = includeBranchInPlaceholder
+    ? strings.manageContentStorefrontDescriptionPreviewPlaceholderWithBranch.replace("{branch}", currentBranchDisplayName)
+    : strings.manageContentStorefrontDescriptionPreviewPlaceholder;
+
+  return {
+    slug,
+    name,
+    description,
+  };
+}
+
 function formatOverviewMetric(value: number, singular: string, plural = singular) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
@@ -1243,6 +1277,15 @@ export default function AdminManageContentScreen() {
 
     return snapshot?.branchName ?? strings.manageContentCurrentBranchSuffix;
   }, [locale, observer.viewContext?.branches, snapshot?.branchId, snapshot?.branchName, strings.manageContentCurrentBranchSuffix]);
+  const isViewingDifferentBranch = Boolean(
+    snapshot?.branchId &&
+      observer.viewContext?.workingBranchId &&
+      snapshot.branchId !== observer.viewContext.workingBranchId,
+  );
+  const storefrontPlaceholders = useMemo(
+    () => buildStorefrontPlaceholders(strings, currentBranchDisplayName, isViewingDifferentBranch),
+    [currentBranchDisplayName, isViewingDifferentBranch, strings],
+  );
 
   async function pickAndUploadImage(
     folder: "offers" | "posts" | "storefront" | "gallery" | "products",
@@ -2009,7 +2052,9 @@ export default function AdminManageContentScreen() {
                     <Feather name="shopping-bag" size={18} color={palette.accent} />
                     <Text style={styles.storefrontInfoLabel}>{strings.manageContentAccountLabel}</Text>
                   </View>
-                  <Text style={styles.storefrontInfoValue}>{storefrontForm.slug || "cham-beauty"}</Text>
+                  <Text style={[styles.storefrontInfoValue, !hasStorefrontFieldValue(storefrontForm.slug) && styles.storefrontPlaceholderValue]}>
+                    {hasStorefrontFieldValue(storefrontForm.slug) ? storefrontForm.slug : storefrontPlaceholders.slug}
+                  </Text>
                 </View>
                 <View style={styles.storefrontDivider} />
                 <View style={styles.storefrontInfoCell}>
@@ -2017,7 +2062,9 @@ export default function AdminManageContentScreen() {
                     <Feather name="tag" size={18} color={palette.accent} />
                     <Text style={styles.storefrontInfoLabel}>{strings.manageContentDisplayNameLabel}</Text>
                   </View>
-                  <Text style={styles.storefrontInfoValue}>{storefrontForm.name || strings.manageContentDefaultStorefrontName}</Text>
+                  <Text style={[styles.storefrontInfoValue, !hasStorefrontFieldValue(storefrontForm.name) && styles.storefrontPlaceholderValue]}>
+                    {hasStorefrontFieldValue(storefrontForm.name) ? storefrontForm.name : storefrontPlaceholders.name}
+                  </Text>
                 </View>
               </View>
               <Pressable style={styles.storefrontWideRow} onPress={() => setStorefrontEditorOpen(true)}>
@@ -2026,7 +2073,14 @@ export default function AdminManageContentScreen() {
                   <Text style={styles.storefrontInfoLabel}>{strings.manageContentDescriptionLabel}</Text>
                 </View>
                 <View style={styles.storefrontWideContent}>
-                  <Text numberOfLines={2} style={styles.storefrontWideValue}>{storefrontForm.description || strings.manageContentDefaultStorefrontDescription}</Text>
+                  <Text
+                    numberOfLines={2}
+                    style={[styles.storefrontWideValue, !hasStorefrontFieldValue(storefrontForm.description) && styles.storefrontPlaceholderWideValue]}
+                  >
+                    {hasStorefrontFieldValue(storefrontForm.description)
+                      ? storefrontForm.description
+                      : storefrontPlaceholders.description}
+                  </Text>
                   <Feather name="chevron-right" size={18} color="#A7988A" />
                 </View>
               </Pressable>
@@ -2036,7 +2090,11 @@ export default function AdminManageContentScreen() {
                     <Feather name="link" size={18} color={palette.accent} />
                     <Text style={styles.storefrontInfoLabel}>{strings.manageContentCoverLinkLabel}</Text>
                   </View>
-                  <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.coverImageUrl || "i.ibb.co/..."}</Text>
+                  <Text numberOfLines={1} style={[styles.storefrontLinkValue, !hasStorefrontFieldValue(storefrontForm.coverImageUrl) && styles.storefrontPlaceholderWideValue]}>
+                    {hasStorefrontFieldValue(storefrontForm.coverImageUrl)
+                      ? storefrontForm.coverImageUrl
+                      : strings.manageContentImageLinkFallback}
+                  </Text>
                 </View>
                 <View style={styles.storefrontDivider} />
                 <View style={styles.storefrontInfoCell}>
@@ -2044,7 +2102,11 @@ export default function AdminManageContentScreen() {
                     <Feather name="link" size={18} color={palette.accent} />
                     <Text style={styles.storefrontInfoLabel}>{strings.manageContentLogoLinkLabel}</Text>
                   </View>
-                  <Text numberOfLines={1} style={styles.storefrontLinkValue}>{storefrontForm.logoImageUrl || "i.ibb.co/..."}</Text>
+                  <Text numberOfLines={1} style={[styles.storefrontLinkValue, !hasStorefrontFieldValue(storefrontForm.logoImageUrl) && styles.storefrontPlaceholderWideValue]}>
+                    {hasStorefrontFieldValue(storefrontForm.logoImageUrl)
+                      ? storefrontForm.logoImageUrl
+                      : strings.manageContentImageLinkFallback}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -2248,12 +2310,12 @@ export default function AdminManageContentScreen() {
       <ModalShell title={strings.manageContentStorefrontEditorTitle} visible={storefrontEditorOpen} onClose={() => setStorefrontEditorOpen(false)}>
         <View style={styles.formColumn}>
           <ModalFormHeader icon="home" title={strings.manageContentStorefrontEditorTitle} subtitle={strings.manageContentStorefrontEditorSubtitle} />
-          <ModalInputField icon="at-sign" label={strings.manageContentStorefrontSlugPlaceholder} placeholder={strings.manageContentDefaultStorefrontSlug} value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
-          <ModalInputField icon="home" label={strings.manageContentStorefrontNamePlaceholder} placeholder={strings.manageContentStorefrontNameDefault} value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
-          <ModalInputField icon="home" label="Storefront name (EN)" placeholder="CHAM BEAUTY" value={storefrontForm.nameEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, nameEn: value }))} />
+          <ModalInputField icon="at-sign" label={strings.manageContentStorefrontSlugPlaceholder} placeholder={storefrontPlaceholders.slug} value={storefrontForm.slug} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, slug: value }))} />
+          <ModalInputField icon="home" label={strings.manageContentStorefrontNamePlaceholder} placeholder={storefrontPlaceholders.name} value={storefrontForm.name} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, name: value }))} />
+          <ModalInputField icon="home" label="Storefront name (EN)" placeholder="Cham Beauty" value={storefrontForm.nameEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, nameEn: value }))} />
           <ModalInputField icon="grid" label={strings.manageContentStorefrontCategoryLabel} placeholder={strings.manageContentStorefrontCategoryPlaceholder} value={storefrontForm.category} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, category: value }))} />
           <ModalInputField icon="grid" label="Category (EN)" placeholder="Nail & Beauty" value={storefrontForm.categoryEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, categoryEn: value }))} />
-          <ModalTextAreaField icon="file-text" label={strings.manageContentDescriptionLabel} placeholder={strings.manageContentStorefrontDescriptionPlaceholder} value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
+          <ModalTextAreaField icon="file-text" label={strings.manageContentDescriptionLabel} placeholder={storefrontPlaceholders.description} value={storefrontForm.description} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, description: value }))} />
           <ModalTextAreaField icon="file-text" label="Description (EN)" placeholder="English storefront description" value={storefrontForm.descriptionEn} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, descriptionEn: value }))} />
           <ModalInputField icon="image" label={strings.manageContentStorefrontCoverUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.coverImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, coverImageUrl: value }))} />
           <ModalInputField icon="aperture" label={strings.manageContentStorefrontLogoUrlLabel} placeholder={strings.postDetailImagePlaceholder} value={storefrontForm.logoImageUrl} onChangeText={(value) => setStorefrontForm((prev) => ({ ...prev, logoImageUrl: value }))} />
@@ -2890,6 +2952,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: palette.text,
   },
+  storefrontPlaceholderValue: {
+    color: "#9D9084",
+    fontWeight: "600",
+    fontStyle: "italic",
+  },
   storefrontWideRow: {
     borderTopWidth: 1,
     borderTopColor: palette.border,
@@ -2907,6 +2974,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: palette.text,
+  },
+  storefrontPlaceholderWideValue: {
+    color: "#9D9084",
+    fontStyle: "italic",
   },
   storefrontLinkValue: {
     fontSize: 13,

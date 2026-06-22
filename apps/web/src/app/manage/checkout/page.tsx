@@ -10,7 +10,7 @@ import { formatVnd } from "@/lib/mock-data";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 
 type ServiceRow = { id: string; name: string; base_price: number; vat_rate: number; featured_in_lookbook?: boolean | null; active?: boolean | null };
-type TicketRow = { id: string; status: string; totals_json?: { grand_total?: number }; created_at: string; customers?: { name: string } | { name: string }[] | null; receipts?: { public_token: string; expires_at: string }[] };
+type TicketRow = { id: string; status: string; totals_json?: { subtotal?: number; discount_total?: number; vat_total?: number; grand_total?: number }; created_at: string; customers?: { name: string } | { name: string }[] | null; receipts?: { public_token: string; expires_at: string }[] };
 type CheckedInAppointment = {
   id: string;
   customer_id?: string | null;
@@ -48,6 +48,11 @@ type CheckedInAppointment = {
     | null;
 };
 type RangeMode = "day" | "week" | "month" | "custom";
+type CheckoutDiscount = { type: "amount" | "percent"; value: number };
+
+function normalizeDiscountValue(value: number) {
+  return Number.isFinite(value) ? value : 0;
+}
 
 function mapCheckoutError(message: string) {
   if (message.includes("INVALID_SERVICES")) return "Dịch vụ không hợp lệ hoặc đã bị xóa.";
@@ -55,6 +60,9 @@ function mapCheckoutError(message: string) {
   if (message.includes("INVALID_PAYMENT_METHOD")) return "Phương thức thanh toán không hợp lệ.";
   if (message.includes("CHECKOUT_LINES_REQUIRED")) return "Vui lòng chọn ít nhất 1 dịch vụ.";
   if (message.includes("CUSTOMER_NAME_REQUIRED")) return "Vui lòng nhập tên khách.";
+  if (message.includes("INVALID_DISCOUNT_TYPE")) return "Loại giảm giá không hợp lệ.";
+  if (message.includes("INVALID_DISCOUNT_VALUE")) return "Giá trị giảm giá không hợp lệ.";
+  if (message.includes("DISCOUNT_EXCEEDS_TOTAL")) return "Giảm giá không được vượt quá tổng bill trước giảm.";
   if (message.includes("INVALID_APPOINTMENT_STATUS_TRANSITION")) return "Appointment không thể chuyển sang trạng thái DONE.";
   if (message.includes("TECH chỉ được checkout khi đang mở ca.")) return "Kỹ thuật viên chưa mở ca. Vui lòng sang mục Ca làm để chuyển sang ca mới và mở ca trước khi checkout.";
   if (message.includes("Could not choose the best candidate function")) return "RPC checkout đang bị trùng phiên bản. Chạy cleanup_checkout_rpc_overloads.sql rồi thử lại.";
@@ -110,6 +118,52 @@ function getSuggestedFollowUpDays(serviceNames: string[]) {
   return 30;
 }
 
+function computeCheckoutTotals(
+  lines: Array<{ serviceId: string; qty: number }>,
+  services: ServiceRow[],
+  discount: CheckoutDiscount,
+) {
+  let subtotal = 0;
+  let vat = 0;
+
+  for (const line of lines) {
+    const service = services.find((item) => item.id === line.serviceId);
+    if (!service) continue;
+    const unitPrice = Number(service.base_price);
+    const vatRate = Number(service.vat_rate);
+    subtotal += unitPrice * line.qty;
+    vat += unitPrice * line.qty * vatRate;
+  }
+
+  const preDiscountTotal = subtotal + vat;
+  const rawDiscountValue = normalizeDiscountValue(discount.value);
+
+  if (rawDiscountValue < 0) {
+    return { subtotal, vat, preDiscountTotal, discountTotal: 0, grandTotal: preDiscountTotal, discountError: "Giảm giá không được âm." };
+  }
+
+  if (discount.type === "percent" && rawDiscountValue > 100) {
+    return { subtotal, vat, preDiscountTotal, discountTotal: 0, grandTotal: preDiscountTotal, discountError: "Phần trăm giảm giá không được vượt quá 100%." };
+  }
+
+  const discountTotal = discount.type === "percent"
+    ? (preDiscountTotal * rawDiscountValue) / 100
+    : rawDiscountValue;
+
+  if (discountTotal > preDiscountTotal) {
+    return { subtotal, vat, preDiscountTotal, discountTotal, grandTotal: preDiscountTotal, discountError: "Giảm giá không được vượt quá tổng bill trước giảm." };
+  }
+
+  return {
+    subtotal,
+    vat,
+    preDiscountTotal,
+    discountTotal,
+    grandTotal: Math.max(0, preDiscountTotal - discountTotal),
+    discountError: null,
+  };
+}
+
 export default function CheckoutPage() {
   const today = new Date();
   const [services, setServices] = useState<ServiceRow[]>([]);
@@ -142,6 +196,7 @@ export default function CheckoutPage() {
   });
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [lines, setLines] = useState<Array<{ serviceId: string; qty: number }>>([{ serviceId: "", qty: 1 }]);
+  const [discount, setDiscount] = useState<CheckoutDiscount>({ type: "amount", value: 0 });
   const customerSectionRef = useRef<HTMLDivElement | null>(null);
   const serviceSectionRef = useRef<HTMLDivElement | null>(null);
   const receiptAlertRef = useRef<HTMLDivElement | null>(null);
@@ -192,15 +247,7 @@ export default function CheckoutPage() {
     return () => window.clearTimeout(timeoutId);
   }, [range.from, range.to]);
 
-  const estimatedTotal = useMemo(() => {
-    let subtotal = 0; let vat = 0;
-    for (const line of lines) {
-      const s = services.find((x) => x.id === line.serviceId); if (!s) continue;
-      const unit = Number(s.base_price); const rate = Number(s.vat_rate);
-      subtotal += unit * line.qty; vat += unit * line.qty * rate;
-    }
-    return subtotal + vat;
-  }, [lines, services]);
+  const totals = useMemo(() => computeCheckoutTotals(lines, services, discount), [discount, lines, services]);
 
   const ticketSummary = useMemo(() => ({ count: tickets.length, total: tickets.reduce((sum, t) => sum + Number(t.totals_json?.grand_total ?? 0), 0) }), [tickets]);
   const selectedServices = useMemo(() => lines.map((line) => ({ ...line, service: services.find((service) => service.id === line.serviceId) ?? null })).filter((line) => line.service), [lines, services]);
@@ -272,12 +319,20 @@ export default function CheckoutPage() {
       }
       const valid = lines.filter((l) => l.serviceId && l.qty > 0);
       if (!valid.length) throw new Error("Vui lòng chọn ít nhất 1 dịch vụ trước khi thanh toán");
+      if (totals.discountError) throw new Error(totals.discountError);
       const idempotencyKey = (typeof crypto !== "undefined" && "randomUUID" in crypto) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      const result = await createCheckout({ customerName, paymentMethod, lines: valid, appointmentId: appointmentId ?? undefined, idempotencyKey });
+      const result = await createCheckout({
+        customerName,
+        paymentMethod,
+        lines: valid,
+        discount: { type: discount.type, value: normalizeDiscountValue(discount.value) },
+        appointmentId: appointmentId ?? undefined,
+        idempotencyKey,
+      });
       setLastReceipt(result.receiptToken || null);
       setReceiptLink(result.receiptToken && typeof window !== "undefined" ? `${window.location.origin}/receipt/${result.receiptToken}` : null);
       if (result.deduped) setDedupeNotice("Đã chặn tạo bill trùng do thao tác bấm thanh toán lặp nhanh.");
-      setCustomerName(""); setAppointmentId(null); setPaymentMethod("CASH"); setLines([{ serviceId: "", qty: 1 }]);
+      setCustomerName(""); setAppointmentId(null); setPaymentMethod("CASH"); setLines([{ serviceId: "", qty: 1 }]); setDiscount({ type: "amount", value: 0 });
       await load();
       requestAnimationFrame(() => {
         pageTopRef.current?.focus();
@@ -537,21 +592,45 @@ export default function CheckoutPage() {
                 })}
               </div>
 
+              <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold text-neutral-900">Giảm giá</h4>
+                  <span className="text-xs text-neutral-500">Áp dụng sau VAT</span>
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[160px_minmax(0,1fr)]">
+                  <select
+                    className="input cursor-pointer bg-white py-2.5 text-sm"
+                    value={discount.type}
+                    onChange={(e) => setDiscount((current) => ({ ...current, type: e.target.value as CheckoutDiscount["type"] }))}
+                  >
+                    <option value="amount">VND</option>
+                    <option value="percent">%</option>
+                  </select>
+                  <input
+                    className="input bg-white py-2.5 text-sm"
+                    type="number"
+                    min={0}
+                    max={discount.type === "percent" ? 100 : undefined}
+                    step={discount.type === "percent" ? "0.01" : "1000"}
+                    value={discount.value}
+                    onChange={(e) => setDiscount((current) => ({ ...current, value: Number(e.target.value || 0) }))}
+                    placeholder={discount.type === "percent" ? "Nhập % giảm giá" : "Nhập số tiền giảm"}
+                  />
+                </div>
+                {totals.discountError ? <p className="mt-2 text-xs text-rose-600">{totals.discountError}</p> : null}
+              </div>
+
               <div className="space-y-3 border-t border-neutral-200 pt-3 xl:hidden">
                 <div className="hidden rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
                   <div className="flex items-center justify-between gap-3 text-sm text-neutral-600">
                     <span>Tóm tắt nhanh</span>
                     <span>{selectedServices.length} dịch vụ</span>
                   </div>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</div>
-                      <div className="mt-1 text-xl font-semibold text-neutral-900">{formatVnd(estimatedTotal)}</div>
-                    </div>
-                    <div className="text-right text-xs text-neutral-500">
-                      <div>{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
-                      <div className="mt-1">{customerName || "Chưa chọn khách"}</div>
-                    </div>
+                  <div className="mt-2 space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">Tạm tính</span><span className="font-medium text-neutral-900">{formatVnd(totals.subtotal)}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">VAT</span><span className="font-medium text-neutral-900">{formatVnd(totals.vat)}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">Giảm giá</span><span className="font-medium text-neutral-900">{formatVnd(totals.discountTotal)}</span></div>
+                    <div className="flex items-center justify-between gap-3 pt-1"><span className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</span><span className="text-xl font-semibold text-neutral-900">{formatVnd(totals.grandTotal)}</span></div>
                   </div>
 
                   <div className="mt-3 space-y-1.5 rounded-xl bg-white/80 p-2.5">
@@ -575,11 +654,11 @@ export default function CheckoutPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 sm:flex-row">
+                <div className="flex flex-col gap-2">
                   <button
                     type="button"
                     onClick={addLine}
-                    className="cursor-pointer rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                    className="w-full cursor-pointer rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
                   >
                     + Thêm dòng
                   </button>
@@ -597,15 +676,11 @@ export default function CheckoutPage() {
                     <span>Tóm tắt nhanh</span>
                     <span>{selectedServices.length} dịch vụ</span>
                   </div>
-                  <div className="mt-2 flex items-end justify-between gap-3">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</div>
-                      <div className="mt-1 text-xl font-semibold text-neutral-900">{formatVnd(estimatedTotal)}</div>
-                    </div>
-                    <div className="text-right text-xs text-neutral-500">
-                      <div>{paymentMethod === "CASH" ? "Tiền mặt" : "Chuyển khoản"}</div>
-                      <div className="mt-1">{customerName || "Chưa chọn khách"}</div>
-                    </div>
+                  <div className="mt-2 space-y-1.5 text-sm">
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">Tạm tính</span><span className="font-medium text-neutral-900">{formatVnd(totals.subtotal)}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">VAT</span><span className="font-medium text-neutral-900">{formatVnd(totals.vat)}</span></div>
+                    <div className="flex items-center justify-between gap-3"><span className="text-neutral-500">Giảm giá</span><span className="font-medium text-neutral-900">{formatVnd(totals.discountTotal)}</span></div>
+                    <div className="flex items-center justify-between gap-3 pt-1"><span className="text-xs uppercase tracking-[0.08em] text-neutral-500">Tổng thanh toán</span><span className="text-xl font-semibold text-neutral-900">{formatVnd(totals.grandTotal)}</span></div>
                   </div>
 
                   <div className="mt-3 space-y-1.5 rounded-xl bg-white/80 p-2.5">
@@ -671,8 +746,13 @@ export default function CheckoutPage() {
               </div>
 
               <div className="rounded-xl bg-neutral-900 p-3 text-white">
-                <div className="text-sm text-neutral-300">Tổng thanh toán</div>
-                <div className="mt-1 text-2xl font-semibold">{formatVnd(estimatedTotal)}</div>
+                <div className="space-y-1.5 text-sm text-neutral-200">
+                  <div className="flex items-center justify-between gap-3"><span>Tạm tính</span><span>{formatVnd(totals.subtotal)}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span>VAT</span><span>{formatVnd(totals.vat)}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span>Giảm giá</span><span>{formatVnd(totals.discountTotal)}</span></div>
+                </div>
+                <div className="mt-3 text-sm text-neutral-300">Tổng thanh toán</div>
+                <div className="mt-1 text-2xl font-semibold">{formatVnd(totals.grandTotal)}</div>
               </div>
             </div>
 
@@ -814,11 +894,23 @@ export default function CheckoutPage() {
               </div>
 
               <div className="rounded-xl bg-neutral-900 p-3 text-white">
-                <div className="text-sm text-neutral-300">Tổng thanh toán</div>
-                <div className="mt-1 text-2xl font-semibold">{formatVnd(estimatedTotal)}</div>
+                <div className="space-y-1.5 text-sm text-neutral-200">
+                  <div className="flex items-center justify-between gap-3"><span>Tạm tính</span><span>{formatVnd(totals.subtotal)}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span>VAT</span><span>{formatVnd(totals.vat)}</span></div>
+                  <div className="flex items-center justify-between gap-3"><span>Giảm giá</span><span>{formatVnd(totals.discountTotal)}</span></div>
+                </div>
+                <div className="mt-3 text-sm text-neutral-300">Tổng thanh toán</div>
+                <div className="mt-1 text-2xl font-semibold">{formatVnd(totals.grandTotal)}</div>
               </div>
 
               <div className="hidden md:flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={addLine}
+                  className="w-full cursor-pointer rounded-xl border border-dashed border-neutral-300 bg-white px-4 py-3 text-sm font-semibold text-neutral-700 transition hover:border-[var(--color-primary)] hover:text-[var(--color-primary)]"
+                >
+                  + Thêm dòng
+                </button>
                 <button disabled={submitting || role === "ACCOUNTANT" || (role === "TECH" && techShiftOpen === false)} className="btn btn-primary w-full cursor-pointer py-3 text-base disabled:cursor-not-allowed">{submitting ? "Đang xử lý..." : "Thanh toán và đóng bill"}</button>
                 {role === "TECH" && techShiftOpen === false ? <p className="text-xs text-amber-700">Chưa mở ca, vào Ca làm để chuyển sang ca mới và mở ca trước khi thanh toán.</p> : null}
               </div>
@@ -826,17 +918,6 @@ export default function CheckoutPage() {
           </div>
         </form>
 
-        <div className="hidden">
-          <button
-            type="button"
-            onClick={addLine}
-            className="cursor-pointer rounded-lg border px-4 py-3 text-sm font-medium"
-          >
-            Xem bill {formatVnd(estimatedTotal)}
-          </button>
-          <button type="button" onClick={addLine} className="cursor-pointer rounded-lg border px-4 py-3 text-sm font-medium">+ Dòng</button>
-          <button type="button" onClick={() => void onSubmit()} disabled={submitting || role === "ACCOUNTANT"} className="flex-1 btn btn-primary cursor-pointer py-3 disabled:cursor-not-allowed">{submitting ? "Đang xử lý..." : "Thanh toán"}</button>
-        </div>
       </div>
     </AppShell>
   );

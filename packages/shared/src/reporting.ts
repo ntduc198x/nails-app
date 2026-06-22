@@ -1,6 +1,7 @@
 import type { ObserverScopeInput, SharedSupabaseClient } from "./org";
 import { ensureOrgContext, resolveMobileAdminViewContext } from "./org";
 import { normalizeAttendanceFraction } from "./attendance";
+import type { StoredCheckoutDiscountType, StoredCheckoutTotals } from "./discount";
 
 export type MobileReportTicketRow = {
   id: string;
@@ -11,6 +12,9 @@ export type MobileReportTicketRow = {
   customerName: string | null;
   receiptToken: string | null;
   subtotal: number;
+  discount: number;
+  discountType: StoredCheckoutDiscountType | null;
+  discountValue: number | null;
   vat: number;
   grandTotal: number;
 };
@@ -83,6 +87,9 @@ export type MobileTicketDetail = {
     createdAt: string;
     status: string;
     subtotal: number;
+    discount: number;
+    discountType: StoredCheckoutDiscountType | null;
+    discountValue: number | null;
     vat: number;
     grandTotal: number;
   };
@@ -280,7 +287,10 @@ export async function listTicketsInRangeForMobile(
   const baseRows = (data ?? []).map((row) => {
     const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
     const receipt = Array.isArray(row.receipts) ? row.receipts[0] : row.receipts;
-    const totals = (row.totals_json as { subtotal?: number; vat_total?: number; grand_total?: number } | null) ?? null;
+    const totals = (row.totals_json as StoredCheckoutTotals | null) ?? null;
+    const rawDiscountType = typeof totals?.discount_type === "string" ? totals.discount_type.toLowerCase() : null;
+    const discountType = rawDiscountType === "amount" || rawDiscountType === "percent" ? rawDiscountType : null;
+    const discountValue = Number(totals?.discount_value ?? 0);
 
     return {
       id: String(row.id ?? ""),
@@ -291,6 +301,9 @@ export async function listTicketsInRangeForMobile(
       customerName: typeof customer?.name === "string" ? customer.name : null,
       receiptToken: typeof receipt?.public_token === "string" ? receipt.public_token : null,
       subtotal: Number(totals?.subtotal ?? 0),
+      discount: Number(totals?.discount_total ?? 0),
+      discountType,
+      discountValue: Number.isFinite(discountValue) ? discountValue : null,
       vat: Number(totals?.vat_total ?? 0),
       grandTotal: Number(totals?.grand_total ?? 0),
     } satisfies MobileReportTicketRow;
@@ -648,7 +661,7 @@ export async function getTicketDetailForMobile(
   }
 
   const payload = data as {
-    ticket?: { id?: string; created_at?: string; status?: string; totals_json?: { subtotal?: number; vat_total?: number; grand_total?: number } | null };
+    ticket?: { id?: string; created_at?: string; status?: string; totals_json?: StoredCheckoutTotals | null };
     customer?: { name?: string | null; phone?: string | null } | null;
     payment?: { method?: string | null; amount?: number | null; status?: string | null; created_at?: string | null } | null;
     receipt?: { public_token?: string | null; expires_at?: string | null } | null;
@@ -661,6 +674,14 @@ export async function getTicketDetailForMobile(
       createdAt: String(payload.ticket?.created_at ?? ""),
       status: String(payload.ticket?.status ?? ""),
       subtotal: Number(payload.ticket?.totals_json?.subtotal ?? 0),
+      discount: Number(payload.ticket?.totals_json?.discount_total ?? 0),
+      discountType:
+        payload.ticket?.totals_json?.discount_type === "amount" || payload.ticket?.totals_json?.discount_type === "percent"
+          ? payload.ticket.totals_json.discount_type
+          : null,
+      discountValue: Number.isFinite(Number(payload.ticket?.totals_json?.discount_value ?? 0))
+        ? Number(payload.ticket?.totals_json?.discount_value ?? 0)
+        : null,
       vat: Number(payload.ticket?.totals_json?.vat_total ?? 0),
       grandTotal: Number(payload.ticket?.totals_json?.grand_total ?? 0),
     },

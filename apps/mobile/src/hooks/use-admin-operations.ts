@@ -8,6 +8,7 @@ import {
   type TranslationMetaValue,
   type MobileCheckedInAppointment,
   type MobileClosedTicketUpdateInput,
+  type MobileCheckoutInput,
   type MobileCheckoutService,
   type MobileRecentTicketSummary,
   type CrmDashboardMetrics,
@@ -16,8 +17,10 @@ import {
   type MobileDashboardSnapshot,
   type ObserverScopeInput,
   createCheckoutForMobile,
+  cleanupOverdueBookedAppointmentsForMobile,
   deleteAppointmentForMobile,
   convertBookingRequestToAppointmentForMobile,
+  cleanupRescheduleBookingRequestsForMobile,
   deleteBookingRequestForMobile,
   ensureOrgContext,
   getCrmDashboardMetricsForMobile,
@@ -71,6 +74,10 @@ type AdminOperationsState = {
   customerCrmByPhone: Record<string, CustomerCrmSummary>;
   staleCheckInAutoCancelledCount: number;
   staleCheckInCleanupError: string | null;
+  overdueBookedAutoCancelledCount: number;
+  overdueBookedCleanupError: string | null;
+  rescheduleBookingAutoCancelledCount: number;
+  rescheduleBookingCleanupError: string | null;
 };
 
 const INITIAL_STATE: AdminOperationsState = {
@@ -88,6 +95,10 @@ const INITIAL_STATE: AdminOperationsState = {
   customerCrmByPhone: {},
   staleCheckInAutoCancelledCount: 0,
   staleCheckInCleanupError: null,
+  overdueBookedAutoCancelledCount: 0,
+  overdueBookedCleanupError: null,
+  rescheduleBookingAutoCancelledCount: 0,
+  rescheduleBookingCleanupError: null,
 };
 
 function normalizeAdminOperationError(error: unknown, locale: "vi" | "en"): string {
@@ -226,6 +237,9 @@ async function fetchAdminOperationsState(params: {
   const canSeeRecentTickets = canReadRecentTickets(role);
   const observerOptions = { observerScope };
 
+  const overdueBookedCleanup = await cleanupOverdueBookedAppointmentsForMobile(mobileSupabase, observerOptions);
+  const rescheduleBookingCleanup = await cleanupRescheduleBookingRequestsForMobile(mobileSupabase, observerOptions);
+
   const [dashboard, bookingRequests, appointments, crmMetrics, staffOptions, resourceOptions, checkoutServices, checkedInQueue, recentTickets, techShiftOpen, customersCrm] = await Promise.all([
     getDashboardSnapshotForMobile(mobileSupabase, observerOptions),
     canSeeBookingRequests ? listBookingRequestsForMobile(mobileSupabase, observerOptions) : Promise.resolve([]),
@@ -271,6 +285,10 @@ async function fetchAdminOperationsState(params: {
     customerCrmByPhone,
     staleCheckInAutoCancelledCount: checkedInQueue.autoCancelledCount,
     staleCheckInCleanupError: checkedInQueue.cleanupError,
+    overdueBookedAutoCancelledCount: overdueBookedCleanup.autoCancelledCount,
+    overdueBookedCleanupError: overdueBookedCleanup.cleanupError,
+    rescheduleBookingAutoCancelledCount: rescheduleBookingCleanup.autoCancelledCount,
+    rescheduleBookingCleanupError: rescheduleBookingCleanup.cleanupError,
   };
 }
 
@@ -747,14 +765,7 @@ export function useAdminOperations() {
   );
 
   const createCheckout = useCallback(
-    async (input: {
-      customerName: string;
-      paymentMethod: "CASH" | "TRANSFER";
-      lines: Array<{ serviceId: string; qty: number }>;
-      appointmentId?: string | null;
-      dedupeWindowMs?: number;
-      idempotencyKey?: string | null;
-    }): Promise<{
+    async (input: MobileCheckoutInput): Promise<{
       ticketId: string;
       receiptToken: string;
       grandTotal: number;

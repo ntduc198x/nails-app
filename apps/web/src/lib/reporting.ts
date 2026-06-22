@@ -1,3 +1,4 @@
+import type { StoredCheckoutTotals } from "@nails/shared";
 import { getCurrentSessionRole, listUserRoles } from "@/lib/auth";
 import { ensureOrgContext } from "@/lib/domain";
 import { canAccessManageReports } from "@/lib/manage-access";
@@ -9,7 +10,7 @@ export type ReportTicketRow = {
   created_at: string;
   appointment_id?: string | null;
   staff_user_id?: string | null;
-  totals_json?: { subtotal?: number; vat_total?: number; grand_total?: number };
+  totals_json?: StoredCheckoutTotals;
 };
 
 async function assertCanViewReports() {
@@ -332,7 +333,7 @@ export async function getTicketDetail(ticketId: string) {
   if (!data) throw new Error("Không có dữ liệu ticket");
 
   const payload = data as {
-    ticket: { id: string; created_at: string; status: string; totals_json?: { subtotal?: number; vat_total?: number; grand_total?: number } };
+    ticket: { id: string; created_at: string; status: string; totals_json?: StoredCheckoutTotals };
     customer?: { name?: string; phone?: string };
     payment?: { method?: string; amount?: number; status?: string; created_at?: string };
     receipt?: { public_token?: string; expires_at?: string };

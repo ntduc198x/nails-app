@@ -1,5 +1,6 @@
 "use client";
 
+import { getStoredDiscountDetails, type StoredCheckoutTotals } from "@nails/shared";
 import { AppShell } from "@/components/app-shell";
 import { getTicketDetail } from "@/lib/reporting";
 import Link from "next/link";
@@ -8,6 +9,18 @@ import { useEffect, useState } from "react";
 
 function formatVnd(n: number) {
   return `${new Intl.NumberFormat("vi-VN").format(n)}đ`;
+}
+
+function formatDiscountLabel(totals: StoredCheckoutTotals) {
+  const discount = getStoredDiscountDetails(totals);
+  if (discount.total <= 0) return null;
+  if (discount.type === "percent" && discount.value != null) {
+    return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(discount.value)}% (${formatVnd(discount.total)})`;
+  }
+  if (discount.type === "amount") {
+    return `${formatVnd(discount.total)} (VND)`;
+  }
+  return formatVnd(discount.total);
 }
 
 type Detail = Awaited<ReturnType<typeof getTicketDetail>>;
@@ -62,7 +75,8 @@ export default function TicketDetailPage() {
     );
   }
 
-  const totals = (detail.ticket.totals_json as { subtotal?: number; vat_total?: number; grand_total?: number } | null) ?? {};
+  const totals = (detail.ticket.totals_json as StoredCheckoutTotals | null) ?? {};
+  const discountLabel = formatDiscountLabel(totals);
 
   return (
     <AppShell>
@@ -150,6 +164,7 @@ export default function TicketDetailPage() {
             <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between"><span className="text-neutral-500">Subtotal</span><span className="font-semibold text-neutral-900">{formatVnd(Number(totals.subtotal ?? 0))}</span></div>
               <div className="flex items-center justify-between"><span className="text-neutral-500">VAT</span><span className="font-semibold text-neutral-900">{formatVnd(Number(totals.vat_total ?? 0))}</span></div>
+              {discountLabel ? <div className="flex items-center justify-between"><span className="text-neutral-500">Discount</span><span className="font-semibold text-neutral-900">{discountLabel}</span></div> : null}
               <div className="rounded-2xl bg-neutral-900 p-4 text-white"><div className="text-sm text-white/70">Tổng thanh toán</div><div className="mt-2 text-2xl font-semibold">{formatVnd(Number(totals.grand_total ?? 0))}</div></div>
             </div>
           </div>

@@ -101,6 +101,22 @@ function formatDisplayTime(isoValue: string) {
   return `${hh}:${mm}`;
 }
 
+function roundToNearestUpcomingSlot(date = new Date(), slotMinutes = 15) {
+  const next = new Date(date);
+  next.setSeconds(0, 0);
+  const minutes = next.getMinutes();
+  const roundedMinutes = Math.ceil(minutes / slotMinutes) * slotMinutes;
+  if (roundedMinutes === 60) {
+    next.setHours(next.getHours() + 1, 0, 0, 0);
+  } else {
+    next.setMinutes(roundedMinutes, 0, 0);
+  }
+  if (next.getTime() <= date.getTime()) {
+    next.setMinutes(next.getMinutes() + slotMinutes);
+  }
+  return next;
+}
+
 function getAppointmentDetailStatusCopy(
   appointment: Pick<MobileAppointmentSummary, "startAt" | "status">,
   strings: ReturnType<typeof useAdminStrings>,
@@ -208,6 +224,18 @@ function AppointmentEditor({
         };
   const comboCopy = getFootHandComboCopy(locale);
   const comboActive = Boolean(resourceId && secondaryResourceId);
+  const suggestedStartAt = useMemo(() => roundToNearestUpcomingSlot(), []);
+  const suggestedDateInput = useMemo(() => toLocalDateInput(suggestedStartAt.toISOString()), [suggestedStartAt]);
+  const suggestedTimeInput = useMemo(() => toLocalTimeInput(suggestedStartAt.toISOString()), [suggestedStartAt]);
+  const appointmentWindow = useMemo(
+    () => buildAppointmentWindow(dateInput, timeInput, durationMinutes),
+    [dateInput, durationMinutes, timeInput],
+  );
+  const selectedStartAtMs = appointmentWindow ? new Date(appointmentWindow.startAt).getTime() : Number.NaN;
+  const showNearestSuggestion =
+    isArrivalOverdue
+    || !Number.isFinite(selectedStartAtMs)
+    || selectedStartAtMs < suggestedStartAt.getTime();
 
   function goBackToScheduling() {
     dismissToHref(router, "/(admin)/(tabs)/scheduling");
@@ -241,6 +269,11 @@ function AppointmentEditor({
   function confirmTimePicker() {
     setTimeInput(`${String(pickerHour).padStart(2, "0")}:${String(pickerMinute).padStart(2, "0")}`);
     setShowTimePicker(false);
+  }
+
+  function applyNearestSuggestion() {
+    setDateInput(suggestedDateInput);
+    setTimeInput(suggestedTimeInput);
   }
 
   function handleSelectResource(nextResourceId: string) {
@@ -281,7 +314,6 @@ function AppointmentEditor({
   }
 
   async function handleSave() {
-    const appointmentWindow = buildAppointmentWindow(dateInput, timeInput, durationMinutes);
     if (!customerName.trim() || !appointmentWindow) {
       return;
     }
@@ -441,6 +473,19 @@ function AppointmentEditor({
             </Pressable>
           </View>
         </View>
+        {showNearestSuggestion ? (
+          <View style={styles.nearestSuggestionCard}>
+            <View style={styles.nearestSuggestionCopy}>
+              <Text style={styles.nearestSuggestionLabel}>{strings.manageSchedulingDetailNearestTimeLabel}</Text>
+              <Text style={styles.nearestSuggestionValue}>
+                {suggestedTimeInput} • {suggestedDateInput}
+              </Text>
+            </View>
+            <Pressable style={styles.nearestSuggestionButton} onPress={applyNearestSuggestion}>
+              <Text style={styles.nearestSuggestionButtonText}>{strings.manageSchedulingDetailUseNearestTime}</Text>
+            </Pressable>
+          </View>
+        ) : null}
 
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>{strings.manageSchedulingDetailDurationLabel}</Text>
@@ -948,6 +993,12 @@ const styles = StyleSheet.create({
   inputWrapper: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: palette.beigeLight, borderRadius: 14, borderWidth: 1, borderColor: palette.border, paddingHorizontal: 12, height: 48 },
   inputText: { flex: 1, fontSize: 14, color: palette.textPrimary, fontWeight: "500" },
   formRow: { flexDirection: "row", gap: 12 },
+  nearestSuggestionCard: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, borderRadius: 14, borderWidth: 1, borderColor: "#F2D6BC", backgroundColor: "#FFF7EF", paddingHorizontal: 12, paddingVertical: 10 },
+  nearestSuggestionCopy: { flex: 1, gap: 2 },
+  nearestSuggestionLabel: { fontSize: 11, color: "#A0632B", fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.2 },
+  nearestSuggestionValue: { fontSize: 13, color: palette.textPrimary, fontWeight: "700" },
+  nearestSuggestionButton: { minHeight: 34, borderRadius: 17, backgroundColor: palette.primary, paddingHorizontal: 12, alignItems: "center", justifyContent: "center" },
+  nearestSuggestionButtonText: { fontSize: 12, color: "#FFFFFF", fontWeight: "700" },
   pillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   selectPill: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 40, borderRadius: 20, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.card, paddingHorizontal: 16 },
   selectPillActive: { backgroundColor: palette.beige, borderColor: palette.beige },

@@ -18,8 +18,22 @@ export type MobileAppointmentSummary = {
 export type AppointmentStatus = "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED" | "NO_SHOW";
 export const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
 export const APPOINTMENT_ARRIVAL_OVERDUE_MINUTES = 20;
+export const APPOINTMENT_OVERDUE_AUTO_CANCEL_DAYS = 1;
 export const APPOINTMENT_TIME_PAST_ERROR = "BOOKING_TIME_PAST";
 export const RESOURCE_TIME_CONFLICT_ERROR = "RESOURCE_TIME_CONFLICT";
+
+export type OverdueBookedAutoCancelledAppointment = {
+  id: string;
+  startAt: string;
+  customerName: string;
+  customerPhone: string | null;
+};
+
+export type OverdueBookedCleanupResult = {
+  autoCancelledCount: number;
+  cleanupError: string | null;
+  autoCancelledAppointments: OverdueBookedAutoCancelledAppointment[];
+};
 
 type AppointmentMutationInput = {
   customerName: string;
@@ -98,6 +112,23 @@ export function isAppointmentArrivalOverdue(
   }
 
   return nowMs >= scheduledAtMs + APPOINTMENT_ARRIVAL_OVERDUE_MINUTES * 60 * 1000;
+}
+
+export function isAppointmentPastAutoCancelThreshold(
+  appointment: Pick<MobileAppointmentSummary, "startAt" | "status">,
+  now = new Date(),
+): boolean {
+  if (appointment.status !== "BOOKED") {
+    return false;
+  }
+
+  const scheduledAtMs = new Date(appointment.startAt).getTime();
+  const nowMs = now.getTime();
+  if (!Number.isFinite(scheduledAtMs) || !Number.isFinite(nowMs)) {
+    return false;
+  }
+
+  return nowMs >= scheduledAtMs + APPOINTMENT_OVERDUE_AUTO_CANCEL_DAYS * 24 * 60 * 60 * 1000;
 }
 
 export function assertAppointmentCheckInWindow(startAt: string, now = new Date(), locale: Locale = DEFAULT_LOCALE) {
@@ -282,6 +313,79 @@ export async function listAppointmentsForMobile(
   }
 
   return (data ?? []).map(mapAppointmentRow);
+}
+
+export async function cleanupOverdueBookedAppointmentsForMobile(
+  client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
+): Promise<OverdueBookedCleanupResult> {
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
+  const thresholdIso = new Date(
+    Date.now() - APPOINTMENT_OVERDUE_AUTO_CANCEL_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  let query = client
+    .from("appointments")
+    .select("id,start_at,status,customers(name,phone)")
+    .eq("org_id", view.orgId)
+    .eq("status", "BOOKED")
+    .lte("start_at", thresholdIso)
+    .order("start_at", { ascending: true })
+    .limit(200);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw error;
+  }
+
+  const rows = ((data ?? []) as AppointmentRow[]).map((row) => {
+    const customer = Array.isArray(row.customers) ? row.customers[0] : row.customers;
+    return {
+      id: String(row.id ?? ""),
+      startAt: String(row.start_at ?? ""),
+      customerName: typeof customer?.name === "string" ? customer.name : "-",
+      customerPhone: typeof customer?.phone === "string" ? customer.phone : null,
+    };
+  });
+
+  const autoCancelledIds = rows.map((row) => row.id).filter(Boolean);
+  if (autoCancelledIds.length === 0) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: null,
+      autoCancelledAppointments: [],
+    };
+  }
+
+  let updateQuery = client
+    .from("appointments")
+    .update({ status: "CANCELLED" })
+    .eq("org_id", view.orgId)
+    .in("id", autoCancelledIds)
+    .eq("status", "BOOKED");
+
+  if (view.viewBranchId) {
+    updateQuery = updateQuery.eq("branch_id", view.viewBranchId);
+  }
+
+  const { error: cleanupError } = await updateQuery;
+  if (cleanupError) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: cleanupError.message || "Khong the tu dong huy lich qua hen.",
+      autoCancelledAppointments: [],
+    };
+  }
+
+  return {
+    autoCancelledCount: autoCancelledIds.length,
+    cleanupError: null,
+    autoCancelledAppointments: rows,
+  };
 }
 
 export async function getAppointmentForMobile(

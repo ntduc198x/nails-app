@@ -225,6 +225,10 @@ export default function AdminSchedulingScreen() {
     user,
     observerViewContext,
     customerCrmByPhone,
+    overdueBookedAutoCancelledCount,
+    overdueBookedCleanupError,
+    rescheduleBookingAutoCancelledCount,
+    rescheduleBookingCleanupError,
     loading,
     mutating,
     reload,
@@ -562,6 +566,34 @@ export default function AdminSchedulingScreen() {
         {observerReadOnly ? (
           <View style={styles.inlineNotice}>
             <Text style={styles.inlineNoticeText}>{strings.manageSchedulingObserverReadonly}</Text>
+          </View>
+        ) : null}
+        {overdueBookedCleanupError ? (
+          <View style={styles.inlineNotice}>
+            <Text style={styles.inlineNoticeText}>
+              {strings.manageSchedulingAutoCancelledError} {overdueBookedCleanupError}
+            </Text>
+          </View>
+        ) : null}
+        {overdueBookedAutoCancelledCount > 0 ? (
+          <View style={styles.inlineNotice}>
+            <Text style={styles.inlineNoticeText}>
+              {strings.manageSchedulingAutoCancelledPrefix} {overdueBookedAutoCancelledCount} {strings.manageSchedulingAutoCancelledSuffix}
+            </Text>
+          </View>
+        ) : null}
+        {rescheduleBookingCleanupError ? (
+          <View style={styles.inlineNotice}>
+            <Text style={styles.inlineNoticeText}>
+              {strings.manageSchedulingBookingAutoCancelledError} {rescheduleBookingCleanupError}
+            </Text>
+          </View>
+        ) : null}
+        {rescheduleBookingAutoCancelledCount > 0 ? (
+          <View style={styles.inlineNotice}>
+            <Text style={styles.inlineNoticeText}>
+              {strings.manageSchedulingBookingAutoCancelledPrefix} {rescheduleBookingAutoCancelledCount} {strings.manageSchedulingBookingAutoCancelledSuffix}
+            </Text>
           </View>
         ) : null}
 

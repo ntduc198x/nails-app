@@ -2,6 +2,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Href } from "expo-router";
 import {
+  cleanupOverdueBookedAppointmentsForMobile,
+  cleanupRescheduleBookingRequestsForMobile,
+  isAppointmentPastAutoCancelThreshold,
   ensureOrgContext,
   isAppointmentArrivalOverdue,
   resolveMobileAdminViewContext,
@@ -17,7 +20,9 @@ export type ManageNotificationKind =
   | "staff_clock_in_approval"
   | "booking_request"
   | "booking_expired_unconfirmed"
+  | "booking_reschedule_auto_cancelled"
   | "customer_arrival_overdue"
+  | "customer_arrival_auto_cancelled"
   | "customer_checked_in"
   | "customer_checked_in_stale"
   | "customer_checked_out"
@@ -74,6 +79,14 @@ type BookingNotificationRow = {
   branch_id?: string | null;
 };
 
+type AutoCancelledBookingNotificationRow = {
+  id: string;
+  customer_name: string;
+  requested_service?: string | null;
+  requested_start_at: string;
+  reference_at: string;
+};
+
 type MembershipNotificationRow = {
   id: string;
   customer_id: string;
@@ -86,7 +99,7 @@ type MembershipNotificationRow = {
 
 type AppointmentNotificationRow = {
   id: string;
-  status: "BOOKED" | "CHECKED_IN" | "DONE";
+  status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED";
   start_at: string;
   checked_in_at?: string | null;
   updated_at?: string | null;
@@ -122,16 +135,18 @@ const MANAGE_NOTIFICATION_ROLES: AppRole[] = ["OWNER", "PARTNER", "MANAGER", "RE
 
 const NOTIFICATION_PRIORITY: Record<ManageNotificationKind, number> = {
   customer_arrival_overdue: 0,
-  customer_checked_in_stale: 1,
-  booking_request: 2,
-  booking_expired_unconfirmed: 3,
-  customer_checked_in: 4,
-  customer_checked_out: 5,
-  customer_membership_upgrade: 6,
-  customer_membership_offer: 7,
-  leave_request: 8,
-  staff_clock_in_approval: 9,
-  shift_published: 10,
+  customer_arrival_auto_cancelled: 1,
+  booking_reschedule_auto_cancelled: 2,
+  customer_checked_in_stale: 3,
+  booking_request: 4,
+  booking_expired_unconfirmed: 5,
+  customer_checked_in: 6,
+  customer_checked_out: 7,
+  customer_membership_upgrade: 8,
+  customer_membership_offer: 9,
+  leave_request: 10,
+  staff_clock_in_approval: 11,
+  shift_published: 12,
 };
 
 function getObserverScopeKey(observerScope?: ObserverScopeInput | null) {
@@ -173,11 +188,13 @@ function mapNotificationHref(kind: ManageNotificationKind): Href {
   switch (kind) {
     case "booking_request":
     case "booking_expired_unconfirmed":
+    case "booking_reschedule_auto_cancelled":
       return {
         pathname: "/scheduling",
         params: { tab: "bookings" },
       };
     case "customer_arrival_overdue":
+    case "customer_arrival_auto_cancelled":
     case "customer_checked_in":
     case "customer_checked_in_stale":
       return "/scheduling";
@@ -255,7 +272,16 @@ async function listPendingLeaveRequests(orgId: string, branchId?: string | null)
 }
 
 async function listOpenBookingRequests(orgId: string, branchId?: string | null) {
-  if (!mobileSupabase) return [] as BookingNotificationRow[];
+  if (!mobileSupabase) {
+    return {
+      openRows: [] as BookingNotificationRow[],
+      autoCancelledRows: [] as AutoCancelledBookingNotificationRow[],
+    };
+  }
+
+  const cleanup = await cleanupRescheduleBookingRequestsForMobile(mobileSupabase, {
+    observerScope: branchId ? { mode: "branch", branchId } : { mode: "org" },
+  });
 
   let query = mobileSupabase
     .from("booking_requests")
@@ -271,12 +297,37 @@ async function listOpenBookingRequests(orgId: string, branchId?: string | null) 
 
   const { data, error } = await query;
 
-  if (error) return [] as BookingNotificationRow[];
-  return (data ?? []) as BookingNotificationRow[];
+  if (error) {
+    return {
+      openRows: [] as BookingNotificationRow[],
+      autoCancelledRows: cleanup.autoCancelledBookings.map((row) => ({
+        id: row.id,
+        customer_name: row.customerName,
+        requested_service: row.requestedService,
+        requested_start_at: row.requestedStartAt,
+        reference_at: row.referenceAt,
+      })),
+    };
+  }
+
+  return {
+    openRows: (data ?? []) as BookingNotificationRow[],
+    autoCancelledRows: cleanup.autoCancelledBookings.map((row) => ({
+      id: row.id,
+      customer_name: row.customerName,
+      requested_service: row.requestedService,
+      requested_start_at: row.requestedStartAt,
+      reference_at: row.referenceAt,
+    })),
+  };
 }
 
 async function listRecentAppointmentEvents(orgId: string, branchId?: string | null) {
   if (!mobileSupabase) return [] as AppointmentNotificationRow[];
+
+  await cleanupOverdueBookedAppointmentsForMobile(mobileSupabase, {
+    observerScope: branchId ? { mode: "branch", branchId } : { mode: "org" },
+  });
 
   const recentEventSinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const checkedInSinceIso = new Date(Date.now() - ADMIN_NOTIFICATION_RULES.staleCheckedInDays * 24 * 60 * 60 * 1000).toISOString();
@@ -284,8 +335,8 @@ async function listRecentAppointmentEvents(orgId: string, branchId?: string | nu
     .from("appointments")
     .select("id,status,start_at,checked_in_at,updated_at,branch_id,customers(name,full_name)")
     .eq("org_id", orgId)
-    .in("status", ["BOOKED", "CHECKED_IN", "DONE"])
-    .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso})`)
+    .in("status", ["BOOKED", "CHECKED_IN", "DONE", "CANCELLED"])
+    .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso}),and(status.eq.CANCELLED,updated_at.gte.${recentEventSinceIso})`)
     .order("updated_at", { ascending: false })
     .limit(24);
 
@@ -427,15 +478,20 @@ export async function loadManageNotificationsForMobile(
   const shouldSeeShiftPublished =
     role === "MANAGER" || role === "RECEPTION" || role === "TECH" || role === "ACCOUNTANT";
 
-  const [pendingAttendance, pendingLeaveRequests, bookingRequests, appointmentEvents, publishedShiftPlans, membershipNotifications, stateMap] = await Promise.all([
+  const [pendingAttendance, pendingLeaveRequests, bookingRequestFeed, appointmentEvents, publishedShiftPlans, membershipNotifications, stateMap] = await Promise.all([
     canApproveShift ? listPendingAttendance(orgId, branchId) : Promise.resolve([] as PendingAttendanceRow[]),
     canApproveShift ? listPendingLeaveRequests(orgId, branchId) : Promise.resolve([] as PendingLeaveRow[]),
-    canSeeBookings ? listOpenBookingRequests(orgId, branchId) : Promise.resolve([] as BookingNotificationRow[]),
+    canSeeBookings
+      ? listOpenBookingRequests(orgId, branchId)
+      : Promise.resolve({ openRows: [] as BookingNotificationRow[], autoCancelledRows: [] as AutoCancelledBookingNotificationRow[] }),
     canSeeAppointments ? listRecentAppointmentEvents(orgId, branchId) : Promise.resolve([] as AppointmentNotificationRow[]),
     shouldSeeShiftPublished ? listRecentPublishedShiftPlans(orgId, branchId) : Promise.resolve([] as ShiftPlanNotificationRow[]),
     role === "OWNER" || role === "PARTNER" || role === "MANAGER" ? listRecentMembershipNotifications(orgId) : Promise.resolve([] as MembershipNotificationRow[]),
     loadAdminNotificationStates(orgId),
   ]);
+
+  const bookingRequests = bookingRequestFeed.openRows;
+  const autoCancelledBookings = bookingRequestFeed.autoCancelledRows;
 
   const membershipBranchCustomerIds =
     branchId && membershipNotifications.length > 0
@@ -471,6 +527,26 @@ export async function loadManageNotificationsForMobile(
           };
         }
         return null;
+      }
+
+      if (row.status === "CANCELLED" && isAppointmentPastAutoCancelThreshold({ startAt: row.start_at, status: "BOOKED" })) {
+        return {
+          id: `arrival-auto-cancelled-${row.id}`,
+          kind: "customer_arrival_auto_cancelled",
+          title: translate(locale, "admin", "notificationsArrivalAutoCancelledTitle"),
+          message: translate(locale, "admin", "notificationsArrivalAutoCancelledMessage", {
+            customer: pickCustomerName(
+              row.customers,
+              translate(locale, "admin", "notificationsCustomerFallback"),
+            ),
+            date: formatDate(row.start_at, locale),
+            time: formatTime(row.start_at, locale),
+          }),
+          href: buildAppointmentHref(row.id),
+          createdAt: row.updated_at ?? row.start_at,
+          actionRequired: false,
+          severity: "info",
+        };
       }
 
       if (row.status === "CHECKED_IN" && row.checked_in_at) {
@@ -632,6 +708,21 @@ export async function loadManageNotificationsForMobile(
           : row.status === "EXPIRED_UNCONFIRMED"
             ? "info"
             : "warning",
+    })),
+    ...autoCancelledBookings.map<ManageNotificationItem>((row) => ({
+      id: `booking-reschedule-auto-cancelled-${row.id}`,
+      kind: "booking_reschedule_auto_cancelled",
+      title: translate(locale, "admin", "notificationsBookingRescheduleAutoCancelledTitle"),
+      message: translate(locale, "admin", "notificationsBookingRescheduleAutoCancelledMessage", {
+        customer: row.customer_name || translate(locale, "admin", "notificationsCustomerFallback"),
+      }),
+      href: {
+        pathname: "/scheduling",
+        params: { tab: "bookings" },
+      },
+      createdAt: new Date().toISOString(),
+      actionRequired: false,
+      severity: "info",
     })),
     ...appointmentNotifications,
     ...shiftPublishedNotifications,

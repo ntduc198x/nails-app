@@ -7,6 +7,7 @@ export * from "./validation";
 export * from "./booking";
 export * from "./appointments";
 export * from "./checkout";
+export * from "./discount";
 export * from "./dashboard";
 export * from "./crm";
 export * from "./reporting";

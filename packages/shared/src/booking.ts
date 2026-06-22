@@ -32,6 +32,21 @@ export type MobileBookingRequestSummary = {
   appointmentId: string | null;
   source: string | null;
   createdAt: string;
+  updatedAt: string | null;
+};
+
+export const BOOKING_REQUEST_AUTO_CANCEL_RESCHEDULE_DAYS = 3;
+
+export type BookingRequestCleanupResult = {
+  autoCancelledCount: number;
+  cleanupError: string | null;
+  autoCancelledBookings: Array<{
+    id: string;
+    customerName: string;
+    requestedService: string | null;
+    requestedStartAt: string;
+    referenceAt: string;
+  }>;
 };
 
 export interface BookingRequestApiResponse<TData = unknown, TBookingRequest = unknown> {
@@ -51,6 +66,76 @@ export type PublicBookingSubmissionResult<TData = unknown> = {
   successMessage: string | null;
 };
 
+type BookingRequestRow = {
+  id?: unknown;
+  customer_name?: unknown;
+  customer_phone?: unknown;
+  requested_service?: unknown;
+  preferred_staff?: unknown;
+  note?: unknown;
+  requested_start_at?: unknown;
+  requested_end_at?: unknown;
+  status?: unknown;
+  appointment_id?: unknown;
+  source?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+};
+
+function mapBookingRequestRow(row: BookingRequestRow): MobileBookingRequestSummary {
+  return {
+    id: String(row.id ?? ""),
+    customerName: String(row.customer_name ?? ""),
+    customerPhone: typeof row.customer_phone === "string" ? row.customer_phone : null,
+    requestedService: typeof row.requested_service === "string" ? row.requested_service : null,
+    preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
+    note: typeof row.note === "string" ? row.note : null,
+    requestedStartAt: String(row.requested_start_at ?? ""),
+    requestedEndAt: String(row.requested_end_at ?? ""),
+    status: String(row.status ?? "NEW") as BookingRequestStatus,
+    appointmentId: typeof row.appointment_id === "string" ? row.appointment_id : null,
+    source: typeof row.source === "string" ? row.source : null,
+    createdAt: String(row.created_at ?? ""),
+    updatedAt: typeof row.updated_at === "string" ? row.updated_at : null,
+  };
+}
+
+async function persistPatchedBookingRequestStatuses(
+  client: SharedSupabaseClient,
+  input: {
+    orgId: string;
+    branchId?: string | null;
+    expiredIds: string[];
+    autoCancelledIds: string[];
+  },
+) {
+  const { orgId, branchId, expiredIds, autoCancelledIds } = input;
+
+  if (expiredIds.length > 0) {
+    await client
+      .from("booking_requests")
+      .update({ status: "EXPIRED_UNCONFIRMED" })
+      .eq("org_id", orgId)
+      .in("id", expiredIds)
+      .eq("status", "NEW");
+  }
+
+  if (autoCancelledIds.length > 0) {
+    let cancelQuery = client
+      .from("booking_requests")
+      .update({ status: "CANCELLED" })
+      .eq("org_id", orgId)
+      .in("id", autoCancelledIds)
+      .eq("status", "NEEDS_RESCHEDULE");
+
+    if (branchId) {
+      cancelQuery = cancelQuery.eq("branch_id", branchId);
+    }
+
+    await cancelQuery;
+  }
+}
+
 function patchExpiredRows(rows: MobileBookingRequestSummary[]) {
   const now = Date.now();
   const expiredIds = rows
@@ -61,6 +146,27 @@ function patchExpiredRows(rows: MobileBookingRequestSummary[]) {
     expiredIds,
     rows: rows.map((row) =>
       expiredIds.includes(row.id) ? { ...row, status: "EXPIRED_UNCONFIRMED" as BookingRequestStatus } : row,
+    ),
+  };
+}
+
+function getBookingRequestRescheduleReferenceMs(row: Pick<MobileBookingRequestSummary, "status" | "updatedAt" | "createdAt">) {
+  const referenceValue = row.updatedAt ?? row.createdAt;
+  const referenceMs = new Date(referenceValue).getTime();
+  return Number.isFinite(referenceMs) ? referenceMs : 0;
+}
+
+function patchAutoCancelledRescheduleRows(rows: MobileBookingRequestSummary[]) {
+  const thresholdMs = Date.now() - BOOKING_REQUEST_AUTO_CANCEL_RESCHEDULE_DAYS * 24 * 60 * 60 * 1000;
+  const autoCancelledIds = rows
+    .filter((row) => row.status === "NEEDS_RESCHEDULE")
+    .filter((row) => getBookingRequestRescheduleReferenceMs(row) <= thresholdMs)
+    .map((row) => row.id);
+
+  return {
+    autoCancelledIds,
+    rows: rows.map((row) =>
+      autoCancelledIds.includes(row.id) ? { ...row, status: "CANCELLED" as BookingRequestStatus } : row,
     ),
   };
 }
@@ -222,7 +328,7 @@ export async function listBookingRequestsForMobile(
   const view = await resolveMobileAdminViewContext(client, options?.observerScope);
 
   const selectFields =
-    "id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at";
+    "id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at,updated_at";
 
   let directQuery = client
     .from("booking_requests")
@@ -236,34 +342,39 @@ export async function listBookingRequestsForMobile(
   }
 
   const direct = await directQuery;
+  let directData = direct.data ?? [];
+  let directError = direct.error;
 
-  if (!direct.error) {
-    const rows = (direct.data ?? []).map((row) => ({
-      id: String(row.id ?? ""),
-      customerName: String(row.customer_name ?? ""),
-      customerPhone: typeof row.customer_phone === "string" ? row.customer_phone : null,
-      requestedService: typeof row.requested_service === "string" ? row.requested_service : null,
-      preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
-      note: typeof row.note === "string" ? row.note : null,
-      requestedStartAt: String(row.requested_start_at ?? ""),
-      requestedEndAt: String(row.requested_end_at ?? ""),
-      status: String(row.status ?? "NEW") as BookingRequestStatus,
-      appointmentId: typeof row.appointment_id === "string" ? row.appointment_id : null,
-      source: typeof row.source === "string" ? row.source : null,
-      createdAt: String(row.created_at ?? ""),
-    }));
+  if (directError?.message?.includes("updated_at")) {
+    let fallbackQuery = client
+      .from("booking_requests")
+      .select("id,customer_name,customer_phone,requested_service,preferred_staff,note,requested_start_at,requested_end_at,status,appointment_id,source,created_at")
+      .eq("org_id", view.orgId)
+      .order("created_at", { ascending: true })
+      .limit(200);
 
-    const patched = patchExpiredRows(rows);
-    if (patched.expiredIds.length > 0) {
-      await client
-        .from("booking_requests")
-        .update({ status: "EXPIRED_UNCONFIRMED" })
-        .eq("org_id", view.orgId)
-        .in("id", patched.expiredIds)
-        .eq("status", "NEW");
+    if (view.viewBranchId) {
+      fallbackQuery = fallbackQuery.eq("branch_id", view.viewBranchId);
     }
 
-    return patched.rows;
+    const fallback = await fallbackQuery;
+    directData = (fallback.data ?? []).map((row) => ({ ...row, updated_at: null }));
+    directError = fallback.error;
+  }
+
+  if (!directError) {
+    const rows = directData.map((row) => mapBookingRequestRow(row as BookingRequestRow));
+
+    const expiredPatched = patchExpiredRows(rows);
+    const autoCancelledPatched = patchAutoCancelledRescheduleRows(expiredPatched.rows);
+    await persistPatchedBookingRequestStatuses(client, {
+      orgId: view.orgId,
+      branchId: view.viewBranchId,
+      expiredIds: expiredPatched.expiredIds,
+      autoCancelledIds: autoCancelledPatched.autoCancelledIds,
+    });
+
+    return autoCancelledPatched.rows;
   }
 
   const rpc = await client.rpc("list_booking_requests_secure", {
@@ -274,32 +385,132 @@ export async function listBookingRequestsForMobile(
     throw rpc.error;
   }
 
-  const rows = ((rpc.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-    id: String(row.id ?? ""),
-    customerName: String(row.customer_name ?? ""),
-    customerPhone: typeof row.customer_phone === "string" ? row.customer_phone : null,
-    requestedService: typeof row.requested_service === "string" ? row.requested_service : null,
-    preferredStaff: typeof row.preferred_staff === "string" ? row.preferred_staff : null,
-    note: typeof row.note === "string" ? row.note : null,
-    requestedStartAt: String(row.requested_start_at ?? ""),
-    requestedEndAt: String(row.requested_end_at ?? ""),
-    status: String(row.status ?? "NEW") as BookingRequestStatus,
-    appointmentId: typeof row.appointment_id === "string" ? row.appointment_id : null,
-    source: typeof row.source === "string" ? row.source : null,
-    createdAt: String(row.created_at ?? ""),
-  }));
+  const rows = ((rpc.data ?? []) as BookingRequestRow[]).map(mapBookingRequestRow);
 
-  const patched = patchExpiredRows(rows);
-  if (patched.expiredIds.length > 0) {
-    await client
-      .from("booking_requests")
-      .update({ status: "EXPIRED_UNCONFIRMED" })
-      .eq("org_id", view.orgId)
-      .in("id", patched.expiredIds)
-      .eq("status", "NEW");
+  const expiredPatched = patchExpiredRows(rows);
+  const autoCancelledPatched = patchAutoCancelledRescheduleRows(expiredPatched.rows);
+  await persistPatchedBookingRequestStatuses(client, {
+    orgId: view.orgId,
+    branchId: view.viewBranchId,
+    expiredIds: expiredPatched.expiredIds,
+    autoCancelledIds: autoCancelledPatched.autoCancelledIds,
+  });
+
+  return autoCancelledPatched.rows;
+}
+
+export async function cleanupRescheduleBookingRequestsForMobile(
+  client: SharedSupabaseClient,
+  options?: { observerScope?: ObserverScopeInput | null },
+): Promise<BookingRequestCleanupResult> {
+  const view = await resolveMobileAdminViewContext(client, options?.observerScope);
+  const thresholdMs = Date.now() - BOOKING_REQUEST_AUTO_CANCEL_RESCHEDULE_DAYS * 24 * 60 * 60 * 1000;
+
+  let query = client
+    .from("booking_requests")
+    .select("id,customer_name,requested_service,requested_start_at,created_at,updated_at")
+    .eq("org_id", view.orgId)
+    .eq("status", "NEEDS_RESCHEDULE")
+    .limit(200);
+
+  if (view.viewBranchId) {
+    query = query.eq("branch_id", view.viewBranchId);
   }
 
-  return patched.rows;
+  let { data, error } = await query;
+
+  if (error?.message?.includes("updated_at")) {
+    let fallbackQuery = client
+      .from("booking_requests")
+      .select("id,customer_name,requested_service,requested_start_at,created_at")
+      .eq("org_id", view.orgId)
+      .eq("status", "NEEDS_RESCHEDULE")
+      .limit(200);
+
+    if (view.viewBranchId) {
+      fallbackQuery = fallbackQuery.eq("branch_id", view.viewBranchId);
+    }
+
+    const fallback = await fallbackQuery;
+    data = (fallback.data ?? []).map((row) => ({ ...row, updated_at: null }));
+    error = fallback.error;
+  }
+
+  if (error) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: error.message || "Khong the tu dong huy booking can doi lich.",
+      autoCancelledBookings: [],
+    };
+  }
+
+  const candidates = (data ?? []) as Array<Record<string, unknown>>;
+  const autoCancelledBookings = candidates
+    .map((row) => {
+      const referenceAt =
+        typeof row.updated_at === "string" && row.updated_at
+          ? row.updated_at
+          : String(row.created_at ?? "");
+      const referenceMs = new Date(referenceAt).getTime();
+      if (!Number.isFinite(referenceMs) || referenceMs > thresholdMs) {
+        return null;
+      }
+
+      return {
+        id: typeof row.id === "string" ? row.id : "",
+        customerName: typeof row.customer_name === "string" ? row.customer_name : "-",
+        requestedService: typeof row.requested_service === "string" ? row.requested_service : null,
+        requestedStartAt: String(row.requested_start_at ?? ""),
+        referenceAt,
+      };
+    })
+    .filter(
+      (
+        row,
+      ): row is {
+        id: string;
+        customerName: string;
+        requestedService: string | null;
+        requestedStartAt: string;
+        referenceAt: string;
+      } => Boolean(row?.id),
+    );
+
+  const autoCancelledIds = autoCancelledBookings.map((row) => row.id);
+
+  if (autoCancelledIds.length === 0) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: null,
+      autoCancelledBookings: [],
+    };
+  }
+
+  let updateQuery = client
+    .from("booking_requests")
+    .update({ status: "CANCELLED" })
+    .eq("org_id", view.orgId)
+    .in("id", autoCancelledIds)
+    .eq("status", "NEEDS_RESCHEDULE");
+
+  if (view.viewBranchId) {
+    updateQuery = updateQuery.eq("branch_id", view.viewBranchId);
+  }
+
+  const { error: cleanupError } = await updateQuery;
+  if (cleanupError) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: cleanupError.message || "Khong the tu dong huy booking can doi lich.",
+      autoCancelledBookings: [],
+    };
+  }
+
+  return {
+    autoCancelledCount: autoCancelledIds.length,
+    cleanupError: null,
+    autoCancelledBookings,
+  };
 }
 
 export async function updateBookingRequestStatusForMobile(

@@ -1,12 +1,19 @@
-import { ensureOrgContext } from "@/lib/domain";
+import { cleanupOverdueBookedAppointments, ensureOrgContext } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
-import type { AppRole } from "@nails/shared";
+import {
+  APPOINTMENT_OVERDUE_AUTO_CANCEL_DAYS,
+  cleanupRescheduleBookingRequestsForMobile,
+  isAppointmentPastAutoCancelThreshold,
+  type AppRole,
+} from "@nails/shared";
 
 export type ManageNotificationKind =
   | "leave_request"
   | "staff_clock_in_approval"
   | "booking_request"
+  | "booking_reschedule_auto_cancelled"
   | "customer_arrival_overdue"
+  | "customer_arrival_auto_cancelled"
   | "customer_checked_in"
   | "customer_checked_in_stale"
   | "customer_checked_out"
@@ -58,9 +65,17 @@ type BookingNotificationRow = {
   created_at: string;
 };
 
+type AutoCancelledBookingNotificationRow = {
+  id: string;
+  customer_name: string;
+  requested_service?: string | null;
+  requested_start_at: string;
+  reference_at: string;
+};
+
 type AppointmentNotificationRow = {
   id: string;
-  status: "BOOKED" | "CHECKED_IN" | "DONE";
+  status: "BOOKED" | "CHECKED_IN" | "DONE" | "CANCELLED";
   start_at: string;
   checked_in_at?: string | null;
   updated_at?: string | null;
@@ -80,13 +95,15 @@ const STALE_CHECKED_IN_DAYS = 7;
 const RECENT_SHIFT_PUBLISHED_HOURS = 72;
 const NOTIFICATION_PRIORITY: Record<ManageNotificationKind, number> = {
   customer_arrival_overdue: 0,
-  customer_checked_in_stale: 1,
-  booking_request: 2,
-  customer_checked_in: 3,
-  customer_checked_out: 4,
-  leave_request: 5,
-  staff_clock_in_approval: 6,
-  shift_published: 7,
+  customer_arrival_auto_cancelled: 1,
+  booking_reschedule_auto_cancelled: 2,
+  customer_checked_in_stale: 3,
+  booking_request: 4,
+  customer_checked_in: 5,
+  customer_checked_out: 6,
+  leave_request: 7,
+  staff_clock_in_approval: 8,
+  shift_published: 9,
 };
 
 function formatTime(dateTime: string) {
@@ -164,7 +181,16 @@ async function listPendingLeaveRequests(orgId: string) {
 }
 
 async function listOpenBookingRequests(orgId: string) {
-  if (!supabase) return [] as BookingNotificationRow[];
+  if (!supabase) {
+    return {
+      openRows: [] as BookingNotificationRow[],
+      autoCancelledRows: [] as AutoCancelledBookingNotificationRow[],
+    };
+  }
+
+  const cleanup = await cleanupRescheduleBookingRequestsForMobile(supabase, {
+    observerScope: { mode: "org" },
+  });
 
   const { data, error } = await supabase
     .from("booking_requests")
@@ -174,12 +200,35 @@ async function listOpenBookingRequests(orgId: string) {
     .order("created_at", { ascending: false })
     .limit(8);
 
-  if (error) return [] as BookingNotificationRow[];
-  return (data ?? []) as BookingNotificationRow[];
+  if (error) {
+    return {
+      openRows: [] as BookingNotificationRow[],
+      autoCancelledRows: cleanup.autoCancelledBookings.map((row) => ({
+        id: row.id,
+        customer_name: row.customerName,
+        requested_service: row.requestedService,
+        requested_start_at: row.requestedStartAt,
+        reference_at: row.referenceAt,
+      })),
+    };
+  }
+
+  return {
+    openRows: (data ?? []) as BookingNotificationRow[],
+    autoCancelledRows: cleanup.autoCancelledBookings.map((row) => ({
+      id: row.id,
+      customer_name: row.customerName,
+      requested_service: row.requestedService,
+      requested_start_at: row.requestedStartAt,
+      reference_at: row.referenceAt,
+    })),
+  };
 }
 
 async function listRecentAppointmentEvents(orgId: string) {
   if (!supabase) return [] as AppointmentNotificationRow[];
+
+  await cleanupOverdueBookedAppointments();
 
   const recentEventSinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const checkedInSinceIso = new Date(Date.now() - STALE_CHECKED_IN_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -187,8 +236,8 @@ async function listRecentAppointmentEvents(orgId: string) {
     .from("appointments")
     .select("id,status,start_at,checked_in_at,updated_at,customers(name,full_name)")
     .eq("org_id", orgId)
-    .in("status", ["BOOKED", "CHECKED_IN", "DONE"])
-    .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso})`)
+    .in("status", ["BOOKED", "CHECKED_IN", "DONE", "CANCELLED"])
+    .or(`and(status.eq.BOOKED,start_at.gte.${recentEventSinceIso}),and(status.eq.DONE,updated_at.gte.${recentEventSinceIso}),and(status.eq.CHECKED_IN,start_at.gte.${checkedInSinceIso}),and(status.eq.CANCELLED,updated_at.gte.${recentEventSinceIso})`)
     .order("updated_at", { ascending: false })
     .limit(24);
 
@@ -246,13 +295,18 @@ export async function loadManageNotifications(role: AppRole) {
   const { data: sessionData } = await supabase.auth.getSession();
   const currentUserId = sessionData.session?.user?.id ?? null;
 
-  const [pendingAttendance, pendingLeaveRequests, bookingRequests, appointmentEvents, publishedShiftPlans] = await Promise.all([
+  const [pendingAttendance, pendingLeaveRequests, bookingRequestFeed, appointmentEvents, publishedShiftPlans] = await Promise.all([
     canApproveShift ? listPendingAttendance(orgId) : Promise.resolve([] as PendingAttendanceRow[]),
     canApproveShift ? listPendingLeaveRequests(orgId) : Promise.resolve([] as PendingLeaveRow[]),
-    canSeeBookings ? listOpenBookingRequests(orgId) : Promise.resolve([] as BookingNotificationRow[]),
+    canSeeBookings
+      ? listOpenBookingRequests(orgId)
+      : Promise.resolve({ openRows: [] as BookingNotificationRow[], autoCancelledRows: [] as AutoCancelledBookingNotificationRow[] }),
     canSeeAppointments ? listRecentAppointmentEvents(orgId) : Promise.resolve([] as AppointmentNotificationRow[]),
     shouldSeeShiftPublished ? listRecentPublishedShiftPlans(orgId) : Promise.resolve([] as ShiftPlanNotificationRow[]),
   ]);
+
+  const bookingRequests = bookingRequestFeed.openRows;
+  const autoCancelledBookings = bookingRequestFeed.autoCancelledRows;
 
   const nameMap = await loadProfileNameMap([
     ...new Set([
@@ -278,6 +332,18 @@ export async function loadManageNotifications(role: AppRole) {
           };
         }
         return null;
+      }
+
+      if (row.status === "CANCELLED" && isAppointmentPastAutoCancelThreshold({ startAt: row.start_at, status: "BOOKED" })) {
+        return {
+          id: `arrival-auto-cancelled-${row.id}`,
+          kind: "customer_arrival_auto_cancelled",
+          title: "Lịch quá hẹn đã tự hủy",
+          message: `${pickCustomerName(row.customers)} đã bị tự hủy vì quá hẹn hơn ${APPOINTMENT_OVERDUE_AUTO_CANCEL_DAYS} ngày kể từ ${formatTime(row.start_at)} ${formatDate(row.start_at)}.`,
+          href: "/manage/appointments",
+          createdAt: row.updated_at ?? row.start_at,
+          actionRequired: false,
+        };
       }
 
       if (row.status === "CHECKED_IN" && row.checked_in_at) {
@@ -370,6 +436,15 @@ export async function loadManageNotifications(role: AppRole) {
       href: `/manage/appointments/web-booking?bookingRequestId=${encodeURIComponent(row.id)}&queue=${row.status === "NEEDS_RESCHEDULE" ? "reschedule" : "new"}`,
       createdAt: row.created_at,
       actionRequired: true,
+    })),
+    ...autoCancelledBookings.map((row) => ({
+      id: `booking-reschedule-auto-cancelled-${row.id}`,
+      kind: "booking_reschedule_auto_cancelled" as const,
+      title: "Booking cần dời lịch đã tự hủy",
+      message: `${row.customer_name || "Khách mới"} đã bị tự hủy sau hơn 3 ngày chưa cập nhật lịch mới.`,
+      href: "/manage/appointments/web-booking?queue=reschedule",
+      createdAt: new Date().toISOString(),
+      actionRequired: false,
     })),
     ...appointmentNotifications,
     ...shiftPublishedNotifications,

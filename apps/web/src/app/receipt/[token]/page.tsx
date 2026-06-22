@@ -1,8 +1,21 @@
 import { createClient } from "@supabase/supabase-js";
+import { getStoredDiscountDetails, type StoredCheckoutTotals } from "@nails/shared";
 import Link from "next/link";
 
 function formatVnd(n: number) {
   return `${new Intl.NumberFormat("vi-VN").format(n)}đ`;
+}
+
+function formatDiscountLabel(totals: StoredCheckoutTotals) {
+  const discount = getStoredDiscountDetails(totals);
+  if (discount.total <= 0) return null;
+  if (discount.type === "percent" && discount.value != null) {
+    return `${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(discount.value)}% (${formatVnd(discount.total)})`;
+  }
+  if (discount.type === "amount") {
+    return `${formatVnd(discount.total)} (VND)`;
+  }
+  return formatVnd(discount.total);
 }
 
 type Params = { token: string };
@@ -25,7 +38,7 @@ export default async function ReceiptPage({ params }: { params: Promise<Params> 
   }
 
   const receiptData = payload as {
-    ticket?: { id?: string; created_at?: string; totals_json?: { subtotal?: number; vat_total?: number; grand_total?: number } };
+    ticket?: { id?: string; created_at?: string; totals_json?: StoredCheckoutTotals };
     customer?: { name?: string };
     payment?: { method?: string; amount?: number; status?: string };
     items?: Array<{ qty?: number; unit_price?: number; vat_rate?: number; service_name?: string }>;
@@ -40,6 +53,7 @@ export default async function ReceiptPage({ params }: { params: Promise<Params> 
   const items = receiptData.items ?? [];
   const payment = receiptData.payment;
   const totals = receiptData.ticket?.totals_json ?? {};
+  const discountLabel = formatDiscountLabel(totals);
 
   return (
     <main className="mx-auto max-w-2xl space-y-4 bg-white p-6 print:max-w-full print:p-2">
@@ -87,6 +101,7 @@ export default async function ReceiptPage({ params }: { params: Promise<Params> 
       <div className="rounded-xl border p-4 text-sm">
         <p>Tạm tính: {formatVnd(Number(totals.subtotal ?? 0))}</p>
         <p>VAT: {formatVnd(Number(totals.vat_total ?? 0))}</p>
+        {discountLabel ? <p>Giảm giá: {discountLabel}</p> : null}
         <p className="mt-2 text-lg font-semibold">Tổng: {formatVnd(Number(totals.grand_total ?? 0))}</p>
       </div>
     </main>

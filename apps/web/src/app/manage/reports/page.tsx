@@ -7,11 +7,23 @@ import { listUserRoles } from "@/lib/auth";
 import { getCrmDashboardMetrics } from "@/lib/crm";
 import { formatVnd } from "@/lib/mock-data";
 import { getReportBreakdown, getStaffRevenueInRange, listTicketsInRange, listTimeEntriesInRange, type ReportTicketRow } from "@/lib/reporting";
-import { formatAttendanceFraction } from "@nails/shared";
+import { formatAttendanceFraction, getStoredDiscountDetails, type StoredCheckoutTotals } from "@nails/shared";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type RangeMode = "day" | "week" | "month" | "custom";
+
+function formatDiscountChip(totals: StoredCheckoutTotals | null | undefined) {
+  const discount = getStoredDiscountDetails(totals);
+  if (discount.total <= 0) return null;
+  if (discount.type === "percent" && discount.value != null) {
+    return `Giảm ${new Intl.NumberFormat("vi-VN", { maximumFractionDigits: 2 }).format(discount.value)}% (${formatVnd(discount.total)})`;
+  }
+  if (discount.type === "amount") {
+    return `Giảm VND ${formatVnd(discount.total)}`;
+  }
+  return `Giảm ${formatVnd(discount.total)}`;
+}
 
 function toDateInput(d: Date) {
   const y = d.getFullYear();
@@ -254,7 +266,7 @@ export default function ReportsPage() {
       },
       {
         name: "Chi_tiet_bill",
-        rows: [["Mã bill", "Mã nhân viên", "Thời gian", "Trạng thái", "Tạm tính", "VAT", "Tổng tiền"], ...filteredTicketRows.map((r) => [r.id, r.staff_user_id ?? "", new Date(r.created_at).toLocaleString("vi-VN"), r.status, Number(r.totals_json?.subtotal ?? 0), Number(r.totals_json?.vat_total ?? 0), Number(r.totals_json?.grand_total ?? 0)])],
+        rows: [["Mã bill", "Mã nhân viên", "Thời gian", "Trạng thái", "Tạm tính", "VAT", "Giảm giá", "Tổng tiền"], ...filteredTicketRows.map((r) => [r.id, r.staff_user_id ?? "", new Date(r.created_at).toLocaleString("vi-VN"), r.status, Number(r.totals_json?.subtotal ?? 0), Number(r.totals_json?.vat_total ?? 0), Number(r.totals_json?.discount_total ?? 0), Number(r.totals_json?.grand_total ?? 0)])],
       },
     ]);
   }
@@ -465,6 +477,7 @@ export default function ReportsPage() {
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>
+                          {formatDiscountChip(t.totals_json as StoredCheckoutTotals | null | undefined) ? <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatDiscountChip(t.totals_json as StoredCheckoutTotals | null | undefined)}</span> : null}
                           <Link className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 font-medium text-neutral-800" href={`/manage/reports/${t.id}`}>Chi tiết</Link>
                         </div>
                       </div>
@@ -497,6 +510,7 @@ export default function ReportsPage() {
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">{t.status}</span>
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatVnd(Number(t.totals_json?.subtotal ?? 0))}</span>
                           <span className="rounded-full bg-neutral-100 px-2 py-0.5">VAT {formatVnd(Number(t.totals_json?.vat_total ?? 0))}</span>
+                          {formatDiscountChip(t.totals_json as StoredCheckoutTotals | null | undefined) ? <span className="rounded-full bg-neutral-100 px-2 py-0.5">{formatDiscountChip(t.totals_json as StoredCheckoutTotals | null | undefined)}</span> : null}
                           <Link className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 font-medium text-neutral-800" href={`/manage/reports/${t.id}`}>Chi tiết</Link>
                         </div>
                       </div>

@@ -7,7 +7,7 @@ import { ManageDateTimePicker, toDateTimeLocalValue } from "@/components/manage-
 import { MobileCollapsible, MobileSectionHeader, MobileStickyActions } from "@/components/manage-mobile";
 import { ManageQuickNav, operationsQuickNav } from "@/components/manage-quick-nav";
 import { getCurrentSessionRole } from "@/lib/auth";
-import { createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
+import { cleanupOverdueBookedAppointments, createAppointment, ensureOrgContext, listAppointments, listResources, listStaffMembers, updateAppointmentStatus } from "@/lib/domain";
 import { supabase } from "@/lib/supabase";
 import Link from "next/link";
 import { Suspense, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -357,6 +357,8 @@ function OperationsPageContent() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [overdueBookedAutoCancelledCount, setOverdueBookedAutoCancelledCount] = useState(0);
+  const [overdueBookedCleanupError, setOverdueBookedCleanupError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [rangeMode, setRangeMode] = useState<RangeMode>("day");
   const [fromDate, setFromDate] = useState(toDateInputValue(now));
@@ -390,6 +392,7 @@ function OperationsPageContent() {
       const userId = sessionRes?.data.session?.user?.id ?? "";
       const currentRole = userId ? await getCurrentSessionRole() : null;
       await ensureOrgContext();
+      const overdueCleanup = await cleanupOverdueBookedAppointments();
 
       const [data, staffs, resources] = await Promise.all([
         listAppointments({ force: opts?.force }),
@@ -400,6 +403,8 @@ function OperationsPageContent() {
       setRole(currentRole);
       setMyUserId(userId);
       setRows(data as AppointmentRow[]);
+      setOverdueBookedAutoCancelledCount(overdueCleanup.autoCancelledCount);
+      setOverdueBookedCleanupError(overdueCleanup.cleanupError);
       setStaffOptions(staffs as StaffOption[]);
       setResourceOptions(resources as ResourceOption[]);
       if (!editingId && currentRole === "TECH" && userId) setStaffUserId(userId);
@@ -639,6 +644,8 @@ function OperationsPageContent() {
           webBookingHref="/manage/appointments/web-booking"
         />
         {error ? <ManageAlert tone="error">{error}</ManageAlert> : null}
+        {overdueBookedCleanupError ? <ManageAlert tone="error">Không thể tự động hủy lịch quá hẹn. {overdueBookedCleanupError}</ManageAlert> : null}
+        {overdueBookedAutoCancelledCount > 0 ? <ManageAlert tone="info">Đã tự hủy {overdueBookedAutoCancelledCount} lịch quá hẹn hơn 1 ngày.</ManageAlert> : null}
 
         <>
           <section ref={formRef} className="manage-surface space-y-2.5 md:space-y-4">

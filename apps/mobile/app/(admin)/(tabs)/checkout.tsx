@@ -83,6 +83,13 @@ type RangeMode = "day" | "week" | "month" | "custom";
 type HistoryRange = { from: Date; to: Date };
 type CheckoutLineDraft = { serviceId: string; qty: number };
 type EditableTicketLine = CheckoutLineDraft & { serviceName: string };
+type CheckoutDiscountType = "amount" | "percent";
+type CheckoutDiscountErrorKey =
+  | "negative"
+  | "invalidNumber"
+  | "percentOutOfRange"
+  | "amountExceedsTotal"
+  | null;
 
 function toDateInput(date: Date) {
   const year = date.getFullYear();
@@ -145,6 +152,11 @@ function createEmptyCheckoutLine(): CheckoutLineDraft {
   return { serviceId: "", qty: 1 };
 }
 
+function formatCompactLineSummary(serviceName: string | null | undefined, qty: number) {
+  const safeName = serviceName?.trim() || "-";
+  return `${qty} × ${safeName}`;
+}
+
 function normalizeServiceName(name: string) {
   return name.trim().toLowerCase();
 }
@@ -154,6 +166,19 @@ function buildCheckoutServiceLookups(services: MobileCheckoutService[]) {
     byId: new Map(services.map((service) => [service.id, service])),
     byName: new Map(services.map((service) => [normalizeServiceName(service.name), service])),
   };
+}
+
+function dedupeCheckoutServices(services: MobileCheckoutService[]) {
+  const unique = new Map<string, MobileCheckoutService>();
+
+  services.forEach((service) => {
+    const key = `${normalizeServiceName(service.name)}|${service.basePrice}|${service.vatRate}|${service.active ? 1 : 0}`;
+    if (!unique.has(key)) {
+      unique.set(key, service);
+    }
+  });
+
+  return [...unique.values()];
 }
 
 function resolveEditableTicketLines(
@@ -238,6 +263,8 @@ export default function AdminCheckoutScreen() {
   const [checkoutCustomerName] = useState("");
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<"CASH" | "TRANSFER">("CASH");
   const [checkoutLines, setCheckoutLines] = useState<CheckoutLineDraft[]>([createEmptyCheckoutLine()]);
+  const [checkoutDiscountType, setCheckoutDiscountType] = useState<CheckoutDiscountType>("amount");
+  const [checkoutDiscountValueInput, setCheckoutDiscountValueInput] = useState("");
   const [serviceQueries, setServiceQueries] = useState<string[]>([""]);
   const [openServicePickerIndex, setOpenServicePickerIndex] = useState<number | null>(0);
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
@@ -277,12 +304,12 @@ export default function AdminCheckoutScreen() {
   const canEditClosedTickets = role === "OWNER" || role === "PARTNER";
   const selectableCheckoutServices = useMemo(() => {
     if (!editingClosedTicket) {
-      return activeCheckoutServices;
+      return dedupeCheckoutServices(activeCheckoutServices);
     }
 
     const selectedIds = new Set(checkoutLines.map((line) => line.serviceId).filter(Boolean));
     const preservedInactive = checkoutServices.filter((service) => !service.active && selectedIds.has(service.id));
-    return [...activeCheckoutServices, ...preservedInactive];
+    return dedupeCheckoutServices([...activeCheckoutServices, ...preservedInactive]);
   }, [activeCheckoutServices, checkoutLines, checkoutServices, editingClosedTicket]);
   const historyRange = useMemo(
     () => buildHistoryRange(historyRangeMode, historyCustomFrom, historyCustomTo),
@@ -306,12 +333,70 @@ export default function AdminCheckoutScreen() {
       .map((line) => ({ ...line, service: checkoutServiceById.get(line.serviceId) ?? null }))
       .filter((line) => line.service && line.qty > 0);
     const serviceCount = selectedLines.reduce((sum, line) => sum + line.qty, 0);
-    const total = selectedLines.reduce((sum, line) => {
+    const subtotal = selectedLines.reduce((sum, line) => {
       if (!line.service) return sum;
-      return sum + line.service.basePrice * line.qty * (1 + line.service.vatRate);
+      return sum + line.service.basePrice * line.qty;
     }, 0);
-    return { selectedLines, serviceCount, total };
-  }, [checkoutLines, checkoutServiceById]);
+    const vat = selectedLines.reduce((sum, line) => {
+      if (!line.service) return sum;
+      return sum + line.service.basePrice * line.qty * line.service.vatRate;
+    }, 0);
+    const preDiscountTotal = subtotal + vat;
+    const normalizedDiscountInput = checkoutDiscountValueInput.replace(",", ".").trim();
+    const parsedDiscountValue = normalizedDiscountInput.length > 0 ? Number(normalizedDiscountInput) : 0;
+
+    let discountErrorKey: CheckoutDiscountErrorKey = null;
+    let discountTotal = 0;
+
+    if (!Number.isFinite(parsedDiscountValue)) {
+      discountErrorKey = "invalidNumber";
+    } else if (parsedDiscountValue < 0) {
+      discountErrorKey = "negative";
+    } else if (checkoutDiscountType === "percent" && parsedDiscountValue > 100) {
+      discountErrorKey = "percentOutOfRange";
+    } else if (checkoutDiscountType === "amount" && parsedDiscountValue > preDiscountTotal) {
+      discountErrorKey = "amountExceedsTotal";
+    } else if (parsedDiscountValue > 0) {
+      discountTotal =
+        checkoutDiscountType === "percent"
+          ? preDiscountTotal * (parsedDiscountValue / 100)
+          : parsedDiscountValue;
+    }
+
+    const total = Math.max(preDiscountTotal - Math.min(discountTotal, preDiscountTotal), 0);
+
+    return {
+      selectedLines,
+      serviceCount,
+      subtotal,
+      vat,
+      preDiscountTotal,
+      discountTotal,
+      total,
+      parsedDiscountValue,
+      discountErrorKey,
+    };
+  }, [checkoutDiscountType, checkoutDiscountValueInput, checkoutLines, checkoutServiceById]);
+  const checkoutDiscountError = useMemo(() => {
+    switch (checkoutSummary.discountErrorKey) {
+      case "negative":
+        return strings.checkoutDiscountNegative;
+      case "invalidNumber":
+        return strings.checkoutDiscountInvalidNumber;
+      case "percentOutOfRange":
+        return strings.checkoutDiscountPercentOutOfRange;
+      case "amountExceedsTotal":
+        return strings.checkoutDiscountAmountTooLarge;
+      default:
+        return null;
+    }
+  }, [
+    checkoutSummary.discountErrorKey,
+    strings.checkoutDiscountAmountTooLarge,
+    strings.checkoutDiscountInvalidNumber,
+    strings.checkoutDiscountNegative,
+    strings.checkoutDiscountPercentOutOfRange,
+  ]);
   const effectiveCheckoutCustomerName = editingClosedTicket?.customerName
     ?? (checkoutCustomerName.trim() || selectedAppointment?.customerName || "");
   const activeMutationTargetId = editingClosedTicket?.ticketId ?? selectedAppointment?.id ?? null;
@@ -330,6 +415,8 @@ export default function AdminCheckoutScreen() {
   function resetCheckoutComposer() {
     setCheckoutPaymentMethod("CASH");
     setCheckoutLines([createEmptyCheckoutLine()]);
+    setCheckoutDiscountType("amount");
+    setCheckoutDiscountValueInput("");
     setServiceQueries([""]);
     setOpenServicePickerIndex(0);
   }
@@ -398,6 +485,19 @@ export default function AdminCheckoutScreen() {
     setServiceQueries((current) => current.map((query, lineIndex) => (lineIndex === index ? value : query)));
   }
 
+  function openFullServiceList(index: number) {
+    const isOpen = openServicePickerIndex === index;
+    const currentQuery = (serviceQueries[index] ?? "").trim();
+
+    if (isOpen && currentQuery.length === 0) {
+      setOpenServicePickerIndex(null);
+      return;
+    }
+
+    updateServiceQuery(index, "");
+    setOpenServicePickerIndex(index);
+  }
+
   function updateCheckoutQty(index: number, nextQty: number) {
     const safeQty = Number.isFinite(nextQty) ? Math.max(1, Math.floor(nextQty)) : 1;
     updateCheckoutLine(index, { qty: safeQty });
@@ -406,12 +506,16 @@ export default function AdminCheckoutScreen() {
   async function handleCreateCheckout() {
     if (!selectedAppointment) return;
     const validLines = checkoutLines.filter((line) => line.serviceId && line.qty > 0);
-    if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0) return;
+    if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0 || checkoutDiscountError) return;
     setCheckoutNotice(null);
     const result = await createCheckout({
       customerName: effectiveCheckoutCustomerName.trim(),
       paymentMethod: checkoutPaymentMethod,
       lines: validLines,
+      discount:
+        checkoutSummary.parsedDiscountValue > 0
+          ? { type: checkoutDiscountType, value: checkoutSummary.parsedDiscountValue }
+          : null,
       appointmentId: selectedAppointment.id,
       idempotencyKey: createCheckoutKey(),
     });
@@ -432,13 +536,17 @@ export default function AdminCheckoutScreen() {
   async function handleUpdateClosedTicket() {
     if (!editingClosedTicket) return;
     const validLines = checkoutLines.filter((line) => line.serviceId && line.qty > 0);
-    if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0) return;
+    if (!effectiveCheckoutCustomerName.trim() || validLines.length === 0 || checkoutDiscountError) return;
 
     setCheckoutNotice(null);
     const result = await updateClosedTicket({
       ticketId: editingClosedTicket.ticketId,
       paymentMethod: checkoutPaymentMethod,
       lines: validLines,
+      discount:
+        checkoutSummary.parsedDiscountValue > 0
+          ? { type: checkoutDiscountType, value: checkoutSummary.parsedDiscountValue }
+          : null,
     });
     if (!result) return;
 
@@ -483,6 +591,8 @@ export default function AdminCheckoutScreen() {
       });
       setCheckoutPaymentMethod(detail.payment?.method === "TRANSFER" ? "TRANSFER" : "CASH");
       setCheckoutLines(editableLines.map((line) => ({ serviceId: line.serviceId, qty: line.qty })));
+      setCheckoutDiscountType(detail.ticket.discountType ?? "amount");
+      setCheckoutDiscountValueInput(detail.ticket.discountValue && detail.ticket.discountValue > 0 ? String(detail.ticket.discountValue) : "");
       setServiceQueries(editableLines.map((line) => line.serviceName));
       setOpenServicePickerIndex(null);
     } catch (nextError) {
@@ -869,6 +979,9 @@ export default function AdminCheckoutScreen() {
                               placeholder={strings.checkoutServiceSearchPlaceholder}
                               placeholderTextColor="#A69789"
                             />
+                            <Pressable style={styles.searchActionButton} onPress={() => openFullServiceList(index)}>
+                              <Feather name="chevrons-down" size={16} color="#7C6B5C" />
+                            </Pressable>
                           </View>
                           <ScrollView style={styles.dropdownList} nestedScrollEnabled showsVerticalScrollIndicator={false}>
                             <View style={{ gap: 8 }}>
@@ -880,7 +993,7 @@ export default function AdminCheckoutScreen() {
                                     style={[styles.serviceRow, active && styles.serviceRowActive]}
                                     onPress={() => {
                                       updateCheckoutLine(index, { serviceId: service.id });
-                                      updateServiceQuery(index, service.name);
+                                      updateServiceQuery(index, "");
                                       setOpenServicePickerIndex(null);
                                     }}
                                   >
@@ -913,52 +1026,96 @@ export default function AdminCheckoutScreen() {
                             <Pressable style={styles.qtyButton} onPress={() => updateCheckoutQty(index, line.qty + 1)}><Text style={styles.qtyButtonText}>+</Text></Pressable>
                           </View>
                         </View>
-                        <View style={styles.quantityDivider} />
-                        <Pressable style={styles.addLineButton} onPress={addCheckoutLine}>
-                          <Text style={styles.addLineText}>{strings.checkoutAddLine}</Text>
-                          <Feather name="plus-circle" size={18} color="#8B7C70" />
-                        </Pressable>
+                        {line.serviceId ? (
+                          <View style={styles.lineMetaRight}>
+                            <Text style={styles.lineMetaName} numberOfLines={1}>
+                              {formatCompactLineSummary(selectedService?.name, line.qty)}
+                            </Text>
+                            <View style={styles.lineMetaPriceRow}>
+                              <Text style={styles.lineMetaPrice}>
+                                {formatVnd(((selectedService?.basePrice ?? 0) * (1 + (selectedService?.vatRate ?? 0))) * line.qty)}
+                              </Text>
+                              <Pressable style={styles.trashButton} onPress={() => removeCheckoutLine(index)} disabled={checkoutLines.length === 1}>
+                                <Feather name="trash-2" size={15} color={checkoutLines.length === 1 ? "#D0C5BB" : "#7C6F63"} />
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : null}
                       </View>
-
-                      {line.serviceId ? (
-                        <View style={styles.selectedRow}>
-                          <Text style={styles.selectedName}>{selectedService?.name ?? "-"}</Text>
-                          <Text style={styles.selectedPrice}>{formatVnd((selectedService?.basePrice ?? 0) * (1 + (selectedService?.vatRate ?? 0)))}</Text>
-                          <Pressable style={styles.trashButton} onPress={() => removeCheckoutLine(index)} disabled={checkoutLines.length === 1}>
-                            <Feather name="trash-2" size={15} color={checkoutLines.length === 1 ? "#D0C5BB" : "#7C6F63"} />
-                          </Pressable>
-                        </View>
-                      ) : null}
                     </View>
                   );
                 })}
+
+                <View style={styles.discountCard}>
+                  <View style={styles.discountHeaderCompact}>
+                    <Text style={styles.discountTitle}>{strings.checkoutDiscountTitle}</Text>
+                    <Text style={styles.discountHint}>{strings.checkoutDiscountHint}</Text>
+                  </View>
+                  <View style={styles.discountCompactRow}>
+                    <View style={styles.discountInputShellCompact}>
+                      <Text style={styles.discountInputPrefix}>{checkoutDiscountType === "percent" ? "%" : "₫"}</Text>
+                      <AdminKeyboardTextInput
+                        style={styles.discountInput}
+                        value={checkoutDiscountValueInput}
+                        onChangeText={setCheckoutDiscountValueInput}
+                        keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
+                        placeholder="0"
+                        placeholderTextColor="#A69789"
+                      />
+                    </View>
+                    <View style={styles.discountTypeRowCompact}>
+                      {([
+                        { value: "amount" as const, label: strings.checkoutDiscountTypeAmount },
+                        { value: "percent" as const, label: strings.checkoutDiscountTypePercent },
+                      ]).map((option) => {
+                        const active = checkoutDiscountType === option.value;
+                        return (
+                          <Pressable
+                            key={option.value}
+                            style={[styles.discountTypeButtonCompact, active && styles.discountTypeButtonActive]}
+                            onPress={() => setCheckoutDiscountType(option.value)}
+                          >
+                            <Text style={[styles.discountTypeText, active && styles.discountTypeTextActive]}>{option.label}</Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                  {checkoutDiscountError ? <Text style={styles.errorText}>{checkoutDiscountError}</Text> : null}
+                </View>
 
                 <View style={styles.totalCard}>
                   <View style={styles.totalRow}>
                     <Text style={styles.totalLabel}>{strings.checkoutTotalLabel}</Text>
                     <Text style={styles.totalValue}>{checkoutSummary.serviceCount} {strings.checkoutServiceCountUnit} • {formatVnd(checkoutSummary.total)}</Text>
                   </View>
-                  {checkoutSummary.selectedLines.length > 0 ? (
-                    <View style={styles.totalBreakdown}>
-                      {checkoutSummary.selectedLines.map((line, index) => {
-                        if (!line.service) return null;
-                        const lineTotal = line.service.basePrice * line.qty * (1 + line.service.vatRate);
-                        return (
-                          <View key={`summary-line-${index}-${line.service.id}`} style={styles.totalBreakdownRow}>
-                            <Text style={styles.totalBreakdownName} numberOfLines={1}>
-                              {line.service.name} x {line.qty}
-                            </Text>
-                            <Text style={styles.totalBreakdownPrice}>{formatVnd(lineTotal)}</Text>
-                          </View>
-                        );
-                      })}
+                  <View style={styles.totalSummaryCardDense}>
+                    <View style={styles.totalBreakdownRow}>
+                      <Text style={styles.totalBreakdownName}>{strings.checkoutSubtotalLabel}</Text>
+                      <Text style={styles.totalBreakdownPrice}>{formatVnd(checkoutSummary.subtotal)}</Text>
                     </View>
-                  ) : null}
+                    <View style={styles.totalBreakdownRow}>
+                      <Text style={styles.totalBreakdownName}>{strings.checkoutVatLabel}</Text>
+                      <Text style={styles.totalBreakdownPrice}>{formatVnd(checkoutSummary.vat)}</Text>
+                    </View>
+                    <View style={styles.totalBreakdownRow}>
+                      <Text style={styles.totalBreakdownName}>{strings.checkoutDiscountSummaryLabel}</Text>
+                      <Text style={styles.totalBreakdownPrice}>- {formatVnd(checkoutSummary.discountTotal)}</Text>
+                    </View>
+                    <View style={styles.totalBreakdownRow}>
+                      <Text style={styles.totalBreakdownName}>{strings.checkoutGrandTotalLabel}</Text>
+                      <Text style={styles.totalBreakdownPrice}>{formatVnd(checkoutSummary.total)}</Text>
+                    </View>
+                  </View>
                 </View>
 
+                <Pressable style={styles.addLineCta} onPress={addCheckoutLine}>
+                  <Text style={styles.addLineCtaText}>+ {strings.checkoutAddLine}</Text>
+                </Pressable>
+
                 <Pressable
-                  style={[styles.primaryButton, (observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0) && styles.primaryButtonDisabled]}
-                  disabled={observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0}
+                  style={[styles.primaryButton, (observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0 || Boolean(checkoutDiscountError)) && styles.primaryButtonDisabled]}
+                  disabled={observerReadOnly || mutating || (activeMutationTargetId != null && busyTargetId === activeMutationTargetId) || (!editingClosedTicket && role === "TECH" && techShiftOpen === false) || !effectiveCheckoutCustomerName.trim() || checkoutSummary.selectedLines.length === 0 || Boolean(checkoutDiscountError)}
                   onPress={() => void (editingClosedTicket ? handleUpdateClosedTicket() : handleCreateCheckout())}
                 >
                   <Text style={styles.primaryButtonText}>
@@ -1082,13 +1239,14 @@ const styles = StyleSheet.create({
   fieldValue: { fontSize: 13, lineHeight: 16, color: palette.text },
   searchShell: { minHeight: 42, borderRadius: 13, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
   searchInput: { flex: 1, fontSize: 13, lineHeight: 16, color: palette.text, paddingVertical: 0 },
+  searchActionButton: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: palette.beigeSoft },
   dropdownList: { maxHeight: 220 },
   serviceRow: { minHeight: 40, borderRadius: 13, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   serviceRowActive: { backgroundColor: palette.beige, borderColor: palette.beigeStrong },
   serviceRowName: { flex: 1, fontSize: 13, lineHeight: 16, color: palette.text },
   serviceRowPrice: { fontSize: 12, lineHeight: 15, color: "#8A7D72" },
   serviceRowTextActive: { color: palette.text, fontWeight: "700" },
-  quantityBar: { minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.beigeSoft, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 10 },
+  quantityBar: { minHeight: 50, borderRadius: 16, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.beigeSoft, paddingHorizontal: 12, flexDirection: "row", alignItems: "center" },
   quantityLeft: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
   quantityLabel: { fontSize: 12, lineHeight: 14, fontWeight: "700", color: palette.text, minWidth: 18 },
   quantityControls: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -1096,17 +1254,33 @@ const styles = StyleSheet.create({
   qtyButtonText: { fontSize: 18, lineHeight: 20, color: "#6C5D50", fontWeight: "500" },
   qtyValueShell: { width: 36, height: 32, borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, justifyContent: "center" },
   qtyInput: { textAlign: "center", fontSize: 14, lineHeight: 16, color: palette.text, paddingVertical: 0 },
-  quantityDivider: { width: 1, alignSelf: "stretch", backgroundColor: palette.border },
-  addLineButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 6, minWidth: 88 },
-  addLineText: { fontSize: 12, lineHeight: 14, color: "#6B5949", fontWeight: "700" },
-  selectedRow: { minHeight: 44, borderRadius: 13, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
-  selectedName: { flex: 1, fontSize: 13, lineHeight: 16, color: palette.text, fontWeight: "500" },
-  selectedPrice: { fontSize: 13, lineHeight: 16, color: "#8A7D72" },
+  lineMetaRight: { flex: 1, minWidth: 0, alignItems: "flex-end", marginLeft: 10, gap: 2 },
+  lineMetaName: { fontSize: 12, lineHeight: 15, color: palette.text, fontWeight: "600", textAlign: "right" },
+  lineMetaPriceRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  lineMetaPrice: { fontSize: 13, lineHeight: 16, color: "#8A7D72", fontWeight: "700" },
   trashButton: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  totalCard: { gap: 8, marginTop: 2, paddingTop: 2 },
+  discountCard: { borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.beigeSoft, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
+  discountHeaderCompact: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  discountTitle: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.text },
+  discountHint: { fontSize: 11, lineHeight: 14, color: "#8A7D72" },
+  discountTypeRow: { flexDirection: "row", gap: 8 },
+  discountCompactRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  discountTypeRowCompact: { flexDirection: "row", gap: 6, width: 132 },
+  discountTypeButton: { flex: 1, minHeight: 36, borderRadius: 12, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  discountTypeButtonCompact: { flex: 1, minHeight: 34, borderRadius: 11, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  discountTypeButtonActive: { backgroundColor: palette.beige, borderColor: palette.beigeStrong },
+  discountTypeText: { fontSize: 13, lineHeight: 16, color: "#6C5D50", fontWeight: "600" },
+  discountTypeTextActive: { color: palette.text, fontWeight: "700" },
+  discountInputShell: { minHeight: 42, borderRadius: 13, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  discountInputShellCompact: { flex: 1, minHeight: 38, borderRadius: 12, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 8 },
+  discountInputPrefix: { fontSize: 14, lineHeight: 18, color: "#6C5D50", fontWeight: "700" },
+  discountInput: { flex: 1, fontSize: 14, lineHeight: 18, color: palette.text, paddingVertical: 0 },
+  totalCard: { gap: 6, marginTop: 2, paddingTop: 2 },
   totalRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   totalLabel: { fontSize: 14, lineHeight: 18, fontWeight: "800", color: palette.text },
   totalValue: { fontSize: 13, lineHeight: 16, color: "#8A7D72", textAlign: "right" },
+  totalSummaryCard: { borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, paddingVertical: 10, gap: 8 },
+  totalSummaryCardDense: { borderRadius: 14, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.white, paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
   totalBreakdown: {
     borderRadius: 14,
     borderWidth: 1,
@@ -1117,8 +1291,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   totalBreakdownRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  totalBreakdownName: { flex: 1, fontSize: 13, lineHeight: 16, color: palette.text, fontWeight: "500" },
-  totalBreakdownPrice: { fontSize: 13, lineHeight: 16, color: "#7C6B5C", fontWeight: "600", textAlign: "right" },
+  totalBreakdownName: { flex: 1, fontSize: 12, lineHeight: 15, color: palette.text, fontWeight: "500" },
+  totalBreakdownPrice: { fontSize: 12, lineHeight: 15, color: "#7C6B5C", fontWeight: "700", textAlign: "right" },
+  addLineCta: { height: 42, borderRadius: 13, borderWidth: 1, borderColor: "#D8C8BA", backgroundColor: palette.white, alignItems: "center", justifyContent: "center" },
+  addLineCtaText: { fontSize: 14, lineHeight: 18, color: "#6A5848", fontWeight: "700" },
   primaryButton: { marginTop: 4, height: 44, borderRadius: 13, backgroundColor: palette.brown, alignItems: "center", justifyContent: "center" },
   primaryButtonDisabled: { opacity: 0.55 },
   primaryButtonText: { fontSize: 15, lineHeight: 18, color: "#FFF", fontWeight: "800" },

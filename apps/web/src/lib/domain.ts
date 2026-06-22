@@ -6,6 +6,7 @@ export type OrgContext = { orgId: string; branchId: string };
 
 const TTL = 30_000;
 const APPOINTMENT_CHECK_IN_WINDOW_MINUTES = 15;
+const OVERDUE_BOOKED_AUTO_CANCEL_MS = 24 * 60 * 60 * 1000;
 const STALE_CHECKED_IN_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface SessionCache<T> {
@@ -55,6 +56,11 @@ type CheckedInAppointmentRow = {
 export type CheckedInQueueResult = {
   active: CheckedInAppointmentRow[];
   stale: CheckedInAppointmentRow[];
+  autoCancelledCount: number;
+  cleanupError: string | null;
+};
+
+export type OverdueBookedCleanupResult = {
   autoCancelledCount: number;
   cleanupError: string | null;
 };
@@ -656,6 +662,61 @@ export async function listAppointments(opts?: { force?: boolean }) {
   return rows;
 }
 
+export async function cleanupOverdueBookedAppointments(): Promise<OverdueBookedCleanupResult> {
+  if (!supabase) {
+    return { autoCancelledCount: 0, cleanupError: null };
+  }
+
+  const { orgId, branchId } = await ensureOrgContext();
+  const thresholdIso = new Date(Date.now() - OVERDUE_BOOKED_AUTO_CANCEL_MS).toISOString();
+  const { data, error } = await supabase
+    .from("appointments")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .eq("status", "BOOKED")
+    .lte("start_at", thresholdIso)
+    .limit(200);
+
+  if (error) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: error.message || "Không thể tải lịch quá hẹn để tự hủy.",
+    };
+  }
+
+  const autoCancelledIds = (data ?? [])
+    .map((row) => (typeof row.id === "string" ? row.id : null))
+    .filter((value): value is string => Boolean(value));
+
+  if (autoCancelledIds.length === 0) {
+    return { autoCancelledCount: 0, cleanupError: null };
+  }
+
+  const { error: cleanupError } = await supabase
+    .from("appointments")
+    .update({ status: "CANCELLED" })
+    .eq("org_id", orgId)
+    .eq("branch_id", branchId)
+    .in("id", autoCancelledIds)
+    .eq("status", "BOOKED");
+
+  if (cleanupError) {
+    return {
+      autoCancelledCount: 0,
+      cleanupError: cleanupError.message || "Không thể tự động hủy lịch quá hẹn.",
+    };
+  }
+
+  await rebalanceOpenBookingRequests({ orgId });
+  await invalidateDataCaches();
+
+  return {
+    autoCancelledCount: autoCancelledIds.length,
+    cleanupError: null,
+  };
+}
+
 export async function createAppointment(input: {
   customerName: string;
   startAt: string;
@@ -900,6 +961,7 @@ type CheckoutInput = {
   customerName: string;
   paymentMethod: "CASH" | "TRANSFER";
   lines: Array<{ serviceId: string; qty: number }>;
+  discount?: { type: "amount" | "percent"; value: number } | null;
   appointmentId?: string;
   dedupeWindowMs?: number;
   idempotencyKey?: string;
@@ -937,6 +999,8 @@ export async function createCheckout(input: CheckoutInput) {
     p_customer_name: input.customerName,
     p_payment_method: input.paymentMethod,
     p_lines: input.lines,
+    p_discount_type: input.discount?.type ?? null,
+    p_discount_value: input.discount?.value ?? null,
     p_appointment_id: input.appointmentId ?? null,
     p_dedupe_window_ms: rpcDedupeWindowMs,
     p_idempotency_key: input.idempotencyKey ?? null,

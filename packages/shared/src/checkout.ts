@@ -22,10 +22,16 @@ export type MobileRecentTicketSummary = {
   receiptToken: string | null;
 };
 
+export type CheckoutDiscountInput = {
+  type: "amount" | "percent";
+  value: number;
+};
+
 export type MobileCheckoutInput = {
   customerName: string;
   paymentMethod: "CASH" | "TRANSFER";
   lines: Array<{ serviceId: string; qty: number }>;
+  discount?: CheckoutDiscountInput | null;
   appointmentId?: string | null;
   dedupeWindowMs?: number;
   idempotencyKey?: string | null;
@@ -35,6 +41,7 @@ export type MobileClosedTicketUpdateInput = {
   ticketId: string;
   paymentMethod: "CASH" | "TRANSFER";
   lines: Array<{ serviceId: string; qty: number }>;
+  discount?: CheckoutDiscountInput | null;
 };
 
 export type MobileCheckedInAppointment = {
@@ -306,6 +313,8 @@ export async function createCheckoutForMobile(
     p_customer_name: input.customerName,
     p_payment_method: input.paymentMethod,
     p_lines: input.lines,
+    p_discount_type: input.discount?.type ?? null,
+    p_discount_value: input.discount?.value ?? null,
     p_appointment_id: input.appointmentId ?? null,
     p_dedupe_window_ms: input.dedupeWindowMs ?? 15000,
     p_idempotency_key: input.idempotencyKey ?? null,
@@ -380,6 +389,8 @@ export async function updateClosedTicketForMobile(
     p_ticket_id: input.ticketId,
     p_payment_method: input.paymentMethod,
     p_lines: input.lines,
+    p_discount_type: input.discount?.type ?? null,
+    p_discount_value: input.discount?.value ?? null,
   });
 
   if (rpcError) {
